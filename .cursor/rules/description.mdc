@@ -1,0 +1,15 @@
+---
+description: Global rules and description
+globs: 
+---
+# このリポジトリはMonacoEditerを使ったプログラマー向けのメモ帳です。
+
+- SyntaxHeighlightが効く
+- マルチタブで複数のメモを保持、編集可能
+- 基本的にメモは使い捨てを想定し、テキストの実体ファイルと１対１の関係は持たない。
+- ファイルのインポートとエクスポートのみ対応する。
+- 保持メモはユーザーのGoogleDriveアカウントで同期する。
+
+- Wails＋React＋MUI＋MonacoEditorでデスクトップアプリ版、Webアプリ版の両方を作りたい。先にデスクトップアプリ版。
+
+## Wailsはｖ2
