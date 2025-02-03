@@ -42,6 +42,11 @@ type Settings struct {
     IsDarkMode bool   `json:"isDarkMode"`
     WordWrap   string `json:"wordWrap"`
     Minimap    bool   `json:"minimap"`
+    WindowWidth  int  `json:"windowWidth"`
+    WindowHeight int  `json:"windowHeight"`
+    WindowX      int  `json:"windowX"`
+    WindowY      int  `json:"windowY"`
+    IsMaximized  bool `json:"isMaximized"`
 }
 
 // App struct
@@ -239,6 +244,11 @@ func (a *App) LoadSettings() (*Settings, error) {
 			IsDarkMode: false,
 			WordWrap:   "off",
 			Minimap:    true,
+			WindowWidth:  800,
+			WindowHeight: 600,
+			WindowX:      0,
+			WindowY:      0,
+			IsMaximized:  false,
 		}, nil
 	}
 	
@@ -377,3 +387,37 @@ func (a *App) DeleteNote(id string) error {
 func (a *App) LoadArchivedNote(id string) (*Note, error) {
 	return a.LoadNote(id)
 }
+
+// BeforeClose is called when the application is about to quit
+func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
+  // イベントを発行して、フロントエンドに保存を要求
+  wailsRuntime.EventsEmit(ctx, "app:beforeclose")
+
+  // ウィンドウの状態を保存
+  settings, err := a.LoadSettings()
+  if err != nil {
+    return false
+  }
+
+  width, height := wailsRuntime.WindowGetSize(a.ctx)
+  settings.WindowWidth = width
+  settings.WindowHeight = height
+
+  x, y := wailsRuntime.WindowGetPosition(a.ctx)
+  settings.WindowX = x
+  settings.WindowY = y
+
+  maximized := wailsRuntime.WindowIsMaximised(a.ctx)
+  settings.IsMaximized = maximized
+
+  if err := a.SaveSettings(settings); err != nil {
+    return false
+  }
+
+  return true
+}
+
+func (a *App) DestoryApp() {
+  wailsRuntime.Quit(a.ctx)
+}
+

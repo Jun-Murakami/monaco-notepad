@@ -49,6 +49,11 @@ export namespace main {
 	    isDarkMode: boolean;
 	    wordWrap: string;
 	    minimap: boolean;
+	    windowWidth: number;
+	    windowHeight: number;
+	    windowX: number;
+	    windowY: number;
+	    isMaximized: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -61,6 +66,11 @@ export namespace main {
 	        this.isDarkMode = source["isDarkMode"];
 	        this.wordWrap = source["wordWrap"];
 	        this.minimap = source["minimap"];
+	        this.windowWidth = source["windowWidth"];
+	        this.windowHeight = source["windowHeight"];
+	        this.windowX = source["windowX"];
+	        this.windowY = source["windowY"];
+	        this.isMaximized = source["isMaximized"];
 	    }
 	}
 

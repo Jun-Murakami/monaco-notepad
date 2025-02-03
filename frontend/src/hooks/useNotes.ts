@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Note } from '../types';
-import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote } from '../../wailsjs/go/main/App';
+import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestoryApp } from '../../wailsjs/go/main/App';
+import * as runtime from '../../wailsjs/runtime';
 import { main } from '../../wailsjs/go/models';
 
 export const useNotes = () => {
@@ -8,6 +9,7 @@ export const useNotes = () => {
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
+  // 初期ロードとイベントリスナーの設定
   useEffect(() => {
     const loadNotes = async () => {
       const notes = await ListNotes();
@@ -15,21 +17,44 @@ export const useNotes = () => {
     };
 
     loadNotes();
-  }, []);
+  }, []); // 依存配列を空にして、マウント時にのみ実行
 
+  // 自動保存の処理
   useEffect(() => {
     if (!currentNote) return;
+
+    runtime.EventsOn('app:beforeclose', async () => {
+      try {
+        if (currentNote?.id) {
+          console.log('Saving current note:', currentNote.id);
+          await SaveNote(main.Note.createFrom(currentNote));
+          console.log('Note saved successfully:', currentNote.id);
+        }
+      } catch (error) {
+        console.error('Failed to save note:', error);
+      } finally {
+        console.log('Emitting app:beforeclose:complete');
+        DestoryApp();
+      }
+    });
+
     const debounce = setTimeout(() => {
       saveCurrentNote();
     }, 10000);
-    return () => clearTimeout(debounce);
+
+    return () => {
+      clearTimeout(debounce);
+      runtime.EventsOff('app:beforeclose');
+    };
   }, [currentNote]);
 
   const saveCurrentNote = async () => {
-    if (!currentNote) return;
-    if (currentNote.id) {
+    if (!currentNote?.id) return;
+    try {
       setNotes((prev) => prev.map((note) => (note.id === currentNote.id ? currentNote : note)));
       await SaveNote(main.Note.createFrom(currentNote));
+    } catch (error) {
+      console.error('Failed to save note:', error);
     }
   };
 
@@ -65,7 +90,7 @@ export const useNotes = () => {
     const archivedNote = {
       ...note,
       archived: true,
-      content: '',
+      content: content,
       contentHeader,
     };
 

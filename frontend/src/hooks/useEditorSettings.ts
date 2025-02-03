@@ -11,32 +11,69 @@ export const useEditorSettings = () => {
     isDarkMode: false,
     wordWrap: 'off',
     minimap: true,
+    windowWidth: 800,
+    windowHeight: 600,
+    windowX: 0,
+    windowY: 0,
+    isMaximized: false,
   });
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // 初期設定の読み込み
   useEffect(() => {
     const loadSettings = async () => {
-      const settings = await LoadSettings();
-      const editorSettings: EditorSettings = {
-        fontFamily: settings.fontFamily,
-        fontSize: settings.fontSize,
-        isDarkMode: settings.isDarkMode,
-        wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
-        minimap: settings.minimap,
-      };
-      if (editorSettings.isDarkMode) {
-        runtime.WindowSetDarkTheme();
-      } else {
-        runtime.WindowSetLightTheme();
+      try {
+        const settings = await LoadSettings();
+        const editorSettings: EditorSettings = {
+          fontFamily: settings.fontFamily,
+          fontSize: settings.fontSize,
+          isDarkMode: settings.isDarkMode,
+          wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
+          minimap: settings.minimap,
+          windowWidth: settings.windowWidth,
+          windowHeight: settings.windowHeight,
+          windowX: settings.windowX,
+          windowY: settings.windowY,
+          isMaximized: settings.isMaximized,
+        };
+
+        // ウィンドウの位置とサイズを復元
+        runtime.WindowSetPosition(settings.windowX, settings.windowY);
+        runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
+        if (settings.isMaximized) {
+          runtime.WindowMaximise();
+        }
+
+        if (editorSettings.isDarkMode) {
+          runtime.WindowSetDarkTheme();
+        } else {
+          runtime.WindowSetLightTheme();
+        }
+        setEditorSettings(editorSettings);
+        setIsInitialized(true);
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+        setIsInitialized(true);
       }
-      setEditorSettings(editorSettings);
     };
 
     loadSettings();
   }, []);
 
+
+  // エディター設定の保存（ウィンドウサイズ・位置以外）
   useEffect(() => {
-    SaveSettings(editorSettings);
-  }, [editorSettings]);
+    if (isInitialized) {
+      SaveSettings(editorSettings);
+    }
+  }, [
+    editorSettings.fontFamily,
+    editorSettings.fontSize,
+    editorSettings.isDarkMode,
+    editorSettings.wordWrap,
+    editorSettings.minimap,
+    isInitialized
+  ]);
 
   const handleSettingsChange = (newSettings: EditorSettings) => {
     setEditorSettings(newSettings);
@@ -50,4 +87,4 @@ export const useEditorSettings = () => {
     setEditorSettings,
     handleSettingsChange,
   };
-}; 
+};

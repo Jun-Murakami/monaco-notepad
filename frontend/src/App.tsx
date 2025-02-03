@@ -43,17 +43,6 @@ function App() {
     // コンポーネントのマウント時に言語一覧を取得
     setLanguages(getSupportedLanguages());
     const asyncFunc = async () => {
-      // 設定を読み込む
-      const settings = await LoadSettings();
-      const editorSettings: EditorSettings = {
-        fontFamily: settings.fontFamily,
-        fontSize: settings.fontSize,
-        isDarkMode: settings.isDarkMode,
-        wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
-        minimap: settings.minimap,
-      };
-      setEditorSettings(editorSettings);
-
       // ノート一覧を取得
       const notes = await ListNotes();
       setNotes(notes);

@@ -32,6 +32,11 @@ export type Settings = {
   isDarkMode: boolean;
   wordWrap: string;
   minimap: boolean;
+  windowWidth: number;
+  windowHeight: number;
+  windowX: number;
+  windowY: number;
+  isMaximized: boolean;
 }
 
 export type EditorSettings = {
@@ -40,4 +45,9 @@ export type EditorSettings = {
   isDarkMode: boolean;
   wordWrap: 'on' | 'off';
   minimap: boolean;
+  windowWidth: number;
+  windowHeight: number;
+  windowX: number;
+  windowY: number;
+  isMaximized: boolean;
 };
