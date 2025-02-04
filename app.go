@@ -49,9 +49,29 @@ type Settings struct {
     IsMaximized  bool `json:"isMaximized"`
 }
 
+type Context struct {
+	ctx context.Context
+	skipBeforeClose bool
+}
+
+func NewContext(ctx context.Context) *Context {
+	return &Context{
+		ctx: ctx,
+		skipBeforeClose: false,
+	}
+}
+
+func (c *Context) SkipBeforeClose(skip bool) {
+	c.skipBeforeClose = skip
+}
+
+func (c *Context) ShouldSkipBeforeClose() bool {
+	return c.skipBeforeClose
+}
+
 // App struct
 type App struct {
-	ctx context.Context
+	ctx *Context
 	appDataDir string
 	notesDir   string
 	noteList   *NoteList
@@ -59,13 +79,15 @@ type App struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
+	return &App{
+		ctx: NewContext(context.Background()),
+	}
 }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
+	a.ctx.ctx = ctx
 	
 	// アプリケーションデータディレクトリの設定
 	appData, err := os.UserConfigDir()
@@ -90,7 +112,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) SelectFile() (string, error) {
-    file, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+    file, err := wailsRuntime.OpenFileDialog(a.ctx.ctx, wailsRuntime.OpenDialogOptions{
         Title: "Please select a file.",
         Filters: []wailsRuntime.FileFilter{
             {
@@ -116,7 +138,7 @@ func (a *App) OpenFile(filePath string) (string, error) {
 
 func (a *App) SelectSaveFileUri(fileName string, extension string) (string, error) {
     defaultFileName := fmt.Sprintf("%s.%s", fileName, extension)
-    file, err := wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
+    file, err := wailsRuntime.SaveFileDialog(a.ctx.ctx, wailsRuntime.SaveDialogOptions{
         Title: "Please select export file path.",
         DefaultFilename: defaultFileName,
         Filters: []wailsRuntime.FileFilter{
@@ -390,6 +412,10 @@ func (a *App) LoadArchivedNote(id string) (*Note, error) {
 
 // BeforeClose is called when the application is about to quit
 func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
+  if a.ctx.ShouldSkipBeforeClose() {
+    return false
+  }
+
   // イベントを発行して、フロントエンドに保存を要求
   wailsRuntime.EventsEmit(ctx, "app:beforeclose")
 
@@ -399,15 +425,15 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
     return false
   }
 
-  width, height := wailsRuntime.WindowGetSize(a.ctx)
+  width, height := wailsRuntime.WindowGetSize(a.ctx.ctx)
   settings.WindowWidth = width
   settings.WindowHeight = height
 
-  x, y := wailsRuntime.WindowGetPosition(a.ctx)
+  x, y := wailsRuntime.WindowGetPosition(a.ctx.ctx)
   settings.WindowX = x
   settings.WindowY = y
 
-  maximized := wailsRuntime.WindowIsMaximised(a.ctx)
+  maximized := wailsRuntime.WindowIsMaximised(a.ctx.ctx)
   settings.IsMaximized = maximized
 
   if err := a.SaveSettings(settings); err != nil {
@@ -417,7 +443,10 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
   return true
 }
 
-func (a *App) DestoryApp() {
-  wailsRuntime.Quit(a.ctx)
+func (a *App) DestroyApp() {
+	fmt.Println("DestroyApp")
+	// BeforeCloseイベントをスキップしてアプリケーションを終了
+	a.ctx.SkipBeforeClose(true)
+	wailsRuntime.Quit(a.ctx.ctx)
 }
 

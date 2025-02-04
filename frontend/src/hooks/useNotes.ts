@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Note } from '../types';
-import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestoryApp } from '../../wailsjs/go/main/App';
+import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/main/App';
 import * as runtime from '../../wailsjs/runtime';
 import { main } from '../../wailsjs/go/models';
 
@@ -23,7 +23,13 @@ export const useNotes = () => {
   useEffect(() => {
     if (!currentNote) return;
 
-    runtime.EventsOn('app:beforeclose', async () => {
+    let isClosing = false;
+
+    // アプリケーション終了時の保存処理
+    const handleBeforeClose = async () => {
+      if (isClosing) return;
+      isClosing = true;
+
       try {
         if (currentNote?.id) {
           console.log('Saving current note:', currentNote.id);
@@ -32,11 +38,15 @@ export const useNotes = () => {
         }
       } catch (error) {
         console.error('Failed to save note:', error);
-      } finally {
-        console.log('Emitting app:beforeclose:complete');
-        DestoryApp();
       }
+    };
+
+    // BeforeCloseイベントのリスナー
+    runtime.EventsOn('app:beforeclose', async () => {
+      await handleBeforeClose();
+      DestroyApp();
     });
+
 
     const debounce = setTimeout(() => {
       saveCurrentNote();

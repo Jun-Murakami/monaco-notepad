@@ -1,7 +1,12 @@
-import { Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, IconButton } from '@mui/material';
+import { Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip } from '@mui/material';
 import { NoteAdd, OpenInBrowser, Save, Settings } from '@mui/icons-material';
+import CloudDoneIcon from '@mui/icons-material/CloudDone';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
+import CloudOffIcon from '@mui/icons-material/CloudOff';
 import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
+import { useEffect, useState } from 'react';
+import { EventsOn, EventsOff } from '../../wailsjs/runtime';
 
 export const AppBar: React.FC<{
   currentNote: Note | null;
@@ -13,6 +18,20 @@ export const AppBar: React.FC<{
   onOpen: () => Promise<void>;
   onSave: () => Promise<void>;
 }> = ({ currentNote, languages, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave }) => {
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
+
+  useEffect(() => {
+    const handleSync = () => {
+      setSyncStatus('syncing');
+      setTimeout(() => setSyncStatus('synced'), 1000);
+    };
+
+    EventsOn('notes:updated', handleSync);
+    return () => {
+      EventsOff('notes:updated');
+    };
+  }, []);
+
   return (
     <Box sx={{ height: 56, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
       <Box
@@ -90,6 +109,21 @@ export const AppBar: React.FC<{
             ))}
           </Select>
         </FormControl>
+        {syncStatus === 'synced' && (
+          <Tooltip title='同期済み'>
+            <CloudDoneIcon color='success' />
+          </Tooltip>
+        )}
+        {syncStatus === 'syncing' && (
+          <Tooltip title='同期中...'>
+            <CloudSyncIcon color='primary' />
+          </Tooltip>
+        )}
+        {syncStatus === 'offline' && (
+          <Tooltip title='オフライン'>
+            <CloudOffIcon color='disabled' />
+          </Tooltip>
+        )}
         <IconButton sx={{ fontSize: 16, width: 32, height: 32 }} onClick={onSettings}>
           <Settings />
         </IconButton>

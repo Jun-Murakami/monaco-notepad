@@ -4,7 +4,7 @@ import {main} from '../models';
 
 export function DeleteNote(arg1:string):Promise<void>;
 
-export function DestoryApp():Promise<void>;
+export function DestroyApp():Promise<void>;
 
 export function ListNotes():Promise<Array<main.Note>>;
 
