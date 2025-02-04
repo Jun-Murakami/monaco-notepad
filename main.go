@@ -16,23 +16,24 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
-	// Create application with options
+	// Wailsアプリケーションを作成
 	err := wails.Run(&options.App{
 		Title:  "Monaco Notepad",
-		Width:  800,
-		Height: 600,
-		MinWidth: 600,
-		MinHeight: 400,
+		Width:  1024,
+		Height: 768,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
+		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
+		OnStartup:        app.Startup,
 		OnBeforeClose:    app.BeforeClose,
+    LogLevel: logger.INFO,
 		Bind: []interface{}{
 			app,
 		},
-		LogLevel: logger.DEBUG,
+		Debug: options.Debug{
+			OpenInspectorOnStartup: true,
+		},
 	})
 
 	if err != nil {

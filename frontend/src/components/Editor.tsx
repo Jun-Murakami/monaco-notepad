@@ -34,7 +34,7 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
       renderValidationDecorations: 'off',
       unicodeHighlight: { allowedLocales: { _os: true, _vscode: true }, ambiguousCharacters: false },
       automaticLayout: true,
-      contextmenu: false,
+      contextmenu: true,
       fontFamily: settings.fontFamily,
       fontSize: settings.fontSize,
       renderLineHighlightOnlyWhenFocus: true,

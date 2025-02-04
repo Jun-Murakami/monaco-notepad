@@ -1,5 +1,5 @@
 import { Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip } from '@mui/material';
-import { NoteAdd, OpenInBrowser, Save, Settings } from '@mui/icons-material';
+import { NoteAdd, OpenInBrowser, Save, Settings, Logout } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
@@ -7,6 +7,14 @@ import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
 import { useEffect, useState } from 'react';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime';
+import { AuthorizeGoogleDrive, LogoutGoogleDrive } from '../../wailsjs/go/main/App';
+import { keyframes } from '@mui/system';
+
+const fadeAnimation = keyframes`
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+`;
 
 export const AppBar: React.FC<{
   currentNote: Note | null;
@@ -17,20 +25,62 @@ export const AppBar: React.FC<{
   onNew: () => Promise<void>;
   onOpen: () => Promise<void>;
   onSave: () => Promise<void>;
-}> = ({ currentNote, languages, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave }) => {
+  showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>;
+}> = ({ currentNote, languages, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave, showMessage }) => {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   useEffect(() => {
     const handleSync = () => {
       setSyncStatus('syncing');
-      setTimeout(() => setSyncStatus('synced'), 1000);
+    };
+
+    const handleDriveStatus = (status: string) => {
+      setSyncStatus(status as 'synced' | 'syncing' | 'offline');
+    };
+
+    const handleDriveError = (error: string) => {
+      console.error('Drive error:', error);
+      setSyncStatus('offline');
     };
 
     EventsOn('notes:updated', handleSync);
+    EventsOn('drive:status', handleDriveStatus);
+    EventsOn('drive:error', handleDriveError);
+
     return () => {
       EventsOff('notes:updated');
+      EventsOff('drive:status');
+      EventsOff('drive:error');
     };
   }, []);
+
+  const handleGoogleAuth = async () => {
+    try {
+      setIsAuthenticating(true);
+      setSyncStatus('syncing');
+      const result = await AuthorizeGoogleDrive();
+      if (result === 'auth_complete') {
+        setSyncStatus('synced');
+      }
+    } catch (error) {
+      console.error('Google authentication error:', error);
+      setSyncStatus('offline');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout from Google Drive?', true);
+      if (result) {
+        await LogoutGoogleDrive();
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
 
   return (
     <Box sx={{ height: 56, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
@@ -109,24 +159,45 @@ export const AppBar: React.FC<{
             ))}
           </Select>
         </FormControl>
-        {syncStatus === 'synced' && (
-          <Tooltip title='同期済み'>
-            <CloudDoneIcon color='success' />
+        <Box sx={{ ml: 0.5, display: 'flex', alignItems: 'center' }}>
+          {syncStatus === 'synced' ? (
+            <Tooltip title='Synced' arrow>
+              <CloudDoneIcon color='primary' />
+            </Tooltip>
+          ) : syncStatus === 'syncing' ? (
+            <Tooltip title='Syncing...' arrow>
+              <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1 }}>
+                <CloudSyncIcon color='primary' />
+              </Box>
+            </Tooltip>
+          ) : (
+            <Tooltip title='Connect to Google Drive' arrow>
+              <span>
+                <IconButton onClick={handleGoogleAuth} disabled={isAuthenticating}>
+                  <CloudOffIcon color='disabled' />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+        </Box>
+        {syncStatus !== 'offline' && (
+          <Tooltip title='Logout from Google Drive' arrow>
+            <span>
+              <IconButton
+                disabled={syncStatus === 'syncing'}
+                onClick={handleLogout}
+                sx={{ fontSize: 16, ml: 0.5, width: 32, height: 32 }}
+              >
+                <Logout />
+              </IconButton>
+            </span>
           </Tooltip>
         )}
-        {syncStatus === 'syncing' && (
-          <Tooltip title='同期中...'>
-            <CloudSyncIcon color='primary' />
-          </Tooltip>
-        )}
-        {syncStatus === 'offline' && (
-          <Tooltip title='オフライン'>
-            <CloudOffIcon color='disabled' />
-          </Tooltip>
-        )}
-        <IconButton sx={{ fontSize: 16, width: 32, height: 32 }} onClick={onSettings}>
-          <Settings />
-        </IconButton>
+        <Tooltip title='Settings' arrow>
+          <IconButton sx={{ fontSize: 16, width: 32, height: 32 }} onClick={onSettings}>
+            <Settings />
+          </IconButton>
+        </Tooltip>
       </Box>
     </Box>
   );

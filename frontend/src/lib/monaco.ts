@@ -26,7 +26,15 @@ const initializeMonaco = () => {
     }
   };
 
+  // ログ出力を抑制
   _monaco = monaco;
+  _monaco.editor.setTheme = function () {
+    return Promise.resolve();
+  };
+  _monaco.editor.onDidCreateEditor = function () {
+    return { dispose: function () { } };
+  };
+
   _isInitialized = true;
 };
 

@@ -5,9 +5,8 @@ import { Note } from '../types';
 export const useFileOperations = (
   notes: Note[],
   currentNote: Note | null,
-  handleNoteSelect: (note: Note) => Promise<void>,
+  handleNoteSelect: (note: Note, isNew: boolean) => Promise<void>,
   setNotes: (notes: Note[]) => void,
-  saveCurrentNote: () => Promise<void>
 ) => {
   const handleOpenFile = async () => {
     try {
@@ -33,8 +32,7 @@ export const useFileOperations = (
       };
 
       setNotes([newNote, ...notes]);
-      await saveCurrentNote();
-      handleNoteSelect(newNote);
+      await handleNoteSelect(newNote, true);
     } catch (error) {
       console.error('Failed to open file:', error);
     }

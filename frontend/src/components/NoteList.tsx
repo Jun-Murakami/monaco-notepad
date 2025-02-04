@@ -1,6 +1,5 @@
 import { Box, IconButton, List, ListItemButton, Typography, Button, Tooltip } from '@mui/material';
 import { Archive, Inventory, DragHandle, ImportExport } from '@mui/icons-material';
-import { EditorSettings } from '../types';
 import { Note } from '../types';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
@@ -145,7 +144,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
 };
 
 export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSelect, onArchive, onShowArchived, onReorder }) => {
-  const activeNotes = notes.filter((note) => !note.archived);
+  const activeNotes = notes?.filter((note) => !note.archived) || [];
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -241,7 +240,7 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
           backgroundColor: 'background.paper',
         }}
         startIcon={<Inventory sx={{ width: 20, height: 20 }} />}
-        disabled={!notes.some((note) => note.archived)}
+        disabled={!notes?.some((note) => note.archived)}
         onClick={onShowArchived}
       >
         Archive

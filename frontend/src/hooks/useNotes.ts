@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/main/App';
 import * as runtime from '../../wailsjs/runtime';
@@ -8,6 +8,15 @@ export const useNotes = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const isNoteModified = useRef(false);
+  const previousContent = useRef<string>('');
+  const isClosing = useRef(false);
+  const currentNoteRef = useRef<Note | null>(null);
+
+  // currentNoteの変更を追跡
+  useEffect(() => {
+    currentNoteRef.current = currentNote;
+  }, [currentNote]);
 
   // 初期ロードとイベントリスナーの設定
   useEffect(() => {
@@ -17,59 +26,71 @@ export const useNotes = () => {
     };
 
     loadNotes();
-  }, []); // 依存配列を空にして、マウント時にのみ実行
 
-  // 自動保存の処理
-  useEffect(() => {
-    if (!currentNote) return;
+    // notes:reloadイベントのハンドラを登録
+    runtime.EventsOn('notes:reload', async () => {
+      console.log('notes:reload');
+      const notes = await ListNotes();
+      setNotes(notes);
+    });
 
-    let isClosing = false;
-
-    // アプリケーション終了時の保存処理
+    // BeforeCloseイベントのリスナーを一度だけ設定
     const handleBeforeClose = async () => {
-      if (isClosing) return;
-      isClosing = true;
+      if (isClosing.current) return;
+      isClosing.current = true;
 
       try {
-        if (currentNote?.id) {
-          console.log('Saving current note:', currentNote.id);
-          await SaveNote(main.Note.createFrom(currentNote));
-          console.log('Note saved successfully:', currentNote.id);
+        const noteToSave = currentNoteRef.current;
+        if (noteToSave?.id && isNoteModified.current) {
+          console.log('Saving current note before close:', noteToSave.id);
+          await SaveNote(main.Note.createFrom(noteToSave));
+          console.log('Note saved successfully:', noteToSave.id);
         }
       } catch (error) {
         console.error('Failed to save note:', error);
       }
+      DestroyApp();
     };
 
-    // BeforeCloseイベントのリスナー
-    runtime.EventsOn('app:beforeclose', async () => {
-      await handleBeforeClose();
-      DestroyApp();
-    });
+    runtime.EventsOn('app:beforeclose', handleBeforeClose);
 
+    return () => {
+      runtime.EventsOff('app:beforeclose');
+    };
+  }, []);
+
+  // 自動保存の処理
+  useEffect(() => {
+    if (!currentNote || !isNoteModified.current) return;
 
     const debounce = setTimeout(() => {
-      saveCurrentNote();
+      if (isNoteModified.current) {
+        saveCurrentNote();
+      }
     }, 10000);
 
     return () => {
       clearTimeout(debounce);
-      runtime.EventsOff('app:beforeclose');
     };
   }, [currentNote]);
 
   const saveCurrentNote = async () => {
-    if (!currentNote?.id) return;
+    if (!currentNote?.id || !isNoteModified.current) return;
     try {
       setNotes((prev) => prev.map((note) => (note.id === currentNote.id ? currentNote : note)));
+      console.log('Saving current note2:', currentNote.id);
       await SaveNote(main.Note.createFrom(currentNote));
+      isNoteModified.current = false;
     } catch (error) {
       console.error('Failed to save note:', error);
     }
   };
 
   const handleNewNote = async () => {
-    if (currentNote) await saveCurrentNote();
+    if (currentNote) {
+      console.log('Saving current note3:', currentNote.id);
+      await saveCurrentNote();
+    }
     const newNote: Note = {
       id: crypto.randomUUID(),
       title: '',
@@ -82,6 +103,7 @@ export const useNotes = () => {
     setShowArchived(false);
     setNotes((prev) => [newNote, ...prev]);
     setCurrentNote(newNote);
+    await SaveNote(main.Note.createFrom(newNote));
   };
 
   const handleArchiveNote = async (noteId: string) => {
@@ -108,6 +130,7 @@ export const useNotes = () => {
       prev.map((n) => (n.id === noteId ? archivedNote : n))
     );
 
+    console.log('Saving archived note:', archivedNote.id);
     await SaveNote(main.Note.createFrom(archivedNote));
 
     if (currentNote?.id === noteId) {
@@ -129,14 +152,21 @@ export const useNotes = () => {
     }
   };
 
-  const handleNoteSelect = async (note: Note) => {
-    await saveCurrentNote();
+  const handleNoteSelect = async (note: Note, isNew: boolean = false) => {
+    if (currentNote?.id && isNoteModified.current) {
+      console.log('Saving current note4:', currentNote.id);
+      await saveCurrentNote();
+    }
     setShowArchived(false);
 
+    if (isNew) {
+      await SaveNote(main.Note.createFrom(note));
+    }
     // アーカイブされたノートの場合、コンテンツを読み込む
     if (note.archived) {
       const fullNote = await LoadArchivedNote(note.id);
       if (fullNote) {
+        previousContent.current = fullNote.content || '';
         setCurrentNote(fullNote);
         // ノートリストも更新
         setNotes((prev) =>
@@ -144,8 +174,10 @@ export const useNotes = () => {
         );
       }
     } else {
+      previousContent.current = note.content || '';
       setCurrentNote(note);
     }
+    isNoteModified.current = false;
   };
 
   const handleUnarchiveNote = async (noteId: string) => {
@@ -156,6 +188,7 @@ export const useNotes = () => {
     const fullNote = await LoadArchivedNote(noteId);
     if (fullNote) {
       const unarchivedNote = { ...fullNote, archived: false };
+      console.log('Saving unarchived note:', unarchivedNote.id);
       await SaveNote(main.Note.createFrom(unarchivedNote));
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note))
@@ -186,8 +219,10 @@ export const useNotes = () => {
   };
 
   const handleTitleChange = (newTitle: string) => {
+    console.log('handleTitleChange', newTitle);
     setCurrentNote((prev) => {
       if (!prev) return prev;
+      isNoteModified.current = true;
       return {
         ...prev,
         title: newTitle,
@@ -197,19 +232,29 @@ export const useNotes = () => {
   };
 
   const handleLanguageChange = (newLanguage: string) => {
+    console.log('handleLanguageChange', newLanguage);
     setCurrentNote((prev) => {
       if (!prev) return prev;
+      isNoteModified.current = true;
       return {
         ...prev,
         language: newLanguage,
-        modifiedTime: new Date().toISOString(),
       };
     });
   };
 
   const handleContentChange = (newContent: string) => {
+    console.log('handleContentChange');
     setCurrentNote((prev) => {
       if (!prev) return prev;
+
+      // 前回の内容と同じ場合は変更なしとする
+      if (newContent === previousContent.current) {
+        return prev;
+      }
+
+      previousContent.current = newContent;
+      isNoteModified.current = true;
       return {
         ...prev,
         content: newContent,

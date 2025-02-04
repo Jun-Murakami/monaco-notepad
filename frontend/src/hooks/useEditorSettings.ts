@@ -44,10 +44,13 @@ export const useEditorSettings = () => {
           runtime.WindowMaximise();
         }
 
-        if (editorSettings.isDarkMode) {
-          runtime.WindowSetDarkTheme();
-        } else {
-          runtime.WindowSetLightTheme();
+        const envinronment = await runtime.Environment();
+        if (envinronment.platform === 'windows') {
+          if (editorSettings.isDarkMode) {
+            runtime.WindowSetDarkTheme();
+          } else {
+            runtime.WindowSetLightTheme();
+          }
         }
         setEditorSettings(editorSettings);
         setIsInitialized(true);

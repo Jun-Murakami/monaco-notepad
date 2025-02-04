@@ -7,12 +7,13 @@ import { NoteList } from './components/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
 import { getSupportedLanguages, LanguageInfo } from './lib/monaco';
 import { SettingsDialog } from './components/SettingsDialog';
-import { ListNotes } from '../wailsjs/go/main/App';
+import { ListNotes, NotifyFrontendReady } from '../wailsjs/go/main/App';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { useNotes } from './hooks/useNotes';
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileOperations } from './hooks/useFileOperations';
-import { EventsOn } from '../wailsjs/runtime/runtime';
+import { MessageDialog } from './components/MessageDialog';
+import { useMessageDialog } from './hooks/useMessageDialog';
 
 function App() {
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
@@ -23,7 +24,6 @@ function App() {
     currentNote,
     showArchived,
     setShowArchived,
-    saveCurrentNote,
     handleNewNote,
     handleArchiveNote,
     handleNoteSelect,
@@ -34,7 +34,9 @@ function App() {
     handleContentChange,
   } = useNotes();
 
-  const { handleOpenFile, handleSaveFile } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes, saveCurrentNote);
+  const { handleOpenFile, handleSaveFile } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes);
+
+  const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
 
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
 
@@ -42,45 +44,36 @@ function App() {
     // コンポーネントのマウント時に言語一覧を取得
     setLanguages(getSupportedLanguages());
     const asyncFunc = async () => {
-      // ノート一覧を取得
-      const notes = await ListNotes();
-      setNotes(notes);
-      const activeNotes = notes.filter((note) => !note.archived);
-      if (activeNotes.length > 0) {
-        handleNoteSelect(activeNotes[0]);
-      } else {
+      try {
+        // ノート一覧を取得
+        const notes = await ListNotes();
+        if (!notes) {
+          setNotes([]);
+          handleNewNote();
+          return;
+        }
+        setNotes(notes);
+        const activeNotes = notes.filter((note) => !note.archived);
+        if (activeNotes.length > 0) {
+          handleNoteSelect(activeNotes[0]);
+        } else {
+          handleNewNote();
+        }
+      } catch (error) {
+        console.error('Failed to load notes:', error);
+        setNotes([]);
         handleNewNote();
       }
     };
     asyncFunc();
 
+    // フロントエンドの準備完了をバックエンドに通知
+    NotifyFrontendReady();
+
     return () => {
       setLanguages([]);
     };
   }, []);
-
-  // アプリのバックグラウンド化と終了時のイベントリスナーを設定
-  useEffect(() => {
-    // ウィンドウがバックグラウンドになったときの処理
-    const unsubscribeBlur = EventsOn('wails:window:blur', () => {
-      if (currentNote) {
-        saveCurrentNote();
-      }
-    });
-
-    // アプリケーションが終了する前の処理
-    const unsubscribeClose = EventsOn('wails:window:close', () => {
-      if (currentNote) {
-        saveCurrentNote();
-      }
-    });
-
-    return () => {
-      // クリーンアップ関数
-      unsubscribeBlur();
-      unsubscribeClose();
-    };
-  }, [currentNote, saveCurrentNote]);
 
   return (
     <ThemeProvider theme={editorSettings.isDarkMode ? darkTheme : lightTheme}>
@@ -95,6 +88,7 @@ function App() {
           onNew={handleNewNote}
           onOpen={handleOpenFile}
           onSave={handleSaveFile}
+          showMessage={showMessage}
         />
         <Divider />
         <Box
@@ -144,6 +138,13 @@ function App() {
         onClose={() => setIsSettingsOpen(false)}
         onChange={setEditorSettings}
         onSave={handleSettingsChange}
+      />
+      <MessageDialog
+        isOpen={isMessageDialogOpen}
+        title={messageTitle}
+        message={messageContent}
+        isTwoButton={isTwoButton}
+        onResult={onResult}
       />
     </ThemeProvider>
   );

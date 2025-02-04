@@ -64,7 +64,7 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
         borderTop: 1,
         borderColor: 'divider',
         px: 4,
-        height: 37.5,
+        height: 37.1,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'flex-end',
