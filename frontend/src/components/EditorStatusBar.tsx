@@ -88,21 +88,16 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
       sx={{
         borderTop: 1,
         borderColor: 'divider',
-        px: 4,
+        px: 3,
         height: 37.1,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'flex-end',
+        justifyContent: 'flex-start',
         bgcolor: (theme) => theme.palette.background.paper,
+        overflow: 'hidden',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-        <Typography variant='caption' component='div' sx={{ mx: 2, textAlign: 'right', color: 'text.secondary' }} noWrap>
-          {logMessage}
-        </Typography>
-      </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', width: 220 }}>
-        <Divider orientation='vertical' flexItem />
+      <Box sx={{ display: 'flex', width: 220, textAlign: 'left' }}>
         <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
           {info[0]}
         </Typography>
@@ -111,10 +106,17 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
         </Typography>
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', width: 250 }}>
+      <Box sx={{ display: 'flex', textAlign: 'left', width: 280 }}>
         <Divider orientation='vertical' flexItem />
-        <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
+        <Typography variant='caption' component='div' sx={{ mx: 4 }} noWrap>
           {info[2]}
+        </Typography>
+        <Divider orientation='vertical' flexItem sx={{ right: 0 }} />
+      </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Typography variant='caption' component='div' sx={{ mx: 2, color: 'text.secondary' }} noWrap>
+          {logMessage}
         </Typography>
       </Box>
     </Box>

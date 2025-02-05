@@ -29,6 +29,7 @@ type DriveService interface {
 	UploadNote(note *Note) error //ノートをGoogle Driveにアップロード
 	DeleteNoteDrive(noteID string) error //Google Driveからノートを削除
 	SyncNotes() error //Google Driveとの定期的な同期
+	IsConnected() bool //接続状態を返す
 }
 
 // driveService はDriveServiceの実装です
@@ -108,9 +109,8 @@ func (s *driveService) InitializeDrive() error {
 		}
 	}
 
-	// フロントエンドに通知
 	if !s.isTestMode {
-		wailsRuntime.EventsEmit(s.ctx, "drive:status", "offline")
+		wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
 	}
 
 	return nil
@@ -369,6 +369,11 @@ func (s *driveService) initializeDriveService(token *oauth2.Token) error {
 		// フロントエンドの準備完了を待つ
 		<-s.frontendReady
 
+		// 接続状態を通知
+		if !s.isTestMode {
+			wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
+		}
+
 		// 初回同期フラグをチェック
 		syncFlagPath := filepath.Join(s.appDataDir, "initial_sync_completed")
 		if _, err := os.Stat(syncFlagPath); os.IsNotExist(err) {
@@ -446,9 +451,6 @@ func (s *driveService) startSyncPolling() {
 				}
 				if newInterval != interval {
 					fmt.Printf("No changes detected, increasing interval from %v to %v\n", interval, newInterval)
-					if !s.isTestMode {
-						wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
-					}
 					interval = newInterval
 				}
 			}
@@ -1288,6 +1290,7 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 	// フロントエンドに変更を通知（テストモード時はスキップ）
 	if !s.isTestMode {
 		wailsRuntime.EventsEmit(s.ctx, "notes:updated")
+		wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
 		wailsRuntime.EventsEmit(s.ctx, "notes:reload")
 	}
 
@@ -1303,4 +1306,9 @@ func (s *driveService) NotifyFrontendReady() {
 	default:
 		close(s.frontendReady)
 	}
+}
+
+// IsConnected は現在の接続状態を返します
+func (s *driveService) IsConnected() bool {
+	return s.driveSync != nil && s.driveSync.isConnected
 } 

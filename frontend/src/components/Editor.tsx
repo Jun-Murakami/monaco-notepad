@@ -23,6 +23,8 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
   useEffect(() => {
     if (!editorRef.current) return;
 
+    const monaco = getMonaco();
+
     editorInstanceRef.current = getOrCreateEditor(editorRef.current, {
       value,
       language,

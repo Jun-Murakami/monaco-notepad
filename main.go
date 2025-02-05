@@ -24,11 +24,14 @@ func main() {
 		Title:  "Monaco Notepad",
 		Width:  1024,
 		Height: 768,
+		MinWidth: 720,
+		MinHeight: 480,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
 		OnStartup:        app.Startup,
+		OnDomReady:       app.DomReady,
 		OnBeforeClose:    app.BeforeClose,
     LogLevel: logger.INFO,
 		Bind: []interface{}{

@@ -80,9 +80,11 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 	a.noteService = noteService
+}
 
-	// DriveServiceの初期化
-	driveService := NewDriveService(ctx, a.appDataDir, a.notesDir, noteService, credentialsJSON)
+func (a *App) DomReady(ctx context.Context) {
+		// DriveServiceの初期化
+	driveService := NewDriveService(ctx, a.appDataDir, a.notesDir, a.noteService, credentialsJSON)
 	if err := driveService.InitializeDrive(); err != nil {
 		fmt.Printf("Error initializing drive service: %v\n", err)
 	}

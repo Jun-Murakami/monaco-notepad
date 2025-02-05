@@ -29,7 +29,6 @@ export const useNotes = () => {
 
     // notes:reloadイベントのハンドラを登録
     runtime.EventsOn('notes:reload', async () => {
-      console.log('notes:reload');
       const notes = await ListNotes();
       setNotes(notes);
     });
@@ -42,12 +41,9 @@ export const useNotes = () => {
       try {
         const noteToSave = currentNoteRef.current;
         if (noteToSave?.id && isNoteModified.current) {
-          console.log('Saving current note before close:', noteToSave.id);
           await SaveNote(backend.Note.createFrom(noteToSave));
-          console.log('Note saved successfully:', noteToSave.id);
         }
       } catch (error) {
-        console.error('Failed to save note:', error);
       }
       DestroyApp();
     };
@@ -78,17 +74,14 @@ export const useNotes = () => {
     if (!currentNote?.id || !isNoteModified.current) return;
     try {
       setNotes((prev) => prev.map((note) => (note.id === currentNote.id ? currentNote : note)));
-      console.log('Saving current note2:', currentNote.id);
       await SaveNote(backend.Note.createFrom(currentNote));
       isNoteModified.current = false;
     } catch (error) {
-      console.error('Failed to save note:', error);
     }
   };
 
   const handleNewNote = async () => {
     if (currentNote) {
-      console.log('Saving current note3:', currentNote.id);
       await saveCurrentNote();
     }
     const newNote: Note = {
@@ -129,8 +122,6 @@ export const useNotes = () => {
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? archivedNote : n))
     );
-
-    console.log('Saving archived note:', archivedNote.id);
     await SaveNote(backend.Note.createFrom(archivedNote));
 
     if (currentNote?.id === noteId) {
@@ -154,7 +145,6 @@ export const useNotes = () => {
 
   const handleNoteSelect = async (note: Note, isNew: boolean = false) => {
     if (currentNote?.id && isNoteModified.current) {
-      console.log('Saving current note4:', currentNote.id);
       await saveCurrentNote();
     }
     setShowArchived(false);
@@ -188,7 +178,6 @@ export const useNotes = () => {
     const fullNote = await LoadArchivedNote(noteId);
     if (fullNote) {
       const unarchivedNote = { ...fullNote, archived: false };
-      console.log('Saving unarchived note:', unarchivedNote.id);
       await SaveNote(backend.Note.createFrom(unarchivedNote));
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note))
@@ -219,7 +208,6 @@ export const useNotes = () => {
   };
 
   const handleTitleChange = (newTitle: string) => {
-    console.log('handleTitleChange', newTitle);
     setCurrentNote((prev) => {
       if (!prev) return prev;
       isNoteModified.current = true;
@@ -232,7 +220,6 @@ export const useNotes = () => {
   };
 
   const handleLanguageChange = (newLanguage: string) => {
-    console.log('handleLanguageChange', newLanguage);
     setCurrentNote((prev) => {
       if (!prev) return prev;
       isNoteModified.current = true;
@@ -244,7 +231,6 @@ export const useNotes = () => {
   };
 
   const handleContentChange = (newContent: string) => {
-    console.log('handleContentChange');
     setCurrentNote((prev) => {
       if (!prev) return prev;
 
