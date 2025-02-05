@@ -1,19 +1,69 @@
-# README
+# Monaco Notepad
 
-## About
+A cloud-synchronized notepad application built for programmers, featuring the Monaco Editor (VS Code's editor component) and Google Drive integration.
 
-This is the official Wails React-TS template.
+## Overview
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+Monaco Notepad is a specialized note-taking application designed for programmers who need a temporary, cloud-synchronized workspace for code snippets and technical notes. Unlike traditional text editors, it doesn't modify files directly on your system but instead manages notes in a dedicated cloud-synchronized environment.
 
-## Live Development
+## Key Features
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+- **Monaco Editor Integration**: Powered by the same editor component used in VS Code
+- **Google Drive Sync**: Automatic cloud synchronization with your Google Drive
+- **Language Support**: Syntax highlighting for multiple programming languages
+- **Non-Invasive Design**: Never modifies your local files directly
+- **Import/Export Workflow**:
+  - Import text files to create new notes
+  - Export notes to text files when needed
+  - Keeps your file system clean and organized
 
-## Building
+## Use Cases
 
-To build a redistributable, production mode package, use `wails build`.
+- **Code Snippet Management**: Store and organize frequently used code snippets
+- **Temporary Workspace**: Quick notes during debugging or development
+- **Cross-Device Access**: Access your programming notes from any device
+- **Collaborative Sharing**: Share notes through Google Drive when needed
+
+## Getting Started
+
+1. **Installation**
+
+   - Download the latest release for your platform
+   - No additional setup required
+
+2. **Google Drive Integration**
+
+   - Sign in with your Google account on first launch
+   - Notes are automatically synchronized
+
+3. **Basic Usage**
+   - Create new notes with the "New" button
+   - Import existing files via the "Import" button
+   - Export notes to files using the "Export" button
+   - Select programming language for proper syntax highlighting
+
+## Technical Details
+
+- Built with Go and React
+- Uses Wails for desktop application framework
+- Implements Monaco Editor for code editing
+- Integrates with Google Drive API for cloud synchronization
+
+## Design Philosophy
+
+Monaco Notepad is designed to be a "programmer's Evernote" with a focus on:
+
+- Cloud-first approach
+- Clean workspace management
+- Programming-specific features
+- Minimal file system interaction
+
+## Requirements
+
+- Windows/macOS
+- Google account for cloud synchronization
+- Internet connection for sync features
+
+## License
+
+[MIT] - See LICENSE file for details
