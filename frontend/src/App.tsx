@@ -7,7 +7,7 @@ import { NoteList } from './components/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
 import { getSupportedLanguages, LanguageInfo } from './lib/monaco';
 import { SettingsDialog } from './components/SettingsDialog';
-import { ListNotes, NotifyFrontendReady } from '../wailsjs/go/main/App';
+import { ListNotes, NotifyFrontendReady, SaveNoteList } from '../wailsjs/go/main/App';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { useNotes } from './hooks/useNotes';
 import { useEditorSettings } from './hooks/useEditorSettings';
@@ -109,9 +109,14 @@ function App() {
             onNoteSelect={handleNoteSelect}
             onArchive={handleArchiveNote}
             onShowArchived={() => setShowArchived(true)}
-            onReorder={setNotes}
+            onReorder={async (newNotes) => {
+              setNotes(newNotes);
+              // ノートリストの変更をバックエンドに反映
+              await SaveNoteList();
+            }}
           />
         </Box>
+
         <Box sx={{ position: 'absolute', top: 57, left: 242, width: 'calc(100% - 242px)', height: 'calc(100% - 57px)' }}>
           {showArchived ? (
             <ArchivedNoteList

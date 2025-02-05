@@ -1,5 +1,17 @@
 export namespace main {
 	
+	export class Context {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new Context(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
 	export class Note {
 	    id: string;
 	    title: string;

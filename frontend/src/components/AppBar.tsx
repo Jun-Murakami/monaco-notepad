@@ -3,11 +3,13 @@ import { NoteAdd, OpenInBrowser, Save, Settings, Logout } from '@mui/icons-mater
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
+import { GoogleDriveIcon } from './Icons';
 import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
 import { useEffect, useState } from 'react';
+
 import { EventsOn, EventsOff } from '../../wailsjs/runtime';
-import { AuthorizeGoogleDrive, LogoutGoogleDrive } from '../../wailsjs/go/main/App';
+import { AuthorizeDrive, LogoutDrive } from '../../wailsjs/go/main/App';
 import { keyframes } from '@mui/system';
 
 const fadeAnimation = keyframes`
@@ -59,7 +61,7 @@ export const AppBar: React.FC<{
     try {
       setIsAuthenticating(true);
       setSyncStatus('syncing');
-      const result = await AuthorizeGoogleDrive();
+      const result = await AuthorizeDrive();
       if (result === 'auth_complete') {
         setSyncStatus('synced');
       }
@@ -75,7 +77,7 @@ export const AppBar: React.FC<{
     try {
       const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout from Google Drive?', true);
       if (result) {
-        await LogoutGoogleDrive();
+        await LogoutDrive();
       }
     } catch (error) {
       console.error('Logout error:', error);
@@ -164,24 +166,24 @@ export const AppBar: React.FC<{
             <Tooltip title='Synced' arrow>
               <CloudDoneIcon color='primary' />
             </Tooltip>
-          ) : syncStatus === 'syncing' ? (
-            <Tooltip title='Syncing...' arrow>
-              <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1 }}>
-                <CloudSyncIcon color='primary' />
-              </Box>
-            </Tooltip>
           ) : (
-            <Tooltip title='Connect to Google Drive' arrow>
-              <span>
-                <IconButton onClick={handleGoogleAuth} disabled={isAuthenticating}>
-                  <CloudOffIcon color='disabled' />
-                </IconButton>
-              </span>
-            </Tooltip>
+            syncStatus === 'syncing' && (
+              <Tooltip title='Syncing...' arrow>
+                <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1 }}>
+                  <CloudSyncIcon color='primary' />
+                </Box>
+              </Tooltip>
+            )
           )}
         </Box>
-        {syncStatus !== 'offline' && (
-          <Tooltip title='Logout from Google Drive' arrow>
+        {syncStatus === 'offline' ? (
+          <Tooltip title='Connect to Google Drive' arrow>
+            <IconButton sx={{ fontSize: 16, width: 32, height: 32, ml: -1 }} onClick={handleGoogleAuth}>
+              <GoogleDriveIcon sx={{ fontSize: 20 }} />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Tooltip title='Logout' arrow>
             <span>
               <IconButton
                 disabled={syncStatus === 'syncing'}

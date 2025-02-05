@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import * as wailsRuntime from '../../wailsjs/runtime';
 
 export const useMessageDialog = () => {
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
@@ -19,6 +20,16 @@ export const useMessageDialog = () => {
       });
     });
   };
+
+  useEffect(() => {
+    wailsRuntime.EventsOn("show-message", (title: string, message: string, isTwoButton: boolean) => {
+      showMessage(title, message, isTwoButton);
+    });
+
+    return () => {
+      wailsRuntime.EventsOff("show-message");
+    };
+  }, [showMessage]);
 
   return { isMessageDialogOpen, messageTitle, messageContent, isTwoButton, showMessage, onResult, setOnResult };
 };
