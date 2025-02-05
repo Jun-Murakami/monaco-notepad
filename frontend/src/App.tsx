@@ -82,7 +82,19 @@ function App() {
   return (
     <ThemeProvider theme={editorSettings.isDarkMode ? darkTheme : lightTheme}>
       <CssBaseline />
-      <Box sx={{ width: '100vw', height: '100vh', position: 'relative' }} component='main'>
+      <Box
+        sx={{
+          width: '100vw',
+          height: '100vh',
+          position: 'relative',
+          // ドロップ対象エリアとして設定
+          '.wails-drop-target-active': {
+            backgroundColor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'),
+          },
+          '--wails-drop-target': 'drop',
+        }}
+        component='main'
+      >
         {platform === 'darwin' && (
           <Box
             sx={{
@@ -103,6 +115,9 @@ function App() {
           onOpen={handleOpenFile}
           onSave={handleSaveFile}
           showMessage={showMessage}
+          handleNoteSelect={handleNoteSelect}
+          notes={notes}
+          setNotes={setNotes}
         />
         <Divider />
         <Box

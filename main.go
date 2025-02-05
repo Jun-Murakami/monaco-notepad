@@ -34,6 +34,10 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+    DragAndDrop: &options.DragAndDrop{
+          EnableFileDrop:       true,
+          DisableWebViewDrop:   false,
+    },
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
 				TitlebarAppearsTransparent: true,

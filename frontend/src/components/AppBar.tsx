@@ -6,10 +6,10 @@ import { GoogleDriveIcon } from './Icons';
 import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
 import { useEffect, useState } from 'react';
-
-import { EventsOn, EventsOff } from '../../wailsjs/runtime';
-import { AuthorizeDrive, LogoutDrive } from '../../wailsjs/go/backend/App';
+import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime';
+import { AuthorizeDrive, LogoutDrive, OpenFile } from '../../wailsjs/go/backend/App';
 import { keyframes } from '@mui/system';
+import { getLanguageByExtension } from '../lib/monaco';
 
 const fadeAnimation = keyframes`
   0% { opacity: 1; }
@@ -26,9 +26,56 @@ export const AppBar: React.FC<{
   onNew: () => Promise<void>;
   onOpen: () => Promise<void>;
   onSave: () => Promise<void>;
+  notes: Note[];
+  setNotes: (notes: Note[]) => void;
   showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>;
-}> = ({ currentNote, languages, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave, showMessage }) => {
+  handleNoteSelect: (note: Note, isNew: boolean) => Promise<void>;
+}> = ({
+  currentNote,
+  languages,
+  onTitleChange,
+  onLanguageChange,
+  onSettings,
+  onNew,
+  onOpen,
+  onSave,
+  notes,
+  setNotes,
+  showMessage,
+  handleNoteSelect,
+}) => {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
+
+  const handleFileDrop = async (_x: number, _y: number, paths: string[]) => {
+    if (paths.length > 0) {
+      try {
+        const filePath = paths[0];
+        const content = await OpenFile(filePath);
+        if (typeof content !== 'string') return;
+
+        const extension = filePath.split('.').pop()?.toLowerCase() || '';
+        const detectedLanguage = getLanguageByExtension('.' + extension);
+        const language =
+          typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
+        const fileName = filePath.split(/[/\\]/).pop() || '';
+
+        const newNote: Note = {
+          id: crypto.randomUUID(),
+          title: fileName.replace(/\.[^/.]+$/, ''),
+          content,
+          contentHeader: null,
+          language,
+          modifiedTime: new Date().toISOString(),
+          archived: false,
+        };
+        setNotes([newNote, ...notes]);
+        await handleNoteSelect(newNote, true);
+      } catch (error) {
+        console.error('File drop error:', error);
+        showMessage('Error', 'Failed to open the dropped file.');
+      }
+    }
+  };
 
   useEffect(() => {
     const handleSync = () => {
@@ -48,13 +95,15 @@ export const AppBar: React.FC<{
     EventsOn('notes:updated', handleSync);
     EventsOn('drive:status', handleDriveStatus);
     EventsOn('drive:error', handleDriveError);
+    OnFileDrop(handleFileDrop, true);
 
     return () => {
       EventsOff('notes:updated');
       EventsOff('drive:status');
       EventsOff('drive:error');
+      OnFileDropOff();
     };
-  }, []);
+  }, [notes, setNotes, handleNoteSelect, showMessage]);
 
   const handleGoogleAuth = async () => {
     try {
@@ -90,7 +139,7 @@ export const AppBar: React.FC<{
         }}
       >
         <Button
-          sx={{ fontSize: 14, width: 70, height: 32 }}
+          sx={{ fontSize: 12, width: 70, height: 32 }}
           startIcon={<NoteAdd sx={{ mr: -0.5 }} />}
           variant='contained'
           onClick={onNew}
@@ -98,20 +147,20 @@ export const AppBar: React.FC<{
           New
         </Button>
         <Button
-          sx={{ fontSize: 14, width: 70, height: 32 }}
+          sx={{ fontSize: 12, width: 70, height: 32 }}
           startIcon={<OpenInBrowser sx={{ mr: -0.5 }} />}
           variant='contained'
           onClick={onOpen}
         >
-          Open
+          Import
         </Button>
         <Button
-          sx={{ fontSize: 14, width: 70, height: 32 }}
+          sx={{ fontSize: 12, width: 70, height: 32 }}
           startIcon={<Save sx={{ mr: -0.5 }} />}
           variant='contained'
           onClick={onSave}
         >
-          Save
+          Export
         </Button>
       </Box>
       <Box sx={{ width: '100%', height: 40 }}>

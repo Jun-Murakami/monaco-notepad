@@ -11,7 +11,7 @@ import (
 )
 
 // !!!! Important !!!!
-// You need to create Google Drive credentials.json file in the backend directory
+// You need to download Google Drive credentials.json file in the backend directory.
 // ------------------------------------------------------------
 //go:embed credentials.json
 var credentialsJSON []byte 
