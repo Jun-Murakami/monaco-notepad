@@ -324,6 +324,22 @@ func (a *App) SaveFile(filePath string, content string) error {
 	return a.fileService.SaveFile(filePath, content)
 }
 
+// OpenFileFromExternal は外部からファイルを開く際の処理を行います
+func (a *App) OpenFileFromExternal(filePath string) error {
+	// ファイルの内容を読み込む
+	content, err := a.fileService.OpenFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	// フロントエンドにファイルオープンイベントを送信
+	wailsRuntime.EventsEmit(a.ctx.ctx, "file:open-external", map[string]string{
+		"path": filePath,
+		"content": content,
+	})
+	
+	return nil
+}
 
 // ------------------------------------------------------------
 // 設定関連の操作
@@ -342,4 +358,10 @@ func (a *App) SaveSettings(settings *Settings) error {
 // ウィンドウの状態を保存する
 func (a *App) SaveWindowState(ctx *Context) error {
 	return a.settingsService.SaveWindowState(ctx)
+}
+
+// BringToFront brings the application window to front
+func (a *App) BringToFront() {
+	wailsRuntime.WindowUnminimise(a.ctx.ctx)
+	wailsRuntime.Show(a.ctx.ctx)
 }

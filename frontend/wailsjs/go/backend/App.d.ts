@@ -4,6 +4,8 @@ import {backend} from '../models';
 
 export function AuthorizeDrive():Promise<string>;
 
+export function BringToFront():Promise<void>;
+
 export function CompleteAuth(arg1:string):Promise<void>;
 
 export function DeleteNote(arg1:string):Promise<void>;
@@ -27,6 +29,8 @@ export function LogoutDrive():Promise<void>;
 export function NotifyFrontendReady():Promise<void>;
 
 export function OpenFile(arg1:string):Promise<string>;
+
+export function OpenFileFromExternal(arg1:string):Promise<void>;
 
 export function SaveFile(arg1:string,arg2:string):Promise<void>;
 

@@ -33,21 +33,34 @@ func main() {
 		OnStartup:        app.Startup,
 		OnDomReady:       app.DomReady,
 		OnBeforeClose:    app.BeforeClose,
-    LogLevel: logger.INFO,
+		LogLevel: logger.INFO,
 		Bind: []interface{}{
 			app,
 		},
-    DragAndDrop: &options.DragAndDrop{
-          EnableFileDrop:       true,
-          DisableWebViewDrop:   false,
-    },
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop:       true,
+			DisableWebViewDrop:   false,
+		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
 				TitlebarAppearsTransparent: true,
 			},
+			OnFileOpen: func(filePath string) {
+				app.OpenFileFromExternal(filePath)
+			},
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: true,
+		},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "monaco-notepad-instance-lock",
+			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
+				app.BringToFront()
+				
+				if len(secondInstanceData.Args) > 1 {
+					app.OpenFileFromExternal(secondInstanceData.Args[1])
+				}
+			},
 		},
 	})
 

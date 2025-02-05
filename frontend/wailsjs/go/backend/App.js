@@ -6,6 +6,10 @@ export function AuthorizeDrive() {
   return window['go']['backend']['App']['AuthorizeDrive']();
 }
 
+export function BringToFront() {
+  return window['go']['backend']['App']['BringToFront']();
+}
+
 export function CompleteAuth(arg1) {
   return window['go']['backend']['App']['CompleteAuth'](arg1);
 }
@@ -52,6 +56,10 @@ export function NotifyFrontendReady() {
 
 export function OpenFile(arg1) {
   return window['go']['backend']['App']['OpenFile'](arg1);
+}
+
+export function OpenFileFromExternal(arg1) {
+  return window['go']['backend']['App']['OpenFileFromExternal'](arg1);
 }
 
 export function SaveFile(arg1, arg2) {

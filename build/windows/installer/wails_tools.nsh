@@ -5,13 +5,13 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "monaco-notepad"
+    !define INFO_PROJECTNAME "Monaco Notepad"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "monaco-notepad"
+    !define INFO_COMPANYNAME "Monaco Notepad"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "monaco-notepad"
+    !define INFO_PRODUCTNAME "Monaco Notepad"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "1.0.0"
@@ -204,10 +204,18 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
 !macro wails.associateFiles
     ; Create file associations
     
+      !insertmacro APP_ASSOCIATE "*" "Text File" "Text Document" "$INSTDIR\fileIcon.ico" "Open with ${INFO_PRODUCTNAME}" "$INSTDIR\${PRODUCT_EXECUTABLE} $\"%1$\""
+
+      File "..\fileIcon.ico"
+    
 !macroend
 
 !macro wails.unassociateFiles
     ; Delete app associations
+    
+      !insertmacro APP_UNASSOCIATE "*" "Text File"
+
+      Delete "$INSTDIR\fileIcon.ico"
     
 !macroend
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "monaco-notepad",
+  "name": "Monaco Notepad",
   "outputfilename": "monaco-notepad",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
@@ -9,5 +9,16 @@
   "author": {
     "name": "Jun-Murakami",
     "email": "app@bucketrelay.com"
+  },
+  "info": {
+    "fileAssociations": [
+      {
+        "ext": "*",
+        "name": "Text File",
+        "description": "Text Document",
+        "role": "Editor",
+        "iconName": "fileIcon"
+      }
+    ]
   }
 }

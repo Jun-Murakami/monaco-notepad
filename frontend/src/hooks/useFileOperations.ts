@@ -1,6 +1,8 @@
 import { getLanguageByExtension, getExtensionByLanguage } from '../lib/monaco';
 import { SelectFile, OpenFile, SaveFile, SelectSaveFileUri } from '../../wailsjs/go/backend/App';
 import { Note } from '../types';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { useEffect } from 'react';
 
 export const useFileOperations = (
   notes: Note[],
@@ -50,6 +52,30 @@ export const useFileOperations = (
       console.error('Failed to save file:', error);
     }
   };
+
+  useEffect(() => {
+    const cleanup = EventsOn('file:open-external', (data: { path: string, content: string }) => {
+      const fileName = data.path.split(/[/\\]/).pop() || '';
+      const extension = fileName.split('.').pop()?.toLowerCase() || '';
+      const detectedLanguage = getLanguageByExtension('.' + extension);
+      const language = typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
+
+      const newNote: Note = {
+        id: crypto.randomUUID(),
+        title: fileName.replace(/\.[^/.]+$/, ''),
+        content: data.content,
+        contentHeader: null,
+        language,
+        modifiedTime: new Date().toISOString(),
+        archived: false,
+      };
+
+      setNotes([newNote, ...notes]);
+      handleNoteSelect(newNote, true);
+    });
+
+    return () => cleanup();
+  }, [notes, handleNoteSelect, setNotes]);
 
   return {
     handleOpenFile,
