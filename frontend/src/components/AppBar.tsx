@@ -2,7 +2,6 @@ import { Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, Icon
 import { NoteAdd, OpenInBrowser, Save, Settings, Logout } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
-import CloudOffIcon from '@mui/icons-material/CloudOff';
 import { GoogleDriveIcon } from './Icons';
 import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
@@ -75,7 +74,7 @@ export const AppBar: React.FC<{
 
   const handleLogout = async () => {
     try {
-      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout from Google Drive?', true);
+      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout?', true);
       if (result) {
         await LogoutDrive();
       }

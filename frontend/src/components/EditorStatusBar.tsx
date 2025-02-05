@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Box, Typography, Divider } from '@mui/material';
 import type { editor, IDisposable } from 'monaco-editor';
 import { Note } from '../types';
+import * as wailsRuntime from '../../wailsjs/runtime';
 
 interface EditorStatusBarProps {
   editor: editor.IStandaloneCodeEditor | null;
@@ -9,6 +10,9 @@ interface EditorStatusBarProps {
 }
 
 export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) => {
+  const [logMessage, setLogMessage] = useState<string>('');
+  const logTimeoutRef = useRef<number | null>(null);
+
   const getEditorInfo = () => {
     if (!editor) return [];
 
@@ -58,6 +62,27 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
     };
   }, [editor, currentNote]);
 
+  useEffect(() => {
+    wailsRuntime.EventsOn('logMessage', (message: string) => {
+      if (logTimeoutRef.current) {
+        window.clearTimeout(logTimeoutRef.current);
+      }
+
+      setLogMessage(message);
+
+      logTimeoutRef.current = window.setTimeout(() => {
+        setLogMessage('');
+      }, 10000);
+    });
+
+    return () => {
+      wailsRuntime.EventsOff('logMessage');
+      if (logTimeoutRef.current) {
+        window.clearTimeout(logTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <Box
       sx={{
@@ -71,7 +96,12 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
         bgcolor: (theme) => theme.palette.background.paper,
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', width: 250 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Typography variant='caption' component='div' sx={{ mx: 2, textAlign: 'right', color: 'text.secondary' }} noWrap>
+          {logMessage}
+        </Typography>
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', width: 220 }}>
         <Divider orientation='vertical' flexItem />
         <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
           {info[0]}

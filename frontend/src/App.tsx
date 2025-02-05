@@ -14,6 +14,7 @@ import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
 import { useMessageDialog } from './hooks/useMessageDialog';
+import * as runtime from '../wailsjs/runtime';
 
 function App() {
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
@@ -39,6 +40,7 @@ function App() {
   const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
 
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
+  const [platform, setPlatform] = useState<string>('');
 
   useEffect(() => {
     // コンポーネントのマウント時に言語一覧を取得
@@ -64,6 +66,8 @@ function App() {
         setNotes([]);
         handleNewNote();
       }
+      const env = await runtime.Environment();
+      setPlatform(env.platform);
     };
     asyncFunc();
 
@@ -79,6 +83,16 @@ function App() {
     <ThemeProvider theme={editorSettings.isDarkMode ? darkTheme : lightTheme}>
       <CssBaseline />
       <Box sx={{ width: '100vw', height: '100vh', position: 'relative' }} component='main'>
+        {platform === 'darwin' && (
+          <Box
+            sx={{
+              height: 26,
+              width: '100vw',
+              '--wails-draggable': 'drag',
+              backgroundColor: editorSettings.isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'action.disabledBackground',
+            }}
+          />
+        )}
         <AppBar
           currentNote={currentNote}
           languages={languages}
@@ -95,12 +109,12 @@ function App() {
           aria-label='Note List'
           sx={{
             position: 'absolute',
-            top: 57,
+            top: platform === 'darwin' ? 83 : 57,
             left: 0,
             borderRight: 1,
             borderColor: 'divider',
             width: 242,
-            height: 'calc(100% - 57px)',
+            height: platform === 'darwin' ? 'calc(100% - 83px)' : 'calc(100% - 57px)',
           }}
         >
           <NoteList
@@ -117,7 +131,15 @@ function App() {
           />
         </Box>
 
-        <Box sx={{ position: 'absolute', top: 57, left: 242, width: 'calc(100% - 242px)', height: 'calc(100% - 57px)' }}>
+        <Box
+          sx={{
+            position: 'absolute',
+            top: platform === 'darwin' ? 83 : 57,
+            left: 242,
+            width: 'calc(100% - 242px)',
+            height: platform === 'darwin' ? 'calc(100% - 83px)' : 'calc(100% - 57px)',
+          }}
+        >
           {showArchived ? (
             <ArchivedNoteList
               notes={notes}

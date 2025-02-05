@@ -73,8 +73,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
           flexDirection: 'column',
           alignItems: 'flex-start',
           py: 1.5,
-          pr: 1,
-          pl: 2,
+          px: 2,
         }}
       >
         <Typography
