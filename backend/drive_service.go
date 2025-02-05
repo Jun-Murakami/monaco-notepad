@@ -798,6 +798,44 @@ func (s *driveService) downloadNote(noteID string) error {
 // UploadNote を修正
 func (s *driveService) UploadNote(note *Note) error {
 	s.sendLogMessage(fmt.Sprintf("Uploading note: %s", note.Title))
+
+	// テストモードの場合は簡略化された処理を実行
+	if s.isTestMode {
+		// アップロード時刻を記録
+		s.driveSync.lastUpdated[note.ID] = time.Now()
+
+		// クラウドノートリストに追加または更新
+		found := false
+		for i, metadata := range s.driveSync.cloudNoteList.Notes {
+			if metadata.ID == note.ID {
+				s.driveSync.cloudNoteList.Notes[i] = NoteMetadata{
+					ID:           note.ID,
+					Title:        note.Title,
+					ContentHeader: note.ContentHeader,
+					Language:     note.Language,
+					ModifiedTime: note.ModifiedTime,
+					Archived:     note.Archived,
+				}
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			s.driveSync.cloudNoteList.Notes = append(s.driveSync.cloudNoteList.Notes, NoteMetadata{
+				ID:           note.ID,
+				Title:        note.Title,
+				ContentHeader: note.ContentHeader,
+				Language:     note.Language,
+				ModifiedTime: note.ModifiedTime,
+				Archived:     note.Archived,
+			})
+		}
+
+		return nil
+	}
+
+	// 通常のDrive APIを使用した処理
 	noteContent, err := json.MarshalIndent(note, "", "  ")
 	if err != nil {
 		return err
@@ -844,6 +882,20 @@ func (s *driveService) UploadNote(note *Note) error {
 
 // DeleteNote はGoogle Drive上のノートを削除します
 func (s *driveService) DeleteNoteDrive(noteID string) error {
+	// テストモードの場合は簡略化された処理を実行
+	if s.isTestMode {
+		// クラウドノートリストから削除
+		var updatedNotes []NoteMetadata
+		for _, metadata := range s.driveSync.cloudNoteList.Notes {
+			if metadata.ID != noteID {
+				updatedNotes = append(updatedNotes, metadata)
+			}
+		}
+		s.driveSync.cloudNoteList.Notes = updatedNotes
+		return nil
+	}
+
+	// 通常のDrive APIを使用した処理
 	files, err := s.driveSync.service.Files.List().
 		Q(fmt.Sprintf("name='%s.json' and '%s' in parents and trashed=false", noteID, s.driveSync.notesFolderID)).
 		Fields("files(id)").Do()
@@ -863,6 +915,20 @@ func (s *driveService) uploadNoteList() error {
 	s.driveSync.mutex.Lock()
 	defer s.driveSync.mutex.Unlock()
 
+	// テストモードの場合は簡略化された処理を実行
+	if s.isTestMode {
+		// クラウドノートリストを更新
+		s.driveSync.cloudNoteList = &NoteList{
+			Version:   s.noteService.noteList.Version,
+			Notes:     make([]NoteMetadata, len(s.noteService.noteList.Notes)),
+			LastSync:  time.Now(),
+		}
+		copy(s.driveSync.cloudNoteList.Notes, s.noteService.noteList.Notes)
+		s.sendLogMessage("Note list uploaded (test mode)")
+		return nil
+	}
+
+	// 通常のDrive APIを使用した処理
 	noteListContent, err := json.MarshalIndent(s.noteService.noteList, "", "  ")
 	if err != nil {
 		return err
@@ -873,9 +939,6 @@ func (s *driveService) uploadNoteList() error {
 		Q(fmt.Sprintf("name='noteList.json' and '%s' in parents and trashed=false", s.driveSync.rootFolderID)).
 		Fields("files(id)").Do()
 	if err != nil {
-		if !s.isTestMode {
-			wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
-		}
 		return err
 	}
 
@@ -885,11 +948,11 @@ func (s *driveService) uploadNoteList() error {
 		_, err = s.driveSync.service.Files.Update(file.Id, &drive.File{}).
 			Media(bytes.NewReader(noteListContent)).
 			Do()
-		if !s.isTestMode {
-			wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
-		}
 		if err == nil {
 			s.sendLogMessage("Note list uploaded")
+			if !s.isTestMode {
+				wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
+			}
 		}
 		return err
 	}
@@ -904,11 +967,11 @@ func (s *driveService) uploadNoteList() error {
 	_, err = s.driveSync.service.Files.Create(f).
 		Media(bytes.NewReader(noteListContent)).
 		Do()
-	if !s.isTestMode {
-		wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
-	}
 	if err == nil {
 		s.sendLogMessage("Note list uploaded")
+		if !s.isTestMode {
+			wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
+		}
 	}
 	return err
 }

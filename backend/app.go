@@ -193,7 +193,9 @@ func (a *App) SaveNoteList() error {
 
   //ドライブサービスが初期化されており、接続中の場合はアップロード
   if a.driveService != nil && a.driveService.driveSync.isConnected {
-    wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+    if !a.driveService.isTestMode {
+      wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+    }
     if err := a.driveService.uploadNoteList(); err != nil {
       fmt.Printf("Error uploading note list to Drive: %v\n", err)
       return err
