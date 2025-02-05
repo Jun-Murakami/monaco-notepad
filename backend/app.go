@@ -137,7 +137,7 @@ func (a *App) LoadNote(id string) (*Note, error) {
 	return a.noteService.LoadNote(id)
 }
 
-// ノートを保存する
+// ノートを保存する（アーカイブも含む）
 func (a *App) SaveNote(note *Note) error {
 	// まずノートサービスで保存
 	if err := a.noteService.SaveNote(note); err != nil {
@@ -149,25 +149,35 @@ func (a *App) SaveNote(note *Note) error {
 		// ノートのコピーを作成して非同期処理に渡す
 		noteCopy := *note
 		go func() {
-			// 同期開始を通知
-			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+			// テストモード時はイベント通知をスキップ
+			if !a.driveService.isTestMode {
+				// 同期開始を通知
+				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+			}
 
 			// ノートをアップロード
 			if err := a.driveService.UploadNote(&noteCopy); err != nil {
 				fmt.Printf("Error uploading note to Drive: %v\n", err)
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+				if !a.driveService.isTestMode {
+					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+				}
 				return
 			}
 
 			// ノートリストをアップロード
 			if err := a.driveService.uploadNoteList(); err != nil {
 				fmt.Printf("Error uploading note list to Drive: %v\n", err)
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+				if !a.driveService.isTestMode {
+					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+				}
 				return
 			}
 
-			// アップロード完了後に同期完了を通知
-			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
+			// テストモード時はイベント通知をスキップ
+			if !a.driveService.isTestMode {
+				// アップロード完了後に同期完了を通知
+				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
+			}
 		}()
 	}
 
@@ -203,8 +213,11 @@ func (a *App) DeleteNote(id string) error {
 	// ドライブサービスが初期化されており、接続中の場合は削除
 	if a.driveService != nil && a.driveService.driveSync.isConnected {
 		go func() {
-			// 同期開始を通知
-			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+			// テストモード時はイベント通知をスキップ
+			if !a.driveService.isTestMode {
+				// 同期開始を通知
+				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+			}
 
 			// ノートを削除
 			if err := a.driveService.DeleteNoteDrive(id); err != nil {
@@ -214,12 +227,17 @@ func (a *App) DeleteNote(id string) error {
 			// ノートリストをアップロード
 			if err := a.driveService.uploadNoteList(); err != nil {
 				fmt.Printf("Error uploading note list to Drive: %v\n", err)
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+				if !a.driveService.isTestMode {
+					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+				}
 				return
 			}
 
-			// 削除完了後に同期完了を通知
-			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
+			// テストモード時はイベント通知をスキップ
+			if !a.driveService.isTestMode {
+				// 削除完了後に同期完了を通知
+				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
+			}
 		}()
 	}
 

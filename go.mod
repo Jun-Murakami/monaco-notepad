@@ -5,9 +5,10 @@ go 1.22
 toolchain go1.22.4
 
 require (
-	github.com/wailsapp/wails/v2 v2.9.2
-	golang.org/x/oauth2 v0.24.0
-	google.golang.org/api v0.211.0
+	github.com/stretchr/testify v1.10.0
+	github.com/wailsapp/wails/v2 v2.9.1
+	golang.org/x/oauth2 v0.25.0
+	google.golang.org/api v0.219.0
 )
 
 require (
@@ -15,6 +16,7 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -35,8 +37,10 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/samber/lo v1.38.1 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tkrajina/go-reflector v0.5.6 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
@@ -54,6 +58,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250124145028-65684f501c47 // indirect
 	google.golang.org/grpc v1.70.0 // indirect
 	google.golang.org/protobuf v1.36.4 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 // replace github.com/wailsapp/wails/v2 v2.9.1 => C:\Users\conta\go\pkg\mod
