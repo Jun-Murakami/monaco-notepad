@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LoadSettings, SaveSettings } from '../../wailsjs/go/main/App';
+import { LoadSettings, SaveSettings } from '../../wailsjs/go/backend/App';
 import { EditorSettings } from '../types';
 import * as runtime from '../../wailsjs/runtime';
 

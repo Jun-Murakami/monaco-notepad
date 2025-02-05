@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"context"
@@ -10,8 +10,11 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// !!!! Important !!!!
+// You need to create Google Drive credentials.json file in the backend directory
+// ------------------------------------------------------------
 //go:embed credentials.json
-var credentialsJSON []byte
+var credentialsJSON []byte 
 
 // NewContext は新しいContextインスタンスを作成します
 func NewContext(ctx context.Context) *Context {

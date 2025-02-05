@@ -2,14 +2,13 @@ import { Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, Icon
 import { NoteAdd, OpenInBrowser, Save, Settings, Logout } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
-import CloudOffIcon from '@mui/icons-material/CloudOff';
 import { GoogleDriveIcon } from './Icons';
 import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
 import { useEffect, useState } from 'react';
 
 import { EventsOn, EventsOff } from '../../wailsjs/runtime';
-import { AuthorizeDrive, LogoutDrive } from '../../wailsjs/go/main/App';
+import { AuthorizeDrive, LogoutDrive } from '../../wailsjs/go/backend/App';
 import { keyframes } from '@mui/system';
 
 const fadeAnimation = keyframes`
@@ -30,7 +29,6 @@ export const AppBar: React.FC<{
   showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>;
 }> = ({ currentNote, languages, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave, showMessage }) => {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
-  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   useEffect(() => {
     const handleSync = () => {
@@ -42,6 +40,7 @@ export const AppBar: React.FC<{
     };
 
     const handleDriveError = (error: string) => {
+      showMessage('Drive error', error);
       console.error('Drive error:', error);
       setSyncStatus('offline');
     };
@@ -59,23 +58,17 @@ export const AppBar: React.FC<{
 
   const handleGoogleAuth = async () => {
     try {
-      setIsAuthenticating(true);
       setSyncStatus('syncing');
-      const result = await AuthorizeDrive();
-      if (result === 'auth_complete') {
-        setSyncStatus('synced');
-      }
+      await AuthorizeDrive();
     } catch (error) {
       console.error('Google authentication error:', error);
       setSyncStatus('offline');
-    } finally {
-      setIsAuthenticating(false);
     }
   };
 
   const handleLogout = async () => {
     try {
-      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout from Google Drive?', true);
+      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout?', true);
       if (result) {
         await LogoutDrive();
       }

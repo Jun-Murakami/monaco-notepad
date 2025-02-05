@@ -51,3 +51,11 @@ export type EditorSettings = {
   windowY: number;
   isMaximized: boolean;
 };
+
+export const DEFAULT_EDITOR_SETTINGS: Partial<EditorSettings> = {
+  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+  fontSize: 14,
+  isDarkMode: false,
+  wordWrap: 'off',
+  minimap: true,
+};

@@ -7,6 +7,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
+
+	"monaco-notepad/backend"
 )
 
 //go:embed all:frontend/dist
@@ -14,7 +17,7 @@ var assets embed.FS
 
 func main() {
 	// Create an instance of the app structure
-	app := NewApp()
+	app := backend.NewApp()
 
 	// Wailsアプリケーションを作成
 	err := wails.Run(&options.App{
@@ -30,6 +33,11 @@ func main() {
     LogLevel: logger.INFO,
 		Bind: []interface{}{
 			app,
+		},
+		Mac: &mac.Options{
+			TitleBar: &mac.TitleBar{
+				TitlebarAppearsTransparent: true,
+			},
 		},
 		Debug: options.Debug{
 			OpenInspectorOnStartup: true,

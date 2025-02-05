@@ -1,6 +1,6 @@
 import { Box, IconButton, List, ListItemButton, Typography, Button, Tooltip } from '@mui/material';
 import { Archive, Inventory, DragHandle, ImportExport } from '@mui/icons-material';
-import { UpdateNoteOrder } from '../../wailsjs/go/main/App';
+import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import { Note } from '../types';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
@@ -73,8 +73,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
           flexDirection: 'column',
           alignItems: 'flex-start',
           py: 1.5,
-          pr: 1,
-          pl: 2,
+          px: 2,
         }}
       >
         <Typography
@@ -109,10 +108,10 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
           <Typography
             variant='caption'
             sx={{
-              color: 'text.secondary',
+              color: 'text.disabled',
             }}
           >
-            {dayjs(note.modifiedTime).format('L HH:mm:ss')}
+            {dayjs(note.modifiedTime).format('L _ HH:mm:ss')}
           </Typography>
         </Box>
       </ListItemButton>

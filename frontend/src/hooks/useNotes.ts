@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
-import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/main/App';
+import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
-import { main } from '../../wailsjs/go/models';
+import { backend } from '../../wailsjs/go/models';
 
 export const useNotes = () => {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -43,7 +43,7 @@ export const useNotes = () => {
         const noteToSave = currentNoteRef.current;
         if (noteToSave?.id && isNoteModified.current) {
           console.log('Saving current note before close:', noteToSave.id);
-          await SaveNote(main.Note.createFrom(noteToSave));
+          await SaveNote(backend.Note.createFrom(noteToSave));
           console.log('Note saved successfully:', noteToSave.id);
         }
       } catch (error) {
@@ -79,7 +79,7 @@ export const useNotes = () => {
     try {
       setNotes((prev) => prev.map((note) => (note.id === currentNote.id ? currentNote : note)));
       console.log('Saving current note2:', currentNote.id);
-      await SaveNote(main.Note.createFrom(currentNote));
+      await SaveNote(backend.Note.createFrom(currentNote));
       isNoteModified.current = false;
     } catch (error) {
       console.error('Failed to save note:', error);
@@ -103,7 +103,7 @@ export const useNotes = () => {
     setShowArchived(false);
     setNotes((prev) => [newNote, ...prev]);
     setCurrentNote(newNote);
-    await SaveNote(main.Note.createFrom(newNote));
+    await SaveNote(backend.Note.createFrom(newNote));
   };
 
   const handleArchiveNote = async (noteId: string) => {
@@ -131,7 +131,7 @@ export const useNotes = () => {
     );
 
     console.log('Saving archived note:', archivedNote.id);
-    await SaveNote(main.Note.createFrom(archivedNote));
+    await SaveNote(backend.Note.createFrom(archivedNote));
 
     if (currentNote?.id === noteId) {
       const activeNotes = notes.filter((note) => !note.archived && note.id !== noteId);
@@ -160,7 +160,7 @@ export const useNotes = () => {
     setShowArchived(false);
 
     if (isNew) {
-      await SaveNote(main.Note.createFrom(note));
+      await SaveNote(backend.Note.createFrom(note));
     }
     // アーカイブされたノートの場合、コンテンツを読み込む
     if (note.archived) {
@@ -189,7 +189,7 @@ export const useNotes = () => {
     if (fullNote) {
       const unarchivedNote = { ...fullNote, archived: false };
       console.log('Saving unarchived note:', unarchivedNote.id);
-      await SaveNote(main.Note.createFrom(unarchivedNote));
+      await SaveNote(backend.Note.createFrom(unarchivedNote));
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note))
       );

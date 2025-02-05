@@ -1,5 +1,5 @@
 import { getLanguageByExtension, getExtensionByLanguage } from '../lib/monaco';
-import { SelectFile, OpenFile, SaveFile, SelectSaveFileUri } from '../../wailsjs/go/main/App';
+import { SelectFile, OpenFile, SaveFile, SelectSaveFileUri } from '../../wailsjs/go/backend/App';
 import { Note } from '../types';
 
 export const useFileOperations = (

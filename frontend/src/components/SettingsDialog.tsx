@@ -16,7 +16,7 @@ import {
   Grid2 as Grid,
 } from '@mui/material';
 import { LightDarkSwitch } from './LightDarkSwitch';
-import { EditorSettings } from '../types';
+import { EditorSettings, DEFAULT_EDITOR_SETTINGS } from '../types';
 import * as runtime from '../../wailsjs/runtime';
 
 interface SettingsDialogProps {
@@ -45,13 +45,47 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
   };
 
   const handleClose = () => {
+    // フォーカスを解放してから閉じる
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     // キャンセル時は元の設定に戻す
     onChange(settings);
     onClose();
   };
 
+  const handleReset = () => {
+    const resetSettings = {
+      ...localSettings,
+      ...DEFAULT_EDITOR_SETTINGS,
+    };
+    setLocalSettings(resetSettings);
+    onChange(resetSettings);
+
+    // ダークモード設定を反映
+    if (resetSettings.isDarkMode) {
+      runtime.WindowSetDarkTheme();
+    } else {
+      runtime.WindowSetLightTheme();
+    }
+  };
+
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth='sm' fullWidth>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth='sm'
+      fullWidth
+      slotProps={{
+        backdrop: {
+          onExited: () => {
+            if (document.activeElement instanceof HTMLElement) {
+              document.activeElement.blur();
+            }
+          },
+        },
+      }}
+    >
       <DialogTitle>Editor Settings</DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
@@ -130,6 +164,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
         </Box>
       </DialogContent>
       <DialogActions>
+        <Button onClick={handleReset} color='primary'>
+          Reset to Default
+        </Button>
+        <Box sx={{ flex: '1 0 0' }} />
         <Button onClick={handleClose}>Cancel</Button>
         <Button onClick={() => onSave(localSettings)} variant='contained'>
           Save
