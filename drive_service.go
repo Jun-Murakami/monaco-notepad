@@ -160,7 +160,7 @@ func (s *driveService) AuthorizeDrive() (string, error) {
 							<style>
 								body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
 								.container { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-								.message-box { text-align: center; width: 400px; padding: 2rem; background-color: grey; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+								.message-box { text-align: center; width: 400px; padding: 2rem; background-color: #00c1d9; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
 								.error { color: #d32f2f; }
 							</style>
 						</head>
@@ -184,7 +184,7 @@ func (s *driveService) AuthorizeDrive() (string, error) {
 							<style>
 								body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
 								.container { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-								.message-box { text-align: center; width: 400px; padding: 2rem; background-color: grey; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+								.message-box { text-align: center; width: 400px; padding: 2rem; background-color: #00c1d9; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
 								.error { color: #d32f2f; }
 							</style>
 						</head>
