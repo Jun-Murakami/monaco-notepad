@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// 既存のimportの下に追加
+const CurrentVersion = "1.0"
+
 // NoteService はノート関連の操作を提供するインターフェースです
 type NoteService interface {
 	ListNotes() ([]Note, error) // 全てのノートのリストを返す
@@ -322,4 +325,26 @@ func (s *noteService) UpdateNoteOrder(noteID string, newIndex int) error {
 
 	// ノートリストを保存
 	return s.saveNoteList()
+}
+
+func (s *noteService) LoadNoteList() error {
+	data, err := os.ReadFile(filepath.Join(s.notesDir, "noteList.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.noteList = &NoteList{
+				Version: CurrentVersion,
+				Notes:   []NoteMetadata{},
+				// 初回作成時のみ現在時刻を使用
+				LastSync: time.Now(),
+			}
+			return s.saveNoteList()
+		}
+		return err
+	}
+
+	// 既存のファイルを読み込む場合は、ファイルに保存されているLastSyncをそのまま使用
+	if err := json.Unmarshal(data, &s.noteList); err != nil {
+		return err
+	}
+	return nil
 } 

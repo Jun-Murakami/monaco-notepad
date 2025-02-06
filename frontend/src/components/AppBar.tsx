@@ -216,14 +216,14 @@ export const AppBar: React.FC<{
         </FormControl>
         <Box sx={{ ml: 0.5, display: 'flex', alignItems: 'center' }}>
           {syncStatus === 'synced' ? (
-            <Tooltip title='クリックして今すぐ同期' arrow>
+            <Tooltip title='Click to sync now' arrow>
               <IconButton onClick={handleSync} size='small'>
                 <CloudDoneIcon color='primary' />
               </IconButton>
             </Tooltip>
           ) : (
             syncStatus === 'syncing' && (
-              <Tooltip title='同期中...' arrow>
+              <Tooltip title='Syncing...' arrow>
                 <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1 }}>
                   <CloudSyncIcon color='primary' />
                 </Box>

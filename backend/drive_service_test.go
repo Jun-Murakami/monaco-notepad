@@ -29,6 +29,13 @@ DriveServiceのテストスイート
 6. TestPeriodicSync
    - 定期的な同期処理が正しく動作することを確認
    - クラウドの変更が正しくローカルに反映されることを検証
+
+7. TestNoteOrderSync
+   - 複数のノートを作成
+   - クラウドで異なる順序に
+
+8. TestNoteOrderConflict
+   - ノートの順序変更の競合解決をテストします
 */
 
 package backend
@@ -320,4 +327,114 @@ func TestPeriodicSync(t *testing.T) {
 
 	// クラウドの変更が反映されていることを確認
 	assert.Equal(t, "Cloud Note", updatedNote.Title)
-} 
+}
+
+// TestNoteOrderSync はノートの順序変更の同期をテストします
+func TestNoteOrderSync(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	// 複数のテストノートを作成
+	notes := []*Note{
+		{
+			ID:       "note-1",
+			Title:    "First Note",
+			Content:  "Content 1",
+			Language: "plaintext",
+		},
+		{
+			ID:       "note-2",
+			Title:    "Second Note",
+			Content:  "Content 2",
+			Language: "plaintext",
+		},
+		{
+			ID:       "note-3",
+			Title:    "Third Note",
+			Content:  "Content 3",
+			Language: "plaintext",
+		},
+	}
+
+	// ノートを保存
+	for _, note := range notes {
+		err := helper.noteService.SaveNote(note)
+		assert.NoError(t, err)
+	}
+
+	// クラウドのノートリストを異なる順序で設定
+	cloudNotes := []NoteMetadata{
+		{
+			ID:    "note-2",
+			Title: "Second Note",
+			Order: 0,
+		},
+		{
+			ID:    "note-3",
+			Title: "Third Note",
+			Order: 1,
+		},
+		{
+			ID:    "note-1",
+			Title: "First Note",
+			Order: 2,
+		},
+	}
+
+	helper.authService.driveSync.cloudNoteList = &NoteList{
+		Version:   "1.0",
+		Notes:     cloudNotes,
+		LastSync:  time.Now(),
+	}
+
+	// 同期を実行
+	err := helper.driveService.SyncNotes()
+	assert.NoError(t, err)
+
+	// 同期後のノートリストを確認
+	assert.Equal(t, 3, len(helper.noteService.noteList.Notes))
+	assert.Equal(t, "note-2", helper.noteService.noteList.Notes[0].ID)
+	assert.Equal(t, "note-3", helper.noteService.noteList.Notes[1].ID)
+	assert.Equal(t, "note-1", helper.noteService.noteList.Notes[2].ID)
+
+	// 順序の値も確認
+	assert.Equal(t, 0, helper.noteService.noteList.Notes[0].Order)
+	assert.Equal(t, 1, helper.noteService.noteList.Notes[1].Order)
+	assert.Equal(t, 2, helper.noteService.noteList.Notes[2].Order)
+}
+
+// TestNoteOrderConflict はノートの順序変更の競合解決をテストします
+func TestNoteOrderConflict(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	// 初期ノートリストを設定
+	localNotes := []NoteMetadata{
+		{ID: "note-1", Order: 0},
+		{ID: "note-2", Order: 1},
+		{ID: "note-3", Order: 2},
+	}
+	helper.noteService.noteList.Notes = localNotes
+	helper.noteService.noteList.LastSync = time.Now().Add(-time.Hour)
+
+	// クラウドの新しい順序を設定
+	cloudNotes := []NoteMetadata{
+		{ID: "note-3", Order: 0},
+		{ID: "note-1", Order: 1},
+		{ID: "note-2", Order: 2},
+	}
+	helper.authService.driveSync.cloudNoteList = &NoteList{
+		Version:   "1.0",
+		Notes:     cloudNotes,
+		LastSync:  time.Now(),
+	}
+
+	// 同期を実行
+	err := helper.driveService.SyncNotes()
+	assert.NoError(t, err)
+
+	// クラウドの順序が優先されることを確認
+	assert.Equal(t, "note-3", helper.noteService.noteList.Notes[0].ID)
+	assert.Equal(t, "note-1", helper.noteService.noteList.Notes[1].ID)
+	assert.Equal(t, "note-2", helper.noteService.noteList.Notes[2].ID)
+}

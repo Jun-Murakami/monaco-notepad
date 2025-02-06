@@ -578,6 +578,9 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 // UploadNoteList は現在のノートリスト(noteList.json)をアップロード
 func (s *driveService) UploadNoteList() error {
 	s.sendLogMessage("Uploading note list...")
+	fmt.Printf("Uploading note list with LastSync: %v\n", s.noteService.noteList.LastSync)
+	fmt.Printf("Notes count: %d\n", len(s.noteService.noteList.Notes))
+
 	s.auth.driveSync.mutex.Lock()
 	defer s.auth.driveSync.mutex.Unlock()
 
@@ -607,6 +610,7 @@ func (s *driveService) UploadNoteList() error {
 
 	if len(files.Files) > 0 {
 		file := files.Files[0]
+		fmt.Printf("Updating existing note list file: %s\n", file.Id)
 		_, err = s.auth.driveSync.service.Files.Update(file.Id, &drive.File{}).
 			Media(bytes.NewReader(noteListContent)).
 			Do()
@@ -678,61 +682,35 @@ func (s *driveService) SyncNotes() error {
 	}
 
 	if cloudNoteList == nil {
-		// クラウドにノートリストがない場合は、ローカルのノートをすべてアップロード
+		fmt.Println("Cloud note list is nil, uploading all notes...")
 		return s.uploadAllNotes()
 	}
 
-	// クラウドのノートリストを保存
-	s.auth.driveSync.cloudNoteList = cloudNoteList
+	fmt.Printf("Cloud note list LastSync: %v\n", cloudNoteList.LastSync)
+	fmt.Printf("Local note list LastSync: %v\n", s.noteService.noteList.LastSync)
+	fmt.Printf("Cloud notes count: %d\n", len(cloudNoteList.Notes))
+	fmt.Printf("Local notes count: %d\n", len(s.noteService.noteList.Notes))
 
-	// ノートのマージ処理
-	for _, cloudNote := range cloudNoteList.Notes {
-		localNote, err := s.noteService.LoadNote(cloudNote.ID)
-		if err != nil {
-			// ローカルにないノートはダウンロード
-			if s.IsTestMode() {
-				// テストモードの場合は、新しいノートを作成
-				newNote := &Note{
-					ID:           cloudNote.ID,
-					Title:        cloudNote.Title,
-					ModifiedTime: cloudNote.ModifiedTime,
-					Language:     "plaintext",
-				}
-				if err := s.noteService.SaveNote(newNote); err != nil {
-					fmt.Printf("Error creating note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-			} else {
-				if err := s.downloadNote(cloudNote.ID); err != nil {
-					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-			}
-		} else {
-			// 両方にある場合は、より新しい方を優先
-			if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
-				if s.IsTestMode() {
-					// テストモードの場合は、ノートの内容を直接更新
-					localNote.Title = cloudNote.Title
-					localNote.ModifiedTime = cloudNote.ModifiedTime
-					if err := s.noteService.SaveNote(localNote); err != nil {
-						fmt.Printf("Error updating note %s: %v\n", cloudNote.ID, err)
-						continue
-					}
-				} else {
-					if err := s.downloadNote(cloudNote.ID); err != nil {
-						fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-						continue
-					}
-				}
-			}
-		}
+	// ノートリストの内容が異なるかどうかをチェック
+	if cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
+		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
+		fmt.Println("Cloud has updates - updating local state")
+		s.noteService.noteList.Notes = cloudNoteList.Notes
+	} else {
+		fmt.Printf("Local is up to date\n")
 	}
 
 	// ローカルのノートリストを更新
 	s.noteService.noteList.LastSync = time.Now()
 	if err := s.noteService.saveNoteList(); err != nil {
 		return fmt.Errorf("failed to save local note list: %v", err)
+	}
+
+	// 変更があった場合のみフロントエンドに通知
+	if !s.IsTestMode() && (cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
+		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes)) {
+		fmt.Println("Notifying frontend of changes")
+		wailsRuntime.EventsEmit(s.ctx, "notes:reload")
 	}
 
 	return nil
@@ -744,48 +722,12 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 		return fmt.Errorf("cloud note list is nil")
 	}
 
-	// ノートのマージ処理
-	for _, cloudNote := range cloudNoteList.Notes {
-		localNote, err := s.noteService.LoadNote(cloudNote.ID)
-		if err != nil {
-			// ローカルにないノートはダウンロード
-			if s.IsTestMode() {
-				// テストモードの場合は、新しいノートを作成
-				newNote := &Note{
-					ID:           cloudNote.ID,
-					Title:        cloudNote.Title,
-					ModifiedTime: cloudNote.ModifiedTime,
-					Language:     "plaintext",
-				}
-				if err := s.noteService.SaveNote(newNote); err != nil {
-					fmt.Printf("Error creating note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-			} else {
-				if err := s.downloadNote(cloudNote.ID); err != nil {
-					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-			}
-		} else {
-			// 両方にある場合は、より新しい方を優先
-			if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
-				if s.IsTestMode() {
-					// テストモードの場合は、ノートの内容を直接更新
-					localNote.Title = cloudNote.Title
-					localNote.ModifiedTime = cloudNote.ModifiedTime
-					if err := s.noteService.SaveNote(localNote); err != nil {
-						fmt.Printf("Error updating note %s: %v\n", cloudNote.ID, err)
-						continue
-					}
-				} else {
-					if err := s.downloadNote(cloudNote.ID); err != nil {
-						fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-						continue
-					}
-				}
-			}
-		}
+	// ノートリストの内容が異なるかどうかをチェック
+	if s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
+		fmt.Println("Cloud has updates - updating local state")
+		s.noteService.noteList.Notes = cloudNoteList.Notes
+	} else {
+		fmt.Printf("Local is up to date\n")
 	}
 
 	// ローカルのノートリストを更新
@@ -794,7 +736,32 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 		return fmt.Errorf("failed to save local note list: %v", err)
 	}
 
+	// テストモードでない場合はフロントエンドに通知
+	if !s.IsTestMode() {
+		wailsRuntime.EventsEmit(s.ctx, "notes:reload")
+	}
+
 	return nil
+}
+
+// hasNoteListChanged はノートリストの内容が異なるかどうかをチェック
+func (s *driveService) hasNoteListChanged(cloudList, localList []NoteMetadata) bool {
+	if len(cloudList) != len(localList) {
+		fmt.Println("Note list length differs")
+		return true
+	}
+	
+	// ノートの順序とIDを比較
+	for i := range cloudList {
+		if cloudList[i].ID != localList[i].ID || 
+		   cloudList[i].Order != localList[i].Order {
+			fmt.Printf("Note order differs at index %d (cloud: %s[%d], local: %s[%d])\n",
+				i, cloudList[i].ID, cloudList[i].Order,
+				localList[i].ID, localList[i].Order)
+			return true
+		}
+	}
+	return false
 }
 
 // ------------------------------------------------------------
