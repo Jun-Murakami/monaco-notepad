@@ -115,7 +115,7 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
       </Box>
 
       <Box sx={{ display: 'flex', alignItems: 'center', textAlign: 'left', overflow: 'hidden' }}>
-        <Typography variant='caption' component='div' sx={{ mx: 2, color: 'text.secondary' }} noWrap>
+        <Typography variant='caption' sx={{ mx: 4, color: 'text.secondary' }} noWrap>
           {logMessage}
         </Typography>
       </Box>
