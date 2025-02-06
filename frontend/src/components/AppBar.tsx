@@ -7,9 +7,10 @@ import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
 import { useEffect, useState } from 'react';
 import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime';
-import { AuthorizeDrive, LogoutDrive, OpenFile, SyncNow } from '../../wailsjs/go/backend/App';
+import { AuthorizeDrive, InitializeDrive, LogoutDrive, OpenFile, SyncNow } from '../../wailsjs/go/backend/App';
 import { keyframes } from '@mui/system';
 import { getLanguageByExtension } from '../lib/monaco';
+import { isBinaryFile } from '../utils/fileUtils';
 
 const fadeAnimation = keyframes`
   0% { opacity: 1; }
@@ -53,6 +54,11 @@ export const AppBar: React.FC<{
         const content = await OpenFile(filePath);
         if (typeof content !== 'string') return;
 
+        if (isBinaryFile(content)) {
+          showMessage('Error', 'Failed to open the dropped file. Please check the file format.');
+          return;
+        }
+
         const extension = filePath.split('.').pop()?.toLowerCase() || '';
         const detectedLanguage = getLanguageByExtension('.' + extension);
         const language =
@@ -72,7 +78,7 @@ export const AppBar: React.FC<{
         await handleNoteSelect(newNote, true);
       } catch (error) {
         console.error('File drop error:', error);
-        showMessage('Error', 'Failed to open the dropped file.');
+        showMessage('Error', 'ファイルのオープンに失敗しました');
       }
     }
   };
@@ -108,6 +114,7 @@ export const AppBar: React.FC<{
     try {
       setSyncStatus('syncing');
       await AuthorizeDrive();
+      await InitializeDrive();
     } catch (error) {
       console.error('Google authentication error:', error);
       setSyncStatus('offline');

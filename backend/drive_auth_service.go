@@ -62,6 +62,7 @@ func NewDriveAuthService(
 func (a *driveAuthService) InitializeDrive() error {
 	config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope)
 	if err != nil {
+		a.sendLogMessage(fmt.Sprintf("unable to parse client secret file to config: %v", err))
 		return fmt.Errorf("unable to parse client secret file to config: %v", err)
 	}
 	// リダイレクトURIを設定
@@ -77,6 +78,7 @@ func (a *driveAuthService) InitializeDrive() error {
 
 		data, err := os.ReadFile(tokenFile)
 		if err != nil {
+			a.sendLogMessage(fmt.Sprintf("Error reading token file: %v", err))
 			fmt.Printf("Error reading token file: %v\n", err)
 			if !a.isTestMode {
 				wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
@@ -86,6 +88,7 @@ func (a *driveAuthService) InitializeDrive() error {
 
 		var token oauth2.Token
 		if err := json.Unmarshal(data, &token); err != nil {
+			a.sendLogMessage(fmt.Sprintf("Error parsing token: %v", err))
 			fmt.Printf("Error parsing token: %v\n", err)
 			if !a.isTestMode {
 				wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
@@ -95,6 +98,7 @@ func (a *driveAuthService) InitializeDrive() error {
 
 		// ここで実際に DriveClient を初期化
 		if err := a.initializeDriveService(&token); err != nil {
+			a.sendLogMessage(fmt.Sprintf("Error initializing Drive service: %v", err))
 			fmt.Printf("Error initializing Drive service: %v\n", err)
 			if !a.isTestMode {
 				wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
@@ -227,6 +231,7 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 		if err := a.CompleteAuth(code); err != nil {
 			wailsRuntime.EventsEmit(a.ctx, "show-message", "Authentication Error",
 				fmt.Sprintf("Failed to complete authentication: %v", err), false)
+			a.sendLogMessage(fmt.Sprintf("Failed to complete authentication: %v", err))
 			return "", fmt.Errorf("failed to complete authentication: %v", err)
 		}
 		return "auth_complete", nil
@@ -245,10 +250,11 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 
 // CompleteAuth は認証コードを使用してGoogle Drive認証を完了します
 func (a *driveAuthService) CompleteAuth(code string) error {
-	fmt.Printf("Completing auth with code: %s\n", code)
-
+	a.sendLogMessage("Finalizing authentication...")
+	
 	token, err := a.driveSync.config.Exchange(a.ctx, code)
 	if err != nil {
+		a.sendLogMessage("Authentication failed")
 		return fmt.Errorf("unable to retrieve token from web: %v", err)
 	}
 
@@ -258,6 +264,7 @@ func (a *driveAuthService) CompleteAuth(code string) error {
 	tokenFile := filepath.Join(a.appDataDir, "token.json")
 	f, err := os.OpenFile(tokenFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
+		a.sendLogMessage(fmt.Sprintf("unable to cache oauth token: %v", err))
 		return fmt.Errorf("unable to cache oauth token: %v", err)
 	}
 	defer f.Close()
@@ -267,15 +274,17 @@ func (a *driveAuthService) CompleteAuth(code string) error {
 	}
 
 	fmt.Printf("Token saved to: %s\n", tokenFile)
+	a.sendLogMessage("Authentication successful")
 	return a.initializeDriveService(token)
 }
 
 // LogoutDrive はGoogle Driveからログアウトします
 func (a *driveAuthService) LogoutDrive() error {
-	fmt.Println("Logging out from Google Drive...")
+	a.sendLogMessage("Logging out from Google Drive...")
 
 	// ローカルの noteList を保存（ログアウト前に念のため）
 	if err := a.noteService.saveNoteList(); err != nil {
+		a.sendLogMessage(fmt.Sprintf("Failed to save note list before logout: %v", err))
 		fmt.Printf("Failed to save note list before logout: %v\n", err)
 	}
 
@@ -290,14 +299,14 @@ func (a *driveAuthService) LogoutDrive() error {
 func (a *driveAuthService) handleOfflineTransition(err error) {
 	// エラーメッセージをログに記録
 	errMsg := fmt.Sprintf("Drive error: %v", err)
-	fmt.Printf("Drive error: %v\n", errMsg)
+	a.sendLogMessage(errMsg)
 	
 	// トークンファイルのパス
 	tokenFile := filepath.Join(a.appDataDir, "token.json")
 	
 	// トークンファイルを削除
 	if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("Failed to remove token file: %v\n", err)
+		a.sendLogMessage(fmt.Sprintf("Failed to remove token file: %v", err))
 	}
 	
 	// 認証状態をリセット
@@ -321,6 +330,8 @@ func (a *driveAuthService) initializeDriveService(token *oauth2.Token) error {
 	if err != nil {
 		return fmt.Errorf("unable to retrieve Drive client: %v", err)
 	}
+
+	a.sendLogMessage("Drive service initialized")
 
 	a.driveSync.service = srv
 	a.driveSync.token = token
@@ -361,4 +372,11 @@ func (a *driveAuthService) GetDriveSync() *DriveSync {
 // GetFrontendReadyChan は frontendReady チャネルを返します（drive_service 側で待ち受けるため）
 func (a *driveAuthService) GetFrontendReadyChan() chan struct{} {
 	return a.frontendReady
+}
+
+// driveAuthService構造体にsendLogMessageメソッドを追加
+func (a *driveAuthService) sendLogMessage(message string) {
+	if !a.isTestMode {
+		wailsRuntime.EventsEmit(a.ctx, "logMessage", message)
+	}
 }
