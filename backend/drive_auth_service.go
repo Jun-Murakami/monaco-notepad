@@ -233,7 +233,7 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 	case <-time.After(3 * time.Minute):
 		// タイムアウト
 		server.Shutdown(a.ctx)
-		a.handleOfflineTransition()
+		a.handleOfflineTransition(nil)
 		if !a.isTestMode {
 			wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
 		}
@@ -280,35 +280,30 @@ func (a *driveAuthService) LogoutDrive() error {
 	}
 
 	// オフライン状態に遷移
-	a.handleOfflineTransition()
+	a.handleOfflineTransition(nil)
 
+	// Intentionally left empty for future use
 	return nil
 }
 
 // handleOfflineTransition はオフライン状態への遷移を処理します
-func (a *driveAuthService) handleOfflineTransition() {
-	fmt.Println("Transitioning to offline state...")
-	a.driveSync.isConnected = false
-	a.driveSync.service = nil
-	a.driveSync.token = nil
-	a.driveSync.startPageToken = ""
-
-	// 認証関連ファイルを削除
+func (a *driveAuthService) handleOfflineTransition(err error) {
+	// エラーメッセージをログに記録
+	errMsg := fmt.Sprintf("Drive error: %v", err)
+	fmt.Printf("Drive error: %v\n", errMsg)
+	
+	// トークンファイルのパス
 	tokenFile := filepath.Join(a.appDataDir, "token.json")
+	
+	// トークンファイルを削除
 	if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
 		fmt.Printf("Failed to remove token file: %v\n", err)
 	}
-
-	syncFlagFile := filepath.Join(a.appDataDir, "initial_sync_completed")
-	if err := os.Remove(syncFlagFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("Failed to remove sync flag file: %v\n", err)
-	}
-
-	pageTokenFile := filepath.Join(a.appDataDir, "pageToken.txt")
-	if err := os.Remove(pageTokenFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("Failed to remove page token file: %v\n", err)
-	}
-
+	
+	// 認証状態をリセット
+	a.driveSync.service = nil
+	a.driveSync.isConnected = false
+	
 	// フロントエンドに通知
 	if !a.isTestMode {
 		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")

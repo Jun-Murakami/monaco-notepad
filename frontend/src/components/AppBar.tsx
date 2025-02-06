@@ -89,7 +89,6 @@ export const AppBar: React.FC<{
     const handleDriveError = (error: string) => {
       showMessage('Drive error', error);
       console.error('Drive error:', error);
-      setSyncStatus('offline');
     };
 
     EventsOn('notes:updated', handleSync);
@@ -129,7 +128,9 @@ export const AppBar: React.FC<{
   const handleSync = async () => {
     if (syncStatus === 'synced') {
       try {
+        setSyncStatus('syncing');
         await SyncNow();
+        setSyncStatus('synced');
       } catch (error) {
         console.error('Manual sync error:', error);
         showMessage('Sync Error', 'Failed to synchronize with Google Drive.');
@@ -218,14 +219,14 @@ export const AppBar: React.FC<{
           {syncStatus === 'synced' ? (
             <Tooltip title='Click to sync now' arrow>
               <IconButton onClick={handleSync} size='small'>
-                <CloudDoneIcon color='primary' />
+                <CloudDoneIcon color='primary' sx={{ fontSize: 24 }} />
               </IconButton>
             </Tooltip>
           ) : (
             syncStatus === 'syncing' && (
               <Tooltip title='Syncing...' arrow>
-                <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1 }}>
-                  <CloudSyncIcon color='primary' />
+                <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1, mx: 0.5 }}>
+                  <CloudSyncIcon color='primary' sx={{ fontSize: 26 }} />
                 </Box>
               </Tooltip>
             )

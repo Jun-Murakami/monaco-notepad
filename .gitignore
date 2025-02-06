@@ -1,6 +1,7 @@
 # Credentials
 credentials.json
 token.json
+.env
 
 build/bin
 node_modules

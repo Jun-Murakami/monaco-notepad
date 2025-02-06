@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -94,6 +93,7 @@ func (s *driveService) InitializeDrive() error {
 		// startPageToken のロード or 取得
 		if err := s.loadStartPageToken(); err != nil {
 			fmt.Printf("Error loading or creating start page token: %v\n", err)
+			s.sendLogMessage(fmt.Sprintf("Error loading or creating start page token: %v", err))
 		}
 
 		// フロントエンドの準備完了後に初回同期やポーリングを開始
@@ -109,26 +109,52 @@ func (s *driveService) AuthorizeDrive() (string, error) {
 
 // CompleteAuth は認証コードを使用してGoogle Drive認証を完了
 func (s *driveService) CompleteAuth(code string) error {
+	s.sendLogMessage("Connecting to Google Drive...")
+	
 	err := s.auth.CompleteAuth(code)
 	if err != nil {
+		s.sendLogMessage("Failed to connect to Google Drive")
+		s.auth.handleOfflineTransition(err)
 		return err
 	}
+
+	s.sendLogMessage("Connected to Google Drive")
 	// 認証完了後にフォルダなどの準備が必要ならここで行う
+
 	if s.IsConnected() {
 		if err := s.ensureDriveFolders(); err != nil {
+			s.sendLogMessage("Failed to ensure drive folders")
+			s.auth.handleOfflineTransition(err)
 			return err
 		}
+
 		if err := s.loadStartPageToken(); err != nil {
 			fmt.Printf("Error loading or creating start page token: %v\n", err)
+			s.sendLogMessage(fmt.Sprintf("Error loading or creating start page token: %v", err))
+			s.auth.handleOfflineTransition(err)
 		}
 		go s.waitForFrontendAndStartSync()
+
 	}
 	return nil
 }
 
 // LogoutDrive はGoogle Driveからログアウト
 func (s *driveService) LogoutDrive() error {
-	return s.auth.LogoutDrive()
+	s.sendLogMessage("Logging out of Google Drive...")
+	
+
+	err := s.auth.LogoutDrive()
+	if err != nil {
+		s.sendLogMessage("Failed to logout")
+		s.auth.handleOfflineTransition(err)
+		return err
+	}
+
+
+	s.sendLogMessage("Logged out of Google Drive")
+	return nil
+
 }
 
 // NotifyFrontendReady はフロントエンド準備完了を通知
@@ -155,6 +181,7 @@ func (s *driveService) waitForFrontendAndStartSync() {
 	<-s.auth.GetFrontendReadyChan() // フロントエンドが ready になるまでブロック
 
 	fmt.Println("Frontend ready - starting sync...")
+	s.sendLogMessage("Frontend ready - starting sync...")
 
 	// 接続状態を通知
 	if !s.IsTestMode() {
@@ -165,12 +192,18 @@ func (s *driveService) waitForFrontendAndStartSync() {
 	syncFlagPath := filepath.Join(s.appDataDir, "initial_sync_completed")
 	if _, err := os.Stat(syncFlagPath); os.IsNotExist(err) {
 		fmt.Println("First time initialization - performing initial sync...")
+		s.sendLogMessage("First time initialization - performing initial sync...")
 		if err := s.performInitialSync(); err != nil {
 			fmt.Printf("Initial sync failed: %v\n", err)
+			s.sendLogMessage(fmt.Sprintf("Initial sync failed: %v", err))
+			s.auth.handleOfflineTransition(err)
 		} else {
+
 			// 初回同期完了フラグを保存
 			if err := os.WriteFile(syncFlagPath, []byte("1"), 0644); err != nil {
 				fmt.Printf("Failed to save initial sync flag: %v\n", err)
+				s.sendLogMessage(fmt.Sprintf("Failed to save initial sync flag: %v", err))
+				s.auth.handleOfflineTransition(err)
 			}
 			s.auth.driveSync.hasCompletedInitialSync = true
 		}
@@ -187,34 +220,45 @@ func (s *driveService) waitForFrontendAndStartSync() {
 func (s *driveService) performInitialSync() error {
 	s.sendLogMessage("Starting initial sync...")
 
+
 	// クラウドのノートリストを取得
 	s.sendLogMessage("Checking cloud note list...")
 	noteListFiles, err := s.auth.driveSync.service.Files.List().
 		Q(fmt.Sprintf("name='noteList.json' and '%s' in parents and trashed=false", s.auth.driveSync.rootFolderID)).
 		Fields("files(id)").Do()
 	if err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to list cloud noteList: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to list cloud noteList: %v", err)
 	}
+
 
 	var cloudNoteList *NoteList
 	if len(noteListFiles.Files) > 0 {
 		s.sendLogMessage("Downloading cloud note list...")
 		resp, err := s.auth.driveSync.service.Files.Get(noteListFiles.Files[0].Id).Download()
 		if err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to download cloud noteList: %v", err))
+			s.auth.handleOfflineTransition(err)
 			return fmt.Errorf("failed to download cloud noteList: %v", err)
 		}
 		defer resp.Body.Close()
 
+
 		if err := json.NewDecoder(resp.Body).Decode(&cloudNoteList); err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to decode cloud noteList: %v", err))
+			s.auth.handleOfflineTransition(err)
 			return fmt.Errorf("failed to decode cloud noteList: %v", err)
 		}
 		s.sendLogMessage("Cloud note list downloaded")
+
 	}
 
 	if cloudNoteList == nil {
-		s.sendLogMessage("No cloud note list found, uploading all local notes...")
+		s.sendLogMessage("Uploading local notes to cloud...")
 		return s.uploadAllNotes()
 	}
+
 
 	s.sendLogMessage(fmt.Sprintf("Found %d notes in cloud", len(cloudNoteList.Notes)))
 	s.sendLogMessage(fmt.Sprintf("Found %d notes locally", len(s.noteService.noteList.Notes)))
@@ -255,7 +299,10 @@ func (s *driveService) performInitialSync() error {
 				mergedNotes = append(mergedNotes, cloudNote)
 				if err := s.downloadNote(id); err != nil {
 					fmt.Printf("Failed to download note %s: %v\n", id, err)
+					s.sendLogMessage(fmt.Sprintf("Failed to download note %s: %v\n", id, err))
+					s.auth.handleOfflineTransition(err)
 				}
+
 			} else {
 				s.sendLogMessage(fmt.Sprintf("Local version is newer: %s", localNote.Title))
 				mergedNotes = append(mergedNotes, localNote)
@@ -263,9 +310,12 @@ func (s *driveService) performInitialSync() error {
 				if err == nil {
 					if err := s.UploadNote(note); err != nil {
 						fmt.Printf("Failed to upload note %s: %v\n", id, err)
+						s.sendLogMessage(fmt.Sprintf("Failed to upload note %s: %v\n", id, err))
+						s.auth.handleOfflineTransition(err)
 					}
 				}
 			}
+
 			delete(cloudNotesMap, id)
 		} else {
 			// ローカルにしかないノートはアップロード
@@ -275,9 +325,12 @@ func (s *driveService) performInitialSync() error {
 			if err == nil {
 				if err := s.UploadNote(note); err != nil {
 					fmt.Printf("Failed to upload note %s: %v\n", id, err)
+					s.sendLogMessage(fmt.Sprintf("Failed to upload note %s: %v\n", id, err))
+					s.auth.handleOfflineTransition(err)
 				}
 			}
 		}
+
 	}
 
 	// クラウドにしかないノートを追加
@@ -286,17 +339,24 @@ func (s *driveService) performInitialSync() error {
 		mergedNotes = append(mergedNotes, cloudNote)
 		if err := s.downloadNote(id); err != nil {
 			fmt.Printf("Failed to download note %s: %v\n", id, err)
+			s.sendLogMessage(fmt.Sprintf("Failed to download note %s: %v\n", id, err))
+			s.auth.handleOfflineTransition(err)
 		}
 	}
+
 
 	s.sendLogMessage("Saving merged note list...")
 	s.noteService.noteList.Notes = mergedNotes
 	s.noteService.noteList.LastSync = time.Now()
 	if err := s.noteService.saveNoteList(); err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to save merged note list: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to save merged note list: %v", err)
 	}
 
+
 	s.sendLogMessage("Initial sync completed")
+
 
 	// フロントエンドに変更を通知
 	if !s.IsTestMode() {
@@ -332,32 +392,27 @@ func (s *driveService) startSyncPolling() {
 
 		if err := s.SyncNotes(); err != nil {
 			fmt.Printf("Error syncing with Drive: %v\n", err)
-			if strings.Contains(err.Error(), "oauth2") ||
-				strings.Contains(err.Error(), "401") ||
-				strings.Contains(err.Error(), "403") {
-				// 認証エラーの場合は強制的にオフラインに
-				s.auth.handleOfflineTransition()
-				continue
-			}
-			if !s.IsTestMode() {
-				wailsRuntime.EventsEmit(s.ctx, "drive:error", err.Error())
-			}
+			// すべてのエラーでオフライン処理を行う
+			s.auth.handleOfflineTransition(err)
+			continue
+		}
+
+		// 変更が検出された場合
+		if s.noteService.noteList.LastSync.After(lastChangeTime) {
+			interval = initialInterval
+			lastChangeTime = s.noteService.noteList.LastSync
+			fmt.Printf("Changes detected, resetting interval to %v\n", interval)
+			s.sendLogMessage(fmt.Sprintf("Changes detected, resetting interval to %v", interval))
 		} else {
-			// 変更が検出された場合
-			if s.noteService.noteList.LastSync.After(lastChangeTime) {
-				interval = initialInterval
-				lastChangeTime = s.noteService.noteList.LastSync
-				fmt.Printf("Changes detected, resetting interval to %v\n", interval)
-			} else {
-				// 変更がない場合は間隔を増加（最大値まで）
-				newInterval := time.Duration(float64(interval) * factor)
-				if newInterval > maxInterval {
-					newInterval = maxInterval
-				}
-				if newInterval != interval {
-					fmt.Printf("No changes detected, increasing interval from %v to %v\n", interval, newInterval)
-					interval = newInterval
-				}
+			// 変更がない場合は間隔を増加（最大値まで）
+			newInterval := time.Duration(float64(interval) * factor)
+			if newInterval > maxInterval {
+				newInterval = maxInterval
+			}
+			if newInterval != interval {
+				fmt.Printf("No changes detected, increasing interval from %v to %v\n", interval, newInterval)
+				s.sendLogMessage(fmt.Sprintf("No changes detected, increasing interval from %v to %v", interval, newInterval))
+				interval = newInterval
 			}
 		}
 
@@ -372,30 +427,41 @@ func (s *driveService) startSyncPolling() {
 // uploadAllNotes は全てのローカルノートをGoogle Driveにアップロードします
 func (s *driveService) uploadAllNotes() error {
 	fmt.Println("Starting uploadAllNotes...")
+	s.sendLogMessage("Starting uploadAllNotes...")
 
 	if !s.IsConnected() {
+		s.sendLogMessage("Drive service is not initialized")
+		s.auth.handleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 		return fmt.Errorf("drive service is not initialized")
 	}
 
 	fmt.Printf("Found %d notes to upload\n", len(s.noteService.noteList.Notes))
+	s.sendLogMessage(fmt.Sprintf("Found %d notes to upload", len(s.noteService.noteList.Notes)))
 
 	// 既存の notes フォルダを削除（再アップロード用）
 	s.auth.driveSync.mutex.Lock()
 	if s.auth.driveSync.notesFolderID != "" {
 		fmt.Printf("Deleting existing notes folder: %s\n", s.auth.driveSync.notesFolderID)
+		s.sendLogMessage(fmt.Sprintf("Deleting existing notes folder: %s", s.auth.driveSync.notesFolderID))
 		err := s.auth.driveSync.service.Files.Delete(s.auth.driveSync.notesFolderID).Do()
 		if err != nil {
 			s.auth.driveSync.mutex.Unlock()
+			s.sendLogMessage(fmt.Sprintf("Failed to delete notes folder: %v", err))
+			s.auth.handleOfflineTransition(err)
 			return fmt.Errorf("failed to delete notes folder: %v", err)
 		}
+
 		s.auth.driveSync.notesFolderID = ""
 	}
 	s.auth.driveSync.mutex.Unlock()
 
 	// 再作成
 	if err := s.ensureDriveFolders(); err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to recreate folders: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to recreate folders: %v", err)
 	}
+
 
 	// すべてのノートをアップロード
 	uploadCount := 0
@@ -403,25 +469,32 @@ func (s *driveService) uploadAllNotes() error {
 	for _, metadata := range s.noteService.noteList.Notes {
 		note, err := s.noteService.LoadNote(metadata.ID)
 		if err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to load note %s: %v", metadata.ID, err))
 			fmt.Printf("Failed to load note %s: %v\n", metadata.ID, err)
 			errorCount++
 			continue
 		}
 
 		if err := s.UploadNote(note); err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to upload note %s: %v", metadata.ID, err))
 			fmt.Printf("Failed to upload note %s: %v\n", metadata.ID, err)
 			errorCount++
 			continue
 		}
+
 		uploadCount++
 		fmt.Printf("Progress: %d/%d notes uploaded\n", uploadCount, len(s.noteService.noteList.Notes))
+		s.sendLogMessage(fmt.Sprintf("Progress: %d/%d notes uploaded", uploadCount, len(s.noteService.noteList.Notes)))
 	}
 
 	fmt.Printf("Upload complete: %d succeeded, %d failed\n", uploadCount, errorCount)
+	s.sendLogMessage(fmt.Sprintf("Upload complete: %d succeeded, %d failed", uploadCount, errorCount))
 
 	// LastSync を更新してから noteList をアップロード
 	s.noteService.noteList.LastSync = time.Now()
 	if err := s.UploadNoteList(); err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to upload note list: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to upload note list: %v", err)
 	}
 
@@ -439,29 +512,40 @@ func (s *driveService) downloadNote(noteID string) error {
 		Q(fmt.Sprintf("name='%s.json' and '%s' in parents and trashed=false", noteID, s.auth.driveSync.notesFolderID)).
 		Fields("files(id)").Do()
 	if err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to list note file: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to list note file: %v", err)
 	}
 
 	if len(files.Files) == 0 {
+		s.sendLogMessage(fmt.Sprintf("Note file not found: %s", noteID))
+		s.auth.handleOfflineTransition(fmt.Errorf("note file not found: %s", noteID))
 		return fmt.Errorf("note file not found: %s", noteID)
 	}
 
 	// ノートファイルをダウンロード
 	resp, err := s.auth.driveSync.service.Files.Get(files.Files[0].Id).Download()
 	if err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to download note: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to download note: %v", err)
 	}
 	defer resp.Body.Close()
 
 	var note Note
 	if err := json.NewDecoder(resp.Body).Decode(&note); err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to decode note: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to decode note: %v", err)
 	}
 
 	// ノートを保存
 	if err := s.noteService.SaveNote(&note); err != nil {
+		s.sendLogMessage(fmt.Sprintf("Failed to save note: %v", err))
+		s.auth.handleOfflineTransition(err)
 		return fmt.Errorf("failed to save note: %v", err)
 	}
+
 
 	// 最終更新時刻を記録
 	s.auth.driveSync.lastUpdated[noteID] = time.Now()
@@ -471,7 +555,8 @@ func (s *driveService) downloadNote(noteID string) error {
 
 // UploadNote はノートをGoogle Driveにアップロード
 func (s *driveService) UploadNote(note *Note) error {
-	s.sendLogMessage(fmt.Sprintf("Uploading note: %s", note.Title))
+	s.sendLogMessage(fmt.Sprintf("Uploading note \"%s\"...", note.Title))
+
 
 	if s.IsTestMode() {
 		// テストモードの場合は簡略化
@@ -509,8 +594,9 @@ func (s *driveService) UploadNote(note *Note) error {
 
 	noteContent, err := json.MarshalIndent(note, "", "  ")
 	if err != nil {
-		return err
+		return s.handleOfflineTransition(err)
 	}
+
 
 	s.auth.driveSync.lastUpdated[note.ID] = time.Now()
 
@@ -519,8 +605,9 @@ func (s *driveService) UploadNote(note *Note) error {
 		Q(fmt.Sprintf("name='%s.json' and '%s' in parents and trashed=false", note.ID, s.auth.driveSync.notesFolderID)).
 		Fields("files(id)").Do()
 	if err != nil {
-		return err
+		return s.handleOfflineTransition(err)
 	}
+
 
 	if len(files.Files) > 0 {
 		// Update
@@ -529,9 +616,10 @@ func (s *driveService) UploadNote(note *Note) error {
 			Media(bytes.NewReader(noteContent)).
 			Do()
 		if err == nil {
-			s.sendLogMessage(fmt.Sprintf("Updated note: %s", note.Title))
+			s.sendLogMessage(fmt.Sprintf("Uploaded note \"%s\"", note.Title))
 		}
 		return err
+
 	}
 
 	// Create
@@ -544,13 +632,17 @@ func (s *driveService) UploadNote(note *Note) error {
 		Media(bytes.NewReader(noteContent)).
 		Do()
 	if err == nil {
-		s.sendLogMessage(fmt.Sprintf("Created note: %s", note.Title))
+		s.sendLogMessage(fmt.Sprintf("Uploaded note \"%s\"", note.Title))
 	}
 	return err
+
 }
 
 // DeleteNoteDrive はGoogle Drive上のノートを削除
 func (s *driveService) DeleteNoteDrive(noteID string) error {
+	s.sendLogMessage("Deleting note from cloud...")
+	
+
 	if s.IsTestMode() {
 		var updatedNotes []NoteMetadata
 		for _, metadata := range s.auth.driveSync.cloudNoteList.Notes {
@@ -566,20 +658,26 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 		Q(fmt.Sprintf("name='%s.json' and '%s' in parents and trashed=false", noteID, s.auth.driveSync.notesFolderID)).
 		Fields("files(id)").Do()
 	if err != nil {
-		return err
+		return s.handleOfflineTransition(err)
 	}
+
 
 	if len(files.Files) > 0 {
 		return s.auth.driveSync.service.Files.Delete(files.Files[0].Id).Do()
 	}
+	s.sendLogMessage("Deleted note from cloud")
 	return nil
 }
+
 
 // UploadNoteList は現在のノートリスト(noteList.json)をアップロード
 func (s *driveService) UploadNoteList() error {
 	s.sendLogMessage("Uploading note list...")
 	fmt.Printf("Uploading note list with LastSync: %v\n", s.noteService.noteList.LastSync)
+	s.sendLogMessage(fmt.Sprintf("Uploading note list with LastSync: %v", s.noteService.noteList.LastSync))
 	fmt.Printf("Notes count: %d\n", len(s.noteService.noteList.Notes))
+	s.sendLogMessage(fmt.Sprintf("Notes count: %d", len(s.noteService.noteList.Notes)))
+
 
 	s.auth.driveSync.mutex.Lock()
 	defer s.auth.driveSync.mutex.Unlock()
@@ -605,15 +703,17 @@ func (s *driveService) UploadNoteList() error {
 		Q(fmt.Sprintf("name='noteList.json' and '%s' in parents and trashed=false", s.auth.driveSync.rootFolderID)).
 		Fields("files(id)").Do()
 	if err != nil {
-		return err
+		return s.handleOfflineTransition(err)
 	}
 
 	if len(files.Files) > 0 {
 		file := files.Files[0]
 		fmt.Printf("Updating existing note list file: %s\n", file.Id)
+		s.sendLogMessage(fmt.Sprintf("Updating existing note list file: %s", file.Id))
 		_, err = s.auth.driveSync.service.Files.Update(file.Id, &drive.File{}).
 			Media(bytes.NewReader(noteListContent)).
 			Do()
+
 		if err == nil {
 			s.sendLogMessage("Note list uploaded")
 			if !s.IsTestMode() {
@@ -644,6 +744,7 @@ func (s *driveService) UploadNoteList() error {
 // SyncNotes はGoogle Driveとの同期を実行します
 func (s *driveService) SyncNotes() error {
 	fmt.Println("Starting sync with Drive...")
+	s.sendLogMessage("Starting sync with Drive...")
 
 	// テストモードの場合は特別な処理
 	if s.IsTestMode() {
@@ -655,6 +756,8 @@ func (s *driveService) SyncNotes() error {
 	}
 
 	if !s.IsConnected() {
+		s.sendLogMessage("Not connected to Google Drive")
+		s.auth.handleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 		return fmt.Errorf("not connected to Google Drive")
 	}
 
@@ -663,8 +766,7 @@ func (s *driveService) SyncNotes() error {
 		Q(fmt.Sprintf("name='noteList.json' and '%s' in parents and trashed=false", s.auth.driveSync.rootFolderID)).
 		Fields("files(id)").Do()
 	if err != nil {
-		s.auth.driveSync.isConnected = false
-		return fmt.Errorf("failed to list cloud noteList: %v", err)
+		return s.handleOfflineTransition(err)
 	}
 
 	var cloudNoteList *NoteList
@@ -672,17 +774,20 @@ func (s *driveService) SyncNotes() error {
 		resp, err := s.auth.driveSync.service.Files.Get(noteListFiles.Files[0].Id).Download()
 		if err != nil {
 			s.auth.driveSync.isConnected = false
+			s.sendLogMessage(fmt.Sprintf("Failed to download cloud noteList: %v", err))
 			return fmt.Errorf("failed to download cloud noteList: %v", err)
 		}
 		defer resp.Body.Close()
 
 		if err := json.NewDecoder(resp.Body).Decode(&cloudNoteList); err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to decode cloud noteList: %v", err))
 			return fmt.Errorf("failed to decode cloud noteList: %v", err)
 		}
 	}
 
 	if cloudNoteList == nil {
 		fmt.Println("Cloud note list is nil, uploading all notes...")
+		s.sendLogMessage("Cloud note list is nil, uploading all notes...")
 		return s.uploadAllNotes()
 	}
 
@@ -691,27 +796,95 @@ func (s *driveService) SyncNotes() error {
 	fmt.Printf("Cloud notes count: %d\n", len(cloudNoteList.Notes))
 	fmt.Printf("Local notes count: %d\n", len(s.noteService.noteList.Notes))
 
+	hasChanges := false
+
 	// ノートリストの内容が異なるかどうかをチェック
 	if cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
 		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
 		fmt.Println("Cloud has updates - updating local state")
+		s.sendLogMessage("Cloud has updates - updating local state")
 		s.noteService.noteList.Notes = cloudNoteList.Notes
+		hasChanges = true
 	} else {
 		fmt.Printf("Local is up to date\n")
+		s.sendLogMessage("Local is up to date")
+	}
+
+	// 個別のノートの同期処理
+	for _, cloudNote := range cloudNoteList.Notes {
+		localNote, err := s.noteService.LoadNote(cloudNote.ID)
+		if err != nil {
+			// ローカルにないノートはダウンロード
+			if !s.IsTestMode() {
+				if err := s.downloadNote(cloudNote.ID); err != nil {
+					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
+					s.sendLogMessage(fmt.Sprintf("Error downloading note %s: %v", cloudNote.ID, err))
+					continue
+				}
+			} else {
+				// テストモードの場合は、クラウドの内容で新しいノートを作成
+				newNote := &Note{
+					ID:           cloudNote.ID,
+					Title:        cloudNote.Title,
+					Content:      "Cloud content",
+					Language:     "plaintext",
+					ModifiedTime: cloudNote.ModifiedTime,
+				}
+				if err := s.noteService.SaveNote(newNote); err != nil {
+					fmt.Printf("Error creating note %s: %v\n", cloudNote.ID, err)
+					s.sendLogMessage(fmt.Sprintf("Error creating note %s: %v", cloudNote.ID, err))
+					continue
+				}
+			}
+			hasChanges = true
+		} else if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
+			// クラウドの方が新しい場合は更新
+			if !s.IsTestMode() {
+				if err := s.downloadNote(cloudNote.ID); err != nil {
+					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
+					s.sendLogMessage(fmt.Sprintf("Error downloading note %s: %v", cloudNote.ID, err))
+					continue
+				}
+			} else {
+				// テストモードの場合は、クラウドの内容で更新
+				localNote.Title = cloudNote.Title
+				localNote.Content = "Cloud content"
+				localNote.ModifiedTime = cloudNote.ModifiedTime
+				if err := s.noteService.SaveNote(localNote); err != nil {
+					fmt.Printf("Error updating note %s: %v\n", cloudNote.ID, err)
+					s.sendLogMessage(fmt.Sprintf("Error updating note %s: %v", cloudNote.ID, err))
+					continue
+				}
+				// 更新後、対応するノートリストのメタデータも更新する
+				for i, meta := range s.noteService.noteList.Notes {
+					if meta.ID == cloudNote.ID {
+						s.noteService.noteList.Notes[i].Title = cloudNote.Title
+						break
+					}
+				}
+			}
+			hasChanges = true
+		}
 	}
 
 	// ローカルのノートリストを更新
-	s.noteService.noteList.LastSync = time.Now()
-	if err := s.noteService.saveNoteList(); err != nil {
-		return fmt.Errorf("failed to save local note list: %v", err)
+	if hasChanges {
+		s.noteService.noteList.LastSync = time.Now()
+		if err := s.noteService.saveNoteList(); err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to save local note list: %v", err))
+			s.auth.handleOfflineTransition(err)
+			return fmt.Errorf("failed to save local note list: %v", err)
+		}
+
+		// 変更があった場合のみフロントエンドに通知
+		if !s.IsTestMode() {
+			fmt.Println("Notifying frontend of changes")
+			wailsRuntime.EventsEmit(s.ctx, "notes:reload")
+		}
+
+		s.sendLogMessage("Synced changes from cloud")
 	}
 
-	// 変更があった場合のみフロントエンドに通知
-	if !s.IsTestMode() && (cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
-		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes)) {
-		fmt.Println("Notifying frontend of changes")
-		wailsRuntime.EventsEmit(s.ctx, "notes:reload")
-	}
 
 	return nil
 }
@@ -719,27 +892,68 @@ func (s *driveService) SyncNotes() error {
 // syncCloudToLocal はクラウドの変更をローカルに同期します
 func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 	if cloudNoteList == nil {
+		s.sendLogMessage("Cloud note list is nil")
 		return fmt.Errorf("cloud note list is nil")
 	}
 
 	// ノートリストの内容が異なるかどうかをチェック
-	if s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
+	if cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
+		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
 		fmt.Println("Cloud has updates - updating local state")
-		s.noteService.noteList.Notes = cloudNoteList.Notes
+		s.sendLogMessage("Cloud has updates - updating local state")
+
+		// クラウドのノートリストをローカルにコピー
+		s.noteService.noteList.Notes = make([]NoteMetadata, len(cloudNoteList.Notes))
+		copy(s.noteService.noteList.Notes, cloudNoteList.Notes)
+		s.noteService.noteList.LastSync = cloudNoteList.LastSync
+
+		// テストモードでない場合は、各ノートの内容も更新
+		if !s.IsTestMode() {
+			for _, cloudNote := range cloudNoteList.Notes {
+				localNote, err := s.noteService.LoadNote(cloudNote.ID)
+				if err != nil || localNote.ModifiedTime.Before(cloudNote.ModifiedTime) {
+					if err := s.downloadNote(cloudNote.ID); err != nil {
+						fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
+						s.sendLogMessage(fmt.Sprintf("Error downloading note %s: %v", cloudNote.ID, err))
+					}
+
+				}
+			}
+		} else {
+			// テストモード時は、ノートの内容を模擬的に更新
+			for _, cloudNote := range cloudNoteList.Notes {
+				note := &Note{
+					ID:           cloudNote.ID,
+					Title:        cloudNote.Title,
+					Content:      "Cloud content",
+					Language:     cloudNote.Language,
+					ModifiedTime: cloudNote.ModifiedTime,
+				}
+				if err := s.noteService.SaveNote(note); err != nil {
+					fmt.Printf("Error saving note %s: %v\n", cloudNote.ID, err)
+					s.sendLogMessage(fmt.Sprintf("Error saving note %s: %v", cloudNote.ID, err))
+				}
+
+			}
+		}
+
+		// ノートリストを保存
+		if err := s.noteService.saveNoteList(); err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to save note list: %v", err))
+			s.auth.handleOfflineTransition(err)
+			return fmt.Errorf("failed to save note list: %v", err)
+		}
+
+
+		// フロントエンドに変更を通知
+		if !s.IsTestMode() {
+			wailsRuntime.EventsEmit(s.ctx, "notes:reload")
+		}
 	} else {
 		fmt.Printf("Local is up to date\n")
+		s.sendLogMessage("Local is up to date")
 	}
 
-	// ローカルのノートリストを更新
-	s.noteService.noteList.LastSync = time.Now()
-	if err := s.noteService.saveNoteList(); err != nil {
-		return fmt.Errorf("failed to save local note list: %v", err)
-	}
-
-	// テストモードでない場合はフロントエンドに通知
-	if !s.IsTestMode() {
-		wailsRuntime.EventsEmit(s.ctx, "notes:reload")
-	}
 
 	return nil
 }
@@ -748,8 +962,10 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 func (s *driveService) hasNoteListChanged(cloudList, localList []NoteMetadata) bool {
 	if len(cloudList) != len(localList) {
 		fmt.Println("Note list length differs")
+		s.sendLogMessage("Note list length differs")
 		return true
 	}
+
 	
 	// ノートの順序とIDを比較
 	for i := range cloudList {
@@ -758,8 +974,12 @@ func (s *driveService) hasNoteListChanged(cloudList, localList []NoteMetadata) b
 			fmt.Printf("Note order differs at index %d (cloud: %s[%d], local: %s[%d])\n",
 				i, cloudList[i].ID, cloudList[i].Order,
 				localList[i].ID, localList[i].Order)
+			s.sendLogMessage(fmt.Sprintf("Note order differs at index %d (cloud: %s[%d], local: %s[%d])",
+				i, cloudList[i].ID, cloudList[i].Order,
+				localList[i].ID, localList[i].Order))
 			return true
 		}
+
 	}
 	return false
 }
@@ -838,6 +1058,9 @@ func (s *driveService) loadStartPageToken() error {
 		// 新規取得
 		token, err := s.auth.driveSync.service.Changes.GetStartPageToken().Do()
 		if err != nil {
+			s.sendLogMessage(fmt.Sprintf("Failed to get start page token: %v", err))
+			// ログアウト処理を行う
+			s.auth.handleOfflineTransition(err)
 			return fmt.Errorf("failed to get start page token: %v", err)
 		}
 		s.auth.driveSync.startPageToken = token.StartPageToken
@@ -846,4 +1069,32 @@ func (s *driveService) loadStartPageToken() error {
 		}
 	}
 	return nil
+}
+
+// handleOfflineTransition はオフライン状態への遷移を処理します
+func (s *driveService) handleOfflineTransition(err error) error {
+	// エラーメッセージをログに記録
+	errMsg := fmt.Sprintf("Drive error: %v", err)
+	s.sendLogMessage(errMsg)
+	
+	// トークンファイルのパス
+	tokenFile := filepath.Join(s.appDataDir, "token.json")
+	
+	// トークンファイルを削除
+	if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
+		s.sendLogMessage(fmt.Sprintf("Failed to remove token file: %v", err))
+	}
+	
+	// 認証状態をリセット
+	s.auth.driveSync.service = nil
+	s.auth.driveSync.isConnected = false
+	
+	// フロントエンドに通知
+	if !s.IsTestMode() {
+		wailsRuntime.EventsEmit(s.ctx, "drive:error", "Sync failed. Please login again." + errMsg)
+		wailsRuntime.EventsEmit(s.ctx, "drive:status", "offline")
+	}
+	
+
+	return fmt.Errorf("sync error: %v", err)
 }

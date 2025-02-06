@@ -72,7 +72,7 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
 
       logTimeoutRef.current = window.setTimeout(() => {
         setLogMessage('');
-      }, 10000);
+      }, 8000);
     });
 
     return () => {
@@ -88,7 +88,7 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
       sx={{
         borderTop: 1,
         borderColor: 'divider',
-        px: 3,
+        px: 2,
         height: 37.1,
         display: 'flex',
         alignItems: 'center',
@@ -108,13 +108,13 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
 
       <Box sx={{ display: 'flex', textAlign: 'left', width: 280 }}>
         <Divider orientation='vertical' flexItem />
-        <Typography variant='caption' component='div' sx={{ mx: 4 }} noWrap>
+        <Typography variant='caption' component='div' sx={{ mx: 4, width: '100%' }} noWrap>
           {info[2]}
         </Typography>
         <Divider orientation='vertical' flexItem sx={{ right: 0 }} />
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', textAlign: 'left', overflow: 'hidden' }}>
         <Typography variant='caption' component='div' sx={{ mx: 2, color: 'text.secondary' }} noWrap>
           {logMessage}
         </Typography>
