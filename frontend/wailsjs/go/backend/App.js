@@ -26,10 +26,6 @@ export function DestroyApp() {
   return window['go']['backend']['App']['DestroyApp']();
 }
 
-export function DomReady(arg1) {
-  return window['go']['backend']['App']['DomReady'](arg1);
-}
-
 export function InitializeDrive() {
   return window['go']['backend']['App']['InitializeDrive']();
 }

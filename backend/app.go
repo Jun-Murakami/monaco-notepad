@@ -310,11 +310,18 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 
 // Google Drive APIの初期化
 func (a *App) InitializeDrive() error {
+	if a.driveService == nil {
+		return fmt.Errorf("DriveService not initialized yet")
+	}
 	return a.driveService.InitializeDrive()
 }
 
+
 // Google Driveの認証フローを開始
 func (a *App) AuthorizeDrive() (string, error) {
+	if a.driveService == nil {
+		return "", fmt.Errorf("DriveService not initialized yet")
+	}
 	return a.driveService.AuthorizeDrive()
 }
 

@@ -117,6 +117,7 @@ export const AppBar: React.FC<{
       await InitializeDrive();
     } catch (error) {
       console.error('Google authentication error:', error);
+      showMessage('Error', 'Google authentication failed: ' + error);
       setSyncStatus('offline');
     }
   };
@@ -129,6 +130,7 @@ export const AppBar: React.FC<{
       }
     } catch (error) {
       console.error('Logout error:', error);
+      showMessage('Error', 'Logout failed: ' + error);
     }
   };
 
@@ -140,7 +142,7 @@ export const AppBar: React.FC<{
         setSyncStatus('synced');
       } catch (error) {
         console.error('Manual sync error:', error);
-        showMessage('Sync Error', 'Failed to synchronize with Google Drive.');
+        showMessage('Sync Error', 'Failed to synchronize with Google Drive: ' + error);
       }
     }
   };

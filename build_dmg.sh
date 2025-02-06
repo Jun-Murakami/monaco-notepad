@@ -50,7 +50,7 @@ xcrun notarytool submit "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg" \
   --password "$APP_SPECIFIC_PASSWORD" \
   --team-id "$TEAM_ID" \
   --wait \
-  --timeout 7200 || {
+  --timeout 3600 || {
     echo "Notarization failed"
     exit 1
   }
