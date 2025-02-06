@@ -31,7 +31,6 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
 		OnStartup:        app.Startup,
-		OnDomReady:       app.DomReady,
 		OnBeforeClose:    app.BeforeClose,
 		LogLevel: logger.INFO,
 		Bind: []interface{}{

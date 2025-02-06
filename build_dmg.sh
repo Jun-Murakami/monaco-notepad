@@ -50,7 +50,7 @@ xcrun notarytool submit "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg" \
   --password "$APP_SPECIFIC_PASSWORD" \
   --team-id "$TEAM_ID" \
   --wait \
-  --timeout 3600 || {
+  --timeout 7200 || {
     echo "Notarization failed"
     exit 1
   }
@@ -83,3 +83,9 @@ fi
 
 echo "DMG creation and notarization completed successfully!"
 xcrun stapler validate "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg"
+
+# ノータライズのステータス確認
+xcrun notarytool log <Submission ID> \
+  --apple-id "$APPLE_ID" \
+  --password "$APP_SPECIFIC_PASSWORD" \
+  --team-id "$TEAM_ID"
