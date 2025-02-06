@@ -71,10 +71,13 @@ function App() {
     };
     asyncFunc();
 
-    // フロントエンドの準備完了をバックエンドに通知
-    NotifyFrontendReady();
+    // バックエンドの準備完了を待ってから通知
+    const unsubscribe = runtime.EventsOn('backend:ready', () => {
+      NotifyFrontendReady();
+    });
 
     return () => {
+      unsubscribe();
       setLanguages([]);
     };
   }, []);

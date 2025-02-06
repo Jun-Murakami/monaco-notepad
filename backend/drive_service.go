@@ -42,6 +42,7 @@ type driveService struct {
 	frontendReady chan struct{}
 	credentials   []byte
 	isTestMode    bool // テストモード用のフラグ
+	initialized   bool // 追加：初期化完了フラグ
 }
 
 // NewDriveService は新しいdriveServiceインスタンスを作成します
@@ -51,7 +52,7 @@ func NewDriveService(ctx context.Context, appDataDir string, notesDir string, no
 		appDataDir:    appDataDir,
 		notesDir:      notesDir,
 		noteService:   noteService,
-		frontendReady: make(chan struct{}),
+		frontendReady: make(chan struct{}), // バッファなしチャネル
 		credentials:   credentials,
 		driveSync:     &DriveSync{
 			lastUpdated: make(map[string]time.Time),
@@ -60,6 +61,7 @@ func NewDriveService(ctx context.Context, appDataDir string, notesDir string, no
 				Notes:   []NoteMetadata{},
 			},
 		},
+		initialized: false, // 初期化フラグを設定
 	}
 }
 
@@ -91,26 +93,22 @@ func (s *driveService) InitializeDrive() error {
 			return err
 		}
 
-		var token oauth2.Token
-		if err := json.Unmarshal(data, &token); err != nil {
-			fmt.Printf("Error parsing token: %v\n", err)
-			if !s.isTestMode {
-				wailsRuntime.EventsEmit(s.ctx, "drive:status", "offline")
-			}
-			return err
+	var token oauth2.Token
+	if err := json.Unmarshal(data, &token); err != nil {
+		fmt.Printf("Error parsing token: %v\n", err)
+		if !s.isTestMode {
+			wailsRuntime.EventsEmit(s.ctx, "drive:status", "offline")
 		}
-
-		if err := s.initializeDriveService(&token); err != nil {
-			fmt.Printf("Error initializing Drive service: %v\n", err)
-			if !s.isTestMode {
-				wailsRuntime.EventsEmit(s.ctx, "drive:status", "offline")
-			}
-			return err
-		}
+		return err
 	}
 
-	if !s.isTestMode {
-		wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
+	if err := s.initializeDriveService(&token); err != nil {
+		fmt.Printf("Error initializing Drive service: %v\n", err)
+		if !s.isTestMode {
+			wailsRuntime.EventsEmit(s.ctx, "drive:status", "offline")
+		}
+		return err
+	}
 	}
 
 	return nil
@@ -240,7 +238,7 @@ func (s *driveService) AuthorizeDrive() (string, error) {
 			return "", fmt.Errorf("failed to complete authentication: %v", err)
 		}
 		return "auth_complete", nil
-	case <-time.After(1 * time.Minute):
+	case <-time.After(3 * time.Minute):
 		// タイムアウト
 		server.Shutdown(s.ctx)
 		s.handleOfflineTransition()
@@ -366,37 +364,42 @@ func (s *driveService) initializeDriveService(token *oauth2.Token) error {
 
 	// フロントエンドの準備完了を待ってから同期処理を開始
 	go func() {
-		// フロントエンドの準備完了を待つ
-		<-s.frontendReady
+		if !s.initialized {
+			// フロントエンドの準備完了を待つ
+			<-s.frontendReady
+			s.initialized = true
+			
+			fmt.Println("Frontend ready - starting sync...")
 
-		// 接続状態を通知
-		if !s.isTestMode {
-			wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
-		}
+			// 接続状態を通知
+			if !s.isTestMode {
+				wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
+			}
 
-		// 初回同期フラグをチェック
-		syncFlagPath := filepath.Join(s.appDataDir, "initial_sync_completed")
-		if _, err := os.Stat(syncFlagPath); os.IsNotExist(err) {
-			// 初回同期を実行
-			fmt.Println("First time initialization - performing initial sync...")
-			if err := s.performInitialSync(); err != nil {
-				fmt.Printf("Initial sync failed: %v\n", err)
-			} else {
-				// 初回同期完了フラグを保存
-				if err := os.WriteFile(syncFlagPath, []byte("1"), 0644); err != nil {
-					fmt.Printf("Failed to save initial sync flag: %v\n", err)
+			// 初回同期フラグをチェック
+			syncFlagPath := filepath.Join(s.appDataDir, "initial_sync_completed")
+			if _, err := os.Stat(syncFlagPath); os.IsNotExist(err) {
+				// 初回同期を実行
+				fmt.Println("First time initialization - performing initial sync...")
+				if err := s.performInitialSync(); err != nil {
+					fmt.Printf("Initial sync failed: %v\n", err)
+				} else {
+					// 初回同期完了フラグを保存
+					if err := os.WriteFile(syncFlagPath, []byte("1"), 0644); err != nil {
+						fmt.Printf("Failed to save initial sync flag: %v\n", err)
+					}
+					s.driveSync.hasCompletedInitialSync = true
 				}
+			} else {
 				s.driveSync.hasCompletedInitialSync = true
 			}
-		} else {
-			s.driveSync.hasCompletedInitialSync = true
+
+			// 最初のポーリングまで少し待機
+			time.Sleep(1 * time.Second)
+
+			// Start sync polling
+			s.startSyncPolling()
 		}
-
-		// 最初のポーリングまで少し待機
-		time.Sleep(1 * time.Second)
-
-		// Start sync polling
-		s.startSyncPolling()
 	}()
 
 	return nil
@@ -980,72 +983,88 @@ func (s *driveService) uploadNoteList() error {
 
 // SyncNotes はローカルのノートとGoogle Drive上のノートを同期します
 func (s *driveService) SyncNotes() error {
-	fmt.Println("Starting sync with Drive...")
+    fmt.Println("Starting sync with Drive...")
 
-	// テストモードの場合は、エラーを返す
-	if s.isTestMode {
-		s.driveSync.isConnected = false
-		return fmt.Errorf("drive service is not initialized")
-	}
+    // テストモードの場合はDriveServiceを無効扱いにしてエラーを返す
+    if s.isTestMode {
+        s.driveSync.isConnected = false
+        return fmt.Errorf("drive service is not initialized")
+    }
 
-	// まずnoteList.jsonの最新状態を取得
-	files, err := s.driveSync.service.Files.List().
-		Q(fmt.Sprintf("name='noteList.json' and '%s' in parents and trashed=false", s.driveSync.rootFolderID)).
-		Fields("files(id)").Do()
-	if err != nil {
-		s.driveSync.isConnected = false
-		return fmt.Errorf("failed to list noteList.json: %v", err)
-	}
+    // === (1) 最新の noteList.json を確認 ===
 
-	if len(files.Files) > 0 {
-		if err := s.handleNoteListChange(files.Files[0]); err != nil {
-			fmt.Printf("Error updating noteList: %v\n", err)
-		}
-	}
+    // Drive上で 「name='noteList.json' & ルートフォルダ(rootFolderID)内 & ゴミ箱ではない(trashed=false)」
+    // という条件に該当するファイルを検索
+    files, err := s.driveSync.service.Files.List().
+        Q(fmt.Sprintf("name='noteList.json' and '%s' in parents and trashed=false", s.driveSync.rootFolderID)).
+        Fields("files(id)").Do()
+    if err != nil {
+        // リスト取得に失敗したら、接続をオフラインにしてエラー
+        s.driveSync.isConnected = false
+        return fmt.Errorf("failed to list noteList.json: %v", err)
+    }
 
-	// Get changes since last sync
-	changes, err := s.getChanges()
-	if err != nil {
-		s.driveSync.isConnected = false
-		return fmt.Errorf("failed to get changes: %v", err)
-	}
+    // Drive上に noteList.json が存在する場合は、handleNoteListChange() で内容をローカルに反映する
+    if len(files.Files) > 0 {
+        if err := s.handleNoteListChange(files.Files[0]); err != nil {
+            fmt.Printf("Error updating noteList: %v\n", err)
+        }
+    }
 
-	if len(changes) == 0 {
-		fmt.Println("No changes detected")
-		return nil
-	}
+    // === (2) 変更履歴(Changes)を取得して差分同期 ===
 
-	fmt.Printf("Found %d changes\n", len(changes))
+    // getChanges() で startPageToken 以降のDriveの変更履歴一覧を取得
+    changes, err := s.getChanges()
+    if err != nil {
+        s.driveSync.isConnected = false
+        return fmt.Errorf("failed to get changes: %v", err)
+    }
 
-	// Process changes
-	for _, change := range changes {
-		if change.File == nil {
-			continue
-		}
+    // 変更が無ければここで同期終了
+    if len(changes) == 0 {
+        fmt.Println("No changes detected")
+        return nil
+    }
 
-		// ノートファイルの変更を検出
-		if strings.HasSuffix(change.File.Name, ".json") && change.File.Name != "noteList.json" {
-			if err := s.handleNoteChange(change.File); err != nil {
-				fmt.Printf("Error handling note change: %v\n", err)
-			}
-		}
-	}
+    fmt.Printf("Found %d changes\n", len(changes))
 
-	// 変更が検出された場合、LastSyncを更新
-	s.noteService.noteList.LastSync = time.Now()
-	if err := s.noteService.saveNoteList(); err != nil {
-		fmt.Printf("Error saving note list: %v\n", err)
-	}
+    // === (3) 変更箇所を反映 ===
 
-	// Update start page token
-	token, err := s.driveSync.service.Changes.GetStartPageToken().Do()
-	if err != nil {
-		s.driveSync.isConnected = false
-		return fmt.Errorf("failed to get new start page token: %v", err)
-	}
-	s.driveSync.startPageToken = token.StartPageToken
+    // 取得した changes(=Drive上で変化のあったファイルの一覧)を回す
+    for _, change := range changes {
+        if change.File == nil {
+            // File情報が無いChangeはスキップ(削除済など)
+            continue
+        }
 
-	return nil
+        // ノートファイル(.json)に対する変更かどうかを判定
+        // ただし noteList.json の更新は handleNoteListChange() で対応済みなので除外
+        if strings.HasSuffix(change.File.Name, ".json") && change.File.Name != "noteList.json" {
+            // handleNoteChange() で実際にそのノートをダウンロード等して反映する
+            if err := s.handleNoteChange(change.File); err != nil {
+                fmt.Printf("Error handling note change: %v\n", err)
+            }
+        }
+    }
+
+    // === (4) ローカル noteList の更新と保存 ===
+
+    // 変更箇所があったのでローカルのnoteListも「更新時刻」を記録
+    s.noteService.noteList.LastSync = time.Now()
+    if err := s.noteService.saveNoteList(); err != nil {
+        fmt.Printf("Error saving note list: %v\n", err)
+    }
+
+    // === (5) 次の同期時に備えて startPageToken を最新化 ===
+
+    token, err := s.driveSync.service.Changes.GetStartPageToken().Do()
+    if err != nil {
+        s.driveSync.isConnected = false
+        return fmt.Errorf("failed to get new start page token: %v", err)
+    }
+    s.driveSync.startPageToken = token.StartPageToken
+
+    return nil
 }
 
 // getChanges はGoogle Driveの変更履歴を取得します
@@ -1120,6 +1139,8 @@ func (s *driveService) handleNoteListChange(file *drive.File) error {
 	if cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) {
 		fmt.Printf("Updating local noteList from cloud (Cloud: %v, Local: %v)\n",
 			cloudNoteList.LastSync, s.noteService.noteList.LastSync)
+		s.sendLogMessage(fmt.Sprintf("Updating local noteList from cloud (Cloud: %v, Local: %v)",
+			cloudNoteList.LastSync, s.noteService.noteList.LastSync))
 		return s.syncCloudToLocal(&cloudNoteList)
 	}
 
@@ -1221,6 +1242,11 @@ func (s *driveService) handleNoteChange(file *drive.File) error {
 		if err := s.noteService.saveNoteList(); err != nil {
 			return fmt.Errorf("failed to save note list: %v", err)
 		}
+
+		// フロントエンドに個別のノート更新を通知
+		if !s.isTestMode {
+			wailsRuntime.EventsEmit(s.ctx, "note:updated", noteID)
+		}
 	} else {
 		fmt.Printf("Skipping note %s (hash match)\n", noteID)
 	}
@@ -1261,6 +1287,7 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 		delete(localNotesMap, noteID)
 	}
 	fmt.Printf("Downloaded %d notes from cloud\n", downloadCount)
+	s.sendLogMessage(fmt.Sprintf("Downloaded %d notes from cloud", downloadCount))
 
 	// クラウドに存在しないローカルノートを削除
 	deleteCount := 0
@@ -1299,12 +1326,14 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 
 // NotifyFrontendReady はフロントエンドの準備完了を通知します
 func (s *driveService) NotifyFrontendReady() {
+	fmt.Println("NotifyFrontendReady called") // デバッグログ追加
 	select {
-	case <-s.frontendReady:
-		// チャネルが既に閉じられている場合は何もしない
+	case <-s.frontendReady: // チャネルが既に閉じられているかチェック
+		fmt.Println("Frontend ready channel already closed") // デバッグログ追加
 		return
 	default:
 		close(s.frontendReady)
+		fmt.Println("Frontend ready channel closed") // デバッグログ追加
 	}
 }
 

@@ -5,13 +5,13 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "Monaco Notepad"
+    !define INFO_PROJECTNAME "MonacoNotepad"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "Monaco Notepad"
+    !define INFO_COMPANYNAME "MonacoNotepad"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "Monaco Notepad"
+    !define INFO_PRODUCTNAME "MonacoNotepad"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "1.0.0"

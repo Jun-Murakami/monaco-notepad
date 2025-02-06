@@ -33,6 +33,23 @@ export const useNotes = () => {
       setNotes(notes);
     });
 
+    // 個別のノート更新イベントのハンドラを登録
+    runtime.EventsOn('note:updated', async (noteId: string) => {
+      // 更新されたノートを再読み込み
+      const notes = await ListNotes();
+      setNotes(notes);
+
+      // 現在表示中のノートが更新された場合、その内容も更新
+      if (currentNoteRef.current?.id === noteId) {
+        const updatedNote = notes.find(note => note.id === noteId);
+        if (updatedNote) {
+          setCurrentNote(updatedNote);
+          previousContent.current = updatedNote.content || '';
+          isNoteModified.current = false;
+        }
+      }
+    });
+
     // BeforeCloseイベントのリスナーを一度だけ設定
     const handleBeforeClose = async () => {
       if (isClosing.current) return;
@@ -52,6 +69,8 @@ export const useNotes = () => {
 
     return () => {
       runtime.EventsOff('app:beforeclose');
+      runtime.EventsOff('notes:reload');
+      runtime.EventsOff('note:updated');
     };
   }, []);
 

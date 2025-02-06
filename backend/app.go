@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -83,12 +84,17 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) DomReady(ctx context.Context) {
-		// DriveServiceの初期化
+	fmt.Println("DomReady called")
+	
+	// DriveServiceの初期化
 	driveService := NewDriveService(ctx, a.appDataDir, a.notesDir, a.noteService, credentialsJSON)
 	if err := driveService.InitializeDrive(); err != nil {
 		fmt.Printf("Error initializing drive service: %v\n", err)
 	}
 	a.driveService = driveService
+
+	// フロントエンドに初期化完了を通知
+	wailsRuntime.EventsEmit(ctx, "backend:ready")
 }
 
 // アプリケーション終了前に呼び出される処理
@@ -119,8 +125,11 @@ func (a *App) DestroyApp() {
 
 // フロントエンドの準備完了を通知する
 func (a *App) NotifyFrontendReady() {
+	fmt.Println("App.NotifyFrontendReady called") // デバッグログ追加
 	if a.driveService != nil {
 		a.driveService.NotifyFrontendReady()
+	} else {
+		fmt.Println("Warning: driveService is nil") // デバッグログ追加
 	}
 }
 
@@ -188,21 +197,24 @@ func (a *App) SaveNote(note *Note) error {
 
 // ノートリストを保存する
 func (a *App) SaveNoteList() error {
-  //まずノートサービスで保存
-  if err := a.noteService.saveNoteList(); err != nil {
-    return err
-  }
+	// LastSyncを更新
+	a.noteService.noteList.LastSync = time.Now()
+	
+	//まずノートサービスで保存
+	if err := a.noteService.saveNoteList(); err != nil {
+		return err
+	}
 
-  //ドライブサービスが初期化されており、接続中の場合はアップロード
-  if a.driveService != nil && a.driveService.driveSync.isConnected {
-    if !a.driveService.isTestMode {
-      wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
-    }
-    if err := a.driveService.uploadNoteList(); err != nil {
-      fmt.Printf("Error uploading note list to Drive: %v\n", err)
-      return err
-    }
-  }
+	//ドライブサービスが初期化されており、接続中の場合はアップロード
+	if a.driveService != nil && a.driveService.driveSync.isConnected {
+		if !a.driveService.isTestMode {
+			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+		}
+		if err := a.driveService.uploadNoteList(); err != nil {
+			fmt.Printf("Error uploading note list to Drive: %v\n", err)
+			return err
+		}
+	}
 
 	return nil
 }
@@ -254,8 +266,37 @@ func (a *App) LoadArchivedNote(id string) (*Note, error) {
 }
 
 // ノートの順序を更新する
-func (a *App) UpdateNoteOrder(noteID string, newOrder int) error {
-	return a.noteService.UpdateNoteOrder(noteID, newOrder)
+func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
+	// まずノートサービスで順序を更新
+	if err := a.noteService.UpdateNoteOrder(noteID, newIndex); err != nil {
+		return err
+	}
+
+	// ドライブサービスが初期化されており、接続中の場合はアップロード
+	if a.driveService != nil && a.driveService.driveSync.isConnected {
+		go func() {
+			// テストモード時はイベント通知をスキップ
+			if !a.driveService.isTestMode {
+				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
+			}
+
+			// ノートリストをアップロード
+			if err := a.driveService.uploadNoteList(); err != nil {
+				fmt.Printf("Error uploading note list to Drive: %v\n", err)
+				if !a.driveService.isTestMode {
+					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+				}
+				return
+			}
+
+			// テストモード時はイベント通知をスキップ
+			if !a.driveService.isTestMode {
+				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
+			}
+		}()
+	}
+
+	return nil
 }
 
 // ------------------------------------------------------------
