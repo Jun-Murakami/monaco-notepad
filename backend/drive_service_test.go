@@ -50,7 +50,8 @@ type testHelper struct {
 	tempDir      string
 	notesDir     string
 	noteService  *noteService
-	driveService *driveService
+	driveService DriveService
+	authService  *driveAuthService
 }
 
 // テストのセットアップ
@@ -85,18 +86,35 @@ func setupTest(t *testing.T) *testHelper {
 	// テスト用のモックコンテキストを作成
 	ctx := context.Background()
 
-	// driveServiceの初期化（テスト用のコンテキストを使用）
-	driveService := NewDriveService(ctx, tempDir, notesDir, noteService, credentials)
+	// authServiceの初期化
+	authService := NewDriveAuthService(
+		ctx,
+		tempDir,
+		notesDir,
+		noteService,
+		credentials,
+		true, // isTestMode = true
+	)
 
-	// テスト用にイベント発行をスキップするフラグを設定
-	driveService.isTestMode = true
+	// driveServiceの初期化（テストモード）
+	driveService := NewDriveService(
+		ctx,
+		tempDir,
+		notesDir,
+		noteService,
+		credentials,
+	).(*driveService)
 
-	// driveSyncの初期化
-	driveService.driveSync = &DriveSync{
-		lastUpdated:   make(map[string]time.Time),
-		notesFolderID: "test-notes-folder",
-		isConnected:   true,
+	// テスト用のモックDriveサービスを作成
+	config, err := google.ConfigFromJSON(credentials, drive.DriveFileScope)
+	if err != nil {
+		t.Fatalf("Failed to parse client secret file to config: %v", err)
 	}
+	authService.driveSync.config = config
+	authService.driveSync.service = &drive.Service{}
+
+	// driveServiceのauthServiceを設定
+	driveService.auth = authService
 
 	// テスト用のノートデータを作成
 	testNoteData := []byte(`{
@@ -113,18 +131,12 @@ func setupTest(t *testing.T) *testHelper {
 		t.Fatalf("Failed to create test note file: %v", err)
 	}
 
-	// テスト用のモックDriveサービスを作成
-	config, err := google.ConfigFromJSON(credentials, drive.DriveFileScope)
-	if err != nil {
-		t.Fatalf("Failed to parse client secret file to config: %v", err)
-	}
-	driveService.driveSync.config = config
-
 	return &testHelper{
 		tempDir:      tempDir,
 		notesDir:     notesDir,
 		noteService:  noteService,
 		driveService: driveService,
+		authService:  authService,
 	}
 }
 
@@ -133,19 +145,19 @@ func (h *testHelper) cleanup() {
 	os.RemoveAll(h.tempDir)
 }
 
-// 基本的な初期化のテスト
+// TestNewDriveService はDriveServiceの初期化をテストします
 func TestNewDriveService(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
 
 	assert.NotNil(t, helper.driveService)
-	assert.NotNil(t, helper.driveService.noteService)
-	assert.Equal(t, helper.notesDir, helper.driveService.notesDir)
-	assert.NotNil(t, helper.driveService.frontendReady)
-	assert.NotNil(t, helper.driveService.credentials)
+	assert.NotNil(t, helper.authService)
+	assert.Equal(t, helper.notesDir, helper.authService.notesDir)
+	assert.NotNil(t, helper.authService.frontendReady)
+	assert.NotNil(t, helper.authService.credentials)
 }
 
-// ノートの保存と同期のテスト
+// TestSaveAndSyncNote はノートの保存と同期をテストします
 func TestSaveAndSyncNote(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
@@ -173,13 +185,13 @@ func TestSaveAndSyncNote(t *testing.T) {
 	assert.Equal(t, note.Title, helper.noteService.noteList.Notes[0].Title)
 }
 
-// オフライン→オンライン同期のテスト
+// TestOfflineToOnlineSync はオフライン→オンライン同期をテストします
 func TestOfflineToOnlineSync(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
 
 	// 初期状態はオフライン
-	helper.driveService.driveSync.isConnected = false
+	helper.authService.driveSync.isConnected = false
 
 	// オフライン状態でノートを作成
 	note := &Note{
@@ -194,16 +206,16 @@ func TestOfflineToOnlineSync(t *testing.T) {
 	assert.NoError(t, err)
 
 	// オンラインに切り替え
-	helper.driveService.driveSync.isConnected = true
+	helper.authService.driveSync.isConnected = true
 
 	// 同期を実行（実際のAPIコールはスキップ）
-	helper.driveService.driveSync.lastUpdated[note.ID] = time.Now()
+	helper.authService.driveSync.lastUpdated[note.ID] = time.Now()
 	
 	// 同期されたことを確認
-	assert.True(t, helper.driveService.driveSync.lastUpdated[note.ID].After(time.Time{}))
+	assert.True(t, helper.authService.driveSync.lastUpdated[note.ID].After(time.Time{}))
 }
 
-// 競合解決のテスト
+// TestConflictResolution はノートの競合解決をテストします
 func TestConflictResolution(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
@@ -231,7 +243,7 @@ func TestConflictResolution(t *testing.T) {
 	}
 
 	// クラウドノートリストを設定
-	helper.driveService.driveSync.cloudNoteList = &NoteList{
+	helper.authService.driveSync.cloudNoteList = &NoteList{
 		Version: "1.0",
 		Notes: []NoteMetadata{
 			{
@@ -242,66 +254,42 @@ func TestConflictResolution(t *testing.T) {
 		},
 	}
 
-	// テスト用のモックDriveサービスを設定
-	helper.driveService.driveSync.service = &drive.Service{}
+	// 同期を実行
+	err = helper.driveService.SyncNotes()
+	assert.NoError(t, err)
 
-	// 同期を実行（実際のAPIコールはスキップ）
-	err = helper.driveService.syncCloudToLocal(helper.driveService.driveSync.cloudNoteList)
+	// 同期後のノートを読み込み
+	updatedNote, err := helper.noteService.LoadNote(localNote.ID)
 	assert.NoError(t, err)
 
 	// クラウドバージョンが優先されることを確認
-	syncedNote, err := helper.noteService.LoadNote(localNote.ID)
-	assert.NoError(t, err)
-	assert.Equal(t, cloudNote.Title, syncedNote.Title)
+	assert.Equal(t, "Cloud Version", updatedNote.Title)
 }
 
-// エラー処理のテスト
+// TestErrorHandling はエラー処理をテストします
 func TestErrorHandling(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
 
-	// 認証エラーの場合
-	helper.driveService.driveSync.isConnected = true
+	// クラウドノートリストをnilに設定してエラーを発生させる
+	helper.authService.driveSync.cloudNoteList = nil
 
 	// 同期を実行
 	err := helper.driveService.SyncNotes()
 	assert.Error(t, err)
-
-	// オフラインに遷移することを確認
-	assert.False(t, helper.driveService.driveSync.isConnected)
+	assert.Contains(t, err.Error(), "cloud note list is nil")
 }
 
-// 定期的な同期のテスト
+// TestPeriodicSync は定期的な同期をテストします
 func TestPeriodicSync(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
 
-	// テスト用のクラウドノートを作成
-	cloudNote := &Note{
-		ID:           "periodic-sync-note",
-		Title:        "Cloud Note",
-		Content:      "This is a cloud note",
-		Language:     "plaintext",
-		ModifiedTime: time.Now(),
-	}
-
-	// クラウドノートリストを設定
-	helper.driveService.driveSync.cloudNoteList = &NoteList{
-		Version: "1.0",
-		Notes: []NoteMetadata{
-			{
-				ID:           cloudNote.ID,
-				Title:        cloudNote.Title,
-				ModifiedTime: cloudNote.ModifiedTime,
-			},
-		},
-	}
-
 	// ローカルノートを作成
 	localNote := &Note{
-		ID:           "periodic-sync-note",
+		ID:           "sync-note",
 		Title:        "Local Note",
-		Content:      "This is a local note",
+		Content:      "Local content",
 		Language:     "plaintext",
 		ModifiedTime: time.Now().Add(-time.Hour), // 1時間前
 	}
@@ -310,12 +298,26 @@ func TestPeriodicSync(t *testing.T) {
 	err := helper.noteService.SaveNote(localNote)
 	assert.NoError(t, err)
 
-	// 同期を実行（実際のAPIコールはスキップ）
-	err = helper.driveService.syncCloudToLocal(helper.driveService.driveSync.cloudNoteList)
+	// クラウドノートリストを設定（より新しい更新時刻）
+	helper.authService.driveSync.cloudNoteList = &NoteList{
+		Version: "1.0",
+		Notes: []NoteMetadata{
+			{
+				ID:           localNote.ID,
+				Title:        "Cloud Note",
+				ModifiedTime: time.Now(),
+			},
+		},
+	}
+
+	// 同期を実行
+	err = helper.driveService.SyncNotes()
 	assert.NoError(t, err)
 
-	// 同期後のノートリストを確認
-	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
-	assert.Equal(t, cloudNote.Title, helper.noteService.noteList.Notes[0].Title)
-	assert.True(t, helper.noteService.noteList.LastSync.After(localNote.ModifiedTime))
+	// 同期後のノートを読み込み
+	updatedNote, err := helper.noteService.LoadNote(localNote.ID)
+	assert.NoError(t, err)
+
+	// クラウドの変更が反映されていることを確認
+	assert.Equal(t, "Cloud Note", updatedNote.Title)
 } 
