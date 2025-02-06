@@ -11,7 +11,6 @@ interface EditorStatusBarProps {
 
 export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) => {
   const [logMessage, setLogMessage] = useState<string>('');
-  const [opacity, setOpacity] = useState<number>(1);
   const logTimeoutRef = useRef<number | null>(null);
 
   const getEditorInfo = () => {
@@ -70,10 +69,9 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
       }
 
       setLogMessage(message);
-      setOpacity(1);
 
       logTimeoutRef.current = window.setTimeout(() => {
-        setOpacity(0);
+        setLogMessage('');
       }, 8000);
     });
 
@@ -116,27 +114,8 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
         <Divider orientation='vertical' flexItem sx={{ right: 0 }} />
       </Box>
 
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          textAlign: 'left',
-          flexGrow: 1,
-          minWidth: 0,
-        }}
-      >
-        <Typography
-          variant='caption'
-          sx={{
-            mx: 4,
-            color: 'text.secondary',
-            opacity: opacity,
-            transition: 'opacity 2s',
-            whiteSpace: 'nowrap',
-            overflowX: 'visible',
-            textOverflow: 'unset',
-          }}
-        >
+      <Box sx={{ display: 'flex', alignItems: 'center', textAlign: 'left', overflow: 'hidden' }}>
+        <Typography variant='caption' sx={{ mx: 4, color: 'text.secondary' }} noWrap>
           {logMessage}
         </Typography>
       </Box>

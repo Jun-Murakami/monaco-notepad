@@ -35,9 +35,9 @@ function App() {
     handleContentChange,
   } = useNotes();
 
-  const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
+  const { handleOpenFile, handleSaveFile } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes);
 
-  const { handleOpenFile, handleSaveFile } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes, showMessage);
+  const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
 
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');

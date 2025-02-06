@@ -3,14 +3,12 @@ import { SelectFile, OpenFile, SaveFile, SelectSaveFileUri } from '../../wailsjs
 import { Note } from '../types';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { useEffect } from 'react';
-import { isBinaryFile } from '../utils/fileUtils';
 
 export const useFileOperations = (
   notes: Note[],
   currentNote: Note | null,
   handleNoteSelect: (note: Note, isNew: boolean) => Promise<void>,
   setNotes: (notes: Note[]) => void,
-  showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>,
 ) => {
   const handleOpenFile = async () => {
     try {
@@ -19,11 +17,6 @@ export const useFileOperations = (
 
       const content = await OpenFile(filePath);
       if (typeof content !== 'string') return;
-
-      if (isBinaryFile(content)) {
-        showMessage('Error', 'Failed to open the file. Please check the file format.');
-        return;
-      }
 
       const extension = filePath.split('.').pop()?.toLowerCase() || '';
       const detectedLanguage = getLanguageByExtension('.' + extension);

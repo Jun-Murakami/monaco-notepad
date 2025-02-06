@@ -62,8 +62,7 @@ func NewDriveService(
 		notesDir,
 		noteService,
 		credentials,
-		false, // isTestMode = false
-		// driveServiceのインスタンスを渡す
+		false, // isTestMode = false（必要に応じて設定）
 	)
 
 	return &driveService{
@@ -165,9 +164,8 @@ func (s *driveService) NotifyFrontendReady() {
 
 // IsConnected は接続状態を返す
 func (s *driveService) IsConnected() bool {
-	return s.auth.driveSync.isConnected
+	return s.auth.IsConnected()
 }
-
 
 // IsTestMode はテストモードかどうかを返す
 func (s *driveService) IsTestMode() bool {
@@ -404,7 +402,7 @@ func (s *driveService) startSyncPolling() {
 			interval = initialInterval
 			lastChangeTime = s.noteService.noteList.LastSync
 			fmt.Printf("Changes detected, resetting interval to %v\n", interval)
-			s.sendLogMessage("Syncing: Changes detected")
+			s.sendLogMessage(fmt.Sprintf("Changes detected, resetting interval to %v", interval))
 		} else {
 			// 変更がない場合は間隔を増加（最大値まで）
 			newInterval := time.Duration(float64(interval) * factor)
@@ -412,12 +410,10 @@ func (s *driveService) startSyncPolling() {
 				newInterval = maxInterval
 			}
 			if newInterval != interval {
-				fmt.Printf("Syncing: No changes detected, increasing interval from %v to %v\n", interval, newInterval)
-				s.sendLogMessage("Syncing: No changes detected")
+				fmt.Printf("No changes detected, increasing interval from %v to %v\n", interval, newInterval)
+				s.sendLogMessage(fmt.Sprintf("No changes detected, increasing interval from %v to %v", interval, newInterval))
 				interval = newInterval
 			}
-
-
 		}
 
 		if !s.IsTestMode() {
