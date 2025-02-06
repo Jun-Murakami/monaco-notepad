@@ -2,6 +2,8 @@
 
 A cloud-synchronized notepad application built for programmers, featuring the Monaco Editor (VS Code's editor component) and Google Drive integration.
 
+<img width="1440" alt="スクリーンショット 2025-02-06 23 09 01" src="https://github.com/user-attachments/assets/6d69d9be-55ee-46a2-a566-4b99d2d8e2b5" />
+
 ## Overview
 
 Monaco Notepad is a specialized note-taking application designed for programmers who need a temporary, cloud-synchronized workspace for code snippets and technical notes. Unlike traditional text editors, it doesn't modify files directly on your system but instead manages notes in a dedicated cloud-synchronized environment.
