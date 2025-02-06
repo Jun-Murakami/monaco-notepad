@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # .envファイルの読み込み
-export $(grep -v '^#' .env | xargs)
+set -a
+source .env
+set +a
 
 # アプリの署名
 codesign --deep --force --verify --verbose --options runtime --sign "$DEVELOPER_ID_APP" "$APP_PATH"
