@@ -48,6 +48,8 @@ export function SelectSaveFileUri(arg1:string,arg2:string):Promise<string>;
 
 export function SyncNotes():Promise<void>;
 
+export function SyncNow():Promise<void>;
+
 export function UpdateNoteOrder(arg1:string,arg2:number):Promise<void>;
 
 export function UploadNote(arg1:backend.Note):Promise<void>;

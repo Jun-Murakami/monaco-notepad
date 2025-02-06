@@ -6,7 +6,7 @@ toolchain go1.22.4
 
 require (
 	github.com/stretchr/testify v1.10.0
-	github.com/wailsapp/wails/v2 v2.9.1
+	github.com/wailsapp/wails/v2 v2.9.2
 	golang.org/x/oauth2 v0.25.0
 	google.golang.org/api v0.219.0
 )

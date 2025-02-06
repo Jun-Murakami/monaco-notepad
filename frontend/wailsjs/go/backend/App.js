@@ -94,6 +94,10 @@ export function SyncNotes() {
   return window['go']['backend']['App']['SyncNotes']();
 }
 
+export function SyncNow() {
+  return window['go']['backend']['App']['SyncNow']();
+}
+
 export function UpdateNoteOrder(arg1, arg2) {
   return window['go']['backend']['App']['UpdateNoteOrder'](arg1, arg2);
 }

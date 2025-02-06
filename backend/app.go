@@ -318,6 +318,14 @@ func (a *App) AuthorizeDrive() (string, error) {
 	return a.driveService.AuthorizeDrive()
 }
 
+// 手動で同期を開始
+func (a *App) SyncNow() error {
+	if a.driveService != nil && a.driveService.IsConnected() {
+		return a.driveService.SyncNotes()
+	}
+	return fmt.Errorf("drive service is not initialized or not connected")
+}
+
 // 認証コードを使用してGoogle Drive認証を完了
 func (a *App) CompleteAuth(code string) error {
 	return a.driveService.CompleteAuth(code)

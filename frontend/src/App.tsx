@@ -43,10 +43,15 @@ function App() {
   const [platform, setPlatform] = useState<string>('');
 
   useEffect(() => {
-    // コンポーネントのマウント時に言語一覧を取得
-    setLanguages(getSupportedLanguages());
     const asyncFunc = async () => {
       try {
+        // プラットフォームを取得
+        const env = await runtime.Environment();
+        setPlatform(env.platform);
+
+        // コンポーネントのマウント時に言語一覧を取得
+        setLanguages(getSupportedLanguages());
+
         // ノート一覧を取得
         const notes = await ListNotes();
         if (!notes) {
@@ -66,8 +71,6 @@ function App() {
         setNotes([]);
         handleNewNote();
       }
-      const env = await runtime.Environment();
-      setPlatform(env.platform);
     };
     asyncFunc();
 
@@ -98,7 +101,7 @@ function App() {
         }}
         component='main'
       >
-        {platform === 'darwin' && (
+        {platform !== 'windows' && (
           <Box
             sx={{
               height: 26,

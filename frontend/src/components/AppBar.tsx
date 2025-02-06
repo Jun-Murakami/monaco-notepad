@@ -7,7 +7,7 @@ import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
 import { useEffect, useState } from 'react';
 import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime';
-import { AuthorizeDrive, LogoutDrive, OpenFile } from '../../wailsjs/go/backend/App';
+import { AuthorizeDrive, LogoutDrive, OpenFile, SyncNow } from '../../wailsjs/go/backend/App';
 import { keyframes } from '@mui/system';
 import { getLanguageByExtension } from '../lib/monaco';
 
@@ -126,6 +126,17 @@ export const AppBar: React.FC<{
     }
   };
 
+  const handleSync = async () => {
+    if (syncStatus === 'synced') {
+      try {
+        await SyncNow();
+      } catch (error) {
+        console.error('Manual sync error:', error);
+        showMessage('Sync Error', 'Failed to synchronize with Google Drive.');
+      }
+    }
+  };
+
   return (
     <Box sx={{ height: 56, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
       <Box
@@ -205,12 +216,14 @@ export const AppBar: React.FC<{
         </FormControl>
         <Box sx={{ ml: 0.5, display: 'flex', alignItems: 'center' }}>
           {syncStatus === 'synced' ? (
-            <Tooltip title='Synced' arrow>
-              <CloudDoneIcon color='primary' />
+            <Tooltip title='クリックして今すぐ同期' arrow>
+              <IconButton onClick={handleSync} size='small'>
+                <CloudDoneIcon color='primary' />
+              </IconButton>
             </Tooltip>
           ) : (
             syncStatus === 'syncing' && (
-              <Tooltip title='Syncing...' arrow>
+              <Tooltip title='同期中...' arrow>
                 <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1 }}>
                   <CloudSyncIcon color='primary' />
                 </Box>

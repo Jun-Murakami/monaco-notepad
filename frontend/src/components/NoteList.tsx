@@ -163,21 +163,19 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
       const oldIndex = activeNotes.findIndex((note) => note.id === active.id);
       const newIndex = activeNotes.findIndex((note) => note.id === over.id);
 
-      // バックエンドに順序の更新を通知
+      // まずフロントエンドの状態を更新
+      const archivedNotes = notes.filter((note) => note.archived);
+      const newActiveNotes = arrayMove(activeNotes, oldIndex, newIndex);
+      const newNotes = [...newActiveNotes, ...archivedNotes];
+      onReorder?.(newNotes);
+
+      // その後、バックエンドの更新を行う
       try {
         // @ts-ignore (window.go is injected by Wails)
         await UpdateNoteOrder(active.id, newIndex);
-
-        // フロントエンドの状態を更新
-        // アクティブノートとアーカイブノートを分離
-        const archivedNotes = notes.filter((note) => note.archived);
-        const newActiveNotes = arrayMove(activeNotes, oldIndex, newIndex);
-
-        // アクティブノートとアーカイブノートを結合
-        const newNotes = [...newActiveNotes, ...archivedNotes];
-        onReorder?.(newNotes);
       } catch (error) {
         console.error('Failed to update note order:', error);
+        // エラーが発生した場合は、元の順序に戻すなどのエラーハンドリングを追加することもできます
       }
     }
   };
