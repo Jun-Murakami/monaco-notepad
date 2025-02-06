@@ -691,83 +691,26 @@ func (s *driveService) SyncNotes() error {
 	fmt.Printf("Cloud notes count: %d\n", len(cloudNoteList.Notes))
 	fmt.Printf("Local notes count: %d\n", len(s.noteService.noteList.Notes))
 
-	hasChanges := false
-
 	// ノートリストの内容が異なるかどうかをチェック
 	if cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
 		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
 		fmt.Println("Cloud has updates - updating local state")
 		s.noteService.noteList.Notes = cloudNoteList.Notes
-		hasChanges = true
 	} else {
 		fmt.Printf("Local is up to date\n")
 	}
 
-	// 個別のノートの同期処理
-	for _, cloudNote := range cloudNoteList.Notes {
-		localNote, err := s.noteService.LoadNote(cloudNote.ID)
-		if err != nil {
-			// ローカルにないノートはダウンロード
-			if !s.IsTestMode() {
-				if err := s.downloadNote(cloudNote.ID); err != nil {
-					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-			} else {
-				// テストモードの場合は、クラウドの内容で新しいノートを作成
-				newNote := &Note{
-					ID:           cloudNote.ID,
-					Title:        cloudNote.Title,
-					Content:      "Cloud content",
-					Language:     "plaintext",
-					ModifiedTime: cloudNote.ModifiedTime,
-				}
-				if err := s.noteService.SaveNote(newNote); err != nil {
-					fmt.Printf("Error creating note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-			}
-			hasChanges = true
-		} else if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
-			// クラウドの方が新しい場合は更新
-			if !s.IsTestMode() {
-				if err := s.downloadNote(cloudNote.ID); err != nil {
-					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-			} else {
-				// テストモードの場合は、クラウドの内容で更新
-				localNote.Title = cloudNote.Title
-				localNote.Content = "Cloud content"
-				localNote.ModifiedTime = cloudNote.ModifiedTime
-				if err := s.noteService.SaveNote(localNote); err != nil {
-					fmt.Printf("Error updating note %s: %v\n", cloudNote.ID, err)
-					continue
-				}
-				// 更新後、対応するノートリストのメタデータも更新する
-				for i, meta := range s.noteService.noteList.Notes {
-					if meta.ID == cloudNote.ID {
-						s.noteService.noteList.Notes[i].Title = cloudNote.Title
-						break
-					}
-				}
-			}
-			hasChanges = true
-		}
+	// ローカルのノートリストを更新
+	s.noteService.noteList.LastSync = time.Now()
+	if err := s.noteService.saveNoteList(); err != nil {
+		return fmt.Errorf("failed to save local note list: %v", err)
 	}
 
-	// ローカルのノートリストを更新
-	if hasChanges {
-		s.noteService.noteList.LastSync = time.Now()
-		if err := s.noteService.saveNoteList(); err != nil {
-			return fmt.Errorf("failed to save local note list: %v", err)
-		}
-
-		// 変更があった場合のみフロントエンドに通知
-		if !s.IsTestMode() {
-			fmt.Println("Notifying frontend of changes")
-			wailsRuntime.EventsEmit(s.ctx, "notes:reload")
-		}
+	// 変更があった場合のみフロントエンドに通知
+	if !s.IsTestMode() && (cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
+		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes)) {
+		fmt.Println("Notifying frontend of changes")
+		wailsRuntime.EventsEmit(s.ctx, "notes:reload")
 	}
 
 	return nil
@@ -780,52 +723,22 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 	}
 
 	// ノートリストの内容が異なるかどうかをチェック
-	if cloudNoteList.LastSync.After(s.noteService.noteList.LastSync) ||
-		s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
+	if s.hasNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
 		fmt.Println("Cloud has updates - updating local state")
-		
-		// クラウドのノートリストをローカルにコピー
-		s.noteService.noteList.Notes = make([]NoteMetadata, len(cloudNoteList.Notes))
-		copy(s.noteService.noteList.Notes, cloudNoteList.Notes)
-		s.noteService.noteList.LastSync = cloudNoteList.LastSync
-
-		// テストモードでない場合は、各ノートの内容も更新
-		if !s.IsTestMode() {
-			for _, cloudNote := range cloudNoteList.Notes {
-				localNote, err := s.noteService.LoadNote(cloudNote.ID)
-				if err != nil || localNote.ModifiedTime.Before(cloudNote.ModifiedTime) {
-					if err := s.downloadNote(cloudNote.ID); err != nil {
-						fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-					}
-				}
-			}
-		} else {
-			// テストモード時は、ノートの内容を模擬的に更新
-			for _, cloudNote := range cloudNoteList.Notes {
-				note := &Note{
-					ID:           cloudNote.ID,
-					Title:        cloudNote.Title,
-					Content:      "Cloud content",
-					Language:     cloudNote.Language,
-					ModifiedTime: cloudNote.ModifiedTime,
-				}
-				if err := s.noteService.SaveNote(note); err != nil {
-					fmt.Printf("Error saving note %s: %v\n", cloudNote.ID, err)
-				}
-			}
-		}
-
-		// ノートリストを保存
-		if err := s.noteService.saveNoteList(); err != nil {
-			return fmt.Errorf("failed to save note list: %v", err)
-		}
-
-		// フロントエンドに変更を通知
-		if !s.IsTestMode() {
-			wailsRuntime.EventsEmit(s.ctx, "notes:reload")
-		}
+		s.noteService.noteList.Notes = cloudNoteList.Notes
 	} else {
 		fmt.Printf("Local is up to date\n")
+	}
+
+	// ローカルのノートリストを更新
+	s.noteService.noteList.LastSync = time.Now()
+	if err := s.noteService.saveNoteList(); err != nil {
+		return fmt.Errorf("failed to save local note list: %v", err)
+	}
+
+	// テストモードでない場合はフロントエンドに通知
+	if !s.IsTestMode() {
+		wailsRuntime.EventsEmit(s.ctx, "notes:reload")
 	}
 
 	return nil

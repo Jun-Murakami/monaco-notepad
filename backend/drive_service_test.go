@@ -241,13 +241,12 @@ func TestConflictResolution(t *testing.T) {
 	assert.NoError(t, err)
 
 	// クラウドノートを作成（より新しい更新時刻）
-	cloudModTime := time.Now()
 	cloudNote := &Note{
 		ID:           "conflict-note",
 		Title:        "Cloud Version",
 		Content:      "Cloud content",
 		Language:     "plaintext",
-		ModifiedTime: cloudModTime,
+		ModifiedTime: time.Now(), // 現在時刻
 	}
 
 	// クラウドノートリストを設定
@@ -257,10 +256,9 @@ func TestConflictResolution(t *testing.T) {
 			{
 				ID:           cloudNote.ID,
 				Title:        cloudNote.Title,
-				ModifiedTime: cloudModTime, // ModifiedTimeを設定
+				ModifiedTime: cloudNote.ModifiedTime,
 			},
 		},
-		LastSync: cloudModTime,
 	}
 
 	// 同期を実行
@@ -308,17 +306,15 @@ func TestPeriodicSync(t *testing.T) {
 	assert.NoError(t, err)
 
 	// クラウドノートリストを設定（より新しい更新時刻）
-	cloudModTime := time.Now()
 	helper.authService.driveSync.cloudNoteList = &NoteList{
 		Version: "1.0",
 		Notes: []NoteMetadata{
 			{
 				ID:           localNote.ID,
 				Title:        "Cloud Note",
-				ModifiedTime: cloudModTime, // ModifiedTimeを設定
+				ModifiedTime: time.Now(),
 			},
 		},
-		LastSync: cloudModTime,
 	}
 
 	// 同期を実行
