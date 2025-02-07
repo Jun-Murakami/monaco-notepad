@@ -208,7 +208,9 @@ func (a *driveAuthService) LogoutDrive() error {
 func (a *driveAuthService) HandleOfflineTransition(err error) error {
 	// エラーメッセージをログに記録
 	errMsg := fmt.Sprintf("Drive error: %v", err)
-	a.sendLogMessage(errMsg)
+	if err != nil {
+		a.sendLogMessage(errMsg)
+	}
 	
 	// トークンファイルのパス
 	tokenFile := filepath.Join(a.appDataDir, "token.json")
@@ -224,7 +226,9 @@ func (a *driveAuthService) HandleOfflineTransition(err error) error {
 	
 	// フロントエンドに通知
 	if !a.isTestMode {
-		wailsRuntime.EventsEmit(a.ctx, "drive:error", errMsg)
+		if err != nil {
+			wailsRuntime.EventsEmit(a.ctx, "drive:error", errMsg)
+		}
 		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
 	}
 

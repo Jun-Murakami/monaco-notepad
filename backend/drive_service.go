@@ -3,17 +3,12 @@ package backend
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
-	"google.golang.org/api/drive/v3"
 )
 
-// Google Drive関連の操作を提供するインターフェース
-// 認証まわりのメソッドも含めていますが、実際の実装は drive_auth_service.go に委譲されます。
-// こちら（drive_service.go）には同期やファイルアップロード関連のビジネスロジックを中心に実装。
+// DriveService はGoogle Drive関連の操作を提供するインターフェース
 type DriveService interface {
 	// ---- 認証系 ----
 	InitializeDrive() error
@@ -27,14 +22,13 @@ type DriveService interface {
 	SyncNotes() error
 	UploadNoteList() error
 
-	// ---- その他ユーティリティ ----
+	// ---- ユーティリティ ----
 	NotifyFrontendReady()
 	IsConnected() bool
 	IsTestMode() bool
 }
 
-// driveService はDriveServiceインターフェースの実装。
-// 認証に関しては内部の authService を用いて実装し、同期ロジックをここに残す。
+// driveService はDriveServiceインターフェースの実装
 type driveService struct {
 	ctx              context.Context
 	auth             *driveAuthService
@@ -44,6 +38,7 @@ type driveService struct {
 	resetPollingChan chan struct{}
 	logger           DriveLogger
 	driveOps         DriveOperations
+	driveSync        DriveSyncService
 }
 
 // NewDriveService は新しいdriveServiceインスタンスを作成します
@@ -72,6 +67,7 @@ func NewDriveService(
 		notesDir:    notesDir,
 		logger:      logger,
 		driveOps:    nil,
+		driveSync:   nil,
 	}
 }
 
@@ -89,6 +85,7 @@ func (s *driveService) InitializeDrive() error {
 	// 接続成功時の処理
 	if s.IsConnected() {
 		s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service)
+		s.driveSync = NewDriveSyncService(s.driveOps)
 		if err := s.ensureDriveFolders(); err != nil {
 			return s.logger.ErrorWithNotify(err, "Failed to ensure drive folders")
 		}
@@ -106,6 +103,7 @@ func (s *driveService) AuthorizeDrive() error {
 	// 接続成功時の処理
 	if s.IsConnected() {
 		s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service)
+		s.driveSync = NewDriveSyncService(s.driveOps)
 		if err := s.ensureDriveFolders(); err != nil {
 			return s.logger.ErrorWithNotify(err, "Failed to ensure drive folders")
 		}
@@ -141,57 +139,16 @@ func (s *driveService) IsTestMode() bool {
 }
 
 // ------------------------------------------------------------
-// 同期系のビジネスロジック
+// 同期メイン
 // ------------------------------------------------------------
 
-// waitForFrontendAndStartSync はフロントエンドの準備完了を待ってから同期開始
-func (s *driveService) waitForFrontendAndStartSync() {
-	<-s.auth.GetFrontendReadyChan() // フロントエンドが ready になるまでブロック
-	s.logger.Info("Frontend ready - starting sync...")
-
-	// 接続状態を通知
-	s.driveOps.notifyDriveStatus(s.ctx, "synced", s.IsTestMode())
-
-	// 初回同期フラグをチェック
-	hasCompletedInitialSync, err := s.driveOps.checkInitialSyncFlag(s.appDataDir)
-	if err != nil {
-		s.logger.Error(err, "Failed to check initial sync flag")
-		s.auth.HandleOfflineTransition(err)
-		return
-	}
-
-  // 初回同期フラグがない場合は初回同期を行う
-	if !hasCompletedInitialSync {
-		s.logger.Info("First time initialization - performing initial sync...")
-		if err := s.performInitialSync(); err != nil {
-			s.logger.Error(err, "Initial sync failed")
-			s.auth.HandleOfflineTransition(err)
-			return
-		}
-
-		// 初回同期完了フラグを保存
-		if err := s.driveOps.saveInitialSyncFlag(s.appDataDir); err != nil {
-			s.logger.Error(err, "Failed to save initial sync flag")
-			s.auth.HandleOfflineTransition(err)
-			return
-		}
-		s.auth.driveSync.hasCompletedInitialSync = true
-	} else {
-		s.auth.driveSync.hasCompletedInitialSync = true
-	}
-
-	// 少し待機の後にポーリング開始
-	time.Sleep(1 * time.Second)
-	s.startSyncPolling()
-}
-
-// 初回接続時のマージ処理を実行
+// 初回接続時のマージ処理
 func (s *driveService) performInitialSync() error {
 	s.logger.Info("Starting initial sync...")
 
 	// クラウドのノートリストを取得
 	s.logger.Info("Checking cloud note list...")
-	cloudNoteList, err := s.fetchCloudNoteList()
+	cloudNoteList, err := s.driveSync.FetchCloudNoteList(s.ctx, s.auth.driveSync.rootFolderID)
 	if err != nil {
 		s.logger.Error(err, "Failed to fetch cloud note list")
 		s.auth.HandleOfflineTransition(err)
@@ -201,14 +158,21 @@ func (s *driveService) performInitialSync() error {
 	// クラウドにノートリストがない場合は全ノートをアップロード
 	if cloudNoteList == nil {
 		s.logger.Info("Uploading local notes to cloud...")
-		return s.uploadAllNotes()
+		return s.driveSync.UploadAllNotes(
+			s.ctx,
+			s.noteService.noteList.Notes,
+			s.auth.driveSync.notesFolderID,
+			s.UploadNote,
+			s.UploadNoteList,
+			s.IsTestMode(),
+		)
 	}
 
 	s.logger.Info(fmt.Sprintf("Found %d notes in cloud", len(cloudNoteList.Notes)))
 	s.logger.Info(fmt.Sprintf("Found %d notes locally", len(s.noteService.noteList.Notes)))
 
 	// ノートのマージ処理
-	mergedNotes, err := s.driveOps.mergeNotes(
+	mergedNotes, err := s.driveSync.MergeNotes(
 		s.ctx,
 		s.noteService.noteList.Notes,
 		cloudNoteList.Notes,
@@ -234,9 +198,50 @@ func (s *driveService) performInitialSync() error {
 	s.logger.Info("Initial sync completed")
 
 	// フロントエンドに変更を通知
-	s.driveOps.notifyFrontendChanges(s.ctx, s.IsTestMode())
+	s.driveSync.NotifyFrontendChanges(s.ctx, s.IsTestMode())
 
 	return nil
+}
+
+// フロントエンドの準備完了を待って同期開始
+func (s *driveService) waitForFrontendAndStartSync() {
+	<-s.auth.GetFrontendReadyChan() // フロントエンドが ready になるまでブロック
+	s.logger.Info("Frontend ready - starting sync...")
+
+	// 接続状態を通知
+	s.driveSync.NotifyDriveStatus(s.ctx, "synced", s.IsTestMode())
+
+	// 初回同期フラグをチェック
+	hasCompletedInitialSync, err := s.driveSync.CheckInitialSyncFlag(s.appDataDir)
+	if err != nil {
+		s.logger.Error(err, "Failed to check initial sync flag")
+		s.auth.HandleOfflineTransition(err)
+		return
+	}
+
+	// 初回同期フラグがない場合は初回同期を行う
+	if !hasCompletedInitialSync {
+		s.logger.Info("First time initialization - performing initial sync...")
+		if err := s.performInitialSync(); err != nil {
+			s.logger.Error(err, "Initial sync failed")
+			s.auth.HandleOfflineTransition(err)
+			return
+		}
+
+		// 初回同期完了フラグを保存
+		if err := s.driveSync.SaveInitialSyncFlag(s.appDataDir); err != nil {
+			s.logger.Error(err, "Failed to save initial sync flag")
+			s.auth.HandleOfflineTransition(err)
+			return
+		}
+		s.auth.driveSync.hasCompletedInitialSync = true
+	} else {
+		s.auth.driveSync.hasCompletedInitialSync = true
+	}
+
+	// 少し待機の後にポーリング開始
+	time.Sleep(1 * time.Second)
+	s.startSyncPolling()
 }
 
 // Google Driveとのポーリング監視を開始
@@ -251,10 +256,10 @@ func (s *driveService) startSyncPolling() {
 	lastChangeTime := time.Now()
 	s.resetPollingChan = make(chan struct{}, 1)
 
-  // まず１回同期を行う
-  if err := s.SyncNotes(); err != nil {
-    s.logger.Error(err, "Error syncing with Drive")
-  }
+	// まず１回同期を行う
+	if err := s.SyncNotes(); err != nil {
+		s.logger.Error(err, "Error syncing with Drive")
+	}
 
 	for {
 		if !s.IsConnected() {
@@ -268,7 +273,7 @@ func (s *driveService) startSyncPolling() {
 		}
 
 		// 重複ファイルの削除
-		if err := s.cleanDuplicateNoteFiles(); err != nil {
+		if err := s.driveSync.CleanDuplicateNoteFiles(s.ctx, s.auth.driveSync.notesFolderID); err != nil {
 			s.logger.Error(err, "Failed to clean duplicate note files")
 		}
 
@@ -284,7 +289,7 @@ func (s *driveService) startSyncPolling() {
 				newInterval = maxInterval
 			}
 			if newInterval != interval {
-				s.logger.Info("No changes detected, increasing interval from %v to %v", interval, newInterval)
+				s.logger.Console("No changes detected, increasing interval from %v to %v", interval, newInterval)
 				interval = newInterval
 			}
 		}
@@ -297,18 +302,17 @@ func (s *driveService) startSyncPolling() {
 		select {
 		case <-time.After(interval):
 			// 通常のインターバル経過後の同期
-      if err := s.SyncNotes(); err != nil {
-        s.logger.Error(err, "Error syncing with Drive")
-      }
+			if err := s.SyncNotes(); err != nil {
+				s.logger.Error(err, "Error syncing with Drive")
+			}
 			continue
 		case <-s.resetPollingChan:
 			// ユーザーの操作によるリセット
 			interval = maxInterval
 			lastChangeTime = time.Now()
-			s.logger.Info("Polling interval reset to maximum: %v", interval)
+			s.logger.Console("Polling interval reset to maximum: %v", interval)
 			continue
 		}
-    
 	}
 }
 
@@ -328,7 +332,7 @@ func (s *driveService) SyncNotes() error {
 	}
 
 	// クラウドのノートリスト取得
-	cloudNoteList, err := s.fetchCloudNoteList()
+	cloudNoteList, err := s.driveSync.FetchCloudNoteList(s.ctx, s.auth.driveSync.rootFolderID)
 	if err != nil {
 		return s.auth.HandleOfflineTransition(err)
 	}
@@ -336,7 +340,14 @@ func (s *driveService) SyncNotes() error {
 	// クラウドにノートリストがない場合は全ノートをアップロード
 	if cloudNoteList == nil {
 		s.logger.Info("Cloud note list is nil, uploading all notes...")
-		return s.uploadAllNotes()
+		return s.driveSync.UploadAllNotes(
+			s.ctx,
+			s.noteService.noteList.Notes,
+			s.auth.driveSync.notesFolderID,
+			s.UploadNote,
+			s.UploadNoteList,
+			s.IsTestMode(),
+		)
 	}
 
 	// 同期状態のログ出力
@@ -352,7 +363,13 @@ func (s *driveService) SyncNotes() error {
 		
 		// クラウドのノートと同期
 		for _, cloudNote := range cloudNoteList.Notes {
-			if err := s.syncNoteWithCloud(cloudNote.ID, cloudNote); err != nil {
+			if err := s.driveSync.SyncNoteWithCloud(
+				s.ctx,
+				cloudNote.ID,
+				cloudNote,
+				s.noteService.LoadNote,
+				s.downloadNote,
+			); err != nil {
 				s.logger.Error(err, "Failed to sync note %s", cloudNote.ID)
 				continue
 			}
@@ -385,7 +402,7 @@ func (s *driveService) SyncNotes() error {
 		}
 		
 		// フロントエンドに変更を通知
-		s.notifyFrontendChanges("synced")
+		s.driveSync.NotifyFrontendChanges(s.ctx, s.IsTestMode())
 	} else {
 		s.logger.Info("Local is up to date")
 	}
@@ -432,45 +449,11 @@ func (s *driveService) syncCloudToLocal(cloudNoteList *NoteList) error {
 	}
 
 	// フロントエンドに変更を通知
-	s.notifyFrontendChanges("synced")
+	s.driveSync.NotifyFrontendChanges(s.ctx, s.IsTestMode())
 
 	return nil
 }
 
-// 全てのローカルノートをGoogle Driveにアップロード
-func (s *driveService) uploadAllNotes() error {
-	s.logger.Info("Starting uploadAllNotes...")
-
-	if !s.IsConnected() {
-		return s.logger.ErrorWithNotify(fmt.Errorf("drive service is not initialized"), "Drive service is not initialized")
-	}
-
-	if s.auth.driveSync.service == nil {
-		return s.logger.ErrorWithNotify(fmt.Errorf("drive service not connected"), "Drive service not connected")
-	}
-
-	s.logger.Info("Found %d notes to upload", len(s.noteService.noteList.Notes))
-
-	// ノートをアップロード
-	notes := make([]Note, 0, len(s.noteService.noteList.Notes))
-	for _, metadata := range s.noteService.noteList.Notes {
-		note, err := s.noteService.LoadNote(metadata.ID)
-		if err != nil {
-			s.logger.Error(err, "Failed to load note %s", metadata.ID)
-			continue
-		}
-		notes = append(notes, *note)
-	}
-
-	return s.driveOps.uploadAllNotes(
-		s.ctx,
-		notes,
-		s.auth.driveSync.notesFolderID,
-		s.UploadNote,
-		s.UploadNoteList,
-		s.IsTestMode(),
-	)
-}
 
 // ------------------------------------------------------------
 // ノート操作
@@ -482,7 +465,7 @@ func (s *driveService) downloadNote(noteID string) error {
 		return s.logger.ErrorWithNotify(fmt.Errorf("drive service is not initialized"), "Drive service is not initialized")
 	}
 
-	return s.driveOps.downloadNote(
+	return s.driveSync.DownloadNote(
 		s.ctx,
 		noteID,
 		s.auth.driveSync.notesFolderID,
@@ -492,9 +475,9 @@ func (s *driveService) downloadNote(noteID string) error {
 	)
 }
 
-// ノートリストから指定されたIDのノートを除外
+// removeFromNoteList はノートリストから指定されたIDのノートを除外します
 func (s *driveService) removeFromNoteList(noteID string) {
-	s.noteService.noteList.Notes = s.driveOps.removeFromNoteList(s.noteService.noteList.Notes, noteID)
+	s.noteService.noteList.Notes = s.driveSync.RemoveFromNoteList(s.noteService.noteList.Notes, noteID)
 }
 
 // ノートをGoogle Driveにアップロード
@@ -509,7 +492,7 @@ func (s *driveService) UploadNote(note *Note) error {
 
 	s.logger.Info("Uploading note \"%s\"...", note.Title)
 
-	err := s.driveOps.uploadNote(
+	err := s.driveSync.UploadNote(
 		s.ctx,
 		note,
 		s.auth.driveSync.notesFolderID,
@@ -526,7 +509,6 @@ func (s *driveService) UploadNote(note *Note) error {
 	return nil
 }
 
-
 // Google Drive上のノートを削除
 func (s *driveService) DeleteNoteDrive(noteID string) error {
 	s.logger.Info("Deleting note from cloud...")
@@ -535,7 +517,7 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 		return s.logger.ErrorWithNotify(fmt.Errorf("drive service is not initialized"), "Drive service is not initialized")
 	}
 
-	err := s.driveOps.deleteNoteDrive(
+	err := s.driveSync.DeleteNoteDrive(
 		s.ctx,
 		noteID,
 		s.auth.driveSync.notesFolderID,
@@ -547,7 +529,7 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 	}
 
 	s.logger.Info("Deleted note from cloud")
-	s.ResetPollingInterval() // ポーリングをリセット
+	s.ResetPollingInterval()
 	return nil
 }
 
@@ -562,7 +544,7 @@ func (s *driveService) UploadNoteList() error {
 	s.logger.Console("Uploading note list with LastSync: %v", s.noteService.noteList.LastSync)
 	s.logger.Console("Notes count: %d", len(s.noteService.noteList.Notes))
 
-	err := s.driveOps.uploadNoteList(
+	err := s.driveSync.UploadNoteList(
 		s.ctx,
 		s.noteService.noteList,
 		s.auth.driveSync.rootFolderID,
@@ -573,7 +555,7 @@ func (s *driveService) UploadNoteList() error {
 		return s.logger.ErrorWithNotify(err, "Failed to upload note list")
 	}
 
-	s.ResetPollingInterval() // ポーリングをリセット
+	s.ResetPollingInterval()
 	return nil
 }
 
@@ -601,16 +583,8 @@ func (s *driveService) hasNoteListChanged(cloudList, localList []NoteMetadata) b
 // 内部ヘルパー
 // ------------------------------------------------------------
 
-// ポーリングインターバルをリセット
-func (s *driveService) ResetPollingInterval() {
-	if s.resetPollingChan == nil {
-		return
-	}
-	select {
-	case s.resetPollingChan <- struct{}{}:
-	default:
-	}
-}
+// Google Driveとの同期関連のヘルパー
+// ------------------------------------------------------------
 
 // Google Drive上に必要なフォルダ構造を作成
 func (s *driveService) ensureDriveFolders() error {
@@ -655,57 +629,16 @@ func (s *driveService) ensureDriveFolders() error {
 	return nil
 }
 
-// notesフォルダ内の重複する {id}.jsonファイルを検出し、最新のファイルだけを残し古い方を削除
-func (s *driveService) cleanDuplicateNoteFiles() error {
-	// notesフォルダ内のファイル一覧を取得
-
-	files, err := s.driveOps.ListFiles(
-		fmt.Sprintf("'%s' in parents and trashed=false", s.auth.driveSync.notesFolderID))
-	if err != nil {
-		return s.logger.ErrorWithNotify(err, "Failed to list files in notes folder")
+// ポーリングインターバルをリセット
+func (s *driveService) ResetPollingInterval() {
+	if s.resetPollingChan == nil {
+		return
 	}
-
-	duplicateMap := make(map[string][]*drive.File)
-	for _, file := range files {
-		// 対象は「.json」で終わるファイルのみとする
-		if !strings.HasSuffix(file.Name, ".json") {
-			continue
-		}
-		// 拡張子を除いた部分をIDとみなす
-		noteID := strings.TrimSuffix(file.Name, ".json")
-		duplicateMap[noteID] = append(duplicateMap[noteID], file)
+	select {
+	case s.resetPollingChan <- struct{}{}:
+	default:
 	}
-
-	// 各noteIDごとに複数ファイルが存在すれば最新1つ以外を削除
-	for _, files := range duplicateMap {
-		if len(files) > 1 {
-			// 作成日時で降順にソート（最新が先頭）
-			sort.Slice(files, func(i, j int) bool {
-				t1, err1 := time.Parse(time.RFC3339, files[i].CreatedTime)
-				t2, err2 := time.Parse(time.RFC3339, files[j].CreatedTime)
-				if err1 != nil || err2 != nil {
-					return false
-				}
-				return t1.After(t2)
-			})
-
-			// 最新以外のファイルを削除
-			for _, file := range files[1:] {
-				if err := s.driveOps.DeleteFile(file.Id); err != nil {
-					s.logger.Error(err, "Failed to delete duplicate file: %s", file.Name)
-				} else {
-					s.logger.Info("Deleted duplicate file: %s", file.Name)
-				}
-			}
-		}
-	}
-
-	return nil
 }
-
-// ------------------------------------------------------------
-// 同期関連のヘルパー
-// ------------------------------------------------------------
 
 // 同期状態のログを出力
 func (s *driveService) logSyncStatus(cloudNoteList *NoteList) {
@@ -762,7 +695,6 @@ func (s *driveService) updateLocalNotes(cloudNotes []NoteMetadata) error {
 func (s *driveService) handleTestModeDelete(noteID string) error {
 	var updatedNotes []NoteMetadata
 	for _, metadata := range s.auth.driveSync.cloudNoteList.Notes {
-
 		if metadata.ID != noteID {
 			updatedNotes = append(updatedNotes, metadata)
 		}
