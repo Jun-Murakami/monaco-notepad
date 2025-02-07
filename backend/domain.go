@@ -2,6 +2,8 @@ package backend
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -76,6 +78,8 @@ type Settings struct {
 type DriveSync struct {
 	service                 *drive.Service         // Google Driveサービスのインスタンス
 	token                   *oauth2.Token          // OAuth2認証トークン
+	server                  *http.Server           // 認証サーバー
+	listener                net.Listener         // 認証サーバーのリスナー
 	config                  *oauth2.Config         // OAuth2設定
 	rootFolderID            string                 // アプリケーションのルートフォルダID
 	notesFolderID           string                 // ノート保存用フォルダID

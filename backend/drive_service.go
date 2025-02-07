@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ type DriveService interface {
 	AuthorizeDrive() (string, error)
 	CompleteAuth(code string) error
 	LogoutDrive() error
+	CancelLoginDrive() error
 
 	// ---- ノート同期系 ----
 	UploadNote(note *Note) error
@@ -392,6 +394,11 @@ func (s *driveService) startSyncPolling() {
 			wailsRuntime.EventsEmit(s.ctx, "drive:status", "syncing")
 		}
 
+		if err := s.cleanDuplicateNoteFiles(); err != nil {
+			s.sendLogMessage(fmt.Sprintf("failed to clean duplicate note files: %v", err))
+			fmt.Printf("failed to clean duplicate note files: %v", err)
+	}
+
 		if err := s.SyncNotes(); err != nil {
 			fmt.Printf("Error syncing with Drive: %v\n", err)
 			s.auth.handleOfflineTransition(err)
@@ -446,6 +453,13 @@ func (s *driveService) uploadAllNotes() error {
 		s.sendLogMessage("Drive service is not initialized")
 		s.auth.handleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 		return fmt.Errorf("drive service is not initialized")
+	}
+
+  // driveSync.service が nil ならエラーを返す
+	if s.auth.driveSync.service == nil {
+		err := fmt.Errorf("drive service not connected")
+		s.sendLogMessage(err.Error())
+		return err
 	}
 
 	fmt.Printf("Found %d notes to upload\n", len(s.noteService.noteList.Notes))
@@ -520,6 +534,19 @@ func (s *driveService) uploadAllNotes() error {
 
 // downloadNote はGoogle Driveからノートをダウンロードします
 func (s *driveService) downloadNote(noteID string) error {
+		if !s.IsConnected() {
+		s.sendLogMessage("Drive service is not initialized")
+		s.auth.handleOfflineTransition(fmt.Errorf("drive service is not initialized"))
+		return fmt.Errorf("drive service is not initialized")
+	}
+
+  // driveSync.service が nil ならエラーを返す
+	if s.auth.driveSync.service == nil {
+		err := fmt.Errorf("drive service not connected")
+		s.sendLogMessage(err.Error())
+		return err
+	}
+
 	// ノートファイルを検索
 	files, err := s.auth.driveSync.service.Files.List().
 		Q(fmt.Sprintf("name='%s.json' and '%s' in parents and trashed=false", noteID, s.auth.driveSync.notesFolderID)).
@@ -589,10 +616,24 @@ func (s *driveService) removeFromNoteList(noteID string) {
 	s.noteService.noteList.Notes = updatedNotes
 }
 
-// UploadNote はノートをGoogle Driveにアップロード
+// UploadNote はノートをGoogle Driveにアップロードします。
+// アップロード前に、既に同じIDのノートファイルが存在している場合は重複チェックを行い、
+// 古い方を削除して最新のファイルに対して更新処理を行います。
 func (s *driveService) UploadNote(note *Note) error {
-	s.sendLogMessage(fmt.Sprintf("Uploading note \"%s\"...", note.Title))
+		if !s.IsConnected() {
+		s.sendLogMessage("Drive service is not initialized")
+		s.auth.handleOfflineTransition(fmt.Errorf("drive service is not initialized"))
+		return fmt.Errorf("drive service is not initialized")
+	}
 
+  // driveSync.service が nil ならエラーを返す
+	if s.auth.driveSync.service == nil {
+		err := fmt.Errorf("drive service not connected")
+		s.sendLogMessage(err.Error())
+		return err
+	}
+
+	s.sendLogMessage(fmt.Sprintf("Uploading note \"%s\"...", note.Title))
 
 	if s.IsTestMode() {
 		// テストモードの場合は簡略化
@@ -633,22 +674,17 @@ func (s *driveService) UploadNote(note *Note) error {
 		return s.handleOfflineTransition(err)
 	}
 
-
 	s.auth.driveSync.lastUpdated[note.ID] = time.Now()
 
-	// すでに存在しているかチェック
-	files, err := s.auth.driveSync.service.Files.List().
-		Q(fmt.Sprintf("name='%s.json' and '%s' in parents and trashed=false", note.ID, s.auth.driveSync.notesFolderID)).
-		Fields("files(id)").Do()
+	// 既存のファイルがあるかチェックし、重複があれば最新のファイルを取得（古いものは削除済み）
+	existingFileId, err := s.resolveDuplicateNoteFiles(note.ID)
 	if err != nil {
-		return s.handleOfflineTransition(err)
+		return err
 	}
 
-
-	if len(files.Files) > 0 {
-		// Update
-		file := files.Files[0]
-		_, err = s.auth.driveSync.service.Files.Update(file.Id, &drive.File{}).
+	if existingFileId != "" {
+		// 既存ファイルがある場合は更新処理
+		_, err = s.auth.driveSync.service.Files.Update(existingFileId, &drive.File{}).
 			Media(bytes.NewReader(noteContent)).
 			Do()
 		if err == nil {
@@ -656,10 +692,9 @@ func (s *driveService) UploadNote(note *Note) error {
 		}
 		s.ResetPollingInterval() // ポーリングをリセット
 		return err
-
 	}
 
-	// Create
+	// ファイルが存在しない場合は新規作成
 	f := &drive.File{
 		Name:     note.ID + ".json",
 		Parents:  []string{s.auth.driveSync.notesFolderID},
@@ -673,12 +708,18 @@ func (s *driveService) UploadNote(note *Note) error {
 	}
 	s.ResetPollingInterval() // ポーリングをリセット
 	return err
-
 }
 
 // DeleteNoteDrive はGoogle Drive上のノートを削除
 func (s *driveService) DeleteNoteDrive(noteID string) error {
 	s.sendLogMessage("Deleting note from cloud...")
+
+  	// driveSync.service が nil ならエラーを返す
+	if s.auth.driveSync.service == nil {
+		err := fmt.Errorf("drive service not connected")
+		s.sendLogMessage(err.Error())
+		return err
+	}
 	
 
 	if s.IsTestMode() {
@@ -712,6 +753,14 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 // UploadNoteList は現在のノートリスト(noteList.json)をアップロード
 func (s *driveService) UploadNoteList() error {
 	s.sendLogMessage("Uploading note list...")
+
+	// driveSync.service が nil ならエラーを返す
+	if s.auth.driveSync.service == nil {
+		err := fmt.Errorf("drive service not connected")
+		s.sendLogMessage(err.Error())
+		return err
+	}
+
 	fmt.Printf("Uploading note list with LastSync: %v\n", s.noteService.noteList.LastSync)
 	s.sendLogMessage(fmt.Sprintf("Uploading note list with LastSync: %v", s.noteService.noteList.LastSync))
 	fmt.Printf("Notes count: %d\n", len(s.noteService.noteList.Notes))
@@ -1017,7 +1066,6 @@ func (s *driveService) hasNoteListChanged(cloudList, localList []NoteMetadata) b
 		return true
 	}
 
-	
 	// ノートの順序とIDを比較
 	for i := range cloudList {
 		if cloudList[i].ID != localList[i].ID || 
@@ -1160,3 +1208,105 @@ func (s *driveService) ResetPollingInterval() {
 	default:
 	}
 }
+
+// CancelLoginDrive は認証をキャンセル
+func (s *driveService) CancelLoginDrive() error {
+	if err := s.auth.CancelLoginDrive(); err != nil {
+		return fmt.Errorf("failed to cancel login: %v", err)
+	}
+	return nil
+}
+
+// resolveDuplicateNoteFiles は指定されたノートIDの重複したファイル（例: "id.json"）が存在する場合、
+// 最新のファイルを残し、古いものを削除します。存在する場合は最新ファイルのIDを返します。
+func (s *driveService) resolveDuplicateNoteFiles(noteID string) (string, error) {
+	files, err := s.auth.driveSync.service.Files.List().
+		Q(fmt.Sprintf("name='%s.json' and '%s' in parents and trashed=false", noteID, s.auth.driveSync.notesFolderID)).
+		Fields("files(id, createdTime)").Do()
+	if err != nil {
+		return "", s.handleOfflineTransition(err)
+	}
+	if len(files.Files) == 0 {
+		return "", nil
+	}
+
+	if len(files.Files) > 1 {
+		// 作成日時で降順ソート（最新のファイルが先頭になるように）
+		sort.Slice(files.Files, func(i, j int) bool {
+			t1, err1 := time.Parse(time.RFC3339, files.Files[i].CreatedTime)
+			t2, err2 := time.Parse(time.RFC3339, files.Files[j].CreatedTime)
+			if err1 != nil || err2 != nil {
+				return false
+			}
+			return t1.After(t2)
+		})
+		mainFileId := files.Files[0].Id
+		// 最新以外のファイルを削除
+		for _, file := range files.Files[1:] {
+			delErr := s.auth.driveSync.service.Files.Delete(file.Id).Do()
+			if delErr != nil {
+				s.sendLogMessage(fmt.Sprintf("Failed to delete duplicate file (ID: %s): %v", file.Id, delErr))
+				return "", fmt.Errorf("failed to delete duplicate file: %v", delErr)
+			} else {
+				s.sendLogMessage(fmt.Sprintf("Deleted duplicate file (ID: %s)", file.Id))
+				return "", nil
+			}
+
+		}
+		return mainFileId, nil
+	}
+	return files.Files[0].Id, nil
+}
+
+// cleanDuplicateNoteFiles は、ポーリング開始前にnotesフォルダ内の重複する
+// {id}.jsonファイルを検出し、最新のファイルだけを残し古い方を削除します。
+func (s *driveService) cleanDuplicateNoteFiles() error {
+	// notesフォルダ内のファイル一覧を取得
+	fileList, err := s.auth.driveSync.service.Files.List().
+		Q(fmt.Sprintf("'%s' in parents and trashed=false", s.auth.driveSync.notesFolderID)).
+		Fields("files(id, name, createdTime)").
+		Do()
+	if err != nil {
+		return s.handleOfflineTransition(err)
+	}
+
+	duplicateMap := make(map[string][]*drive.File)
+	for _, file := range fileList.Files {
+		// 対象は「.json」で終わるファイルのみとする
+		if !strings.HasSuffix(file.Name, ".json") {
+			continue
+		}
+		// 拡張子を除いた部分をIDとみなす
+		noteID := strings.TrimSuffix(file.Name, ".json")
+		duplicateMap[noteID] = append(duplicateMap[noteID], file)
+	}
+
+	// 各noteIDごとに複数ファイルが存在すれば最新1つ以外を削除
+	for _, files := range duplicateMap {
+		if len(files) > 1 {
+			// 作成日時で降順にソート（最新が先頭）
+			sort.Slice(files, func(i, j int) bool {
+				t1, err1 := time.Parse(time.RFC3339, files[i].CreatedTime)
+				t2, err2 := time.Parse(time.RFC3339, files[j].CreatedTime)
+				if err1 != nil || err2 != nil {
+					return false
+				}
+				return t1.After(t2)
+			})
+
+			// 最新以外のファイルを削除
+			for _, file := range files[1:] {
+				if delErr := s.auth.driveSync.service.Files.Delete(file.Id).Do(); delErr != nil {
+					s.sendLogMessage(fmt.Sprintf("failed to delete duplicate file: %v", delErr))
+				} else {
+					s.sendLogMessage(fmt.Sprintf("deleted duplicate file: %s", file.Name))
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+
+

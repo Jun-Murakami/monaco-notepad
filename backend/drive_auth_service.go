@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -122,10 +123,22 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 		wailsRuntime.EventsEmit(a.ctx, "drive:status", "syncing")
 	}
 
+	wailsRuntime.EventsEmit(a.ctx, "drive:status", "logging in")
+
+	// 既存のサーバーが残っていないことを確認
+	if a.driveSync.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		a.driveSync.server.Shutdown(ctx)
+	}
+
 	// 認証コードを受け取るためのチャネル
 	codeChan := make(chan string, 1)
 	timeoutChan := make(chan struct{}, 1)
 
+	// カスタムServeMuxを作成して、ハンドラーの重複を防ぐ
+	mux := http.NewServeMux()
+	
 	// 共通のHTMLテンプレートを定義
 	const htmlTemplate = `
 		<html>
@@ -207,9 +220,14 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 		</html>
 	`
 
-	// 一時的なHTTPサーバーを起動
-	server := &http.Server{Addr: ":34115"}
-	http.HandleFunc("/oauth2callback", func(w http.ResponseWriter, r *http.Request) {
+	// 一時的なHTTPサーバーを起動（カスタムServeMuxを使用）
+	server := &http.Server{
+		Addr:    ":34115",
+		Handler: mux,  // カスタムServeMuxを使用
+	}
+
+	// ハンドラーをカスタムServeMuxに登録
+	mux.HandleFunc("/oauth2callback", func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-timeoutChan:
 			w.Header().Set("Content-Type", "text/html")
@@ -243,12 +261,28 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 		}
 	})
 
+	// ポートが使用可能か確認
+	var err error
+	a.driveSync.listener, err = net.Listen("tcp", ":34115")
+	if err != nil {
+		return "", fmt.Errorf("Port34115 is already in use: %v", err)
+	}
+
 	// サーバーを別のゴルーチンで起動
+	serverErrChan := make(chan error, 1)
 	go func() {
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			fmt.Printf("HTTP Server error: %v\n", err)
+		if err := server.Serve(a.driveSync.listener); err != http.ErrServerClosed {
+			serverErrChan <- err
 		}
 	}()
+
+	// サーバー起動エラーをチェック
+	select {
+	case err := <-serverErrChan:
+		return "", fmt.Errorf("HTTP Server error: %v", err)
+	case <-time.After(100 * time.Millisecond):
+		// サーバーが正常に起動
+	}
 
 	// 認証URLを開く
 	authURL := a.driveSync.config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
@@ -258,7 +292,12 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 	select {
 	case code := <-codeChan:
 		// サーバーをシャットダウン
-		server.Shutdown(a.ctx)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down server: %v\n", err)
+		}
+		
 		// 認証を完了
 		if err := a.CompleteAuth(code); err != nil {
 			wailsRuntime.EventsEmit(a.ctx, "show-message", "Authentication Error",
@@ -267,9 +306,16 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 			return "", fmt.Errorf("failed to complete authentication: %v", err)
 		}
 		return "auth_complete", nil
+		
 	case <-time.After(3 * time.Minute):
 		// タイムアウト
-		server.Shutdown(a.ctx)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down server: %v\n", err)
+		}
+		
+		close(timeoutChan)
 		a.handleOfflineTransition(nil)
 		if !a.isTestMode {
 			wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
@@ -314,6 +360,16 @@ func (a *driveAuthService) CompleteAuth(code string) error {
 func (a *driveAuthService) LogoutDrive() error {
 	a.sendLogMessage("Logging out from Google Drive...")
 
+	// サーバーが実行中の場合は安全に停止
+	if a.driveSync.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.driveSync.server.Shutdown(ctx); err != nil {
+			a.sendLogMessage(fmt.Sprintf("Error shutting down auth server: %v", err))
+		}
+		a.driveSync.server = nil
+	}
+
 	// ローカルの noteList を保存（ログアウト前に念のため）
 	if err := a.noteService.saveNoteList(); err != nil {
 		a.sendLogMessage(fmt.Sprintf("Failed to save note list before logout: %v", err))
@@ -323,7 +379,11 @@ func (a *driveAuthService) LogoutDrive() error {
 	// オフライン状態に遷移
 	a.handleOfflineTransition(nil)
 
-	// Intentionally left empty for future use
+	// フロントエンドに通知
+	if !a.isTestMode {
+		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
+	}
+
 	return nil
 }
 
@@ -340,7 +400,7 @@ func (a *driveAuthService) handleOfflineTransition(err error) {
 	if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
 		a.sendLogMessage(fmt.Sprintf("Failed to remove token file: %v", err))
 	}
-	
+
 	// 認証状態をリセット
 	a.driveSync.service = nil
 	a.driveSync.isConnected = false
@@ -365,9 +425,19 @@ func (a *driveAuthService) initializeDriveService(token *oauth2.Token) error {
 
 	a.sendLogMessage("Drive service initialized")
 
+	// driveSync の各フィールドを初期化する前に nil チェックを行う
+	if a.driveSync == nil {
+		return fmt.Errorf("driveSync is not initialized")
+	}
+
 	a.driveSync.service = srv
 	a.driveSync.token = token
 	a.driveSync.isConnected = true
+
+	// 初期化完了後にステータスを同期中に設定
+	if !a.isTestMode {
+		wailsRuntime.EventsEmit(a.ctx, "drive:status", "syncing")
+	}
 
 	return nil
 }
@@ -411,4 +481,37 @@ func (a *driveAuthService) sendLogMessage(message string) {
 	if !a.isTestMode {
 		wailsRuntime.EventsEmit(a.ctx, "logMessage", message)
 	}
+}
+
+// CancelLoginDrive はログイン処理を安全にキャンセルします
+func (a *driveAuthService) CancelLoginDrive() error {
+	a.sendLogMessage("Canceling login process...")
+
+	// サーバーが実行中の場合は安全に停止
+	if a.driveSync.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.driveSync.server.Shutdown(ctx); err != nil {
+			a.sendLogMessage(fmt.Sprintf("Error shutting down auth server: %v", err))
+		}
+		a.driveSync.server = nil
+	}
+
+	// リスナーを明示的に閉じる
+	if a.driveSync.listener != nil {
+		if err := a.driveSync.listener.Close(); err != nil {
+			a.sendLogMessage(fmt.Sprintf("Error closing listener: %v", err))
+		}
+		a.driveSync.listener = nil
+	}
+
+	// オフライン状態に遷移
+	a.handleOfflineTransition(nil)
+
+	// フロントエンドに通知
+	if !a.isTestMode {
+		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
+	}
+
+	return nil
 }

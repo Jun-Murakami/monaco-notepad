@@ -337,10 +337,20 @@ func (a *App) CompleteAuth(code string) error {
 	return a.driveService.CompleteAuth(code)
 }
 
+// 認証をキャンセル
+func (a *App) CancelLoginDrive() error {
+	if a.driveService != nil {
+		return a.driveService.CancelLoginDrive()
+	}
+	return fmt.Errorf("drive service is not initialized")
+}
+
 // Google Driveからログアウト
 func (a *App) LogoutDrive() error {
 	return a.driveService.LogoutDrive()
 }
+
+
 
 // ノートをGoogle Driveにアップロード
 func (a *App) UploadNote(note *Note) error {

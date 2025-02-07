@@ -82,7 +82,7 @@ export const useNotes = () => {
       if (isNoteModified.current) {
         saveCurrentNote();
       }
-    }, 10000);
+    }, 3000);
 
     return () => {
       clearTimeout(debounce);

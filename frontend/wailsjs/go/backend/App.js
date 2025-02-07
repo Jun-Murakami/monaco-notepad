@@ -10,6 +10,10 @@ export function BringToFront() {
   return window['go']['backend']['App']['BringToFront']();
 }
 
+export function CancelLoginDrive() {
+  return window['go']['backend']['App']['CancelLoginDrive']();
+}
+
 export function CheckDriveConnection() {
   return window['go']['backend']['App']['CheckDriveConnection']();
 }

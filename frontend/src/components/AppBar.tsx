@@ -1,4 +1,15 @@
-import { Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip } from '@mui/material';
+import {
+  Box,
+  Button,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  IconButton,
+  Tooltip,
+  CircularProgress,
+} from '@mui/material';
 import { NoteAdd, OpenInBrowser, Save, Settings, Logout } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
@@ -14,6 +25,7 @@ import {
   OpenFile,
   SyncNow,
   CheckDriveConnection,
+  CancelLoginDrive,
 } from '../../wailsjs/go/backend/App';
 import { keyframes } from '@mui/system';
 import { getLanguageByExtension } from '../lib/monaco';
@@ -54,7 +66,7 @@ export const AppBar: React.FC<{
   showMessage,
   handleNoteSelect,
 }) => {
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'logging in' | 'offline'>('offline');
   const syncStartTime = useRef<number | null>(null);
   const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -135,6 +147,13 @@ export const AppBar: React.FC<{
 
   const handleLogout = async () => {
     try {
+      // ログイン中の場合はキャンセル処理を実行
+      if (syncStatus === 'logging in') {
+        await CancelLoginDrive();
+        return;
+      }
+
+      // 通常のログアウト処理（確認あり）
       const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout?', true);
       if (result) {
         await LogoutDrive();
@@ -171,7 +190,7 @@ export const AppBar: React.FC<{
         // バックエンドの状態をチェック
         const isConnected = await CheckDriveConnection();
 
-        if (!isConnected) {
+        if (!isConnected && syncStatus !== 'logging in') {
           // 切断されている場合は強制ログアウト
           await handleForcedLogout('Drive connection lost. Please login again.');
           return;
@@ -314,14 +333,14 @@ export const AppBar: React.FC<{
                 <CloudDoneIcon color='primary' sx={{ fontSize: 24 }} />
               </IconButton>
             </Tooltip>
+          ) : syncStatus === 'syncing' ? (
+            <Tooltip title='Syncing...' arrow>
+              <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1, mx: 0.5 }}>
+                <CloudSyncIcon color='primary' sx={{ fontSize: 26 }} />
+              </Box>
+            </Tooltip>
           ) : (
-            syncStatus === 'syncing' && (
-              <Tooltip title='Syncing...' arrow>
-                <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1, mx: 0.5 }}>
-                  <CloudSyncIcon color='primary' sx={{ fontSize: 26 }} />
-                </Box>
-              </Tooltip>
-            )
+            syncStatus === 'logging in' && <CircularProgress size={24} />
           )}
         </Box>
         {syncStatus === 'offline' ? (
@@ -331,7 +350,7 @@ export const AppBar: React.FC<{
             </IconButton>
           </Tooltip>
         ) : (
-          <Tooltip title='Logout' arrow>
+          <Tooltip title={syncStatus === 'logging in' ? 'Cancel' : 'Logout'} arrow>
             <span>
               <IconButton
                 disabled={syncStatus === 'syncing'}
