@@ -18,10 +18,6 @@ export function CheckDriveConnection() {
   return window['go']['backend']['App']['CheckDriveConnection']();
 }
 
-export function CompleteAuth(arg1) {
-  return window['go']['backend']['App']['CompleteAuth'](arg1);
-}
-
 export function DeleteNote(arg1) {
   return window['go']['backend']['App']['DeleteNote'](arg1);
 }

@@ -17,7 +17,7 @@ import (
 //go:embed credentials.json
 var credentialsJSON []byte
 
-// NewContext は新しいContextインスタンスを作成します
+// 新しいContextインスタンスを作成
 func NewContext(ctx context.Context) *Context {
 	return &Context{
 		ctx:             ctx,
@@ -25,17 +25,17 @@ func NewContext(ctx context.Context) *Context {
 	}
 }
 
-// SkipBeforeClose はBeforeClose処理のスキップフラグを設定します
+// BeforeClose処理のスキップフラグを設定
 func (c *Context) SkipBeforeClose(skip bool) {
 	c.skipBeforeClose = skip
 }
 
-// ShouldSkipBeforeClose はBeforeClose処理をスキップすべきかどうかを返します
+// BeforeClose処理をスキップすべきかどうかを返す
 func (c *Context) ShouldSkipBeforeClose() bool {
 	return c.skipBeforeClose
 }
 
-// NewApp は新しいAppインスタンスを作成します
+// 新しいAppインスタンスを作成
 func NewApp() *App {
 	return &App{
 		ctx:           NewContext(context.Background()),
@@ -95,6 +95,7 @@ func (a *App) DomReady(ctx context.Context) {
 		a.noteService,
 		credentialsJSON,
 	)
+	// Google Driveの初期化。保存済みトークンがあればポーリング開始
 	if err := driveService.InitializeDrive(); err != nil {
 		fmt.Printf("Error initializing drive service: %v\n", err)
 	}
@@ -321,20 +322,11 @@ func (a *App) AuthorizeDrive() (string, error) {
 	if a.driveService == nil {
 		return "", fmt.Errorf("DriveService not initialized yet")
 	}
-	return a.driveService.AuthorizeDrive()
-}
-
-// 手動で同期を開始
-func (a *App) SyncNow() error {
-	if a.driveService != nil && a.driveService.IsConnected() {
-		return a.driveService.SyncNotes()
+	err := a.driveService.AuthorizeDrive()
+	if err != nil {
+		return "", err
 	}
-	return fmt.Errorf("drive service is not initialized or not connected")
-}
-
-// 認証コードを使用してGoogle Drive認証を完了
-func (a *App) CompleteAuth(code string) error {
-	return a.driveService.CompleteAuth(code)
+	return "", nil
 }
 
 // 認証をキャンセル
@@ -350,7 +342,13 @@ func (a *App) LogoutDrive() error {
 	return a.driveService.LogoutDrive()
 }
 
-
+// 手動で同期を開始
+func (a *App) SyncNow() error {
+	if a.driveService != nil && a.driveService.IsConnected() {
+		return a.driveService.SyncNotes()
+	}
+	return fmt.Errorf("drive service is not initialized or not connected")
+}
 
 // ノートをGoogle Driveにアップロード
 func (a *App) UploadNote(note *Note) error {
@@ -367,7 +365,7 @@ func (a *App) SyncNotes() error {
 	return a.driveService.SyncNotes()
 }
 
-// CheckDriveConnection はGoogle Driveとの接続状態をチェックします
+// Google Driveとの接続状態をチェック
 func (a *App) CheckDriveConnection() bool {
 	if a.driveService == nil {
 		return false

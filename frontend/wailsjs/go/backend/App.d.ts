@@ -10,8 +10,6 @@ export function CancelLoginDrive():Promise<void>;
 
 export function CheckDriveConnection():Promise<boolean>;
 
-export function CompleteAuth(arg1:string):Promise<void>;
-
 export function DeleteNote(arg1:string):Promise<void>;
 
 export function DeleteNoteDrive(arg1:string):Promise<void>;

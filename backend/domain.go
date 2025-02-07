@@ -85,7 +85,6 @@ type DriveSync struct {
 	notesFolderID           string                 // ノート保存用フォルダID
 	mutex                   sync.Mutex             // 同期処理用のミューテックス
 	isConnected             bool                   // Google Driveへの接続状態
-	startPageToken          string                 // 変更履歴の開始トークン
 	lastUpdated             map[string]time.Time   // 最後の更新時刻を記録
 	hasCompletedInitialSync bool                   // 初回同期が完了したかどうか
 	cloudNoteList           *NoteList              // クラウド上のノートリスト
