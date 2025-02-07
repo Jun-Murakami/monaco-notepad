@@ -414,7 +414,7 @@ func (d *driveOperationsImpl) notifyFrontendChanges(ctx context.Context, isTestM
 // ノートアップロード関連のヘルパー
 // ------------------------------------------------------------
 
-// uploadAllNotes は全てのローカルノートをGoogle Driveにアップロードします
+// 全てのローカルノートをGoogle Driveにアップロード
 func (d *driveOperationsImpl) uploadAllNotes(
 	ctx context.Context,
 	notes []Note,
@@ -452,7 +452,7 @@ func (d *driveOperationsImpl) uploadAllNotes(
 	return nil
 }
 
-// downloadNote はGoogle Driveからノートをダウンロードします
+// Google Driveからノートをダウンロード
 func (d *driveOperationsImpl) downloadNote(
 	ctx context.Context,
 	noteID string,
@@ -497,7 +497,7 @@ func (d *driveOperationsImpl) downloadNote(
 	return nil
 }
 
-// removeFromNoteList はノートリストから指定されたIDのノートを除外します
+// ノートリストから指定されたIDのノートを除外
 func (d *driveOperationsImpl) removeFromNoteList(notes []NoteMetadata, noteID string) []NoteMetadata {
 	updatedNotes := make([]NoteMetadata, 0)
 	for _, note := range notes {
@@ -508,7 +508,7 @@ func (d *driveOperationsImpl) removeFromNoteList(notes []NoteMetadata, noteID st
 	return updatedNotes
 }
 
-// uploadNote はノートをGoogle Driveにアップロードします
+// ノートをGoogle Driveにアップロードします
 func (d *driveOperationsImpl) uploadNote(
 	ctx context.Context,
 	note *Note,
@@ -539,7 +539,7 @@ func (d *driveOperationsImpl) uploadNote(
 	return err
 }
 
-// ensureFile はファイルの存在確認と作成/更新を行います
+// ファイルの存在確認と作成/更新を行う
 func (d *driveOperationsImpl) ensureFile(
 	name string,
 	parentID string,
@@ -579,7 +579,7 @@ func (d *driveOperationsImpl) ensureFile(
 	return fileID, nil
 }
 
-// findLatestFile は複数のファイルから最新のものを返します
+// 複数のファイルから最新のものを返す
 func (d *driveOperationsImpl) findLatestFile(files []*drive.File) *drive.File {
 	if len(files) == 0 {
 		return nil
@@ -599,7 +599,7 @@ func (d *driveOperationsImpl) findLatestFile(files []*drive.File) *drive.File {
 	return files[0]
 }
 
-// cleanupDuplicates は重複ファイルの整理を行います
+// 重複ファイルの整理
 func (d *driveOperationsImpl) cleanupDuplicates(
 	files []*drive.File,
 	keepLatest bool,
@@ -623,7 +623,7 @@ func (d *driveOperationsImpl) cleanupDuplicates(
 	return nil
 }
 
-// deleteNoteDrive はGoogle Drive上のノートを削除します
+// ノートをGoogle Drive上から削除
 func (d *driveOperationsImpl) deleteNoteDrive(
 	ctx context.Context,
 	noteID string,
@@ -652,7 +652,7 @@ func (d *driveOperationsImpl) deleteNoteDrive(
 	return nil
 }
 
-// uploadNoteList は現在のノートリスト(noteList.json)をアップロードします
+// 現在のノートリスト(noteList.json)をアップロード
 func (d *driveOperationsImpl) uploadNoteList(
 	ctx context.Context,
 	noteList *NoteList,
