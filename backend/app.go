@@ -316,7 +316,6 @@ func (a *App) InitializeDrive() error {
 	return a.driveService.InitializeDrive()
 }
 
-
 // Google Driveの認証フローを開始
 func (a *App) AuthorizeDrive() (string, error) {
 	if a.driveService == nil {
@@ -357,6 +356,15 @@ func (a *App) DeleteNoteDrive(noteID string) error {
 func (a *App) SyncNotes() error {
 	return a.driveService.SyncNotes()
 }
+
+// CheckDriveConnection はGoogle Driveとの接続状態をチェックします
+func (a *App) CheckDriveConnection() bool {
+	if a.driveService == nil {
+		return false
+	}
+	return a.driveService.IsConnected()
+}
+
 
 // ------------------------------------------------------------
 // ファイル操作関連の操作

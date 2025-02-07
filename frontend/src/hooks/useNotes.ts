@@ -99,10 +99,8 @@ export const useNotes = () => {
     }
   };
 
-  const handleNewNote = async () => {
-    if (currentNote) {
-      await saveCurrentNote();
-    }
+  // 新規ノート作成のロジックを関数として抽出
+  const createNewNote = async () => {
     const newNote: Note = {
       id: crypto.randomUUID(),
       title: '',
@@ -116,6 +114,15 @@ export const useNotes = () => {
     setNotes((prev) => [newNote, ...prev]);
     setCurrentNote(newNote);
     await SaveNote(backend.Note.createFrom(newNote));
+    return newNote;
+  };
+
+  // 既存のhandleNewNoteを修正
+  const handleNewNote = async () => {
+    if (currentNote) {
+      await saveCurrentNote();
+    }
+    await createNewNote();
   };
 
   const handleArchiveNote = async (noteId: string) => {
@@ -204,24 +211,44 @@ export const useNotes = () => {
     }
   };
 
+  // handleDeleteNoteを修正
   const handleDeleteNote = async (noteId: string) => {
+    // 削除前の状態を確認
+    const activeNotes = notes.filter(note => !note.archived);
+    const archivedNotes = notes.filter(note => note.archived);
+    const isLastNote = archivedNotes.length === 1 && archivedNotes[0].id === noteId;
+    const hasOnlyOneActiveNote = activeNotes.length === 1;
+    const hasNoActiveNotes = activeNotes.length === 0;
+
+    // ノートの削除処理
     await DeleteNote(noteId);
     setNotes((prev) => prev.filter((note) => note.id !== noteId));
+
+    // アーカイブページでの処理
+    if (showArchived) {
+      if (isLastNote) { // 最後のアーカイブノートを削除する場合
+        if (hasNoActiveNotes) {
+          // アクティブなノートが1つもない場合、新規ノートを作成して遷移
+          await createNewNote();
+        } else if (hasOnlyOneActiveNote) {
+          // アクティブなノートが1つだけある場合、そのノートに遷移
+          setShowArchived(false);
+          setCurrentNote(activeNotes[0]);
+        }
+        // アクティブなノートが2つ以上ある場合は何もしない（アーカイブページのまま）
+      }
+    }
+
+    // 現在のノートが削除された場合の処理
     if (currentNote?.id === noteId) {
-      const activeNotes = notes.filter((note) => !note.archived && note.id !== noteId);
-      if (activeNotes.length > 0) {
-        setCurrentNote(activeNotes[0]);
+      const remainingNotes = notes.filter((note) =>
+        note.id !== noteId &&
+        (showArchived ? true : !note.archived)
+      );
+      if (remainingNotes.length > 0) {
+        setCurrentNote(remainingNotes[0]);
       } else {
-        const emptyNote: Note = {
-          id: crypto.randomUUID(),
-          title: '',
-          content: '',
-          contentHeader: null,
-          language: currentNote?.language || 'plaintext',
-          modifiedTime: new Date().toISOString(),
-          archived: false,
-        };
-        setCurrentNote(emptyNote);
+        setCurrentNote(null);
       }
     }
   };

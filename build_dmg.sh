@@ -20,7 +20,6 @@ create-dmg \
   --icon "$APP_NAME.app" 200 190 \
   --hide-extension "$APP_NAME.app" \
   --app-drop-link 600 185 \
-  --no-internet-enable \
   --format UDZO \
   --skip-jenkins \
   --codesign "$DEVELOPER_ID_APP" \
@@ -30,30 +29,24 @@ create-dmg \
 # 作成されたDMGファイルをリネーム
 if [ -f "$OUTPUT_PATH/temp.dmg" ]; then
   echo "Found DMG: $OUTPUT_PATH/temp.dmg"
-  mv "$OUTPUT_PATH/temp.dmg" "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg"
-  echo "Renamed to: $OUTPUT_PATH/$APP_NAME-$VERSION.dmg"
+  mv "$OUTPUT_PATH/temp.dmg" "$OUTPUT_PATH/$APP_NAME-mac-universal-$VERSION.dmg"
+  echo "Renamed to: $OUTPUT_PATH/$APP_NAME-mac-universal-$VERSION.dmg"
 else
   echo "Error: Could not find created DMG file"
   exit 1
 fi
 
 # DMGファイルの権限を修正
-chmod 644 "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg"
+chmod 644 "$OUTPUT_PATH/$APP_NAME-mac-universal-$VERSION.dmg"
 
 # リソースフォークを削除
-xattr -c "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg"
+xattr -c "$OUTPUT_PATH/$APP_NAME-mac-universal-$VERSION.dmg"
 
 echo "Submitting DMG for notarization..."
 # ノータライズのリクエストとステータス確認
-xcrun notarytool submit "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg" \
-  --apple-id "$APPLE_ID" \
-  --password "$APP_SPECIFIC_PASSWORD" \
-  --team-id "$TEAM_ID" \
-  --wait \
-  --timeout 3600 || {
-    echo "Notarization failed"
-    exit 1
-  }
+xcrun notarytool submit "$OUTPUT_PATH/$APP_NAME-mac-universal-$VERSION.dmg" \
+  --keychain-profile monaconotepad \
+  --wait
 
 echo "Waiting for notarization to complete..."
 sleep 30  # ノータライズの完了を待つ
@@ -63,7 +56,7 @@ echo "Stapling DMG..."
 max_attempts=3
 attempt=1
 while [ $attempt -le $max_attempts ]; do
-  if xcrun stapler staple "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg"; then
+  if xcrun stapler staple "$OUTPUT_PATH/$APP_NAME-mac-universal-$VERSION.dmg"; then
     echo "Stapling successful!"
     break
   else
@@ -82,10 +75,4 @@ if [ $attempt -gt $max_attempts ]; then
 fi
 
 echo "DMG creation and notarization completed successfully!"
-xcrun stapler validate "$OUTPUT_PATH/$APP_NAME-$VERSION.dmg"
-
-# ノータライズのステータス確認
-xcrun notarytool log <Submission ID> \
-  --apple-id "$APPLE_ID" \
-  --password "$APP_SPECIFIC_PASSWORD" \
-  --team-id "$TEAM_ID"
+xcrun stapler validate "$OUTPUT_PATH/$APP_NAME-mac-universal-$VERSION.dmg"

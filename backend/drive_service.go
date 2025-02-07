@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -38,14 +39,12 @@ type DriveService interface {
 // driveService はDriveServiceインターフェースの実装。
 // 認証に関しては内部の authService を用いて実装し、同期ロジックをここに残す。
 type driveService struct {
-	ctx        context.Context
-	auth       *driveAuthService // 認証・初期化・切断などを委譲
-	noteService *noteService
-
-	// 下記はビジネスロジックで必要な情報
-	// （authService.driveSync と重複する部分もありますが、利便性のために保持）
-	appDataDir string
-	notesDir   string
+	ctx              context.Context
+	auth             *driveAuthService
+	noteService      *noteService
+	appDataDir       string
+	notesDir         string
+	resetPollingChan chan struct{}
 }
 
 // NewDriveService は新しいdriveServiceインスタンスを作成します
@@ -380,6 +379,7 @@ func (s *driveService) startSyncPolling() {
 
 	interval := initialInterval
 	lastChangeTime := time.Now()
+	s.resetPollingChan = make(chan struct{}, 1)
 
 	for {
 		if !s.IsConnected() {
@@ -394,7 +394,6 @@ func (s *driveService) startSyncPolling() {
 
 		if err := s.SyncNotes(); err != nil {
 			fmt.Printf("Error syncing with Drive: %v\n", err)
-			// すべてのエラーでオフライン処理を行う
 			s.auth.handleOfflineTransition(err)
 			continue
 		}
@@ -416,15 +415,25 @@ func (s *driveService) startSyncPolling() {
 				s.sendLogMessage("Syncing: No changes detected")
 				interval = newInterval
 			}
-
-
 		}
 
 		if !s.IsTestMode() {
 			wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
 		}
 
-		time.Sleep(interval)
+		// タイマーとリセット通知の待ち受け
+		select {
+		case <-time.After(interval):
+			// 通常のインターバル経過
+			continue
+		case <-s.resetPollingChan:
+			// ユーザーの操作によるリセット
+			interval = maxInterval
+			lastChangeTime = time.Now()
+			fmt.Printf("Polling interval reset to maximum: %v\n", interval)
+			s.sendLogMessage("Polling interval reset to maximum")
+			continue
+		}
 	}
 }
 
@@ -522,9 +531,21 @@ func (s *driveService) downloadNote(noteID string) error {
 	}
 
 	if len(files.Files) == 0 {
-		s.sendLogMessage(fmt.Sprintf("Note file not found: %s", noteID))
-		s.auth.handleOfflineTransition(fmt.Errorf("note file not found: %s", noteID))
-		return fmt.Errorf("note file not found: %s", noteID)
+		s.sendLogMessage(fmt.Sprintf("Note file not found in cloud: %s", noteID))
+		// ローカルにファイルが存在するか確認
+		localNote, err := s.noteService.LoadNote(noteID)
+		if err == nil {
+			// ローカルに存在する場合は、クラウドに復元を試みる
+			s.sendLogMessage(fmt.Sprintf("Attempting to restore note from local: %s", noteID))
+			if err := s.UploadNote(localNote); err != nil {
+				s.sendLogMessage(fmt.Sprintf("Failed to restore note to cloud: %v", err))
+				return fmt.Errorf("failed to restore note to cloud: %v", err)
+			}
+			return nil
+		}
+		// ローカルにも存在しない場合は、ノートリストから除外
+		s.removeFromNoteList(noteID)
+		return fmt.Errorf("note file not found in both cloud and local: %s", noteID)
 	}
 
 	// ノートファイルをダウンロード
@@ -555,6 +576,17 @@ func (s *driveService) downloadNote(noteID string) error {
 	s.auth.driveSync.lastUpdated[noteID] = time.Now()
 
 	return nil
+}
+
+// removeFromNoteList はノートリストから指定されたIDのノートを除外
+func (s *driveService) removeFromNoteList(noteID string) {
+	updatedNotes := make([]NoteMetadata, 0)
+	for _, note := range s.noteService.noteList.Notes {
+		if note.ID != noteID {
+			updatedNotes = append(updatedNotes, note)
+		}
+	}
+	s.noteService.noteList.Notes = updatedNotes
 }
 
 // UploadNote はノートをGoogle Driveにアップロード
@@ -622,6 +654,7 @@ func (s *driveService) UploadNote(note *Note) error {
 		if err == nil {
 			s.sendLogMessage(fmt.Sprintf("Uploaded note \"%s\"", note.Title))
 		}
+		s.ResetPollingInterval() // ポーリングをリセット
 		return err
 
 	}
@@ -638,6 +671,7 @@ func (s *driveService) UploadNote(note *Note) error {
 	if err == nil {
 		s.sendLogMessage(fmt.Sprintf("Uploaded note \"%s\"", note.Title))
 	}
+	s.ResetPollingInterval() // ポーリングをリセット
 	return err
 
 }
@@ -670,6 +704,7 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 		return s.auth.driveSync.service.Files.Delete(files.Files[0].Id).Do()
 	}
 	s.sendLogMessage("Deleted note from cloud")
+	s.ResetPollingInterval() // ポーリングをリセット
 	return nil
 }
 
@@ -723,6 +758,7 @@ func (s *driveService) UploadNoteList() error {
 			if !s.IsTestMode() {
 				wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
 			}
+			s.ResetPollingInterval() // ポーリングをリセット
 		}
 		return err
 	}
@@ -741,6 +777,7 @@ func (s *driveService) UploadNoteList() error {
 		if !s.IsTestMode() {
 			wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
 		}
+		s.ResetPollingInterval() // ポーリングをリセット
 	}
 	return err
 }
@@ -821,9 +858,14 @@ func (s *driveService) SyncNotes() error {
 			// ローカルにないノートはダウンロード
 			if !s.IsTestMode() {
 				if err := s.downloadNote(cloudNote.ID); err != nil {
-					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-					s.sendLogMessage(fmt.Sprintf("Error downloading note %s: %v", cloudNote.ID, err))
-					continue
+					if strings.Contains(err.Error(), "note file not found in both cloud and local") {
+						// 両方に存在しない場合は、このノートをスキップして続行
+						fmt.Printf("Skipping non-existent note %s\n", cloudNote.ID)
+						s.sendLogMessage(fmt.Sprintf("Skipping non-existent note %s", cloudNote.ID))
+						continue
+					}
+					// その他のエラーの場合は同期を中断
+					return s.handleOfflineTransition(err)
 				}
 			} else {
 				// テストモードの場合は、クラウドの内容で新しいノートを作成
@@ -845,9 +887,14 @@ func (s *driveService) SyncNotes() error {
 			// クラウドの方が新しい場合は更新
 			if !s.IsTestMode() {
 				if err := s.downloadNote(cloudNote.ID); err != nil {
-					fmt.Printf("Error downloading note %s: %v\n", cloudNote.ID, err)
-					s.sendLogMessage(fmt.Sprintf("Error downloading note %s: %v", cloudNote.ID, err))
-					continue
+					if strings.Contains(err.Error(), "note file not found in both cloud and local") {
+						// 両方に存在しない場合は、このノートをスキップして続行
+						fmt.Printf("Skipping non-existent note %s\n", cloudNote.ID)
+						s.sendLogMessage(fmt.Sprintf("Skipping non-existent note %s", cloudNote.ID))
+						continue
+					}
+					// その他のエラーの場合は同期を中断
+					return s.handleOfflineTransition(err)
 				}
 			} else {
 				// テストモードの場合は、クラウドの内容で更新
@@ -1101,4 +1148,15 @@ func (s *driveService) handleOfflineTransition(err error) error {
 	
 
 	return fmt.Errorf("sync error: %v", err)
+}
+
+// ResetPollingInterval はポーリングインターバルをリセットします
+func (s *driveService) ResetPollingInterval() {
+	if s.resetPollingChan == nil {
+		return
+	}
+	select {
+	case s.resetPollingChan <- struct{}{}:
+	default:
+	}
 }

@@ -6,6 +6,8 @@ export function AuthorizeDrive():Promise<string>;
 
 export function BringToFront():Promise<void>;
 
+export function CheckDriveConnection():Promise<boolean>;
+
 export function CompleteAuth(arg1:string):Promise<void>;
 
 export function DeleteNote(arg1:string):Promise<void>;

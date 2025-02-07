@@ -5,9 +5,16 @@ import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import { GoogleDriveIcon } from './Icons';
 import { Note } from '../types';
 import { LanguageInfo } from '../lib/monaco';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime';
-import { AuthorizeDrive, InitializeDrive, LogoutDrive, OpenFile, SyncNow } from '../../wailsjs/go/backend/App';
+import {
+  AuthorizeDrive,
+  InitializeDrive,
+  LogoutDrive,
+  OpenFile,
+  SyncNow,
+  CheckDriveConnection,
+} from '../../wailsjs/go/backend/App';
 import { keyframes } from '@mui/system';
 import { getLanguageByExtension } from '../lib/monaco';
 import { isBinaryFile } from '../utils/fileUtils';
@@ -17,6 +24,8 @@ const fadeAnimation = keyframes`
   50% { opacity: 0.4; }
   100% { opacity: 1; }
 `;
+
+const SYNC_TIMEOUT = 5 * 60 * 1000; // 5分のタイムアウト
 
 export const AppBar: React.FC<{
   currentNote: Note | null;
@@ -46,6 +55,8 @@ export const AppBar: React.FC<{
   handleNoteSelect,
 }) => {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
+  const syncStartTime = useRef<number | null>(null);
+  const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
   const handleFileDrop = async (_x: number, _y: number, paths: string[]) => {
     if (paths.length > 0) {
@@ -146,6 +157,78 @@ export const AppBar: React.FC<{
       }
     }
   };
+
+  // 同期状態の監視を開始
+  const startSyncMonitoring = () => {
+    // 既存の監視をクリア
+    if (syncCheckInterval.current) {
+      clearInterval(syncCheckInterval.current);
+    }
+
+    syncStartTime.current = Date.now();
+    syncCheckInterval.current = setInterval(async () => {
+      try {
+        // バックエンドの状態をチェック
+        const isConnected = await CheckDriveConnection();
+
+        if (!isConnected) {
+          // 切断されている場合は強制ログアウト
+          await handleForcedLogout('Drive connection lost. Please login again.');
+          return;
+        }
+
+        // タイムアウトチェック
+        if (syncStartTime.current && Date.now() - syncStartTime.current > SYNC_TIMEOUT) {
+          await handleForcedLogout('Sync timeout. Please login again.');
+          return;
+        }
+      } catch (error) {
+        console.error('Sync monitoring error:', error);
+        await handleForcedLogout('Error checking sync status. Please login again.');
+      }
+    }, 10000); // 10秒ごとにチェック
+  };
+
+  // 同期状態の監視を停止
+  const stopSyncMonitoring = () => {
+    if (syncCheckInterval.current) {
+      clearInterval(syncCheckInterval.current);
+      syncCheckInterval.current = null;
+    }
+    syncStartTime.current = null;
+  };
+
+  // 強制ログアウト処理
+  const handleForcedLogout = async (message: string) => {
+    stopSyncMonitoring();
+    try {
+      await LogoutDrive();
+      showMessage('Sync Error', message);
+    } catch (error) {
+      console.error('Forced logout error:', error);
+      showMessage('Error', 'Failed to logout: ' + error);
+    }
+  };
+
+  // syncStatusの変更を監視
+  useEffect(() => {
+    if (syncStatus === 'syncing') {
+      startSyncMonitoring();
+    } else {
+      stopSyncMonitoring();
+    }
+
+    return () => {
+      stopSyncMonitoring();
+    };
+  }, [syncStatus]);
+
+  // コンポーネントのクリーンアップ
+  useEffect(() => {
+    return () => {
+      stopSyncMonitoring();
+    };
+  }, []);
 
   return (
     <Box sx={{ height: 56, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>

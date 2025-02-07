@@ -126,87 +126,119 @@ func (a *driveAuthService) AuthorizeDrive() (string, error) {
 	codeChan := make(chan string, 1)
 	timeoutChan := make(chan struct{}, 1)
 
+	// 共通のHTMLテンプレートを定義
+	const htmlTemplate = `
+		<html>
+			<head>
+				<title>%s</title>
+				<style>
+					body { 
+						font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+						margin: 0;
+						background-color: #f5f5f5;
+					}
+					.container { 
+						display: flex; 
+						flex-direction: column;
+						justify-content: center; 
+						align-items: center; 
+						height: 100vh;
+						margin: 0;
+					}
+					.app-icon {
+						width: 80px;
+						height: 80px;
+						margin-bottom: 2rem;
+					}
+					.message-box { 
+						text-align: center; 
+						width: 400px; 
+						padding: 2rem; 
+						background-color: #00c1d9; 
+						border-radius: 8px; 
+						box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+					}
+					.message-box.error {
+						background-color: grey;
+					}
+					.text-error { 
+						color: #d32f2f; 
+					}
+					.text-success {
+						color: #ffffff;
+					}
+				</style>
+			</head>
+			<body>
+				<div class="container">
+					<svg class="app-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/xlink" viewBox="0 0 123.03 161.61">
+						<defs>
+							<linearGradient id="b" x1="61.52" y1="153.24" x2="61.52" y2="24.34" gradientUnits="userSpaceOnUse">
+								<stop offset=".04" stop-color="#fff"/>
+								<stop offset=".15" stop-color="#898787"/>
+								<stop offset=".28" stop-color="#040000"/>
+							</linearGradient>
+							<linearGradient id="c" x1="7.72" y1="-17.7" x2="111.12" y2="161.38" gradientUnits="userSpaceOnUse">
+								<stop offset="0" stop-color="#bcd3d6"/>
+								<stop offset=".08" stop-color="#a7cfd4"/>
+								<stop offset=".32" stop-color="#6ac4d0"/>
+								<stop offset=".53" stop-color="#3dbccd"/>
+								<stop offset=".69" stop-color="#22b7cb"/>
+								<stop offset=".78" stop-color="#18b6cb"/>
+							</linearGradient>
+						</defs>
+						<rect x="2.58" y="31.58" width="117.87" height="127.52" rx="17.87" ry="17.87" style="fill: #b65e20; stroke: #af5c21; stroke-miterlimit: 10; stroke-width: 5px;"/>
+						<rect x="2.58" y="24.34" width="117.87" height="128.9" rx="18.36" ry="18.36" style="fill: url(#b); stroke: #231815; stroke-miterlimit: 10; stroke-width: .25px;"/>
+						<rect x="1" y="11.71" width="121.03" height="127.52" rx="20.58" ry="20.58" style="fill: url(#c); stroke: #003b43; stroke-miterlimit: 10; stroke-width: 2px;"/>
+						<rect x="18.7" width="17.23" height="23.41" rx="7.48" ry="7.48" style="fill: #004d57;"/>
+						<rect x="52.9" width="17.23" height="23.41" rx="7.48" ry="7.48" style="fill: #004d57;"/>
+						<rect x="87.11" width="17.23" height="23.41" rx="7.48" ry="7.48" style="fill: #004d57;"/>
+						<g>
+							<path d="M19.49,67.17l33.49-19.23v11.99l-23.86,12.74,23.86,12.78v11.95l-33.49-19.23v-10.99Z" style="fill: #004d57;"/>
+							<path d="M103.54,78.16l-33.49,19.23v-11.95l23.88-12.8-23.88-12.72v-11.99l33.49,19.32v10.9Z" style="fill: #004d57;"/>
+						</g>
+					</svg>
+					<div class="message-box %s">
+						<h3 class="%s">%s</h3>
+						<p>%s</p>
+					</div>
+				</div>
+			</body>
+		</html>
+	`
+
 	// 一時的なHTTPサーバーを起動
 	server := &http.Server{Addr: ":34115"}
 	http.HandleFunc("/oauth2callback", func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-timeoutChan:
-			// タイムアウト済みの場合はエラーページを表示
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `
-				<html>
-					<head>
-						<title>Authentication Error</title>
-						<style>
-							body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-							.container { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-							.message-box { text-align: center; width: 400px; padding: 2rem; background-color: grey; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-							.error { color: #d32f2f; }
-						</style>
-					</head>
-					<body>
-						<div class="container">
-							<div class="message-box">
-								<h3 class="error">Authentication Error</h3>
-								<p>Authentication timed out.</p>
-								<p>Please try again.</p>
-							</div>
-						</div>
-					</body>
-				</html>
-			`)
+			fmt.Fprintf(w, htmlTemplate,
+				"Authentication Error",           // title
+				"error",                         // message-box class
+				"text-error",                    // text class
+				"Authentication Error",          // heading
+				"Authentication timed out. Please try again.") // message
 			return
 		default:
 			code := r.URL.Query().Get("code")
 			if code != "" {
 				codeChan <- code
-				// 認証完了ページを表示
 				w.Header().Set("Content-Type", "text/html")
-				fmt.Fprintf(w, `
-					<html>
-						<head>
-							<title>Authentication Complete</title>
-							<style>
-								body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-								.container { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-								.message-box { text-align: center; width: 400px; padding: 2rem; background-color: #00c1d9; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-							</style>
-						</head>
-						<body>
-							<div class="container">
-								<div class="message-box">
-									<h3>Authentication Complete!</h3>
-									<p>You can close this window and return to the app.</p>
-								</div>
-							</div>
-						</body>
-					</html>
-				`)
+				fmt.Fprintf(w, htmlTemplate,
+					"Authentication Complete",    // title
+					"",                          // message-box class
+					"text-success",              // text class
+					"Authentication Complete!",   // heading
+					"You can close this window and return to the app.") // message
 			} else {
-				// エラーページを表示
 				w.Header().Set("Content-Type", "text/html")
-				fmt.Fprintf(w, `
-					<html>
-						<head>
-							<title>Authentication Error</title>
-							<style>
-								body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-								.container { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-								.message-box { text-align: center; width: 400px; padding: 2rem; background-color: #00c1d9; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-								.error { color: #d32f2f; }
-							</style>
-						</head>
-						<body>
-							<div class="container">
-								<div class="message-box">
-									<h3 class="error">Authentication Error</h3>
-									<p>Authentication timed out.</p>
-									<p>Please try again.</p>
-								</div>
-							</div>
-						</body>
-					</html>
-				`)
+				fmt.Fprintf(w, htmlTemplate,
+					"Authentication Error",       // title
+					"error",                     // message-box class
+					"text-error",                // text class
+					"Authentication Error",      // heading
+					"Authentication failed. Please try again.") // message
 			}
 		}
 	})

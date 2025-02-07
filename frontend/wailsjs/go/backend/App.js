@@ -10,6 +10,10 @@ export function BringToFront() {
   return window['go']['backend']['App']['BringToFront']();
 }
 
+export function CheckDriveConnection() {
+  return window['go']['backend']['App']['CheckDriveConnection']();
+}
+
 export function CompleteAuth(arg1) {
   return window['go']['backend']['App']['CompleteAuth'](arg1);
 }
