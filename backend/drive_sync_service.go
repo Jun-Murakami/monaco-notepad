@@ -33,13 +33,23 @@ type DriveSyncService interface {
 	ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error)
 	// 重複IDを持つノートを処理し、最新のものだけを保持
 	DeduplicateNotes(notes []NoteMetadata) []NoteMetadata
+
+	// テスト用メソッド ------------------------------------------------------------
+	SetConnected(connected bool)
+	SetInitialSyncCompleted(completed bool)
+	SetCloudNoteList(noteList *NoteList)
+	IsConnected() bool
+	HasCompletedInitialSync() bool
 }
 
 // DriveSyncServiceの実装
 type driveSyncServiceImpl struct {
-	driveOps      DriveOperations
-	notesFolderID string
-	rootFolderID  string
+	driveOps                DriveOperations
+	notesFolderID           string
+	rootFolderID            string
+	isConnected             bool
+	hasCompletedInitialSync bool
+	cloudNoteList           *NoteList
 }
 
 // DriveSyncServiceインスタンスを作成
@@ -387,4 +397,25 @@ func (d *driveSyncServiceImpl) DeduplicateNotes(notes []NoteMetadata) []NoteMeta
 	})
 
 	return result
+}
+
+// テスト用メソッド ------------------------------------------------------------
+func (d *driveSyncServiceImpl) SetConnected(connected bool) {
+	d.isConnected = connected
+}
+
+func (d *driveSyncServiceImpl) SetInitialSyncCompleted(completed bool) {
+	d.hasCompletedInitialSync = completed
+}
+
+func (d *driveSyncServiceImpl) SetCloudNoteList(noteList *NoteList) {
+	d.cloudNoteList = noteList
+}
+
+func (d *driveSyncServiceImpl) IsConnected() bool {
+	return d.isConnected
+}
+
+func (d *driveSyncServiceImpl) HasCompletedInitialSync() bool {
+	return d.hasCompletedInitialSync
 }

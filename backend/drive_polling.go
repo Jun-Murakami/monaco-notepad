@@ -3,8 +3,6 @@ package backend
 import (
 	"context"
 	"time"
-
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // DrivePollingService はGoogle Driveとの同期ポーリングを管理するサービス
@@ -48,7 +46,8 @@ func (p *DrivePollingService) StartPolling() {
 	)
 
 	interval := initialInterval
-	p.resetPollingChan = make(chan struct{}, 1)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
 	// クラウドの重複ファイル削除
 	if err := p.driveService.driveSync.RemoveDuplicateNoteFiles(p.ctx); err != nil {
@@ -62,39 +61,29 @@ func (p *DrivePollingService) StartPolling() {
 
 	for {
 		select {
-		case <-p.stopPollingChan:
-			p.logger.Info("Stopping sync polling...")
+		case <-p.ctx.Done():
 			return
-		default:
+		case <-p.stopPollingChan:
+			return
+		case <-ticker.C:
 			if !p.driveService.IsConnected() {
-				time.Sleep(initialInterval)
 				continue
 			}
 
-			select {
-			case <-time.After(interval):
-				if err := p.driveService.SyncNotes(); err != nil {
-					p.logger.Error(err, "Error syncing with Drive")
+			err := p.driveService.SyncNotes()
+			if err != nil {
+				p.logger.Error(err, "Failed to sync with Drive")
+				interval = time.Duration(float64(interval) * factor)
+				if interval > maxInterval {
+					interval = maxInterval
 				}
-				newInterval := time.Duration(float64(interval) * factor)
-				if newInterval > maxInterval {
-					newInterval = maxInterval
-				}
-				if newInterval != interval {
-					p.logger.Console("No changes detected, increasing interval from %v to %v", interval, newInterval)
-					interval = newInterval
-				}
-			case <-p.resetPollingChan:
+			} else {
 				interval = initialInterval
-				p.logger.Console("Polling interval reset to: %v", interval)
-			case <-p.stopPollingChan:
-				p.logger.Info("Stopping sync polling...")
-				return
+				if !p.driveService.IsTestMode() {
+					p.logger.NotifyDriveStatus(p.ctx, "synced")
+				}
 			}
-
-			if !p.driveService.IsTestMode() {
-				wailsRuntime.EventsEmit(p.ctx, "drive:status", "synced")
-			}
+			ticker.Reset(interval)
 		}
 	}
 }

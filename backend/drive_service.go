@@ -246,7 +246,10 @@ func (s *driveService) SyncNotes() error {
 	// 接続状態の確認
 	if !s.IsConnected() {
 		s.logger.Info("Not connected to Google Drive")
-		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
+		if !s.IsTestMode() {
+			return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
+		}
+		return fmt.Errorf("not connected to Google Drive")
 	}
 
 	// クラウドのノートリスト取得

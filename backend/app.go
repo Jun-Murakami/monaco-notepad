@@ -204,13 +204,13 @@ func (a *App) SaveNote(note *Note, action string) error {
 				return
 			}
 
-			// テストモード時はイベント通知をスキップ
+			// 同期完了を通知
 			if !a.driveService.IsTestMode() {
-				// アップロード完了後に同期完了を通知
 				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
 			}
 		}()
 	}
+
 	return nil
 }
 
