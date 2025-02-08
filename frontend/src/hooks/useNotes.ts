@@ -58,7 +58,7 @@ export const useNotes = () => {
       try {
         const noteToSave = currentNoteRef.current;
         if (noteToSave?.id && isNoteModified.current) {
-          await SaveNote(backend.Note.createFrom(noteToSave));
+          await SaveNote(backend.Note.createFrom(noteToSave), "update");
         }
       } catch (error) {
       }
@@ -93,7 +93,7 @@ export const useNotes = () => {
     if (!currentNote?.id || !isNoteModified.current) return;
     try {
       setNotes((prev) => prev.map((note) => (note.id === currentNote.id ? currentNote : note)));
-      await SaveNote(backend.Note.createFrom(currentNote));
+      await SaveNote(backend.Note.createFrom(currentNote), "update");
       isNoteModified.current = false;
     } catch (error) {
     }
@@ -113,7 +113,7 @@ export const useNotes = () => {
     setShowArchived(false);
     setNotes((prev) => [newNote, ...prev]);
     setCurrentNote(newNote);
-    await SaveNote(backend.Note.createFrom(newNote));
+    await SaveNote(backend.Note.createFrom(newNote), "create");
     return newNote;
   };
 
@@ -148,7 +148,7 @@ export const useNotes = () => {
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? archivedNote : n))
     );
-    await SaveNote(backend.Note.createFrom(archivedNote));
+    await SaveNote(backend.Note.createFrom(archivedNote), "update");
 
     if (currentNote?.id === noteId) {
       const activeNotes = notes.filter((note) => !note.archived && note.id !== noteId);
@@ -176,7 +176,7 @@ export const useNotes = () => {
     setShowArchived(false);
 
     if (isNew) {
-      await SaveNote(backend.Note.createFrom(note));
+      await SaveNote(backend.Note.createFrom(note), "create");
     }
     // アーカイブされたノートの場合、コンテンツを読み込む
     if (note.archived) {
@@ -204,7 +204,7 @@ export const useNotes = () => {
     const fullNote = await LoadArchivedNote(noteId);
     if (fullNote) {
       const unarchivedNote = { ...fullNote, archived: false };
-      await SaveNote(backend.Note.createFrom(unarchivedNote));
+      await SaveNote(backend.Note.createFrom(unarchivedNote), "update");
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note))
       );

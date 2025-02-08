@@ -12,23 +12,23 @@ import (
 // 既存のimportの下に追加
 const CurrentVersion = "1.0"
 
-// NoteService はノート関連の操作を提供するインターフェースです
+// ノート関連のローカル操作を提供するインターフェース
 type NoteService interface {
-	ListNotes() ([]Note, error) // 全てのノートのリストを返す
-	LoadNote(id string) (*Note, error) // 指定されたIDのノートを読み込む
-	SaveNote(note *Note) error // ノートを保存する
-	DeleteNote(id string) error // 指定されたIDのノートを削除する
-	LoadArchivedNote(id string) (*Note, error) // アーカイブされたノートの完全なデータを読み込む
+	ListNotes() ([]Note, error)                        // 全てのノートのリストを返す
+	LoadNote(id string) (*Note, error)                 // 指定されたIDのノートを読み込む
+	SaveNote(note *Note) error                         // ノートを保存する
+	DeleteNote(id string) error                        // 指定されたIDのノートを削除する
+	LoadArchivedNote(id string) (*Note, error)         // アーカイブされたノートの完全なデータを読み込む
 	UpdateNoteOrder(noteID string, newIndex int) error // ノートの順序を更新する
 }
 
-// noteService はNoteServiceの実装です
+// NoteServiceの実装
 type noteService struct {
 	notesDir string
 	noteList *NoteList
 }
 
-// NewNoteService は新しいnoteServiceインスタンスを作成します
+// 新しいnoteServiceインスタンスを作成
 func NewNoteService(notesDir string) (*noteService, error) {
 	service := &noteService{
 		notesDir: notesDir,
@@ -38,7 +38,7 @@ func NewNoteService(notesDir string) (*noteService, error) {
 		},
 	}
 
-	// ノートリストの読み込み
+	// ノートリストの読み込み ※内部で物理ファイルとの不整合解決を行う
 	if err := service.loadNoteList(); err != nil {
 		return nil, fmt.Errorf("failed to load note list: %v", err)
 	}
@@ -46,21 +46,24 @@ func NewNoteService(notesDir string) (*noteService, error) {
 	return service, nil
 }
 
-// ListNotes は全てのノートのリストを返します
+// ------------------------------------------------------------
+// 公開メソッド
+// ------------------------------------------------------------
+
+// 全てのノートのリストを返す ------------------------------------------------------------
 func (s *noteService) ListNotes() ([]Note, error) {
 	var notes []Note
-	
 	for _, metadata := range s.noteList.Notes {
 		if metadata.Archived {
 			// アーカイブされたノートはコンテンツを読み込まない
 			notes = append(notes, Note{
-				ID:           metadata.ID,
-				Title:        metadata.Title,
-				Content:      "",  // コンテンツは空
+				ID:            metadata.ID,
+				Title:         metadata.Title,
+				Content:       "", // コンテンツは空
 				ContentHeader: metadata.ContentHeader,
-				Language:     metadata.Language,
-				ModifiedTime: metadata.ModifiedTime,
-				Archived:     true,
+				Language:      metadata.Language,
+				ModifiedTime:  metadata.ModifiedTime,
+				Archived:      true,
 			})
 		} else {
 			// アクティブなノートはコンテンツを読み込む
@@ -71,39 +74,39 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			notes = append(notes, *note)
 		}
 	}
-	
+
 	return notes, nil
 }
 
-// LoadNote は指定されたIDのノートを読み込みます
+// 指定されたIDのノートを読み込む ------------------------------------------------------------
 func (s *noteService) LoadNote(id string) (*Note, error) {
-	notePath := filepath.Join(s.notesDir, id + ".json")
+	notePath := filepath.Join(s.notesDir, id+".json")
 	data, err := os.ReadFile(notePath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var note Note
 	if err := json.Unmarshal(data, &note); err != nil {
 		return nil, err
 	}
-	
+
 	return &note, nil
 }
 
-// SaveNote はノートを保存します
+// ノートを保存する ------------------------------------------------------------
 func (s *noteService) SaveNote(note *Note) error {
 	data, err := json.MarshalIndent(note, "", "  ")
 	if err != nil {
 		return err
 	}
-	
+
 	// コンテンツのハッシュ値を計算
 	h := sha256.New()
 	h.Write(data)
 	contentHash := fmt.Sprintf("%x", h.Sum(nil))
-	
-	notePath := filepath.Join(s.notesDir, note.ID + ".json")
+
+	notePath := filepath.Join(s.notesDir, note.ID+".json")
 	if err := os.WriteFile(notePath, data, 0644); err != nil {
 		return err
 	}
@@ -111,21 +114,21 @@ func (s *noteService) SaveNote(note *Note) error {
 	// Update note list
 	found := false
 	var order int
-	
+
 	// 既存のノートを探す
 	for i, metadata := range s.noteList.Notes {
 		if metadata.ID == note.ID {
 			order = metadata.Order
 			// 既存のメタデータを更新
 			s.noteList.Notes[i] = NoteMetadata{
-				ID:           note.ID,
-				Title:        note.Title,
+				ID:            note.ID,
+				Title:         note.Title,
 				ContentHeader: note.ContentHeader,
-				Language:     note.Language,
-				ModifiedTime: note.ModifiedTime,
-				Archived:     note.Archived,
-				ContentHash:  contentHash,
-				Order:        order,
+				Language:      note.Language,
+				ModifiedTime:  note.ModifiedTime,
+				Archived:      note.Archived,
+				ContentHash:   contentHash,
+				Order:         order,
 			}
 			found = true
 			break
@@ -144,26 +147,31 @@ func (s *noteService) SaveNote(note *Note) error {
 			}
 			order = minOrder - 1
 		}
-		
+
 		// 新規ノートをリストに追加
 		s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
-			ID:           note.ID,
-			Title:        note.Title,
+			ID:            note.ID,
+			Title:         note.Title,
 			ContentHeader: note.ContentHeader,
-			Language:     note.Language,
-			ModifiedTime: note.ModifiedTime,
-			Archived:     note.Archived,
-			ContentHash:  contentHash,
-			Order:        order,
+			Language:      note.Language,
+			ModifiedTime:  note.ModifiedTime,
+			Archived:      note.Archived,
+			ContentHash:   contentHash,
+			Order:         order,
 		})
 	}
+
+	// 保存前にローカルノートリストの重複削除を実施
+	s.deduplicateNoteList()
+
+	s.noteList.LastSync = time.Now()
 
 	return s.saveNoteList()
 }
 
-// DeleteNote は指定されたIDのノートを削除します
+// 指定されたIDのノートを削除する ------------------------------------------------------------
 func (s *noteService) DeleteNote(id string) error {
-	notePath := filepath.Join(s.notesDir, id + ".json")
+	notePath := filepath.Join(s.notesDir, id+".json")
 	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -177,109 +185,17 @@ func (s *noteService) DeleteNote(id string) error {
 	}
 	s.noteList.Notes = updatedNotes
 
-	return s.saveNoteList()
-}
-
-// LoadArchivedNote はアーカイブされたノートの完全なデータを読み込みます
-func (s *noteService) LoadArchivedNote(id string) (*Note, error) {
-	return s.LoadNote(id)
-}
-
-// loadNoteList はノートリストをJSONファイルから読み込みます
-func (s *noteService) loadNoteList() error {
-	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
-	
-	// ノートリストファイルが存在しない場合は新規作成
-	if _, err := os.Stat(noteListPath); os.IsNotExist(err) {
-		s.noteList = &NoteList{
-			Version:  "1.0",
-			Notes:    []NoteMetadata{},
-			LastSync: time.Now(),
-		}
-		return s.saveNoteList()
-	}
-	
-	// 既存のノートリストを読み込む
-	data, err := os.ReadFile(noteListPath)
-	if err != nil {
-		return err
-	}
-	
-	if err := json.Unmarshal(data, &s.noteList); err != nil {
-		return err
-	}
-
-	return s.syncNoteList()
-}
-
-// saveNoteList はノートリストをJSONファイルとして保存します
-func (s *noteService) saveNoteList() error {
-	data, err := json.MarshalIndent(s.noteList, "", "  ")
-	if err != nil {
-		return err
-	}
-	
-	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
-	return os.WriteFile(noteListPath, data, 0644)
-}
-
-// syncNoteList は物理ファイルとノートリストの同期を行います
-func (s *noteService) syncNoteList() error {
-	// 物理ファイルの一覧を取得
-	files, err := os.ReadDir(s.notesDir)
-	if err != nil {
-		return err
-	}
-
-	// 物理ファイルのマップを作成
-	physicalNotes := make(map[string]bool)
-	for _, file := range files {
-		if filepath.Ext(file.Name()) != ".json" {
-			continue
-		}
-		noteID := file.Name()[:len(file.Name())-5]
-		physicalNotes[noteID] = true
-
-		// リストに存在しないノートを追加
-		found := false
-		for _, metadata := range s.noteList.Notes {
-			if metadata.ID == noteID {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			// 物理ファイルからメタデータを読み込む
-			note, err := s.LoadNote(noteID)
-			if err != nil {
-				continue
-			}
-			s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
-				ID:           note.ID,
-				Title:        note.Title,
-				ContentHeader: note.ContentHeader,
-				Language:     note.Language,
-				ModifiedTime: note.ModifiedTime,
-				Archived:     note.Archived,
-			})
-		}
-	}
-
-	// リストから存在しないノートを削除
-	var validNotes []NoteMetadata
-	for _, metadata := range s.noteList.Notes {
-		if physicalNotes[metadata.ID] {
-			validNotes = append(validNotes, metadata)
-		}
-	}
-	s.noteList.Notes = validNotes
 	s.noteList.LastSync = time.Now()
 
 	return s.saveNoteList()
 }
 
-// UpdateNoteOrder はノートの順序を更新します
+// アーカイブされたノートの完全なデータを読み込む ------------------------------------------------------------
+func (s *noteService) LoadArchivedNote(id string) (*Note, error) {
+	return s.LoadNote(id)
+}
+
+// ノートの順序を更新 ------------------------------------------------------------
 func (s *noteService) UpdateNoteOrder(noteID string, newIndex int) error {
 	// アクティブなノートのみを対象とする
 	activeNotes := make([]NoteMetadata, 0)
@@ -323,28 +239,126 @@ func (s *noteService) UpdateNoteOrder(noteID string, newIndex int) error {
 	// アクティブノートとアーカイブノートを結合
 	s.noteList.Notes = append(activeNotes, archivedNotes...)
 
-	// ノートリストを保存
+	s.noteList.LastSync = time.Now()
+
 	return s.saveNoteList()
 }
 
-func (s *noteService) LoadNoteList() error {
-	data, err := os.ReadFile(filepath.Join(s.notesDir, "noteList.json"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			s.noteList = &NoteList{
-				Version: CurrentVersion,
-				Notes:   []NoteMetadata{},
-				// 初回作成時のみ現在時刻を使用
-				LastSync: time.Now(),
-			}
-			return s.saveNoteList()
+// ------------------------------------------------------------
+// 内部ヘルパー
+// ------------------------------------------------------------
+
+// noteList内の重複するノートを削除し、最新のものだけを保持 ------------------------------------------------------------
+func (s *noteService) deduplicateNoteList() {
+	noteMap := make(map[string]NoteMetadata)
+	for _, metadata := range s.noteList.Notes {
+
+		existing, exists := noteMap[metadata.ID]
+		if !exists || metadata.ModifiedTime.After(existing.ModifiedTime) {
+			noteMap[metadata.ID] = metadata
 		}
+	}
+	deduped := make([]NoteMetadata, 0, len(noteMap))
+	for _, m := range noteMap {
+		deduped = append(deduped, m)
+	}
+	s.noteList.Notes = deduped
+}
+
+// ノートリストをJSONファイルから読み込む ------------------------------------------------------------
+func (s *noteService) loadNoteList() error {
+	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
+
+	// ノートリストファイルが存在しない場合は新規作成
+	if _, err := os.Stat(noteListPath); os.IsNotExist(err) {
+		fmt.Println("loadNoteList: noteList.json not found, creating new one")
+		s.noteList = &NoteList{
+			Version:  "1.0",
+			Notes:    []NoteMetadata{},
+			LastSync: time.Now(),
+		}
+		return s.saveNoteList()
+	}
+
+	// 既存のノートリストを読み込む
+	data, err := os.ReadFile(noteListPath)
+	if err != nil {
 		return err
 	}
 
-	// 既存のファイルを読み込む場合は、ファイルに保存されているLastSyncをそのまま使用
 	if err := json.Unmarshal(data, &s.noteList); err != nil {
 		return err
 	}
-	return nil
-} 
+
+	// 読み込んだ後に重複削除を実施
+	s.deduplicateNoteList()
+
+	// ノートリストと物理ファイルの同期を行って返す
+	return s.syncNoteList()
+}
+
+// ノートリストをJSONファイルとして保存 ------------------------------------------------------------
+func (s *noteService) saveNoteList() error {
+	data, err := json.MarshalIndent(s.noteList, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
+	return os.WriteFile(noteListPath, data, 0644)
+}
+
+// 物理ファイルとノートリストの同期 ------------------------------------------------------------
+func (s *noteService) syncNoteList() error {
+	// 物理ファイルの一覧を取得
+	files, err := os.ReadDir(s.notesDir)
+	if err != nil {
+		return err
+	}
+
+	// 物理ファイルのマップを作成
+	physicalNotes := make(map[string]bool)
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+		noteID := file.Name()[:len(file.Name())-5]
+		physicalNotes[noteID] = true
+
+		// リストに存在しないノートを追加
+		found := false
+		for _, metadata := range s.noteList.Notes {
+			if metadata.ID == noteID {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			// 物理ファイルからメタデータを読み込む
+			note, err := s.LoadNote(noteID)
+			if err != nil {
+				continue
+			}
+			s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
+				ID:            note.ID,
+				Title:         note.Title,
+				ContentHeader: note.ContentHeader,
+				Language:      note.Language,
+				ModifiedTime:  note.ModifiedTime,
+				Archived:      note.Archived,
+			})
+		}
+	}
+
+	// リストから存在しないノートを削除
+	var validNotes []NoteMetadata
+	for _, metadata := range s.noteList.Notes {
+		if physicalNotes[metadata.ID] {
+			validNotes = append(validNotes, metadata)
+		}
+	}
+	s.noteList.Notes = validNotes
+
+	return s.saveNoteList()
+}

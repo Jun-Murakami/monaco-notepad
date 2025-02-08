@@ -22,10 +22,6 @@ export function DeleteNote(arg1) {
   return window['go']['backend']['App']['DeleteNote'](arg1);
 }
 
-export function DeleteNoteDrive(arg1) {
-  return window['go']['backend']['App']['DeleteNoteDrive'](arg1);
-}
-
 export function DestroyApp() {
   return window['go']['backend']['App']['DestroyApp']();
 }
@@ -70,8 +66,8 @@ export function SaveFile(arg1, arg2) {
   return window['go']['backend']['App']['SaveFile'](arg1, arg2);
 }
 
-export function SaveNote(arg1) {
-  return window['go']['backend']['App']['SaveNote'](arg1);
+export function SaveNote(arg1, arg2) {
+  return window['go']['backend']['App']['SaveNote'](arg1, arg2);
 }
 
 export function SaveNoteList() {
@@ -94,18 +90,10 @@ export function SelectSaveFileUri(arg1, arg2) {
   return window['go']['backend']['App']['SelectSaveFileUri'](arg1, arg2);
 }
 
-export function SyncNotes() {
-  return window['go']['backend']['App']['SyncNotes']();
-}
-
 export function SyncNow() {
   return window['go']['backend']['App']['SyncNow']();
 }
 
 export function UpdateNoteOrder(arg1, arg2) {
   return window['go']['backend']['App']['UpdateNoteOrder'](arg1, arg2);
-}
-
-export function UploadNote(arg1) {
-  return window['go']['backend']['App']['UploadNote'](arg1);
 }

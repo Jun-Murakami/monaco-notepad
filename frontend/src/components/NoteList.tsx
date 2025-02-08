@@ -175,7 +175,6 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
         await UpdateNoteOrder(active.id, newIndex);
       } catch (error) {
         console.error('Failed to update note order:', error);
-        // エラーが発生した場合は、元の順序に戻すなどのエラーハンドリングを追加することもできます
       }
     }
   };

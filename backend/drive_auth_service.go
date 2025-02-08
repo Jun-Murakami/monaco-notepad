@@ -17,22 +17,18 @@ import (
 	"google.golang.org/api/option"
 )
 
-// DriveAuthService インターフェースを整理
+// 認証サービスのインターフェース
 type DriveAuthService interface {
-	// 保存済みトークンがあれば自動的に接続を試みる
-	InitializeWithSavedToken() error
-	
-	// 手動認証フローを開始し、認証完了まで待機
-	StartManualAuth() error
-	
-	LogoutDrive() error
-	CancelLoginDrive() error
-	NotifyFrontendReady()
-	IsConnected() bool
-	IsTestMode() bool
-	GetDriveSync() *DriveSync
-	GetFrontendReadyChan() chan struct{}
-	HandleOfflineTransition(err error) error
+	InitializeWithSavedToken() error         // 保存済みトークンがあれば自動的に接続を試みる
+	StartManualAuth() error                  // 手動認証フローを開始し、認証完了まで待機
+	LogoutDrive() error                      // Google Driveからログアウト
+	CancelLoginDrive() error                 // ログイン処理を安全にキャンセル
+	NotifyFrontendReady()                    // フロントエンドの準備完了を通知
+	IsConnected() bool                       // 現在の接続状態を返す
+	IsTestMode() bool                        // テストモードかどうかを返す
+	GetDriveSync() *DriveSync                // DriveSyncポインタを返す
+	GetFrontendReadyChan() chan struct{}     // frontendReady チャネルを返す
+	HandleOfflineTransition(err error) error // オフライン状態への遷移を処理
 }
 
 // driveAuthService の実装
@@ -66,9 +62,8 @@ func NewDriveAuthService(
 		isTestMode:    isTestMode,
 		frontendReady: make(chan struct{}), // バッファなしチャネル
 		driveSync: &DriveSync{
-			lastUpdated:    make(map[string]time.Time),
-			cloudNoteList:  &NoteList{Version: "1.0", Notes: []NoteMetadata{}},
-			isConnected:    false,
+			cloudNoteList:           &NoteList{Version: "1.0", Notes: []NoteMetadata{}},
+			isConnected:             false,
 			hasCompletedInitialSync: false,
 		},
 		initialized: false,
@@ -165,7 +160,7 @@ func (a *driveAuthService) loadToken() (*oauth2.Token, error) {
 		return nil, err
 	}
 	defer f.Close()
-	
+
 	token := &oauth2.Token{}
 	if err := json.NewDecoder(f).Decode(token); err != nil {
 		return nil, err
@@ -211,19 +206,26 @@ func (a *driveAuthService) HandleOfflineTransition(err error) error {
 	if err != nil {
 		a.sendLogMessage(errMsg)
 	}
-	
-	// トークンファイルのパス
-	tokenFile := filepath.Join(a.appDataDir, "token.json")
-	
+
 	// トークンファイルを削除
+	tokenFile := filepath.Join(a.appDataDir, "token.json")
 	if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
 		a.sendLogMessage(fmt.Sprintf("Failed to remove token file: %v", err))
 	}
 
+	// ページトークンファイルを削除
+
+	// 初回同期完了フラグファイルを削除
+	syncFlagPath := filepath.Join(a.appDataDir, "initial_sync_completed")
+	if err := os.Remove(syncFlagPath); err != nil && !os.IsNotExist(err) {
+		a.sendLogMessage(fmt.Sprintf("Failed to remove sync flag file: %v", err))
+	}
+
 	// 認証状態をリセット
+	a.driveSync.hasCompletedInitialSync = false
 	a.driveSync.service = nil
 	a.driveSync.isConnected = false
-	
+
 	// フロントエンドに通知
 	if !a.isTestMode {
 		if err != nil {
@@ -432,7 +434,7 @@ func (a *driveAuthService) startAuthServer() (<-chan string, error) {
 	// 一時的なHTTPサーバーを起動（カスタムServeMuxを使用）
 	server := &http.Server{
 		Addr:    ":34115",
-		Handler: mux,  // カスタムServeMuxを使用
+		Handler: mux, // カスタムServeMuxを使用
 	}
 
 	// 認証コードを受け取るためのチャネル
@@ -445,10 +447,10 @@ func (a *driveAuthService) startAuthServer() (<-chan string, error) {
 		case <-timeoutChan:
 			w.Header().Set("Content-Type", "text/html")
 			fmt.Fprintf(w, htmlTemplate,
-				"Authentication Error",           // title
-				"error",                         // message-box class
-				"text-error",                    // text class
-				"Authentication Error",          // heading
+				"Authentication Error", // title
+				"error",                // message-box class
+				"text-error",           // text class
+				"Authentication Error", // heading
 				"Authentication timed out. Please try again.") // message
 			return
 		default:
@@ -457,18 +459,18 @@ func (a *driveAuthService) startAuthServer() (<-chan string, error) {
 				codeChan <- code
 				w.Header().Set("Content-Type", "text/html")
 				fmt.Fprintf(w, htmlTemplate,
-					"Authentication Complete",    // title
-					"",                          // message-box class
-					"text-success",              // text class
-					"Authentication Complete!",   // heading
+					"Authentication Complete",  // title
+					"",                         // message-box class
+					"text-success",             // text class
+					"Authentication Complete!", // heading
 					"You can close this window and return to the app.") // message
 			} else {
 				w.Header().Set("Content-Type", "text/html")
 				fmt.Fprintf(w, htmlTemplate,
-					"Authentication Error",       // title
-					"error",                     // message-box class
-					"text-error",                // text class
-					"Authentication Error",      // heading
+					"Authentication Error", // title
+					"error",                // message-box class
+					"text-error",           // text class
+					"Authentication Error", // heading
 					"Authentication failed. Please try again.") // message
 			}
 		}

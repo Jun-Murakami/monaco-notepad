@@ -18,7 +18,6 @@ type App struct {
 	notesDir        string           // ノートファイル保存ディレクトリのパス
 	noteService     *noteService     // ノート操作サービス
 	driveService    DriveService     // Google Drive操作サービス (インターフェースで受けるよう変更)
-	authService     *driveAuthService // Google Drive認証サービス
 	settingsService *settingsService // 設定操作サービス
 	fileService     *fileService     // ファイル操作サービス
 	frontendReady   chan struct{}    // フロントエンドの準備完了を通知するチャネル
@@ -76,16 +75,16 @@ type Settings struct {
 
 // Google Driveとの同期機能を管理
 type DriveSync struct {
-	service                 *drive.Service         // Google Driveサービスのインスタンス
-	token                   *oauth2.Token          // OAuth2認証トークン
-	server                  *http.Server           // 認証サーバー
-	listener                net.Listener         // 認証サーバーのリスナー
-	config                  *oauth2.Config         // OAuth2設定
-	rootFolderID            string                 // アプリケーションのルートフォルダID
-	notesFolderID           string                 // ノート保存用フォルダID
-	mutex                   sync.Mutex             // 同期処理用のミューテックス
-	isConnected             bool                   // Google Driveへの接続状態
-	lastUpdated             map[string]time.Time   // 最後の更新時刻を記録
-	hasCompletedInitialSync bool                   // 初回同期が完了したかどうか
-	cloudNoteList           *NoteList              // クラウド上のノートリスト
+	service                 *drive.Service // Google Driveサービスのインスタンス
+	token                   *oauth2.Token  // OAuth2認証トークン
+	server                  *http.Server   // 認証サーバー
+	listener                net.Listener   // 認証サーバーのリスナー
+	config                  *oauth2.Config // OAuth2設定
+	rootFolderID            string         // アプリケーションのルートフォルダID
+	notesFolderID           string         // ノート保存用フォルダID
+	noteListID              string         // ノートリストのファイルID
+	mutex                   sync.Mutex     // 同期処理用のミューテックス
+	isConnected             bool           // Google Driveへの接続状態
+	hasCompletedInitialSync bool           // 初回同期が完了したかどうか
+	cloudNoteList           *NoteList      // クラウド上のノートリスト
 }

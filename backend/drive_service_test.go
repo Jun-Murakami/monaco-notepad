@@ -102,26 +102,29 @@ func setupTest(t *testing.T) *testHelper {
 		credentials,
 		true, // isTestMode = true
 	)
-
+	
 	// driveServiceの初期化（テストモード）
-	driveService := NewDriveService(
+	svc := NewDriveService(
 		ctx,
 		tempDir,
 		notesDir,
 		noteService,
 		credentials,
-	).(*driveService)
+	)
+	// 新たに認証サービスを注入（SetAuthService はリファクタ後のAPIに合わせたメソッドです）
+	ds, ok := svc.(*driveService)
+	if !ok {
+		t.Fatalf("svc is not of type *driveService")
+	}
+	ds.SetAuthService(authService)
 
-	// テスト用のモックDriveサービスを作成
+	// テスト用のモックDriveサービスの設定
 	config, err := google.ConfigFromJSON(credentials, drive.DriveFileScope)
 	if err != nil {
 		t.Fatalf("Failed to parse client secret file to config: %v", err)
 	}
 	authService.driveSync.config = config
 	authService.driveSync.service = &drive.Service{}
-
-	// driveServiceのauthServiceを設定
-	driveService.auth = authService
 
 	// テスト用のノートデータを作成
 	testNoteData := []byte(`{
@@ -138,13 +141,16 @@ func setupTest(t *testing.T) *testHelper {
 		t.Fatalf("Failed to create test note file: %v", err)
 	}
 
-	return &testHelper{
+	// テスト用のヘルパーに設定
+	helper := &testHelper{
 		tempDir:      tempDir,
 		notesDir:     notesDir,
 		noteService:  noteService,
-		driveService: driveService,
+		driveService: svc,
 		authService:  authService,
 	}
+
+	return helper
 }
 
 // テストのクリーンアップ

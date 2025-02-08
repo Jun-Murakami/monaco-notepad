@@ -146,8 +146,6 @@ function App() {
             onShowArchived={() => setShowArchived(true)}
             onReorder={async (newNotes) => {
               setNotes(newNotes);
-              // ノートリストの変更をバックエンドに反映
-              await SaveNoteList();
             }}
           />
         </Box>

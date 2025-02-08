@@ -14,10 +14,11 @@ import (
 // !!!! Important !!!!
 // You need to download Google Drive credentials.json file in the backend directory.
 // ------------------------------------------------------------
+//
 //go:embed credentials.json
 var credentialsJSON []byte
 
-// 新しいContextインスタンスを作成
+// 新しいContextインスタンスを作成 ------------------------------------------------------------
 func NewContext(ctx context.Context) *Context {
 	return &Context{
 		ctx:             ctx,
@@ -25,17 +26,17 @@ func NewContext(ctx context.Context) *Context {
 	}
 }
 
-// BeforeClose処理のスキップフラグを設定
+// BeforeClose処理のスキップフラグを設定 ------------------------------------------------------------
 func (c *Context) SkipBeforeClose(skip bool) {
 	c.skipBeforeClose = skip
 }
 
-// BeforeClose処理をスキップすべきかどうかを返す
+// BeforeClose処理をスキップすべきかどうかを返す ------------------------------------------------------------
 func (c *Context) ShouldSkipBeforeClose() bool {
 	return c.skipBeforeClose
 }
 
-// 新しいAppインスタンスを作成
+// 新しいAppインスタンスを作成 ------------------------------------------------------------
 func NewApp() *App {
 	return &App{
 		ctx:           NewContext(context.Background()),
@@ -47,7 +48,7 @@ func NewApp() *App {
 // アプリケーション関連の操作
 // ------------------------------------------------------------
 
-// アプリケーション起動時に呼び出される初期化関数
+// アプリケーション起動時に呼び出される初期化関数 ------------------------------------------------------------
 func (a *App) Startup(ctx context.Context) {
 	a.ctx.ctx = ctx
 
@@ -83,11 +84,11 @@ func (a *App) Startup(ctx context.Context) {
 	a.noteService = noteService
 }
 
+// フロントエンドにDOMが読み込まれたときに呼び出される関数 ------------------------------------------------------------
 func (a *App) DomReady(ctx context.Context) {
 	fmt.Println("DomReady called")
 
 	// DriveServiceの初期化
-	// （内部で drive_auth_service の機能を使う）
 	driveService := NewDriveService(
 		ctx,
 		a.appDataDir,
@@ -105,7 +106,7 @@ func (a *App) DomReady(ctx context.Context) {
 	wailsRuntime.EventsEmit(ctx, "backend:ready")
 }
 
-// アプリケーション終了前に呼び出される処理
+// アプリケーション終了前に呼び出される処理 ------------------------------------------------------------
 func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 	if a.ctx.ShouldSkipBeforeClose() {
 		return false
@@ -118,11 +119,10 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 	if err := a.settingsService.SaveWindowState(a.ctx); err != nil {
 		return false
 	}
-
 	return true
 }
 
-// アプリケーションを強制終了する
+// アプリケーションを強制終了する ------------------------------------------------------------
 func (a *App) DestroyApp() {
 	fmt.Println("DestroyApp")
 	// BeforeCloseイベントをスキップしてアプリケーションを終了
@@ -130,7 +130,7 @@ func (a *App) DestroyApp() {
 	wailsRuntime.Quit(a.ctx.ctx)
 }
 
-// フロントエンドの準備完了を通知する
+// フロントエンドの準備完了を通知する ------------------------------------------------------------
 func (a *App) NotifyFrontendReady() {
 	fmt.Println("App.NotifyFrontendReady called") // デバッグログ
 	if a.driveService != nil {
@@ -141,22 +141,26 @@ func (a *App) NotifyFrontendReady() {
 }
 
 // ------------------------------------------------------------
-// ノート関連の操作
+// ノート関連の操作 (ローカルノート操作メソッドとGoogle Drive操作メソッドを結合)
 // ------------------------------------------------------------
 
-// 全てのノートのリストを返す
+// 全てのノートのリストを返す ------------------------------------------------------------
 func (a *App) ListNotes() ([]Note, error) {
 	return a.noteService.ListNotes()
 }
 
-// 指定されたIDのノートを読み込む
+// 指定されたIDのノートを読み込む ------------------------------------------------------------
 func (a *App) LoadNote(id string) (*Note, error) {
 	return a.noteService.LoadNote(id)
 }
 
-// ノートを保存する（アーカイブも含む）
-func (a *App) SaveNote(note *Note) error {
-	// まずノートサービスで保存
+// ノートを保存する（アーカイブも含む） ------------------------------------------------------------
+func (a *App) SaveNote(note *Note, action string) error {
+	if action != "create" {
+		action = "update"
+	}
+
+	// まずノートサービスでローカルに保存
 	if err := a.noteService.SaveNote(note); err != nil {
 		return err
 	}
@@ -173,16 +177,26 @@ func (a *App) SaveNote(note *Note) error {
 			}
 
 			// ノートをアップロード
-			if err := a.driveService.UploadNote(&noteCopy); err != nil {
-				fmt.Printf("Error uploading note to Drive: %v\n", err)
-				if !a.driveService.IsTestMode() {
-					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+			if action == "create" {
+				if err := a.driveService.CreateNote(&noteCopy); err != nil {
+					fmt.Printf("Error uploading note to Drive: %v\n", err)
+					if !a.driveService.IsTestMode() {
+						wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+					}
+					return
 				}
-				return
+			} else {
+				if err := a.driveService.UpdateNote(&noteCopy); err != nil {
+					fmt.Printf("Error uploading note to Drive: %v\n", err)
+					if !a.driveService.IsTestMode() {
+						wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
+					}
+					return
+				}
 			}
 
 			// ノートリストをアップロード
-			if err := a.driveService.UploadNoteList(); err != nil {
+			if err := a.driveService.UpdateNoteList(); err != nil {
 				fmt.Printf("Error uploading note list to Drive: %v\n", err)
 				if !a.driveService.IsTestMode() {
 					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
@@ -197,16 +211,16 @@ func (a *App) SaveNote(note *Note) error {
 			}
 		}()
 	}
-
 	return nil
 }
 
-// ノートリストを保存する
+// ノートリストを保存する ------------------------------------------------------------
 func (a *App) SaveNoteList() error {
+	fmt.Println("SaveNoteList called")
 	// LastSyncを更新
 	a.noteService.noteList.LastSync = time.Now()
 
-	// まずノートサービスで保存
+	// まずノートサービスでローカルに保存
 	if err := a.noteService.saveNoteList(); err != nil {
 		return err
 	}
@@ -216,16 +230,15 @@ func (a *App) SaveNoteList() error {
 		if !a.driveService.IsTestMode() {
 			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
 		}
-		if err := a.driveService.UploadNoteList(); err != nil {
+		if err := a.driveService.UpdateNoteList(); err != nil {
 			fmt.Printf("Error uploading note list to Drive: %v\n", err)
 			return err
 		}
 	}
-
 	return nil
 }
 
-// 指定されたIDのノートを削除する
+// 指定されたIDのノートを削除する ------------------------------------------------------------
 func (a *App) DeleteNote(id string) error {
 	// まずノートサービスで削除
 	if err := a.noteService.DeleteNote(id); err != nil {
@@ -247,7 +260,7 @@ func (a *App) DeleteNote(id string) error {
 			}
 
 			// ノートリストをアップロード
-			if err := a.driveService.UploadNoteList(); err != nil {
+			if err := a.driveService.UpdateNoteList(); err != nil {
 				fmt.Printf("Error uploading note list to Drive: %v\n", err)
 				if !a.driveService.IsTestMode() {
 					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
@@ -262,17 +275,17 @@ func (a *App) DeleteNote(id string) error {
 			}
 		}()
 	}
-
 	return nil
 }
 
-// アーカイブされたノートの完全なデータを読み込む
+// アーカイブされたノートの完全なデータを読み込む ------------------------------------------------------------
 func (a *App) LoadArchivedNote(id string) (*Note, error) {
 	return a.noteService.LoadArchivedNote(id)
 }
 
-// ノートの順序を更新する
+// ノートの順序を更新する ------------------------------------------------------------
 func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
+	fmt.Println("UpdateNoteOrder called")
 	// まずノートサービスで順序を更新
 	if err := a.noteService.UpdateNoteOrder(noteID, newIndex); err != nil {
 		return err
@@ -281,13 +294,8 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 	// ドライブサービスが初期化されており、接続中の場合はアップロード
 	if a.driveService != nil && a.driveService.IsConnected() {
 		go func() {
-			// テストモード時はイベント通知をスキップ
-			if !a.driveService.IsTestMode() {
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
-			}
-
 			// ノートリストをアップロード
-			if err := a.driveService.UploadNoteList(); err != nil {
+			if err := a.driveService.UpdateNoteList(); err != nil {
 				fmt.Printf("Error uploading note list to Drive: %v\n", err)
 				if !a.driveService.IsTestMode() {
 					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
@@ -301,7 +309,6 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 			}
 		}()
 	}
-
 	return nil
 }
 
@@ -309,7 +316,7 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 // Google Drive関連の操作
 // ------------------------------------------------------------
 
-// Google Drive APIの初期化
+// Google Drive APIの初期化 ------------------------------------------------------------
 func (a *App) InitializeDrive() error {
 	if a.driveService == nil {
 		return fmt.Errorf("DriveService not initialized yet")
@@ -317,7 +324,7 @@ func (a *App) InitializeDrive() error {
 	return a.driveService.InitializeDrive()
 }
 
-// Google Driveの認証フローを開始
+// Google Driveの認証フローを開始 ------------------------------------------------------------
 func (a *App) AuthorizeDrive() (string, error) {
 	if a.driveService == nil {
 		return "", fmt.Errorf("DriveService not initialized yet")
@@ -329,7 +336,7 @@ func (a *App) AuthorizeDrive() (string, error) {
 	return "", nil
 }
 
-// 認証をキャンセル
+// 認証をキャンセル ------------------------------------------------------------
 func (a *App) CancelLoginDrive() error {
 	if a.driveService != nil {
 		return a.driveService.CancelLoginDrive()
@@ -337,12 +344,12 @@ func (a *App) CancelLoginDrive() error {
 	return fmt.Errorf("drive service is not initialized")
 }
 
-// Google Driveからログアウト
+// Google Driveからログアウト ------------------------------------------------------------
 func (a *App) LogoutDrive() error {
 	return a.driveService.LogoutDrive()
 }
 
-// 手動で同期を開始
+// 手動でただちに同期を開始 ------------------------------------------------------------
 func (a *App) SyncNow() error {
 	if a.driveService != nil && a.driveService.IsConnected() {
 		return a.driveService.SyncNotes()
@@ -350,29 +357,13 @@ func (a *App) SyncNow() error {
 	return fmt.Errorf("drive service is not initialized or not connected")
 }
 
-// ノートをGoogle Driveにアップロード
-func (a *App) UploadNote(note *Note) error {
-	return a.driveService.UploadNote(note)
-}
-
-// Google Driveからノートを削除
-func (a *App) DeleteNoteDrive(noteID string) error {
-	return a.driveService.DeleteNoteDrive(noteID)
-}
-
-// Google Driveとの定期的な同期
-func (a *App) SyncNotes() error {
-	return a.driveService.SyncNotes()
-}
-
-// Google Driveとの接続状態をチェック
+// Google Driveとの接続状態をチェック ------------------------------------------------------------
 func (a *App) CheckDriveConnection() bool {
 	if a.driveService == nil {
 		return false
 	}
 	return a.driveService.IsConnected()
 }
-
 
 // ------------------------------------------------------------
 // ファイル操作関連の操作

@@ -12,8 +12,6 @@ export function CheckDriveConnection():Promise<boolean>;
 
 export function DeleteNote(arg1:string):Promise<void>;
 
-export function DeleteNoteDrive(arg1:string):Promise<void>;
-
 export function DestroyApp():Promise<void>;
 
 export function InitializeDrive():Promise<void>;
@@ -36,7 +34,7 @@ export function OpenFileFromExternal(arg1:string):Promise<void>;
 
 export function SaveFile(arg1:string,arg2:string):Promise<void>;
 
-export function SaveNote(arg1:backend.Note):Promise<void>;
+export function SaveNote(arg1:backend.Note,arg2:string):Promise<void>;
 
 export function SaveNoteList():Promise<void>;
 
@@ -48,10 +46,6 @@ export function SelectFile():Promise<string>;
 
 export function SelectSaveFileUri(arg1:string,arg2:string):Promise<string>;
 
-export function SyncNotes():Promise<void>;
-
 export function SyncNow():Promise<void>;
 
 export function UpdateNoteOrder(arg1:string,arg2:number):Promise<void>;
-
-export function UploadNote(arg1:backend.Note):Promise<void>;
