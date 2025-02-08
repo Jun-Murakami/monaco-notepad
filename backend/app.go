@@ -234,6 +234,9 @@ func (a *App) SaveNoteList() error {
 			fmt.Printf("Error uploading note list to Drive: %v\n", err)
 			return err
 		}
+		if !a.driveService.IsTestMode() {
+			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
+		}
 	}
 	return nil
 }

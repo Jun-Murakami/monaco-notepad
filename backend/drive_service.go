@@ -31,16 +31,16 @@ type DriveService interface {
 
 // driveService はDriveServiceインターフェースの実装
 type driveService struct {
-	ctx              context.Context
-	auth             *driveAuthService
-	noteService      *noteService
-	appDataDir       string
-	notesDir         string
-	resetPollingChan chan struct{}
-	stopPollingChan  chan struct{}
-	logger           DriveLogger
-	driveOps         DriveOperations
-	driveSync        DriveSyncService
+	ctx             context.Context
+	auth            *driveAuthService
+	noteService     *noteService
+	appDataDir      string
+	notesDir        string
+	stopPollingChan chan struct{}
+	logger          DriveLogger
+	driveOps        DriveOperations
+	driveSync       DriveSyncService
+	pollingService  *DrivePollingService
 }
 
 // NewDriveService は新しいdriveServiceインスタンスを作成します
@@ -61,7 +61,7 @@ func NewDriveService(
 		false,
 	)
 
-	return &driveService{
+	ds := &driveService{
 		ctx:             ctx,
 		auth:            authService,
 		noteService:     noteService,
@@ -72,6 +72,9 @@ func NewDriveService(
 		driveOps:        nil,
 		driveSync:       nil,
 	}
+
+	ds.pollingService = NewDrivePollingService(ctx, ds)
+	return ds
 }
 
 // ------------------------------------------------------------
@@ -138,13 +141,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 // Google Driveからログアウト ------------------------------------------------------------
 func (s *driveService) LogoutDrive() error {
 	s.logger.Info("Logging out of Google Drive...")
-
-	// ポーリングを停止
-	if s.stopPollingChan != nil {
-		close(s.stopPollingChan)
-		s.stopPollingChan = make(chan struct{}) // 新しいチャネルを作成
-	}
-
+	s.pollingService.StopPolling()
 	return s.auth.LogoutDrive()
 }
 
@@ -242,6 +239,9 @@ func (s *driveService) UpdateNoteList() error {
 // 同期をただちに実行 ------------------------------------------------------------
 func (s *driveService) SyncNotes() error {
 	s.logger.Info("Starting sync with Drive...")
+	if !s.IsTestMode() {
+		wailsRuntime.EventsEmit(s.ctx, "drive:status", "syncing")
+	}
 
 	// 接続状態の確認
 	if !s.IsConnected() {
@@ -288,100 +288,29 @@ func (s *driveService) SyncNotes() error {
 		s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 	} else {
 		s.logger.Info("Sync status is up to date")
+		wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
 	}
 
 	return nil
 }
 
 // ------------------------------------------------------------
-// 同期用の内部ルーチン
+// ポーリングのラッパー
 // ------------------------------------------------------------
 
-// フロントエンドの準備完了を待って同期開始 ------------------------------------------------------------
+// フロントエンドの準備完了を待って同期開始 (ポーリング用ゴルーチン起動)------------------------------------------------------------
 func (s *driveService) waitForFrontendAndStartSync() {
-	<-s.auth.GetFrontendReadyChan() // フロントエンドが ready になるまでブロック
-	s.logger.Info("Frontend ready - starting sync...")
-
-	// 接続状態を通知
-	if !s.IsTestMode() {
-		s.logger.NotifyDriveStatus(s.ctx, "synced")
-	}
-
-	// 少し待機の後にポーリング開始
-	time.Sleep(1 * time.Second)
-	s.startSyncPolling()
+	go s.pollingService.WaitForFrontendAndStartSync()
 }
 
-// Google Driveとのポーリング監視を開始 ------------------------------------------------------------
-func (s *driveService) startSyncPolling() {
-	const (
-		initialInterval = 20 * time.Second
-		maxInterval     = 3 * time.Minute
-		factor          = 1.5
-	)
-
-	interval := initialInterval
-	s.resetPollingChan = make(chan struct{}, 1)
-
-	// クラウドにある重複ファイルの削除
-	if err := s.driveSync.RemoveDuplicateNoteFiles(s.ctx); err != nil {
-		s.logger.Error(err, "Failed to clean duplicate note files")
-	}
-
-	// まず１回同期を行う
-	if err := s.SyncNotes(); err != nil {
-		s.logger.Error(err, "Error syncing with Drive")
-	}
-
-	for {
-		select {
-		case <-s.stopPollingChan:
-			s.logger.Info("Stopping sync polling...")
-			return
-		default:
-			if !s.IsConnected() {
-				time.Sleep(initialInterval)
-				continue
-			}
-
-			// 同期開始を通知
-			if !s.IsTestMode() {
-				wailsRuntime.EventsEmit(s.ctx, "drive:status", "syncing")
-			}
-
-			if !s.IsTestMode() {
-				wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
-			}
-
-			// タイマーとリセット通知の待ち受け
-			select {
-			case <-time.After(interval):
-				// 通常のインターバル経過後の同期
-				if err := s.SyncNotes(); err != nil {
-					s.logger.Error(err, "Error syncing with Drive")
-				}
-				// 変更がない場合は間隔を増加（最大値まで）
-				newInterval := time.Duration(float64(interval) * factor)
-				if newInterval > maxInterval {
-					newInterval = maxInterval
-				}
-				if newInterval != interval {
-					s.logger.Console("No changes detected, increasing interval from %v to %v", interval, newInterval)
-					interval = newInterval
-				}
-				continue
-			case <-s.resetPollingChan:
-				// ユーザーの操作によるリセット
-				interval = initialInterval
-				s.logger.Console("Polling interval reset to: %v", interval)
-				continue
-			case <-s.stopPollingChan:
-				s.logger.Info("Stopping sync polling...")
-				return
-			}
-		}
-	}
+// ポーリングインターバルをリセット ------------------------------------------------------------
+func (s *driveService) resetPollingInterval() {
+	s.pollingService.ResetPollingInterval()
 }
+
+// ------------------------------------------------------------
+// 同期用の内部ルーチン
+// ------------------------------------------------------------
 
 // 初回接続時のマージ処理 ------------------------------------------------------------
 func (s *driveService) performInitialSync() error {
@@ -456,7 +385,6 @@ func (s *driveService) performInitialSync() error {
 
 	// フロントエンドに変更を通知
 	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
-
 	return nil
 }
 
@@ -693,17 +621,6 @@ func (s *driveService) ensureNoteList() error {
 		s.auth.driveSync.noteListID = noteListID
 	}
 	return nil
-}
-
-// ポーリングインターバルをリセット ------------------------------------------------------------
-func (s *driveService) resetPollingInterval() {
-	if s.resetPollingChan == nil {
-		return
-	}
-	select {
-	case s.resetPollingChan <- struct{}{}:
-	default:
-	}
 }
 
 // ノートリストの同期を行う共通処理
