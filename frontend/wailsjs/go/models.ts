@@ -21,6 +21,7 @@ export namespace backend {
 	    // Go type: time
 	    modifiedTime: any;
 	    archived: boolean;
+	    order: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Note(source);
@@ -35,6 +36,7 @@ export namespace backend {
 	        this.language = source["language"];
 	        this.modifiedTime = this.convertValues(source["modifiedTime"], null);
 	        this.archived = source["archived"];
+	        this.order = source["order"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

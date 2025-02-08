@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -63,6 +64,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 				ContentHeader: metadata.ContentHeader,
 				Language:      metadata.Language,
 				ModifiedTime:  metadata.ModifiedTime,
+				Order:         metadata.Order,
 				Archived:      true,
 			})
 		} else {
@@ -72,8 +74,14 @@ func (s *noteService) ListNotes() ([]Note, error) {
 				continue
 			}
 			notes = append(notes, *note)
+			notes[len(notes)-1].Order = metadata.Order
 		}
 	}
+
+	// ノートの順序をOrderの値で並べ直す
+	sort.Slice(notes, func(i, j int) bool {
+		return notes[i].Order < notes[j].Order
+	})
 
 	return notes, nil
 }

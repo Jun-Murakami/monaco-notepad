@@ -31,6 +31,16 @@ export const useNotes = () => {
     runtime.EventsOn('notes:reload', async () => {
       const notes = await ListNotes();
       setNotes(notes);
+
+      // 現在表示中のノートも更新
+      if (currentNoteRef.current) {
+        const updatedCurrentNote = notes.find(note => note.id === currentNoteRef.current?.id);
+        if (updatedCurrentNote) {
+          setCurrentNote(updatedCurrentNote);
+          previousContent.current = updatedCurrentNote.content || '';
+          isNoteModified.current = false;
+        }
+      }
     });
 
     // 個別のノート更新イベントのハンドラを登録
@@ -76,13 +86,13 @@ export const useNotes = () => {
 
   // 自動保存の処理
   useEffect(() => {
-    if (!currentNote || !isNoteModified.current) return;
+    if (!currentNote) return;
 
     const debounce = setTimeout(() => {
       if (isNoteModified.current) {
         saveCurrentNote();
       }
-    }, 3000);
+    }, 5000); // 5秒ごとに自動保存
 
     return () => {
       clearTimeout(debounce);

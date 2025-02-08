@@ -38,6 +38,7 @@ type Note struct {
 	Language      string    `json:"language"`      // ノートで使用されているプログラミング言語
 	ModifiedTime  time.Time `json:"modifiedTime"`  // 最終更新日時
 	Archived      bool      `json:"archived"`      // アーカイブ状態（true=アーカイブ済み）
+	Order         int       `json:"order"`         // ノートの表示順序
 }
 
 // ノートのメタデータのみを保持
