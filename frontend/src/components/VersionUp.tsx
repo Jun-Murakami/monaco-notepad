@@ -23,7 +23,6 @@ export const VersionUp = () => {
 
       const latestVersion = data.tag_name.replace('v', '');
       if (latestVersion > ver) {
-        const releasePageUrl = data.html_url; // リリースページのURLを取得
         setShowChip(true);
       } else {
         console.log('最新バージョンです');
@@ -39,6 +38,12 @@ export const VersionUp = () => {
           label={`Update? v${version}`}
           onClick={() => window.open(releaseUrl, '_blank')}
           onDelete={() => setShowChip(false)}
+          size='small'
+          sx={{
+            bgcolor: 'primary.main',
+            color: 'primary.contrastText',
+            ml: 2,
+          }}
         />
       )}
     </>
