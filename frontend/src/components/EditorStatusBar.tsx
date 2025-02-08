@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Box, Typography, Divider } from '@mui/material';
 import type { editor, IDisposable } from 'monaco-editor';
+import { VersionUp } from './VersionUp';
 import { Note } from '../types';
 import * as wailsRuntime from '../../wailsjs/runtime';
 
@@ -125,6 +126,7 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
           minWidth: 0,
         }}
       >
+        <VersionUp />
         <Typography
           variant='caption'
           sx={{

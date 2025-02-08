@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -428,8 +429,24 @@ func (a *App) SaveWindowState(ctx *Context) error {
 	return a.settingsService.SaveWindowState(ctx)
 }
 
-// BringToFront brings the application window to front
+// ウィンドウを前面に表示する
 func (a *App) BringToFront() {
 	wailsRuntime.WindowUnminimise(a.ctx.ctx)
 	wailsRuntime.Show(a.ctx.ctx)
+}
+
+// アプリケーションのバージョンを返す
+func (a *App) GetAppVersion() (string, error) {
+	// wails.jsonを読み込む
+	data, err := os.ReadFile("wails.json")
+	if err != nil {
+		return "", fmt.Errorf("failed to read wails.json: %v", err)
+	}
+
+	var config WailsConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("failed to parse wails.json: %v", err)
+	}
+
+	return config.Info.ProductVersion, nil
 }

@@ -26,6 +26,10 @@ export function DestroyApp() {
   return window['go']['backend']['App']['DestroyApp']();
 }
 
+export function GetAppVersion() {
+  return window['go']['backend']['App']['GetAppVersion']();
+}
+
 export function InitializeDrive() {
   return window['go']['backend']['App']['InitializeDrive']();
 }

@@ -276,12 +276,7 @@ func (s *driveService) SyncNotes() error {
 
 		// ローカルのノートリストを更新
 		s.noteService.noteList.LastSync = cloudNoteList.LastSync
-		if err := s.noteService.saveNoteList(); err != nil {
-			return err
-		}
-		if cloudNoteList != nil {
-			s.noteService.noteList.Notes = cloudNoteList.Notes
-		}
+		s.noteService.noteList.Notes = cloudNoteList.Notes
 
 		if err := s.handleNoteListSync(cloudNoteList); err != nil {
 			return err

@@ -14,6 +14,8 @@ export function DeleteNote(arg1:string):Promise<void>;
 
 export function DestroyApp():Promise<void>;
 
+export function GetAppVersion():Promise<string>;
+
 export function InitializeDrive():Promise<void>;
 
 export function ListNotes():Promise<Array<backend.Note>>;

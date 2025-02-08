@@ -90,3 +90,12 @@ type DriveSync struct {
 	hasCompletedInitialSync bool           // 初回同期が完了したかどうか
 	cloudNoteList           *NoteList      // クラウド上のノートリスト
 }
+
+// wails.jsonの設定を保持する構造体
+type WailsConfig struct {
+	Name           string `json:"name"`
+	OutputFilename string `json:"outputfilename"`
+	Info           struct {
+		ProductVersion string `json:"productVersion"`
+	} `json:"info"`
+}
