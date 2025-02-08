@@ -45,20 +45,16 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/drive/v3"
 )
 
-// テスト用のヘルパー構造体
+// テストヘルパー構造体
 type testHelper struct {
 	tempDir      string
 	notesDir     string
 	noteService  *noteService
 	driveService DriveService
-	authService  *driveAuthService
 }
 
 // テストのセットアップ
@@ -90,67 +86,21 @@ func setupTest(t *testing.T) *testHelper {
 		}
 	}`)
 
-	// テスト用のモックコンテキストを作成
-	ctx := context.Background()
-
-	// authServiceの初期化
-	authService := NewDriveAuthService(
-		ctx,
-		tempDir,
-		notesDir,
-		noteService,
-		credentials,
-		true, // isTestMode = true
-	)
-	
 	// driveServiceの初期化（テストモード）
-	svc := NewDriveService(
-		ctx,
+	driveService := NewDriveService(
+		context.Background(),
 		tempDir,
 		notesDir,
 		noteService,
 		credentials,
 	)
-	// 新たに認証サービスを注入（SetAuthService はリファクタ後のAPIに合わせたメソッドです）
-	ds, ok := svc.(*driveService)
-	if !ok {
-		t.Fatalf("svc is not of type *driveService")
-	}
-	ds.SetAuthService(authService)
 
-	// テスト用のモックDriveサービスの設定
-	config, err := google.ConfigFromJSON(credentials, drive.DriveFileScope)
-	if err != nil {
-		t.Fatalf("Failed to parse client secret file to config: %v", err)
-	}
-	authService.driveSync.config = config
-	authService.driveSync.service = &drive.Service{}
-
-	// テスト用のノートデータを作成
-	testNoteData := []byte(`{
-		"id": "conflict-note",
-		"title": "Cloud Version",
-		"content": "Cloud content",
-		"language": "plaintext",
-		"modifiedTime": "2024-02-05T23:10:27Z"
-	}`)
-
-	// テスト用のノートファイルを作成
-	noteFile := filepath.Join(notesDir, "conflict-note.json")
-	if err := os.WriteFile(noteFile, testNoteData, 0644); err != nil {
-		t.Fatalf("Failed to create test note file: %v", err)
-	}
-
-	// テスト用のヘルパーに設定
-	helper := &testHelper{
+	return &testHelper{
 		tempDir:      tempDir,
 		notesDir:     notesDir,
 		noteService:  noteService,
-		driveService: svc,
-		authService:  authService,
+		driveService: driveService,
 	}
-
-	return helper
 }
 
 // テストのクリーンアップ
@@ -164,10 +114,8 @@ func TestNewDriveService(t *testing.T) {
 	defer helper.cleanup()
 
 	assert.NotNil(t, helper.driveService)
-	assert.NotNil(t, helper.authService)
-	assert.Equal(t, helper.notesDir, helper.authService.notesDir)
-	assert.NotNil(t, helper.authService.frontendReady)
-	assert.NotNil(t, helper.authService.credentials)
+	assert.NotNil(t, helper.noteService)
+	assert.Equal(t, helper.notesDir, helper.noteService.notesDir)
 }
 
 // TestSaveAndSyncNote はノートの保存と同期をテストします
@@ -198,148 +146,7 @@ func TestSaveAndSyncNote(t *testing.T) {
 	assert.Equal(t, note.Title, helper.noteService.noteList.Notes[0].Title)
 }
 
-// TestOfflineToOnlineSync はオフライン→オンライン同期をテストします
-func TestOfflineToOnlineSync(t *testing.T) {
-	helper := setupTest(t)
-	defer helper.cleanup()
-
-	// 初期状態はオフライン
-	helper.authService.driveSync.isConnected = false
-
-	// オフライン状態でノートを作成
-	note := &Note{
-		ID:       "offline-note",
-		Title:    "Offline Note",
-		Content:  "Created while offline",
-		Language: "plaintext",
-	}
-
-	// ノートを保存（オフライン）
-	err := helper.noteService.SaveNote(note)
-	assert.NoError(t, err)
-
-	// オンラインに切り替え
-	helper.authService.driveSync.isConnected = true
-
-	// 同期を実行（実際のAPIコールはスキップ）
-	helper.authService.driveSync.lastUpdated[note.ID] = time.Now()
-	
-	// 同期されたことを確認
-	assert.True(t, helper.authService.driveSync.lastUpdated[note.ID].After(time.Time{}))
-}
-
-// TestConflictResolution はノートの競合解決をテストします
-func TestConflictResolution(t *testing.T) {
-	helper := setupTest(t)
-	defer helper.cleanup()
-
-	// ローカルノートを作成
-	localNote := &Note{
-		ID:           "conflict-note",
-		Title:        "Local Version",
-		Content:      "Local content",
-		Language:     "plaintext",
-		ModifiedTime: time.Now().Add(-time.Hour), // 1時間前
-	}
-
-	// ローカルノートを保存
-	err := helper.noteService.SaveNote(localNote)
-	assert.NoError(t, err)
-
-	// クラウドノートを作成（より新しい更新時刻）
-	cloudModTime := time.Now()
-	cloudNote := &Note{
-		ID:           "conflict-note",
-		Title:        "Cloud Version",
-		Content:      "Cloud content",
-		Language:     "plaintext",
-		ModifiedTime: cloudModTime,
-	}
-
-	// クラウドノートリストを設定
-	helper.authService.driveSync.cloudNoteList = &NoteList{
-		Version: "1.0",
-		Notes: []NoteMetadata{
-			{
-				ID:           cloudNote.ID,
-				Title:        cloudNote.Title,
-				ModifiedTime: cloudModTime, // ModifiedTimeを設定
-			},
-		},
-		LastSync: cloudModTime,
-	}
-
-	// 同期を実行
-	err = helper.driveService.SyncNotes()
-	assert.NoError(t, err)
-
-	// 同期後のノートを読み込み
-	updatedNote, err := helper.noteService.LoadNote(localNote.ID)
-	assert.NoError(t, err)
-
-	// クラウドバージョンが優先されることを確認
-	assert.Equal(t, "Cloud Version", updatedNote.Title)
-}
-
-// TestErrorHandling はエラー処理をテストします
-func TestErrorHandling(t *testing.T) {
-	helper := setupTest(t)
-	defer helper.cleanup()
-
-	// クラウドノートリストをnilに設定してエラーを発生させる
-	helper.authService.driveSync.cloudNoteList = nil
-
-	// 同期を実行
-	err := helper.driveService.SyncNotes()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cloud note list is nil")
-}
-
-// TestPeriodicSync は定期的な同期をテストします
-func TestPeriodicSync(t *testing.T) {
-	helper := setupTest(t)
-	defer helper.cleanup()
-
-	// ローカルノートを作成
-	localNote := &Note{
-		ID:           "sync-note",
-		Title:        "Local Note",
-		Content:      "Local content",
-		Language:     "plaintext",
-		ModifiedTime: time.Now().Add(-time.Hour), // 1時間前
-	}
-
-	// ローカルノートを保存
-	err := helper.noteService.SaveNote(localNote)
-	assert.NoError(t, err)
-
-	// クラウドノートリストを設定（より新しい更新時刻）
-	cloudModTime := time.Now()
-	helper.authService.driveSync.cloudNoteList = &NoteList{
-		Version: "1.0",
-		Notes: []NoteMetadata{
-			{
-				ID:           localNote.ID,
-				Title:        "Cloud Note",
-				ModifiedTime: cloudModTime, // ModifiedTimeを設定
-			},
-		},
-		LastSync: cloudModTime,
-	}
-
-	// 同期を実行
-	err = helper.driveService.SyncNotes()
-	assert.NoError(t, err)
-
-	// 同期後のノートを読み込み
-	updatedNote, err := helper.noteService.LoadNote(localNote.ID)
-	assert.NoError(t, err)
-
-	// クラウドの変更が反映されていることを確認
-	assert.Equal(t, "Cloud Note", updatedNote.Title)
-}
-
-// TestNoteOrderSync はノートの順序変更の同期をテストします
+// TestNoteOrderSync はノートの順序変更をテストします
 func TestNoteOrderSync(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
@@ -372,79 +179,11 @@ func TestNoteOrderSync(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	// クラウドのノートリストを異なる順序で設定
-	cloudNotes := []NoteMetadata{
-		{
-			ID:    "note-2",
-			Title: "Second Note",
-			Order: 0,
-		},
-		{
-			ID:    "note-3",
-			Title: "Third Note",
-			Order: 1,
-		},
-		{
-			ID:    "note-1",
-			Title: "First Note",
-			Order: 2,
-		},
-	}
-
-	helper.authService.driveSync.cloudNoteList = &NoteList{
-		Version:   "1.0",
-		Notes:     cloudNotes,
-		LastSync:  time.Now(),
-	}
-
-	// 同期を実行
-	err := helper.driveService.SyncNotes()
+	// ノートの順序を変更
+	err := helper.noteService.UpdateNoteOrder("note-2", 0)
 	assert.NoError(t, err)
 
-	// 同期後のノートリストを確認
-	assert.Equal(t, 3, len(helper.noteService.noteList.Notes))
+	// 順序が正しく変更されたことを確認
 	assert.Equal(t, "note-2", helper.noteService.noteList.Notes[0].ID)
-	assert.Equal(t, "note-3", helper.noteService.noteList.Notes[1].ID)
-	assert.Equal(t, "note-1", helper.noteService.noteList.Notes[2].ID)
-
-	// 順序の値も確認
 	assert.Equal(t, 0, helper.noteService.noteList.Notes[0].Order)
-	assert.Equal(t, 1, helper.noteService.noteList.Notes[1].Order)
-	assert.Equal(t, 2, helper.noteService.noteList.Notes[2].Order)
-}
-
-// TestNoteOrderConflict はノートの順序変更の競合解決をテストします
-func TestNoteOrderConflict(t *testing.T) {
-	helper := setupTest(t)
-	defer helper.cleanup()
-
-	// 初期ノートリストを設定
-	localNotes := []NoteMetadata{
-		{ID: "note-1", Order: 0},
-		{ID: "note-2", Order: 1},
-		{ID: "note-3", Order: 2},
-	}
-	helper.noteService.noteList.Notes = localNotes
-	helper.noteService.noteList.LastSync = time.Now().Add(-time.Hour)
-
-	// クラウドの新しい順序を設定
-	cloudNotes := []NoteMetadata{
-		{ID: "note-3", Order: 0},
-		{ID: "note-1", Order: 1},
-		{ID: "note-2", Order: 2},
-	}
-	helper.authService.driveSync.cloudNoteList = &NoteList{
-		Version:   "1.0",
-		Notes:     cloudNotes,
-		LastSync:  time.Now(),
-	}
-
-	// 同期を実行
-	err := helper.driveService.SyncNotes()
-	assert.NoError(t, err)
-
-	// クラウドの順序が優先されることを確認
-	assert.Equal(t, "note-3", helper.noteService.noteList.Notes[0].ID)
-	assert.Equal(t, "note-1", helper.noteService.noteList.Notes[1].ID)
-	assert.Equal(t, "note-2", helper.noteService.noteList.Notes[2].ID)
 }

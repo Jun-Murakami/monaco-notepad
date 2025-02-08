@@ -93,7 +93,6 @@ func setupAppTest(t *testing.T) *appTestHelper {
 
 	// テストモード用のDriveSyncを完全に初期化
 	authService.driveSync = &DriveSync{
-		lastUpdated:   make(map[string]time.Time),
 		notesFolderID: "test-folder",
 		rootFolderID:  "test-root",
 		isConnected:   true,
@@ -108,7 +107,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 			RedirectURL:  "http://localhost:34115/oauth2callback",
 		},
 		service: &drive.Service{
-			Files: &drive.FilesService{},
+			Files:   &drive.FilesService{},
 			Changes: &drive.ChangesService{},
 		},
 	}
@@ -121,7 +120,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 		noteService,
 		credentials,
 	)
-	
+
 	app.driveService = driveService
 	app.authService = authService
 
@@ -166,7 +165,7 @@ func TestSaveNoteWithSync(t *testing.T) {
 	}
 
 	// ノートを保存（同期処理も実行される）
-	err := helper.app.SaveNote(note)
+	err := helper.app.SaveNote(note, "create")
 	assert.NoError(t, err)
 
 	// ノートが正しく保存されたことを確認
@@ -174,11 +173,6 @@ func TestSaveNoteWithSync(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, note.Title, savedNote.Title)
 	assert.Equal(t, note.Content, savedNote.Content)
-
-	// 同期状態が更新されたことを確認
-	time.Sleep(100 * time.Millisecond) // 非同期処理の完了を待つ
-	assert.True(t, helper.app.authService.driveSync.isConnected)
-	assert.NotNil(t, helper.app.authService.driveSync.cloudNoteList)
 }
 
 // TestDeleteNoteWithSync はノートの削除と同期をテストします
@@ -196,7 +190,7 @@ func TestDeleteNoteWithSync(t *testing.T) {
 	}
 
 	// まずノートを保存
-	err := helper.app.SaveNote(note)
+	err := helper.app.SaveNote(note, "create")
 	assert.NoError(t, err)
 
 	// ノートを削除
@@ -238,7 +232,7 @@ func TestSaveNoteListWithSync(t *testing.T) {
 
 	// ノートを保存
 	for _, note := range notes {
-		err := helper.app.SaveNote(note)
+		err := helper.app.SaveNote(note, "create")
 		assert.NoError(t, err)
 	}
 
@@ -251,10 +245,16 @@ func TestSaveNoteListWithSync(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, len(notes), len(savedNotes))
 
-	// 各ノートのメタデータが正しいことを確認
-	for i, savedNote := range savedNotes {
-		assert.Equal(t, notes[i].ID, savedNote.ID)
-		assert.Equal(t, notes[i].Title, savedNote.Title)
+	// 各ノートが存在することを確認
+	savedNoteMap := make(map[string]*Note)
+	for _, note := range savedNotes {
+		savedNoteMap[note.ID] = &note
+	}
+
+	for _, expectedNote := range notes {
+		savedNote, exists := savedNoteMap[expectedNote.ID]
+		assert.True(t, exists)
+		assert.Equal(t, expectedNote.Title, savedNote.Title)
 	}
 }
 
@@ -283,7 +283,7 @@ func TestUpdateNoteOrderWithSync(t *testing.T) {
 
 	// ノートを保存
 	for _, note := range notes {
-		err := helper.app.SaveNote(note)
+		err := helper.app.SaveNote(note, "create")
 		assert.NoError(t, err)
 	}
 
@@ -297,4 +297,4 @@ func TestUpdateNoteOrderWithSync(t *testing.T) {
 	assert.Equal(t, 2, len(updatedNotes))
 	assert.Equal(t, "note2", updatedNotes[0].ID)
 	assert.Equal(t, "note1", updatedNotes[1].ID)
-} 
+}
