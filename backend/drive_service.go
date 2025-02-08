@@ -270,7 +270,8 @@ func (s *driveService) SyncNotes() error {
 	}
 
 	// 同期状態のログ出力
-	s.logSyncStatus(cloudNoteList, availableNotesList)
+	s.logger.Info("Cloud noteList LastSync: %v, Cloud available notes: %d", cloudNoteList.LastSync, len(availableNotesList.Notes))
+	s.logger.Info("Cloud notes: %d, Cloud available notes: %d, Local notes: %d", len(cloudNoteList.Notes), len(availableNotesList.Notes), len(s.noteService.noteList.Notes))
 
 	// 変更の検出と同期処理
 	if s.isCloudNoteListNewer(cloudNoteList) {
@@ -301,12 +302,12 @@ func (s *driveService) SyncNotes() error {
 			}
 		}
 
+		// ローカルのノートリストを更新
+		s.noteService.noteList.Notes = availableNotesList.Notes
 		s.noteService.noteList.LastSync = availableNotesList.LastSync
 		if err := s.noteService.saveNoteList(); err != nil {
 			return err
 		}
-
-		s.noteService.noteList.Notes = availableNotesList.Notes
 
 		// ノートリストをアップロードして同期を完了
 		if cloudNoteList != nil {
@@ -390,16 +391,6 @@ func (s *driveService) startSyncPolling() {
 				wailsRuntime.EventsEmit(s.ctx, "drive:status", "syncing")
 			}
 
-			// 変更がない場合は間隔を増加（最大値まで）
-			newInterval := time.Duration(float64(interval) * factor)
-			if newInterval > maxInterval {
-				newInterval = maxInterval
-			}
-			if newInterval != interval {
-				s.logger.Console("No changes detected, increasing interval from %v to %v", interval, newInterval)
-				interval = newInterval
-			}
-
 			if !s.IsTestMode() {
 				wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
 			}
@@ -411,6 +402,15 @@ func (s *driveService) startSyncPolling() {
 				if err := s.SyncNotes(); err != nil {
 					s.logger.Error(err, "Error syncing with Drive")
 				}
+				// 変更がない場合は間隔を増加（最大値まで）
+				newInterval := time.Duration(float64(interval) * factor)
+				if newInterval > maxInterval {
+					newInterval = maxInterval
+				}
+				if newInterval != interval {
+					s.logger.Console("No changes detected, increasing interval from %v to %v", interval, newInterval)
+					interval = newInterval
+				}
 				continue
 			case <-s.resetPollingChan:
 				// ユーザーの操作によるリセット
@@ -418,7 +418,6 @@ func (s *driveService) startSyncPolling() {
 				s.logger.Console("Polling interval reset to: %v", interval)
 				continue
 			case <-s.stopPollingChan:
-
 				s.logger.Info("Stopping sync polling...")
 				return
 			}
@@ -773,7 +772,6 @@ func (s *driveService) ensureNoteList() error {
 }
 
 // ポーリングインターバルをリセット ------------------------------------------------------------
-
 func (s *driveService) ResetPollingInterval() {
 	if s.resetPollingChan == nil {
 		return
@@ -782,15 +780,6 @@ func (s *driveService) ResetPollingInterval() {
 	case s.resetPollingChan <- struct{}{}:
 	default:
 	}
-}
-
-// 同期状態のログを出力 ------------------------------------------------------------
-func (s *driveService) logSyncStatus(cloudNoteList *NoteList, availableNotesList *NoteList) {
-	s.logger.Info("Cloud note list LastSync: %v", cloudNoteList.LastSync)
-	s.logger.Info("Local note list LastSync: %v", s.noteService.noteList.LastSync)
-	s.logger.Info("Cloud notes count: %d", len(cloudNoteList.Notes))
-	s.logger.Info("Cloud available notes count: %d", len(availableNotesList.Notes))
-	s.logger.Info("Local notes count: %d", len(s.noteService.noteList.Notes))
 }
 
 // ------------------------------------------------------------
