@@ -403,7 +403,6 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 		"path":    filePath,
 		"content": content,
 	})
-
 	return nil
 }
 

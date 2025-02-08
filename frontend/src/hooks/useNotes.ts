@@ -84,7 +84,7 @@ export const useNotes = () => {
     };
   }, []);
 
-  // 自動保存の処理
+  // 自動保存の処理 (デバウンスありSynchingSynching)
   useEffect(() => {
     if (!currentNote) return;
 
@@ -99,6 +99,7 @@ export const useNotes = () => {
     };
   }, [currentNote]);
 
+  // 現在のノートを保存する
   const saveCurrentNote = async () => {
     if (!currentNote?.id || !isNoteModified.current) return;
     try {
@@ -127,7 +128,7 @@ export const useNotes = () => {
     return newNote;
   };
 
-  // 既存のhandleNewNoteを修正
+  // 新規ノート作成
   const handleNewNote = async () => {
     if (currentNote) {
       await saveCurrentNote();
@@ -135,6 +136,7 @@ export const useNotes = () => {
     await createNewNote();
   };
 
+  // ノートをアーカイブする
   const handleArchiveNote = async (noteId: string) => {
     const note = notes.find((note) => note.id === noteId);
     if (!note) return;
@@ -179,6 +181,7 @@ export const useNotes = () => {
     }
   };
 
+  // ノートを選択する
   const handleNoteSelect = async (note: Note, isNew: boolean = false) => {
     if (currentNote?.id && isNoteModified.current) {
       await saveCurrentNote();
@@ -206,6 +209,7 @@ export const useNotes = () => {
     isNoteModified.current = false;
   };
 
+  // ノートをアーカイブ解除する
   const handleUnarchiveNote = async (noteId: string) => {
     const note = notes.find((note) => note.id === noteId);
     if (!note) return;
@@ -221,7 +225,7 @@ export const useNotes = () => {
     }
   };
 
-  // handleDeleteNoteを修正
+  // ノートを削除する
   const handleDeleteNote = async (noteId: string) => {
     // 削除前の状態を確認
     const activeNotes = notes.filter(note => !note.archived);
@@ -263,6 +267,7 @@ export const useNotes = () => {
     }
   };
 
+  // ノートのタイトルを変更する
   const handleTitleChange = (newTitle: string) => {
     setCurrentNote((prev) => {
       if (!prev) return prev;
@@ -275,6 +280,7 @@ export const useNotes = () => {
     });
   };
 
+  // ノートの言語を変更する
   const handleLanguageChange = (newLanguage: string) => {
     setCurrentNote((prev) => {
       if (!prev) return prev;
@@ -286,6 +292,7 @@ export const useNotes = () => {
     });
   };
 
+  // ノートの内容を変更する
   const handleContentChange = (newContent: string) => {
     setCurrentNote((prev) => {
       if (!prev) return prev;
