@@ -255,7 +255,7 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
         disabled={!notes?.some((note) => note.archived)}
         onClick={onShowArchived}
       >
-        Archive {notes?.filter((note) => note.archived).length > 0 && `(${notes?.filter((note) => note.archived).length})`}
+        Archive
       </Button>
     </Box>
   );
