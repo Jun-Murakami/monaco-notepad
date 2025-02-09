@@ -67,6 +67,8 @@ export const AppBar: React.FC<{
   handleNoteSelect,
 }) => {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'logging in' | 'offline'>('offline');
+  const [isHoveringSync, setIsHoveringSync] = useState(false);
+  const [isHoverLocked, setIsHoverLocked] = useState(false);
   const syncStartTime = useRef<number | null>(null);
   const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -167,6 +169,7 @@ export const AppBar: React.FC<{
   const handleSync = async () => {
     if (syncStatus === 'synced') {
       try {
+        setIsHoveringSync(false);
         setSyncStatus('syncing');
         await SyncNow();
         setSyncStatus('synced');
@@ -249,6 +252,18 @@ export const AppBar: React.FC<{
     };
   }, []);
 
+  // syncStatusの変更を監視して、同期完了時にホバー状態をリセット
+  useEffect(() => {
+    if (syncStatus === 'synced') {
+      setIsHoveringSync(false);
+      setIsHoverLocked(true);
+      const timer = setTimeout(() => {
+        setIsHoverLocked(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [syncStatus]);
+
   return (
     <Box sx={{ height: 56, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
       <Box
@@ -328,9 +343,18 @@ export const AppBar: React.FC<{
         </FormControl>
         <Box sx={{ ml: 0.5, display: 'flex', alignItems: 'center' }}>
           {syncStatus === 'synced' ? (
-            <Tooltip title='Click to sync now' arrow>
-              <IconButton onClick={handleSync} size='small'>
-                <CloudDoneIcon color='primary' sx={{ fontSize: 24 }} />
+            <Tooltip title='Sync now!' arrow>
+              <IconButton
+                onClick={handleSync}
+                size='small'
+                onMouseEnter={() => !isHoverLocked && setIsHoveringSync(true)}
+                onMouseLeave={() => setIsHoveringSync(false)}
+              >
+                {isHoveringSync ? (
+                  <CircularProgress size={24} color='primary' />
+                ) : (
+                  <CloudDoneIcon color='primary' sx={{ fontSize: 24 }} />
+                )}
               </IconButton>
             </Tooltip>
           ) : syncStatus === 'syncing' ? (

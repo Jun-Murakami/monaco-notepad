@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
 import 'dayjs/locale/en';
 import localizedFormat from 'dayjs/plugin/localizedFormat';
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import {
   arrayMove,
@@ -97,12 +97,13 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
               transition: 'opacity 0.2s',
               p: 0.5,
               ml: -1,
+              mb: -1,
             }}
           >
             {isDragging ? (
-              <ImportExport sx={{ width: 16, height: 16 }} />
+              <DragHandle sx={{ width: 16, height: 16, color: 'primary.main' }} />
             ) : (
-              <DragHandle sx={{ width: 16, height: 16, color: 'action.disabled' }} />
+              <ImportExport sx={{ width: 16, height: 16, color: 'action.disabled' }} />
             )}
           </IconButton>
           <Typography
@@ -220,12 +221,7 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
         }}
       >
         <List sx={{ flexGrow: 1, overflow: 'auto' }}>
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-          >
+          <DndContext sensors={sensors} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis, restrictToParentElement]}>
             <SortableContext items={activeNotes.map((note) => note.id)} strategy={verticalListSortingStrategy}>
               {activeNotes.map((note) => (
                 <SortableNoteItem

@@ -96,6 +96,7 @@ func (s *driveService) InitializeDrive() error {
 // Google Driveに手動ログイン ------------------------------------------------------------
 func (s *driveService) AuthorizeDrive() error {
 	s.logger.NotifyDriveStatus(s.ctx, "logging in")
+	s.logger.Info("Waiting for login...")
 	if err := s.auth.StartManualAuth(); err != nil {
 		return s.logger.ErrorWithNotify(err, "Failed to complete authentication")
 	}

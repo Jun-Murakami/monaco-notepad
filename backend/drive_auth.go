@@ -212,6 +212,7 @@ func (a *driveAuthService) LogoutDrive() error {
 	// 少し待機してポートが完全に解放されるのを待つ
 	time.Sleep(1 * time.Second)
 
+	a.sendLogMessage("Logged out from Google Drive")
 	return nil
 }
 

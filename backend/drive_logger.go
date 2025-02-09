@@ -61,7 +61,6 @@ func (l *driveLoggerImpl) Console(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
 		fmt.Println(message)
-		l.sendLogMessage(message)
 	}
 }
 
