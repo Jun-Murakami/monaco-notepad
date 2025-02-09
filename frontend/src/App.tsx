@@ -30,6 +30,7 @@ function App() {
     handleNoteSelect,
     handleUnarchiveNote,
     handleDeleteNote,
+    handleDeleteAllArchivedNotes,
     handleTitleChange,
     handleLanguageChange,
     handleContentChange,
@@ -164,6 +165,7 @@ function App() {
               notes={notes}
               onUnarchive={handleUnarchiveNote}
               onDelete={handleDeleteNote}
+              onDeleteAll={handleDeleteAllArchivedNotes}
               onClose={() => setShowArchived(false)}
             />
           ) : (

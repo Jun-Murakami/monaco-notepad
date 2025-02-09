@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"google.golang.org/api/drive/v3"
 )
@@ -65,6 +66,117 @@ func NewDriveSyncService(
 	}
 }
 
+// リトライ設定
+type retryConfig struct {
+	maxRetries  int
+	baseDelay   time.Duration
+	maxDelay    time.Duration
+	shouldRetry func(error) bool
+}
+
+// デフォルトのリトライ設定
+var defaultRetryConfig = &retryConfig{
+	maxRetries: 3,
+	baseDelay:  2 * time.Second,
+	maxDelay:   30 * time.Second,
+	shouldRetry: func(err error) bool {
+		if err == nil {
+			return false
+		}
+		// リトライ可能なエラーの条件
+		return strings.Contains(err.Error(), "not found") ||
+			strings.Contains(err.Error(), "connection") ||
+			strings.Contains(err.Error(), "deadline exceeded")
+	},
+}
+
+// リトライロジックを実行する汎用関数
+func (d *driveSyncServiceImpl) withRetry(
+	operation func() error,
+	config *retryConfig,
+) error {
+	if config == nil {
+		config = defaultRetryConfig
+	}
+
+	var lastErr error
+	delay := config.baseDelay
+
+	for i := 0; i < config.maxRetries; i++ {
+		err := operation()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if !config.shouldRetry(err) || i == config.maxRetries-1 {
+			break
+		}
+
+		time.Sleep(delay)
+		delay *= 2 // 指数バックオフ
+		if delay > config.maxDelay {
+			delay = config.maxDelay
+		}
+	}
+
+	return lastErr
+}
+
+// ファイルID取得用のリトライ設定
+var getFileIDRetryConfig = &retryConfig{
+	maxRetries: 3,
+	baseDelay:  1 * time.Second,
+	maxDelay:   10 * time.Second,
+	shouldRetry: func(err error) bool {
+		return err != nil && strings.Contains(err.Error(), "not found")
+	},
+}
+
+// ダウンロード用のリトライ設定
+var downloadRetryConfig = &retryConfig{
+	maxRetries: 5,
+	baseDelay:  2 * time.Second,
+	maxDelay:   30 * time.Second,
+	shouldRetry: func(err error) bool {
+		if err == nil {
+			return false
+		}
+		return strings.Contains(err.Error(), "connection") ||
+			strings.Contains(err.Error(), "deadline exceeded") ||
+			strings.Contains(err.Error(), "internal error")
+	},
+}
+
+// アップロード用のリトライ設定
+var uploadRetryConfig = &retryConfig{
+	maxRetries: 4,
+	baseDelay:  2 * time.Second,
+	maxDelay:   20 * time.Second,
+	shouldRetry: func(err error) bool {
+		if err == nil {
+			return false
+		}
+		return strings.Contains(err.Error(), "connection") ||
+			strings.Contains(err.Error(), "deadline exceeded")
+	},
+}
+
+// リスト操作用のリトライ設定
+var listOperationRetryConfig = &retryConfig{
+	maxRetries: 4,
+	baseDelay:  1 * time.Second,
+	maxDelay:   15 * time.Second,
+	shouldRetry: func(err error) bool {
+		if err == nil {
+			return false
+		}
+		return strings.Contains(err.Error(), "connection") ||
+			strings.Contains(err.Error(), "deadline exceeded") ||
+			strings.Contains(err.Error(), "internal error")
+	},
+}
+
 // ----------------------------------------------------------------
 // ノート操作
 // ----------------------------------------------------------------
@@ -100,24 +212,29 @@ func (d *driveSyncServiceImpl) UpdateNote(
 		return fmt.Errorf("failed to marshal note content: %w", err)
 	}
 
-	fileID, err := d.driveOps.GetFileID(note.ID+".json", d.notesFolderID, d.rootFolderID)
+	var fileID string
+	// ファイルID取得をリトライ付きで実行
+	err = d.withRetry(func() error {
+		var err error
+		fileID, err = d.driveOps.GetFileID(note.ID+".json", d.notesFolderID, d.rootFolderID)
+		return err
+	}, getFileIDRetryConfig)
+
 	if err != nil {
-		return fmt.Errorf("failed to get file ID: %w", err)
+		// ファイルが見つからない場合は新規作成
+		return d.CreateNote(ctx, note)
 	}
 
-	//更新
-	err = d.driveOps.UpdateFile(
-		fileID,
-		noteContent,
-	)
+	// ファイル更新をリトライ付きで実行
+	err = d.withRetry(func() error {
+		return d.driveOps.UpdateFile(fileID, noteContent)
+	}, uploadRetryConfig)
+
 	if err != nil {
-		// 更新失敗の場合は新規作成
-		err = d.CreateNote(ctx, note)
-		if err != nil {
-			return fmt.Errorf("failed to update and create note: %w", err)
-		}
-		return nil
+		// 更新失敗の場合は新規作成を試みる
+		return d.CreateNote(ctx, note)
 	}
+
 	return nil
 }
 
@@ -153,15 +270,27 @@ func (d *driveSyncServiceImpl) DownloadNote(
 	ctx context.Context,
 	noteID string,
 ) (*Note, error) {
+	var fileID string
+	var content []byte
 
-	// ノートファイルのIDを取得
-	fileID, err := d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
+	// ファイルID取得をリトライ付きで実行
+	err := d.withRetry(func() error {
+		var err error
+		fileID, err = d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
+		return err
+	}, getFileIDRetryConfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file ID: %w", err)
 	}
 
-	// ノートファイルをダウンロード
-	content, err := d.driveOps.DownloadFile(fileID)
+	// ダウンロードをリトライ付きで実行
+	err = d.withRetry(func() error {
+		var err error
+		content, err = d.driveOps.DownloadFile(fileID)
+		return err
+	}, downloadRetryConfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to download note: %w", err)
 	}
@@ -179,14 +308,25 @@ func (d *driveSyncServiceImpl) DeleteNote(
 	ctx context.Context,
 	noteID string,
 ) error {
+	var fileID string
 
-	// ノートファイルのIDを取得
-	fileID, err := d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
+	// ファイルID取得をリトライ付きで実行
+	err := d.withRetry(func() error {
+		var err error
+		fileID, err = d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
+		return err
+	}, getFileIDRetryConfig)
+
 	if err != nil {
 		return fmt.Errorf("failed to get file ID: %w", err)
 	}
 
-	if err := d.driveOps.DeleteFile(fileID); err != nil {
+	// 削除をリトライ付きで実行
+	err = d.withRetry(func() error {
+		return d.driveOps.DeleteFile(fileID)
+	}, defaultRetryConfig)
+
+	if err != nil {
 		return fmt.Errorf("failed to delete note from cloud: %w", err)
 	}
 
@@ -195,9 +335,16 @@ func (d *driveSyncServiceImpl) DeleteNote(
 
 // クラウド内の重複するノートファイルを削除する ------------------------------------------------------------
 func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context) error {
-	// notesフォルダ内のファイル一覧を取得
-	files, err := d.driveOps.ListFiles(
-		fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
+	var files []*drive.File
+
+	// ファイル一覧取得をリトライ付きで実行
+	err := d.withRetry(func() error {
+		var err error
+		files, err = d.driveOps.ListFiles(
+			fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
+		return err
+	}, listOperationRetryConfig)
+
 	if err != nil {
 		return fmt.Errorf("failed to list files in notes folder: %w", err)
 	}
@@ -216,7 +363,12 @@ func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context) err
 	// 各noteIDごとに複数ファイルが存在すれば最新1つ以外を削除
 	for _, files := range duplicateMap {
 		if len(files) > 1 {
-			if err := d.driveOps.CleanupDuplicates(files, true); err != nil {
+			// 重複ファイルの削除をリトライ付きで実行
+			err := d.withRetry(func() error {
+				return d.driveOps.CleanupDuplicates(files, true)
+			}, defaultRetryConfig)
+
+			if err != nil {
 				return fmt.Errorf("failed to cleanup duplicates: %w", err)
 			}
 		}
@@ -253,7 +405,17 @@ func (d *driveSyncServiceImpl) CreateNoteList(
 		return fmt.Errorf("failed to marshal note list: %w", err)
 	}
 
-	_, err = d.driveOps.CreateFile("noteList.json", noteListContent, d.rootFolderID, "application/json")
+	// ファイル作成をリトライ付きで実行
+	err = d.withRetry(func() error {
+		_, err := d.driveOps.CreateFile(
+			"noteList.json",
+			noteListContent,
+			d.rootFolderID,
+			"application/json",
+		)
+		return err
+	}, uploadRetryConfig)
+
 	if err != nil {
 		return fmt.Errorf("failed to create note list: %w", err)
 	}
@@ -275,8 +437,12 @@ func (d *driveSyncServiceImpl) UpdateNoteList(
 		return fmt.Errorf("failed to marshal note list: %w", err)
 	}
 
-	// 既存のファイルを更新
-	if err := d.driveOps.UpdateFile(noteListID, noteListContent); err != nil {
+	// 更新をリトライ付きで実行
+	err = d.withRetry(func() error {
+		return d.driveOps.UpdateFile(noteListID, noteListContent)
+	}, uploadRetryConfig)
+
+	if err != nil {
 		return fmt.Errorf("failed to update note list: %w", err)
 	}
 
@@ -284,8 +450,19 @@ func (d *driveSyncServiceImpl) UpdateNoteList(
 }
 
 // クラウドからノートリストをダウンロードする ------------------------------------------------------------
-func (d *driveSyncServiceImpl) DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error) {
-	content, err := d.driveOps.DownloadFile(noteListID)
+func (d *driveSyncServiceImpl) DownloadNoteList(
+	ctx context.Context,
+	noteListID string,
+) (*NoteList, error) {
+	var content []byte
+
+	// ダウンロードをリトライ付きで実行
+	err := d.withRetry(func() error {
+		var err error
+		content, err = d.driveOps.DownloadFile(noteListID)
+		return err
+	}, downloadRetryConfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to download note list: %w", err)
 	}
@@ -301,10 +478,20 @@ func (d *driveSyncServiceImpl) DownloadNoteList(ctx context.Context, noteListID 
 }
 
 // クラウドのnotesフォルダにある不明なノートをリストアップする ------------------------------------------------------------
-func (d *driveSyncServiceImpl) ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList) (*NoteList, error) {
-	// notesフォルダ内のファイル一覧を取得
-	files, err := d.driveOps.ListFiles(
-		fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
+func (d *driveSyncServiceImpl) ListUnknownNotes(
+	ctx context.Context,
+	cloudNoteList *NoteList,
+) (*NoteList, error) {
+	var files []*drive.File
+
+	// ファイル一覧取得をリトライ付きで実行
+	err := d.withRetry(func() error {
+		var err error
+		files, err = d.driveOps.ListFiles(
+			fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
+		return err
+	}, listOperationRetryConfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files in notes folder: %w", err)
 	}
@@ -314,15 +501,23 @@ func (d *driveSyncServiceImpl) ListUnknownNotes(ctx context.Context, cloudNoteLi
 	for _, file := range files {
 		noteID := strings.TrimSuffix(file.Name, ".json")
 		if slices.IndexFunc(cloudNoteList.Notes, func(n NoteMetadata) bool { return n.ID == noteID }) == -1 {
-			// 不明なノートを開いてメタデータを抽出
-			note, err := d.driveOps.DownloadFile(file.Id)
+			var note []byte
+			// 不明なノートのダウンロードをリトライ付きで実行
+			err := d.withRetry(func() error {
+				var err error
+				note, err = d.driveOps.DownloadFile(file.Id)
+				return err
+			}, downloadRetryConfig)
+
 			if err != nil {
 				return nil, fmt.Errorf("failed to download note: %w", err)
 			}
+
 			var parsedNote Note
 			if err := json.Unmarshal(note, &parsedNote); err != nil {
 				return nil, fmt.Errorf("failed to decode note: %w", err)
 			}
+
 			//メタデータのみを抽出
 			metadata := NoteMetadata{
 				ID:            parsedNote.ID,
@@ -345,8 +540,16 @@ func (d *driveSyncServiceImpl) ListUnknownNotes(ctx context.Context, cloudNoteLi
 
 // クラウドに存在しないファイルをリストから除外して返す ------------------------------------------------------------
 func (d *driveSyncServiceImpl) ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error) {
-	query := fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID)
-	files, err := d.driveOps.ListFiles(query)
+	var files []*drive.File
+
+	// ファイル一覧取得をリトライ付きで実行
+	err := d.withRetry(func() error {
+		var err error
+		files, err = d.driveOps.ListFiles(
+			fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
+		return err
+	}, listOperationRetryConfig)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files in notes folder: %w", err)
 	}

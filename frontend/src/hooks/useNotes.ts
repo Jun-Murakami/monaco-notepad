@@ -267,6 +267,31 @@ export const useNotes = () => {
     }
   };
 
+  // ノートをすべて削除する
+  const handleDeleteAllArchivedNotes = async () => {
+    const archivedNotes = notes.filter(note => note.archived);
+
+    // すべてのアーカイブされたノートを削除
+    for (const note of archivedNotes) {
+      await DeleteNote(note.id);
+    }
+
+    // ノートリストを更新
+    setNotes(prev => prev.filter(note => !note.archived));
+
+    // 現在のノートがアーカイブされていた場合、アクティブなノートに切り替える
+    if (currentNote?.archived) {
+      const activeNotes = notes.filter(note => !note.archived);
+      if (activeNotes.length > 0) {
+        setCurrentNote(activeNotes[0]);
+      } else {
+        await createNewNote();
+      }
+    }
+
+    setShowArchived(false);
+  };
+
   // ノートのタイトルを変更する
   const handleTitleChange = (newTitle: string) => {
     setCurrentNote((prev) => {
@@ -324,6 +349,7 @@ export const useNotes = () => {
     handleNoteSelect,
     handleUnarchiveNote,
     handleDeleteNote,
+    handleDeleteAllArchivedNotes,
     handleTitleChange,
     handleLanguageChange,
     handleContentChange,

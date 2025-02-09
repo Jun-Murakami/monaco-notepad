@@ -217,19 +217,41 @@ func (a *driveAuthService) LogoutDrive() error {
 
 // HandleOfflineTransition はオフライン状態への遷移を処理します（公開メソッドに変更）
 func (a *driveAuthService) HandleOfflineTransition(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// エラーの種類に応じて処理を分岐
+	if strings.Contains(err.Error(), "oauth2: token expired and refresh token is not set") {
+		// 認証切れの場合は完全なオフライン遷移
+		a.handleFullOfflineTransition(err)
+	} else if strings.Contains(err.Error(), "note file") && strings.Contains(err.Error(), "not found") {
+		// ノートファイルが見つからないエラーは一時的なエラーとして扱う
+		a.sendLogMessage(fmt.Sprintf("Temporary error: %v", err))
+		return fmt.Errorf("temporary error: %v", err)
+	} else if strings.Contains(err.Error(), "net/http") || strings.Contains(err.Error(), "connection") {
+		// ネットワークエラーの場合は完全なオフライン遷移
+		a.handleFullOfflineTransition(err)
+	} else {
+		// その他のエラーは警告としつつオフライン
+		a.handleFullOfflineTransition(fmt.Errorf("warning: %v", err))
+		return fmt.Errorf("warning: %v", err)
+	}
+
+	return fmt.Errorf("offline transition: %v", err)
+}
+
+// handleFullOfflineTransition は完全なオフライン遷移を実行
+func (a *driveAuthService) handleFullOfflineTransition(err error) {
 	// エラーメッセージをログに記録
 	errMsg := fmt.Sprintf("Drive error: %v", err)
-	if err != nil {
-		a.sendLogMessage(errMsg)
-	}
+	a.sendLogMessage(errMsg)
 
 	// トークンファイルを削除
 	tokenFile := filepath.Join(a.appDataDir, "token.json")
 	if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
 		a.sendLogMessage(fmt.Sprintf("Failed to remove token file: %v", err))
 	}
-
-	// ページトークンファイルを削除
 
 	// 初回同期完了フラグファイルを削除
 	syncFlagPath := filepath.Join(a.appDataDir, "initial_sync_completed")
@@ -244,13 +266,9 @@ func (a *driveAuthService) HandleOfflineTransition(err error) error {
 
 	// フロントエンドに通知
 	if !a.isTestMode {
-		if err != nil {
-			wailsRuntime.EventsEmit(a.ctx, "drive:error", errMsg)
-		}
+		wailsRuntime.EventsEmit(a.ctx, "drive:error", errMsg)
 		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
 	}
-
-	return fmt.Errorf("offline transition: %v", err)
 }
 
 // initializeDriveService はDriveサービスを初期化します

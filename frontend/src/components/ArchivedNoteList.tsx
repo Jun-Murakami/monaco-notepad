@@ -1,5 +1,5 @@
-import { Box, Typography, IconButton, List, ListItem, Tooltip, Divider } from '@mui/material';
-import { Unarchive, DeleteForever, ArrowBack } from '@mui/icons-material';
+import { Box, Typography, IconButton, List, ListItem, Tooltip, Divider, Button } from '@mui/material';
+import { Unarchive, DeleteForever, ArrowBack, DeleteSweep } from '@mui/icons-material';
 import { Note } from '../types';
 import dayjs from 'dayjs';
 import SimpleBar from 'simplebar-react';
@@ -9,10 +9,11 @@ interface ArchivedNoteListProps {
   notes: Note[];
   onUnarchive: (noteId: string) => void;
   onDelete: (noteId: string) => void;
+  onDeleteAll: () => void;
   onClose: () => void;
 }
 
-export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({ notes, onUnarchive, onDelete, onClose }) => {
+export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({ notes, onUnarchive, onDelete, onDeleteAll, onClose }) => {
   const archivedNotes = notes.filter((note) => note.archived);
 
   const getNoteTitle = (note: Note) => {
@@ -57,6 +58,25 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({ notes, onUna
           <ArrowBack />
         </IconButton>
         <Typography variant='h6'>Archived notes</Typography>
+        <Box sx={{ flexGrow: 1 }} />
+        <Tooltip title='Delete all archived notes' arrow>
+          <Button
+            onClick={onDeleteAll}
+            color='error'
+            endIcon={<DeleteSweep sx={{ width: 28, height: 28 }} />}
+            sx={{
+              width: 120,
+              height: 40,
+              '&:hover': {
+                backgroundColor: 'error.main',
+                color: 'error.contrastText',
+              },
+              mr: 3.5,
+            }}
+          >
+            Delete all
+          </Button>
+        </Tooltip>
       </Box>
       <Divider />
       <SimpleBar style={{ maxHeight: '100%', overflowX: 'hidden' }}>
