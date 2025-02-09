@@ -21,10 +21,10 @@ func main() {
 
 	// Wailsアプリケーションを作成
 	err := wails.Run(&options.App{
-		Title:  "Monaco Notepad",
-		Width:  1024,
-		Height: 768,
-		MinWidth: 720,
+		Title:     "Monaco Notepad",
+		Width:     1024,
+		Height:    768,
+		MinWidth:  720,
 		MinHeight: 480,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
@@ -33,13 +33,13 @@ func main() {
 		OnStartup:        app.Startup,
 		OnDomReady:       app.DomReady,
 		OnBeforeClose:    app.BeforeClose,
-		LogLevel: logger.INFO,
+		LogLevel:         logger.INFO,
 		Bind: []interface{}{
 			app,
 		},
 		DragAndDrop: &options.DragAndDrop{
-			EnableFileDrop:       true,
-			DisableWebViewDrop:   false,
+			EnableFileDrop:     true,
+			DisableWebViewDrop: false,
 		},
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
@@ -56,9 +56,9 @@ func main() {
 			UniqueId: "monaco-notepad-instance-lock",
 			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
 				app.BringToFront()
-				
-				if len(secondInstanceData.Args) > 1 {
-					app.OpenFileFromExternal(secondInstanceData.Args[1])
+
+				if len(secondInstanceData.Args) > 0 {
+					app.OpenFileFromExternal(secondInstanceData.Args[0])
 				}
 			},
 		},

@@ -399,6 +399,7 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 	// ファイルの内容を読み込む
 	content, err := a.fileService.OpenFile(filePath)
 	if err != nil {
+
 		return err
 	}
 
