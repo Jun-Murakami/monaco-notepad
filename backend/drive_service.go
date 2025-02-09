@@ -51,14 +51,15 @@ func NewDriveService(
 	noteService *noteService,
 	credentials []byte,
 ) DriveService {
-	logger := NewDriveLogger(ctx, false)
+	isTestMode := false
+	logger := NewDriveLogger(ctx, isTestMode)
 	authService := NewDriveAuthService(
 		ctx,
 		appDataDir,
 		notesDir,
 		noteService,
 		credentials,
-		false,
+		isTestMode,
 	)
 
 	ds := &driveService{
@@ -84,14 +85,17 @@ func NewDriveService(
 // Google Drive APIの初期化 (保存済みトークンがあれば自動ログイン) ------------------------------------------------------------
 func (s *driveService) InitializeDrive() error {
 	// 保存済みトークンでの初期化を試行
-	if err := s.auth.InitializeWithSavedToken(); err != nil {
+	if success, err := s.auth.InitializeWithSavedToken(); err != nil {
 		return s.logger.ErrorWithNotify(err, "Failed to initialize Drive API")
+	} else if success {
+		return s.onConnected(false)
 	}
-	return s.onConnected(false)
+	return nil
 }
 
 // Google Driveに手動ログイン ------------------------------------------------------------
 func (s *driveService) AuthorizeDrive() error {
+	s.logger.NotifyDriveStatus(s.ctx, "logging in")
 	if err := s.auth.StartManualAuth(); err != nil {
 		return s.logger.ErrorWithNotify(err, "Failed to complete authentication")
 	}

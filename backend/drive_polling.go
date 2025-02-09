@@ -72,16 +72,17 @@ func (p *DrivePollingService) StartPolling() {
 
 			err := p.driveService.SyncNotes()
 			if err != nil {
-				p.logger.Error(err, "Failed to sync with Drive")
+				p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
+				interval = initialInterval
+			} else {
+				if !p.driveService.IsTestMode() {
+					p.logger.NotifyDriveStatus(p.ctx, "synced")
+				}
 				interval = time.Duration(float64(interval) * factor)
 				if interval > maxInterval {
 					interval = maxInterval
 				}
-			} else {
-				interval = initialInterval
-				if !p.driveService.IsTestMode() {
-					p.logger.NotifyDriveStatus(p.ctx, "synced")
-				}
+				p.logger.Console("Sync decreasing interval to %s", interval)
 			}
 			ticker.Reset(interval)
 		}
@@ -98,6 +99,7 @@ func (p *DrivePollingService) StopPolling() {
 
 // ResetPollingInterval はポーリング間隔をリセット
 func (p *DrivePollingService) ResetPollingInterval() {
+	p.logger.Console("Resetting polling interval")
 	if p.resetPollingChan == nil {
 		return
 	}

@@ -23,8 +23,6 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
   useEffect(() => {
     if (!editorRef.current) return;
 
-    const monaco = getMonaco();
-
     editorInstanceRef.current = getOrCreateEditor(editorRef.current, {
       value,
       language,
@@ -62,12 +60,7 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
       disposables.forEach((d) => d.dispose());
       disposeEditor();
     };
-  }, [currentNote]); // currentNoteが変更されたときにエディタを再初期化
-
-  // ノート切り替え時の処理を追加
-  useEffect(() => {
-    setForceUpdate((prev) => prev + 1);
-  }, [currentNote]);
+  }, []); // 初期化は一度だけ
 
   // 言語変更時の処理
   useEffect(() => {
@@ -98,10 +91,33 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
 
   // 値の更新処理
   useEffect(() => {
-    if (editorInstanceRef.current && value !== editorInstanceRef.current.getValue()) {
+    if (!editorInstanceRef.current) return;
+
+    if (value !== editorInstanceRef.current.getValue()) {
       editorInstanceRef.current.setValue(value);
+
+      // エディタの内部状態を強制的に更新
+      const position = editorInstanceRef.current.getPosition();
+      if (position) {
+        editorInstanceRef.current.setPosition(position);
+        editorInstanceRef.current.revealPositionInCenter(position);
+      }
+      setForceUpdate((prev) => prev + 1);
     }
   }, [value]);
+
+  // currentNoteが変更されたときの処理を追加
+  useEffect(() => {
+    if (!editorInstanceRef.current) return;
+
+    // エディタの状態を強制的に更新
+    const position = editorInstanceRef.current.getPosition();
+    if (position) {
+      editorInstanceRef.current.setPosition(position);
+      editorInstanceRef.current.revealPositionInCenter(position);
+    }
+    setForceUpdate((prev) => prev + 1);
+  }, [currentNote]);
 
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>

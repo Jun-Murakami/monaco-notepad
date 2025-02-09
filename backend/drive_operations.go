@@ -189,7 +189,7 @@ func (d *driveOperationsImpl) GetFileID(fileName string, noteFolderID string, ro
 		}
 		fixedFileId = files[0].Id
 	}
-	fmt.Println("Found file ID: ", fixedFileId)
+	fmt.Println("GetFileID: name: ", fileName, "id: ", fixedFileId)
 	return fixedFileId, nil
 }
 

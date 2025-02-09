@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -86,10 +87,10 @@ func (a *driveAuthService) initializeGoogleDrive(token *oauth2.Token) error {
 }
 
 // InitializeWithSavedToken は保存済みトークンを使用して初期化
-func (a *driveAuthService) InitializeWithSavedToken() error {
+func (a *driveAuthService) InitializeWithSavedToken() (bool, error) {
 	config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope)
 	if err != nil {
-		return fmt.Errorf("unable to parse client secret file to config: %v", err)
+		return false, fmt.Errorf("unable to parse client secret file to config: %v", err)
 	}
 	a.driveSync.config = config
 
@@ -97,11 +98,11 @@ func (a *driveAuthService) InitializeWithSavedToken() error {
 	token, err := a.loadToken()
 	if err != nil {
 		// トークンがない場合はエラーを返すが、これは正常系
-		return nil
+		return false, nil
 	}
 
 	// 初期化処理
-	return a.initializeGoogleDrive(token)
+	return true, a.initializeGoogleDrive(token)
 }
 
 // StartManualAuth は手動認証フローを開始
@@ -177,9 +178,21 @@ func (a *driveAuthService) LogoutDrive() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := a.driveSync.server.Shutdown(ctx); err != nil {
-			a.sendLogMessage(fmt.Sprintf("Error shutting down auth server: %v", err))
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				a.sendLogMessage(fmt.Sprintf("Error shutting down auth server: %v", err))
+			}
 		}
 		a.driveSync.server = nil
+	}
+
+	// リスナーが残っている場合のみクローズ
+	if a.driveSync.listener != nil {
+		if err := a.driveSync.listener.Close(); err != nil {
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				a.sendLogMessage(fmt.Sprintf("Error closing listener: %v", err))
+			}
+		}
+		a.driveSync.listener = nil
 	}
 
 	// ローカルの noteList を保存（ログアウト前に念のため）
@@ -195,6 +208,9 @@ func (a *driveAuthService) LogoutDrive() error {
 	if !a.isTestMode {
 		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
 	}
+
+	// 少し待機してポートが完全に解放されるのを待つ
+	time.Sleep(1 * time.Second)
 
 	return nil
 }
@@ -378,9 +394,10 @@ func (a *driveAuthService) startAuthServer() (<-chan string, error) {
 						text-align: center; 
 						width: 400px; 
 						padding: 2rem; 
+						margin-bottom: 100px;
 						background-color: #00c1d9; 
 						border-radius: 8px; 
-						box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+						box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 					}
 					.message-box.error {
 						background-color: grey;
@@ -431,48 +448,64 @@ func (a *driveAuthService) startAuthServer() (<-chan string, error) {
 		</html>
 	`
 
-	// 一時的なHTTPサーバーを起動（カスタムServeMuxを使用）
-	server := &http.Server{
-		Addr:    ":34115",
-		Handler: mux, // カスタムServeMuxを使用
-	}
-
 	// 認証コードを受け取るためのチャネル
 	codeChan := make(chan string, 1)
 	timeoutChan := make(chan struct{}, 1)
 
+	// サーバーをdriveSync構造体に保存
+	server := &http.Server{
+		Addr:    ":34115",
+		Handler: mux,
+	}
+	a.driveSync.server = server
+
 	// ハンドラーをカスタムServeMuxに登録
 	mux.HandleFunc("/oauth2callback", func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-timeoutChan:
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, htmlTemplate,
-				"Authentication Error", // title
-				"error",                // message-box class
-				"text-error",           // text class
-				"Authentication Error", // heading
-				"Authentication timed out. Please try again.") // message
-			return
-		default:
-			code := r.URL.Query().Get("code")
-			if code != "" {
-				codeChan <- code
+		code := r.URL.Query().Get("code")
+		if code != "" {
+			select {
+			case <-timeoutChan:
 				w.Header().Set("Content-Type", "text/html")
 				fmt.Fprintf(w, htmlTemplate,
-					"Authentication Complete",  // title
-					"",                         // message-box class
-					"text-success",             // text class
-					"Authentication Complete!", // heading
-					"You can close this window and return to the app.") // message
-			} else {
-				w.Header().Set("Content-Type", "text/html")
-				fmt.Fprintf(w, htmlTemplate,
-					"Authentication Error", // title
+					"Monaco Notepad",       // title
 					"error",                // message-box class
 					"text-error",           // text class
 					"Authentication Error", // heading
-					"Authentication failed. Please try again.") // message
+					"Authentication timed out. Please try again.") // message
+			default:
+				// コードをチャネルに送信
+				codeChan <- code
+
+				// レスポンスを送信
+				w.Header().Set("Content-Type", "text/html")
+				fmt.Fprintf(w, htmlTemplate,
+					"Monaco Notepad",             // title
+					"",                           // message-box class
+					"text-success",               // text class
+					"Connected to Google Drive!", // heading
+					"You can close this window and return to the app.") // message
+
+				// サーバーを安全に停止
+				go func() {
+					time.Sleep(1 * time.Second) // レスポンスが確実に送信されるのを待つ
+					if err := server.Shutdown(context.Background()); err != nil {
+						if !strings.Contains(err.Error(), "use of closed network connection") {
+							a.sendLogMessage(fmt.Sprintf("Error shutting down auth server: %v", err))
+						}
+					}
+					// シャットダウン後にリスナーをnilに設定
+					a.driveSync.listener = nil
+					a.driveSync.server = nil
+				}()
 			}
+		} else {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, htmlTemplate,
+				"Monaco Notepad",                  // title
+				"error",                           // message-box class
+				"text-error",                      // text class
+				"Login Error",                     // heading
+				"Login failed. Please try again.") // message
 		}
 	})
 
@@ -484,20 +517,11 @@ func (a *driveAuthService) startAuthServer() (<-chan string, error) {
 	}
 
 	// サーバーを別のゴルーチンで起動
-	serverErrChan := make(chan error, 1)
 	go func() {
 		if err := server.Serve(a.driveSync.listener); err != http.ErrServerClosed {
-			serverErrChan <- err
+			a.sendLogMessage(fmt.Sprintf("Server error: %v", err))
 		}
 	}()
-
-	// サーバー起動エラーをチェック
-	select {
-	case err := <-serverErrChan:
-		return nil, fmt.Errorf("HTTP Server error: %v", err)
-	case <-time.After(100 * time.Millisecond):
-		// サーバーが正常に起動
-	}
 
 	return codeChan, nil
 }

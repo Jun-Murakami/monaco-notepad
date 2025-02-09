@@ -60,7 +60,7 @@ func (l *driveLoggerImpl) NotifyFrontendSyncedAndReload(ctx context.Context) {
 func (l *driveLoggerImpl) Console(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		wailsRuntime.LogDebug(l.ctx, message)
+		fmt.Println(message)
 		l.sendLogMessage(message)
 	}
 }
@@ -69,7 +69,7 @@ func (l *driveLoggerImpl) Console(format string, args ...interface{}) {
 func (l *driveLoggerImpl) Info(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		wailsRuntime.LogInfo(l.ctx, message)
+		fmt.Println(message)
 		l.sendLogMessage(message)
 	}
 }
@@ -82,8 +82,7 @@ func (l *driveLoggerImpl) Error(err error, format string, args ...interface{}) e
 
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		wailsRuntime.LogError(l.ctx, message)
-		wailsRuntime.LogError(l.ctx, err.Error())
+		fmt.Printf("%s: %s\n", message, err.Error())
 		l.sendLogMessage(fmt.Sprintf("%s: %s", message, err.Error()))
 	}
 	return err
@@ -97,8 +96,7 @@ func (l *driveLoggerImpl) ErrorWithNotify(err error, format string, args ...inte
 
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		wailsRuntime.LogError(l.ctx, message)
-		wailsRuntime.LogError(l.ctx, err.Error())
+		fmt.Printf("%s: %s\n", message, err.Error())
 		l.sendLogMessage(fmt.Sprintf("%s: %s", message, err.Error()))
 		wailsRuntime.EventsEmit(l.ctx, "drive:error", err.Error())
 	}

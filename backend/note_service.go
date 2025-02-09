@@ -260,7 +260,6 @@ func (s *noteService) UpdateNoteOrder(noteID string, newIndex int) error {
 func (s *noteService) deduplicateNoteList() {
 	noteMap := make(map[string]NoteMetadata)
 	for _, metadata := range s.noteList.Notes {
-
 		existing, exists := noteMap[metadata.ID]
 		if !exists || metadata.ModifiedTime.After(existing.ModifiedTime) {
 			noteMap[metadata.ID] = metadata
@@ -298,11 +297,145 @@ func (s *noteService) loadNoteList() error {
 		return err
 	}
 
+	// 処理前のノートリストをコピー
+	originalNotes := make([]NoteMetadata, len(s.noteList.Notes))
+	copy(originalNotes, s.noteList.Notes)
+
 	// 読み込んだ後に重複削除を実施
 	s.deduplicateNoteList()
 
+	// メタデータの競合解決を実行
+	if err := s.resolveMetadataConflicts(); err != nil {
+		return fmt.Errorf("failed to resolve metadata conflicts: %v", err)
+	}
+
 	// ノートリストと物理ファイルの同期を行って返す
-	return s.syncNoteList()
+	if err := s.syncNoteList(); err != nil {
+		return err
+	}
+
+	// 変更があったかどうかをチェック
+	if !s.isNoteListEqual(originalNotes, s.noteList.Notes) {
+		s.noteList.LastSync = time.Now()
+		if err := s.saveNoteList(); err != nil {
+			return fmt.Errorf("failed to save note list after changes: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// 2つのノートリストが等しいかどうかを比較する ------------------------------------------------------------
+func (s *noteService) isNoteListEqual(a, b []NoteMetadata) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	// IDでソートした配列を作成
+	sortedA := make([]NoteMetadata, len(a))
+	sortedB := make([]NoteMetadata, len(b))
+	copy(sortedA, a)
+	copy(sortedB, b)
+
+	sort.Slice(sortedA, func(i, j int) bool {
+		return sortedA[i].ID < sortedA[j].ID
+	})
+	sort.Slice(sortedB, func(i, j int) bool {
+		return sortedB[i].ID < sortedB[j].ID
+	})
+
+	// 各要素を比較
+	for i := range sortedA {
+		if sortedA[i].ID != sortedB[i].ID ||
+			sortedA[i].Title != sortedB[i].Title ||
+			sortedA[i].ContentHeader != sortedB[i].ContentHeader ||
+			sortedA[i].Language != sortedB[i].Language ||
+			!sortedA[i].ModifiedTime.Equal(sortedB[i].ModifiedTime) ||
+			sortedA[i].Archived != sortedB[i].Archived ||
+			sortedA[i].ContentHash != sortedB[i].ContentHash ||
+			sortedA[i].Order != sortedB[i].Order {
+			return false
+		}
+	}
+
+	return true
+}
+
+// メタデータの競合を解決する ------------------------------------------------------------
+func (s *noteService) resolveMetadataConflicts() error {
+	resolvedNotes := make([]NoteMetadata, 0)
+
+	// ノートリストの各メタデータについて処理
+	for _, listMetadata := range s.noteList.Notes {
+		// ノートファイルを読み込む
+		note, err := s.LoadNote(listMetadata.ID)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// ノートファイルが存在しない場合はスキップ
+				continue
+			}
+			return fmt.Errorf("failed to load note %s: %v", listMetadata.ID, err)
+		}
+
+		// ノートファイルから新しいメタデータを作成
+		fileMetadata := NoteMetadata{
+			ID:            note.ID,
+			Title:         note.Title,
+			ContentHeader: note.ContentHeader,
+			Language:      note.Language,
+			ModifiedTime:  note.ModifiedTime,
+			Archived:      note.Archived,
+			// ContentHashとOrderはノートリストの値を保持
+			ContentHash: listMetadata.ContentHash,
+			Order:       listMetadata.Order,
+		}
+
+		// メタデータの競合を解決
+		resolvedMetadata := s.resolveMetadata(listMetadata, fileMetadata)
+
+		// 解決したメタデータをノートファイルに反映
+		if resolvedMetadata.ModifiedTime != note.ModifiedTime ||
+			resolvedMetadata.Title != note.Title ||
+			resolvedMetadata.ContentHeader != note.ContentHeader ||
+			resolvedMetadata.Language != note.Language ||
+			resolvedMetadata.Archived != note.Archived {
+
+			note.ModifiedTime = resolvedMetadata.ModifiedTime
+			note.Title = resolvedMetadata.Title
+			note.ContentHeader = resolvedMetadata.ContentHeader
+			note.Language = resolvedMetadata.Language
+			note.Archived = resolvedMetadata.Archived
+
+			if err := s.SaveNote(note); err != nil {
+				return fmt.Errorf("failed to save resolved note %s: %v", note.ID, err)
+			}
+		}
+
+		resolvedNotes = append(resolvedNotes, resolvedMetadata)
+	}
+
+	// 解決したメタデータでノートリストを更新
+	s.noteList.Notes = resolvedNotes
+	return nil
+}
+
+// 2つのメタデータを比較して競合を解決する ------------------------------------------------------------
+func (s *noteService) resolveMetadata(listMetadata, fileMetadata NoteMetadata) NoteMetadata {
+	// ModifiedTimeを比較して新しい方を採用
+	if listMetadata.ModifiedTime.After(fileMetadata.ModifiedTime) {
+		// リストの方が新しい場合はリストのメタデータを採用
+		return listMetadata
+	} else if fileMetadata.ModifiedTime.After(listMetadata.ModifiedTime) {
+		// ファイルの方が新しい場合はファイルのメタデータを採用（OrderとContentHashは保持）
+		fileMetadata.Order = listMetadata.Order
+		fileMetadata.ContentHash = listMetadata.ContentHash
+		return fileMetadata
+	}
+
+	// ModifiedTimeが同じ場合はファイルのメタデータを優先（OrderとContentHashは保持）
+	fileMetadata.Order = listMetadata.Order
+	fileMetadata.ContentHash = listMetadata.ContentHash
+	return fileMetadata
 }
 
 // ノートリストをJSONファイルとして保存 ------------------------------------------------------------
