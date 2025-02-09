@@ -216,7 +216,7 @@ func (s *driveService) UpdateNoteList() error {
 		return s.logger.ErrorWithNotify(fmt.Errorf("drive service is not initialized"), "Drive service is not initialized")
 	}
 
-	s.logger.Console("Uploading note list with LastSync: %v, Notes count: %d", s.noteService.noteList.LastSync, len(s.noteService.noteList.Notes))
+	s.logger.Console("Uploading note list: %v, Notes count: %d", s.noteService.noteList.LastSync, len(s.noteService.noteList.Notes))
 
 	// アップロード前に最新のLastSyncを保持
 	lastSync := s.noteService.noteList.LastSync

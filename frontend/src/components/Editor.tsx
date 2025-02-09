@@ -62,7 +62,12 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
       disposables.forEach((d) => d.dispose());
       disposeEditor();
     };
-  }, []); // 初期化は一度だけ
+  }, [currentNote]); // currentNoteが変更されたときにエディタを再初期化
+
+  // ノート切り替え時の処理を追加
+  useEffect(() => {
+    setForceUpdate((prev) => prev + 1);
+  }, [currentNote]);
 
   // 言語変更時の処理
   useEffect(() => {

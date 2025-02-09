@@ -11,21 +11,25 @@ export const VersionUp = () => {
 
   useEffect(() => {
     const fetchVersion = async () => {
-      const ver = await GetAppVersion();
-      setVersion(ver);
+      try {
+        const ver = await GetAppVersion();
+        setVersion(ver);
 
-      const response = await fetch(repoUrl);
-      const data = await response.json();
-      if (!data) {
-        console.error('データが見つかりません');
-        return;
-      }
+        const response = await fetch(repoUrl);
+        const data = await response.json();
+        if (!data) {
+          console.error('データが見つかりません');
+          return;
+        }
 
-      const latestVersion = data.tag_name.replace('v', '');
-      if (latestVersion > ver) {
-        setShowChip(true);
-      } else {
-        console.log('最新バージョンです');
+        const latestVersion = data.tag_name.replace('v', '');
+        if (latestVersion > ver) {
+          setShowChip(true);
+        } else {
+          console.log('最新バージョンです');
+        }
+      } catch (error) {
+        console.error('バージョン取得に失敗しました', error);
       }
     };
     fetchVersion();
