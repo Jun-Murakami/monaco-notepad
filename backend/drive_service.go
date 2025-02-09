@@ -388,6 +388,7 @@ func (s *driveService) performInitialSync() error {
 
 	// フロントエンドに変更を通知
 	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
+	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	return nil
 }
 
