@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -19,6 +21,9 @@ func main() {
 	// Create an instance of the app structure
 	app := backend.NewApp()
 
+	// コマンドライン引数を保存
+	args := os.Args
+
 	// Wailsアプリケーションを作成
 	err := wails.Run(&options.App{
 		Title:     "Monaco Notepad",
@@ -31,9 +36,15 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
 		OnStartup:        app.Startup,
-		OnDomReady:       app.DomReady,
-		OnBeforeClose:    app.BeforeClose,
-		LogLevel:         logger.INFO,
+		OnDomReady: func(ctx context.Context) {
+			app.DomReady(ctx)
+			// 最初のインスタンスで引数が渡された場合の処理
+			if len(args) > 1 {
+				app.OpenFileFromExternal(args[1])
+			}
+		},
+		OnBeforeClose: app.BeforeClose,
+		LogLevel:      logger.INFO,
 		Bind: []interface{}{
 			app,
 		},

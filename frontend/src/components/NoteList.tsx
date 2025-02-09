@@ -82,7 +82,6 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
           sx={{
             width: '100%',
             fontWeight: currentNote?.id === note.id ? 'bold' : 'normal',
-            mb: -0.5,
           }}
         >
           {getNoteTitle(note)}
@@ -97,7 +96,6 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
               transition: 'opacity 0.2s',
               p: 0.5,
               ml: -1,
-              mb: -1,
             }}
           >
             {isDragging ? (
@@ -246,6 +244,9 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
           borderColor: 'divider',
           zIndex: 1000,
           backgroundColor: 'background.paper',
+          '&:hover': {
+            backgroundColor: 'action.hover',
+          },
         }}
         startIcon={<Inventory sx={{ width: 20, height: 20 }} />}
         disabled={!notes?.some((note) => note.archived)}

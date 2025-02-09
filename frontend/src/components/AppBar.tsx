@@ -351,7 +351,7 @@ export const AppBar: React.FC<{
                 onMouseLeave={() => setIsHoveringSync(false)}
               >
                 {isHoveringSync ? (
-                  <CircularProgress size={24} color='primary' />
+                  <CloudSyncIcon color='primary' sx={{ fontSize: 27, ml: -0.4 }} />
                 ) : (
                   <CloudDoneIcon color='primary' sx={{ fontSize: 24 }} />
                 )}
@@ -359,8 +359,8 @@ export const AppBar: React.FC<{
             </Tooltip>
           ) : syncStatus === 'syncing' ? (
             <Tooltip title='Syncing...' arrow>
-              <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1, mx: 0.5 }}>
-                <CloudSyncIcon color='primary' sx={{ fontSize: 26 }} />
+              <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1, mx: 0.625 }}>
+                <CircularProgress size={24} />
               </Box>
             </Tooltip>
           ) : (

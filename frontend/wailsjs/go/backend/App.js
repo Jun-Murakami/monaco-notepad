@@ -26,6 +26,10 @@ export function DestroyApp() {
   return window['go']['backend']['App']['DestroyApp']();
 }
 
+export function DomReady(arg1) {
+  return window['go']['backend']['App']['DomReady'](arg1);
+}
+
 export function GetAppVersion() {
   return window['go']['backend']['App']['GetAppVersion']();
 }
