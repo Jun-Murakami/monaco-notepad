@@ -88,6 +88,7 @@ func (s *driveService) InitializeDrive() error {
 	if success, err := s.auth.InitializeWithSavedToken(); err != nil {
 		return s.logger.ErrorWithNotify(err, "Failed to initialize Drive API")
 	} else if success {
+		s.logger.Info("InitializeDrive success")
 		return s.onConnected(false)
 	}
 	return nil
@@ -100,6 +101,7 @@ func (s *driveService) AuthorizeDrive() error {
 	if err := s.auth.StartManualAuth(); err != nil {
 		return s.logger.ErrorWithNotify(err, "Failed to complete authentication")
 	}
+	s.logger.Info("AuthorizeDrive success")
 	return s.onConnected(true)
 }
 
@@ -432,6 +434,7 @@ func (s *driveService) mergeNotes(
 			// ハッシュが一致しない場合は更新日時で比較
 			if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
 				mergedNotes = append(mergedNotes, cloudNote)
+				s.logger.Info("Downloading note %s from cloud", id)
 				note, err := s.driveSync.DownloadNote(ctx, id)
 				if err != nil {
 					return nil, nil, fmt.Errorf("failed to download note %s: %w", id, err)
@@ -442,6 +445,7 @@ func (s *driveService) mergeNotes(
 				mergedNotes = append(mergedNotes, localNote)
 				note, err := s.noteService.LoadNote(id)
 				if err == nil {
+					s.logger.Info("Uploading note %s to cloud", id)
 					if err := s.driveSync.UpdateNote(ctx, note); err != nil {
 						return nil, nil, fmt.Errorf("failed to upload note %s: %w", id, err)
 					}
@@ -453,6 +457,7 @@ func (s *driveService) mergeNotes(
 			mergedNotes = append(mergedNotes, localNote)
 			note, err := s.noteService.LoadNote(id)
 			if err == nil {
+				s.logger.Info("Uploading note %s to cloud", id)
 				if err := s.driveSync.CreateNote(ctx, note); err != nil {
 					return nil, nil, fmt.Errorf("failed to upload note %s: %w", id, err)
 				}
@@ -462,6 +467,7 @@ func (s *driveService) mergeNotes(
 	// クラウドにしかないノートを追加
 	for id, cloudNote := range cloudNotesMap {
 		mergedNotes = append(mergedNotes, cloudNote)
+		s.logger.Info("Downloading note %s from cloud", id)
 		note, err := s.driveSync.DownloadNote(ctx, id)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to download note %s: %w", id, err)

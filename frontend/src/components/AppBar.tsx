@@ -20,7 +20,6 @@ import { useEffect, useState, useRef } from 'react';
 import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime';
 import {
   AuthorizeDrive,
-  InitializeDrive,
   LogoutDrive,
   OpenFile,
   SyncNow,
@@ -139,7 +138,6 @@ export const AppBar: React.FC<{
     try {
       setSyncStatus('syncing');
       await AuthorizeDrive();
-      await InitializeDrive();
     } catch (error) {
       console.error('Google authentication error:', error);
       showMessage('Error', 'Google authentication failed: ' + error);
