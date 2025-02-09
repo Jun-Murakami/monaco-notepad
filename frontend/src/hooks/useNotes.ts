@@ -92,7 +92,7 @@ export const useNotes = () => {
       if (isNoteModified.current) {
         saveCurrentNote();
       }
-    }, 5000); // 5秒ごとに自動保存
+    }, 1000); // 1秒ごとに自動保存
 
     return () => {
       clearTimeout(debounce);
@@ -343,7 +343,6 @@ export const useNotes = () => {
     currentNote,
     showArchived,
     setShowArchived,
-    saveCurrentNote,
     handleNewNote,
     handleArchiveNote,
     handleNoteSelect,

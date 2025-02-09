@@ -1,10 +1,9 @@
 import { getLanguageByExtension, getExtensionByLanguage } from '../lib/monaco';
 import { SelectFile, OpenFile, SaveFile, SelectSaveFileUri } from '../../wailsjs/go/backend/App';
 import { Note } from '../types';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { useEffect } from 'react';
 import { isBinaryFile } from '../utils/fileUtils';
 
+// ファイル操作に関する純粋な関数を提供するフック
 export const useFileOperations = (
   notes: Note[],
   currentNote: Note | null,
@@ -12,6 +11,25 @@ export const useFileOperations = (
   setNotes: (notes: Note[]) => void,
   showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>,
 ) => {
+  // 新しいノートを作成する共通関数
+  const createNewNote = (content: string, filePath: string) => {
+    const extension = filePath.split('.').pop()?.toLowerCase() || '';
+    const detectedLanguage = getLanguageByExtension('.' + extension);
+    const language = typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
+    const fileName = filePath.split(/[/\\]/).pop() || '';
+
+    return {
+      id: crypto.randomUUID(),
+      title: fileName.replace(/\.[^/.]+$/, ''),
+      content,
+      contentHeader: null,
+      language,
+      modifiedTime: new Date().toISOString(),
+      archived: false,
+    };
+  };
+
+  // ファイルを開く
   const handleOpenFile = async () => {
     try {
       const filePath = await SelectFile();
@@ -25,21 +43,7 @@ export const useFileOperations = (
         return;
       }
 
-      const extension = filePath.split('.').pop()?.toLowerCase() || '';
-      const detectedLanguage = getLanguageByExtension('.' + extension);
-      const language = typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
-      const fileName = filePath.split(/[/\\]/).pop() || '';
-
-      const newNote: Note = {
-        id: crypto.randomUUID(),
-        title: fileName.replace(/\.[^/.]+$/, ''),
-        content,
-        contentHeader: null,
-        language,
-        modifiedTime: new Date().toISOString(),
-        archived: false,
-      };
-
+      const newNote = createNewNote(content, filePath);
       setNotes([newNote, ...notes]);
       await handleNoteSelect(newNote, true);
     } catch (error) {
@@ -47,6 +51,7 @@ export const useFileOperations = (
     }
   };
 
+  // ファイルを保存する
   const handleSaveFile = async () => {
     try {
       if (!currentNote || !currentNote.content || currentNote.content === '') return;
@@ -60,32 +65,32 @@ export const useFileOperations = (
     }
   };
 
-  useEffect(() => {
-    const cleanup = EventsOn('file:open-external', (data: { path: string, content: string }) => {
-      const fileName = data.path.split(/[/\\]/).pop() || '';
-      const extension = fileName.split('.').pop()?.toLowerCase() || '';
-      const detectedLanguage = getLanguageByExtension('.' + extension);
-      const language = typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
+  // ファイルをドラッグアンドドロップする
+  const handleFileDrop = async (_x: number, _y: number, paths: string[]) => {
+    if (paths.length > 0) {
+      try {
+        const filePath = paths[0];
+        const content = await OpenFile(filePath);
+        if (typeof content !== 'string') return;
 
-      const newNote: Note = {
-        id: crypto.randomUUID(),
-        title: fileName.replace(/\.[^/.]+$/, ''),
-        content: data.content,
-        contentHeader: null,
-        language,
-        modifiedTime: new Date().toISOString(),
-        archived: false,
-      };
+        if (isBinaryFile(content)) {
+          showMessage('Error', 'Failed to open the dropped file. Please check the file format.');
+          return;
+        }
 
-      setNotes([newNote, ...notes]);
-      handleNoteSelect(newNote, true);
-    });
-
-    return () => cleanup();
-  }, [notes, handleNoteSelect, setNotes]);
+        const newNote = createNewNote(content, filePath);
+        setNotes([newNote, ...notes]);
+        await handleNoteSelect(newNote, true);
+      } catch (error) {
+        console.error('File drop error:', error);
+        showMessage('Error', 'ファイルのオープンに失敗しました');
+      }
+    }
+  };
 
   return {
     handleOpenFile,
     handleSaveFile,
+    handleFileDrop,
   };
 }; 

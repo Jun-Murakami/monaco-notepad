@@ -29,6 +29,7 @@ import {
 import { keyframes } from '@mui/system';
 import { getLanguageByExtension } from '../lib/monaco';
 import { isBinaryFile } from '../utils/fileUtils';
+import { useFileOperations } from '../hooks/useFileOperations';
 
 const fadeAnimation = keyframes`
   0% { opacity: 1; }
@@ -71,41 +72,7 @@ export const AppBar: React.FC<{
   const syncStartTime = useRef<number | null>(null);
   const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
-  const handleFileDrop = async (_x: number, _y: number, paths: string[]) => {
-    if (paths.length > 0) {
-      try {
-        const filePath = paths[0];
-        const content = await OpenFile(filePath);
-        if (typeof content !== 'string') return;
-
-        if (isBinaryFile(content)) {
-          showMessage('Error', 'Failed to open the dropped file. Please check the file format.');
-          return;
-        }
-
-        const extension = filePath.split('.').pop()?.toLowerCase() || '';
-        const detectedLanguage = getLanguageByExtension('.' + extension);
-        const language =
-          typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
-        const fileName = filePath.split(/[/\\]/).pop() || '';
-
-        const newNote: Note = {
-          id: crypto.randomUUID(),
-          title: fileName.replace(/\.[^/.]+$/, ''),
-          content,
-          contentHeader: null,
-          language,
-          modifiedTime: new Date().toISOString(),
-          archived: false,
-        };
-        setNotes([newNote, ...notes]);
-        await handleNoteSelect(newNote, true);
-      } catch (error) {
-        console.error('File drop error:', error);
-        showMessage('Error', 'ファイルのオープンに失敗しました');
-      }
-    }
-  };
+  const { handleFileDrop } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes, showMessage);
 
   useEffect(() => {
     const handleSync = () => {
@@ -132,7 +99,7 @@ export const AppBar: React.FC<{
       EventsOff('drive:error');
       OnFileDropOff();
     };
-  }, [notes, setNotes, handleNoteSelect, showMessage]);
+  }, [notes, setNotes, handleNoteSelect, showMessage, handleFileDrop]);
 
   const handleGoogleAuth = async () => {
     try {

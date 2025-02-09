@@ -59,8 +59,11 @@ func NewDriveSyncService(
 	notesFolderID string,
 	rootFolderID string,
 ) DriveSyncService {
+	// DriveOperationsをキューでラップ
+	queuedOps := NewDriveOperationsQueue(driveOps)
+
 	return &driveSyncServiceImpl{
-		driveOps:      driveOps,
+		driveOps:      queuedOps,
 		notesFolderID: notesFolderID,
 		rootFolderID:  rootFolderID,
 	}

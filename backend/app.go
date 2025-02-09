@@ -120,6 +120,15 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 	if err := a.settingsService.SaveWindowState(a.ctx); err != nil {
 		return false
 	}
+
+	// キューの完了を待つ (タイムアウト10秒)
+	if a.driveService != nil {
+		if !a.driveService.WaitForCompletion(10 * time.Second) {
+			fmt.Println("Warning: Timed out waiting for queue completion")
+		}
+		a.driveService.Shutdown()
+	}
+
 	return true
 }
 

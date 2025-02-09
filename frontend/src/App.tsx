@@ -1,26 +1,32 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { Editor } from './components/Editor';
 import { Box, Divider } from '@mui/material';
 import { AppBar } from './components/AppBar';
 import { NoteList } from './components/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
-import { getSupportedLanguages, LanguageInfo } from './lib/monaco';
+import { LanguageInfo } from './lib/monaco';
 import { SettingsDialog } from './components/SettingsDialog';
-import { ListNotes, NotifyFrontendReady, SaveNoteList } from '../wailsjs/go/backend/App';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { useNotes } from './hooks/useNotes';
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
 import { useMessageDialog } from './hooks/useMessageDialog';
-import * as runtime from '../wailsjs/runtime';
+import { useInitialize } from './hooks/useInitialize';
 import { EditorStatusBar } from './components/EditorStatusBar';
 import type { editor } from 'monaco-editor';
 
 function App() {
+  const [languages, setLanguages] = useState<LanguageInfo[]>([]);
+  const [platform, setPlatform] = useState<string>('');
+  const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const [forceUpdate, setForceUpdate] = useState(0);
+
+  // アプリの設定の読み込みと初期化
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
 
+  // ノートの管理と操作
   const {
     notes,
     setNotes,
@@ -38,57 +44,20 @@ function App() {
     handleContentChange,
   } = useNotes();
 
+  // メッセージダイアログの管理
   const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
 
+  // ファイル操作の管理
   const { handleOpenFile, handleSaveFile } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes, showMessage);
 
-  const [languages, setLanguages] = useState<LanguageInfo[]>([]);
-  const [platform, setPlatform] = useState<string>('');
-  const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const [forceUpdate, setForceUpdate] = useState(0);
-
-  useEffect(() => {
-    const asyncFunc = async () => {
-      try {
-        // プラットフォームを取得
-        const env = await runtime.Environment();
-        setPlatform(env.platform);
-
-        // コンポーネントのマウント時に言語一覧を取得
-        setLanguages(getSupportedLanguages());
-
-        // ノート一覧を取得
-        const notes = await ListNotes();
-        if (!notes) {
-          setNotes([]);
-          handleNewNote();
-          return;
-        }
-        setNotes(notes);
-        const activeNotes = notes.filter((note) => !note.archived);
-        if (activeNotes.length > 0) {
-          handleNoteSelect(activeNotes[0]);
-        } else {
-          handleNewNote();
-        }
-      } catch (error) {
-        console.error('Failed to load notes:', error);
-        setNotes([]);
-        handleNewNote();
-      }
-    };
-    asyncFunc();
-
-    // バックエンドの準備完了を待ってから通知
-    const unsubscribe = runtime.EventsOn('backend:ready', () => {
-      NotifyFrontendReady();
-    });
-
-    return () => {
-      unsubscribe();
-      setLanguages([]);
-    };
-  }, []);
+  // アプリケーションの初期化とイベントリスナーの設定
+  useInitialize({
+    setNotes,
+    handleNewNote,
+    handleNoteSelect,
+    setPlatform,
+    setLanguages,
+  });
 
   // エディタインスタンスを更新するためのコールバック
   const handleEditorInstance = (instance: editor.IStandaloneCodeEditor | null) => {

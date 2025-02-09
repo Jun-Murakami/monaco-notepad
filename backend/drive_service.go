@@ -27,6 +27,11 @@ type DriveService interface {
 	NotifyFrontendReady() // フロントエンド準備完了通知
 	IsConnected() bool    // 接続状態確認
 	IsTestMode() bool     // テストモード確認
+
+	// ---- キュー管理 ----
+	HasPendingOperations() bool                   // キューにアイテムがあるかどうかを確認
+	WaitForCompletion(timeout time.Duration) bool // キューの完了を待機
+	Shutdown()                                    // キューを安全に終了
 }
 
 // driveService はDriveServiceインターフェースの実装
@@ -41,6 +46,7 @@ type driveService struct {
 	driveOps        DriveOperations
 	driveSync       DriveSyncService
 	pollingService  *DrivePollingService
+	queue           *DriveOperationsQueue // キュー管理用のフィールドを追加
 }
 
 // NewDriveService は新しいdriveServiceインスタンスを作成します
@@ -113,7 +119,11 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 	s.logger.Info("Connected to Google Drive")
 
 	// DriveOps生成
-	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service)
+	baseOps := NewDriveOperations(s.auth.GetDriveSync().service)
+	// キュー付きのDriveOpsを生成
+	s.driveOps = baseOps
+	s.queue = NewDriveOperationsQueue(baseOps).(*DriveOperationsQueue)
+	s.driveOps = s.queue
 
 	// フォルダの確保
 	if err := s.ensureDriveFolders(); err != nil {
@@ -122,7 +132,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 
 	// driveSync生成
 	s.driveSync = NewDriveSyncService(
-		s.driveOps,                     // ドライブ操作オブジェクト
+		s.driveOps,                     // キュー付きのドライブ操作オブジェクトを注入
 		s.auth.driveSync.notesFolderID, // ノート保存用フォルダIDを注入
 		s.auth.driveSync.rootFolderID,  // アプリケーションのルートフォルダIDを注入
 	)
@@ -149,6 +159,10 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 func (s *driveService) LogoutDrive() error {
 	s.logger.Info("Logging out of Google Drive...")
 	s.pollingService.StopPolling()
+	if s.queue != nil {
+		s.queue.Shutdown()
+		s.queue = nil
+	}
 	return s.auth.LogoutDrive()
 }
 
@@ -705,4 +719,25 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 // driveService型にauthServiceを設定するメソッドを追加
 func (ds *driveService) SetAuthService(auth *driveAuthService) {
 	ds.auth = auth
+}
+
+// キュー管理関連のメソッド実装
+func (s *driveService) HasPendingOperations() bool {
+	if s.queue != nil {
+		return s.queue.HasPendingOperations()
+	}
+	return false
+}
+
+func (s *driveService) WaitForCompletion(timeout time.Duration) bool {
+	if s.queue != nil {
+		return s.queue.WaitForCompletion(timeout)
+	}
+	return true
+}
+
+func (s *driveService) Shutdown() {
+	if s.queue != nil {
+		s.queue.Shutdown()
+	}
 }

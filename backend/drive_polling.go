@@ -12,6 +12,8 @@ type DrivePollingService struct {
 	resetPollingChan chan struct{}
 	stopPollingChan  chan struct{}
 	logger           DriveLogger
+	interval         time.Duration
+	stopChan         chan struct{}
 }
 
 // NewDrivePollingService は新しいDrivePollingServiceインスタンスを作成
@@ -21,6 +23,8 @@ func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePolling
 		driveService:    ds,
 		stopPollingChan: make(chan struct{}),
 		logger:          ds.logger,
+		interval:        20 * time.Second,
+		stopChan:        make(chan struct{}),
 	}
 }
 
@@ -70,6 +74,12 @@ func (p *DrivePollingService) StartPolling() {
 				continue
 			}
 
+			// キューの状態をチェック
+			if p.driveService.HasPendingOperations() {
+				p.logger.Console("Skipping polling due to pending operations")
+				continue
+			}
+
 			err := p.driveService.SyncNotes()
 			if err != nil {
 				p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
@@ -106,5 +116,28 @@ func (p *DrivePollingService) ResetPollingInterval() {
 	select {
 	case p.resetPollingChan <- struct{}{}:
 	default:
+	}
+}
+
+// ポーリング処理を実行
+func (p *DrivePollingService) startPolling() {
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.stopChan:
+			return
+		case <-ticker.C:
+			// キューの状態をチェック
+			if p.driveService.HasPendingOperations() {
+				p.logger.Info("Skipping polling due to pending operations")
+				continue
+			}
+
+			if err := p.driveService.SyncNotes(); err != nil {
+				p.logger.Error(err, "Failed to sync notes")
+			}
+		}
 	}
 }
