@@ -87,6 +87,24 @@ export namespace backend {
 	        this.isMaximized = source["isMaximized"];
 	    }
 	}
+	export class UpdateOperation {
+	    type: string;
+	    noteId: string;
+	    content: any;
+	    timestamp: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateOperation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.noteId = source["noteId"];
+	        this.content = source["content"];
+	        this.timestamp = source["timestamp"];
+	    }
+	}
 
 }
 

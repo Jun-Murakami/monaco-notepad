@@ -7,7 +7,7 @@ import { NoteList } from './components/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
 import { getSupportedLanguages, LanguageInfo } from './lib/monaco';
 import { SettingsDialog } from './components/SettingsDialog';
-import { ListNotes, NotifyFrontendReady, SaveNoteList } from '../wailsjs/go/backend/App';
+import { NotifyFrontendReady } from '../wailsjs/go/backend/App';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { useNotes } from './hooks/useNotes';
 import { useEditorSettings } from './hooks/useEditorSettings';
@@ -20,6 +20,7 @@ import type { editor } from 'monaco-editor';
 
 function App() {
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
+  const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
 
   const {
     notes,
@@ -27,6 +28,7 @@ function App() {
     currentNote,
     showArchived,
     setShowArchived,
+    syncStatus,
     handleNewNote,
     handleArchiveNote,
     handleNoteSelect,
@@ -36,9 +38,10 @@ function App() {
     handleTitleChange,
     handleLanguageChange,
     handleContentChange,
-  } = useNotes();
-
-  const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
+    handleGoogleAuth,
+    handleLogout,
+    handleSync,
+  } = useNotes(showMessage);
 
   const { handleOpenFile, handleSaveFile } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes, showMessage);
 
@@ -56,25 +59,8 @@ function App() {
 
         // コンポーネントのマウント時に言語一覧を取得
         setLanguages(getSupportedLanguages());
-
-        // ノート一覧を取得
-        const notes = await ListNotes();
-        if (!notes) {
-          setNotes([]);
-          handleNewNote();
-          return;
-        }
-        setNotes(notes);
-        const activeNotes = notes.filter((note) => !note.archived);
-        if (activeNotes.length > 0) {
-          handleNoteSelect(activeNotes[0]);
-        } else {
-          handleNewNote();
-        }
       } catch (error) {
-        console.error('Failed to load notes:', error);
-        setNotes([]);
-        handleNewNote();
+        console.error('Failed to initialize:', error);
       }
     };
     asyncFunc();
@@ -131,10 +117,10 @@ function App() {
           onNew={handleNewNote}
           onOpen={handleOpenFile}
           onSave={handleSaveFile}
-          showMessage={showMessage}
-          handleNoteSelect={handleNoteSelect}
-          notes={notes}
-          setNotes={setNotes}
+          syncStatus={syncStatus}
+          handleGoogleAuth={handleGoogleAuth}
+          handleLogout={handleLogout}
+          handleSync={handleSync}
         />
         <Divider />
         <Box

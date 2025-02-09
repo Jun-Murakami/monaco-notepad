@@ -39,10 +39,11 @@ func (c *Context) ShouldSkipBeforeClose() bool {
 
 // 新しいAppインスタンスを作成 ------------------------------------------------------------
 func NewApp() *App {
-	return &App{
+	app := &App{
 		ctx:           NewContext(context.Background()),
 		frontendReady: make(chan struct{}),
 	}
+	return app
 }
 
 // ------------------------------------------------------------
@@ -83,6 +84,10 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 	a.noteService = noteService
+
+	// UpdateQueueの初期化
+	logger := NewDriveLogger(ctx, false)
+	a.updateQueue = NewUpdateQueue(a, logger)
 }
 
 // フロントエンドにDOMが読み込まれたときに呼び出される関数 ------------------------------------------------------------
@@ -450,4 +455,28 @@ func (a *App) GetAppVersion() (string, error) {
 	}
 
 	return config.Info.ProductVersion, nil
+}
+
+// キューに操作を追加するメソッド
+func (a *App) QueueNoteOperation(op UpdateOperation) error {
+	return a.updateQueue.QueueOperation(op)
+}
+
+// キューからの呼び出し用の内部メソッド
+func (a *App) CreateNote(note *Note) error {
+	return a.SaveNote(note, "create")
+}
+
+func (a *App) UpdateNote(note *Note) error {
+	return a.SaveNote(note, "update")
+}
+
+func (a *App) ReorderNotes(notes []Note) error {
+	// ノートの順序を更新
+	for i, note := range notes {
+		if err := a.UpdateNoteOrder(note.ID, i); err != nil {
+			return err
+		}
+	}
+	return nil
 }

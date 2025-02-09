@@ -18,6 +18,10 @@ export function CheckDriveConnection() {
   return window['go']['backend']['App']['CheckDriveConnection']();
 }
 
+export function CreateNote(arg1) {
+  return window['go']['backend']['App']['CreateNote'](arg1);
+}
+
 export function DeleteNote(arg1) {
   return window['go']['backend']['App']['DeleteNote'](arg1);
 }
@@ -70,6 +74,14 @@ export function OpenFileFromExternal(arg1) {
   return window['go']['backend']['App']['OpenFileFromExternal'](arg1);
 }
 
+export function QueueNoteOperation(arg1) {
+  return window['go']['backend']['App']['QueueNoteOperation'](arg1);
+}
+
+export function ReorderNotes(arg1) {
+  return window['go']['backend']['App']['ReorderNotes'](arg1);
+}
+
 export function SaveFile(arg1, arg2) {
   return window['go']['backend']['App']['SaveFile'](arg1, arg2);
 }
@@ -100,6 +112,10 @@ export function SelectSaveFileUri(arg1, arg2) {
 
 export function SyncNow() {
   return window['go']['backend']['App']['SyncNow']();
+}
+
+export function UpdateNote(arg1) {
+  return window['go']['backend']['App']['UpdateNote'](arg1);
 }
 
 export function UpdateNoteOrder(arg1, arg2) {

@@ -22,6 +22,7 @@ type App struct {
 	settingsService *settingsService  // 設定操作サービス
 	fileService     *fileService      // ファイル操作サービス
 	frontendReady   chan struct{}     // フロントエンドの準備完了を通知するチャネル
+	updateQueue     *UpdateQueue      // 更新操作のキュー
 }
 
 // アプリケーションのコンテキストを管理

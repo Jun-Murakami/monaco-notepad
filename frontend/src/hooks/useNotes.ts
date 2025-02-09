@@ -1,17 +1,48 @@
 import { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
-import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/backend/App';
+import {
+  QueueNoteOperation,
+  ListNotes,
+  DestroyApp,
+  AuthorizeDrive,
+  LogoutDrive,
+  SyncNow,
+  CheckDriveConnection,
+  CancelLoginDrive,
+} from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { backend } from '../../wailsjs/go/models';
 
-export const useNotes = () => {
+const SYNC_TIMEOUT = 5 * 60 * 1000; // 5分のタイムアウト
+
+export const useNotes = (showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>) => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'logging in' | 'offline'>('offline');
   const isNoteModified = useRef(false);
   const previousContent = useRef<string>('');
   const isClosing = useRef(false);
   const currentNoteRef = useRef<Note | null>(null);
+  const syncStartTime = useRef<number | null>(null);
+  const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
+
+  // 現在のノートを保存する
+  const saveCurrentNote = async (note: Note) => {
+    if (!note?.id) return;
+    try {
+      const operation = backend.UpdateOperation.createFrom({
+        type: "UPDATE",
+        noteId: note.id,
+        content: note,
+        timestamp: new Date().toISOString(),
+      });
+
+      await QueueNoteOperation(operation);
+    } catch (error) {
+      console.error('Failed to save note:', error);
+    }
+  };
 
   // currentNoteの変更を追跡
   useEffect(() => {
@@ -29,17 +60,21 @@ export const useNotes = () => {
 
     // notes:reloadイベントのハンドラを登録
     runtime.EventsOn('notes:reload', async () => {
-      const notes = await ListNotes();
-      setNotes(notes);
+      const updatedNotes = await ListNotes();
 
-      // 現在表示中のノートも更新
+      // 現在のノートの状態を保持
       if (currentNoteRef.current) {
-        const updatedCurrentNote = notes.find(note => note.id === currentNoteRef.current?.id);
-        if (updatedCurrentNote) {
-          setCurrentNote(updatedCurrentNote);
-          previousContent.current = updatedCurrentNote.content || '';
-          isNoteModified.current = false;
+        const currentNoteInList = updatedNotes.find(note => note.id === currentNoteRef.current?.id);
+        if (currentNoteInList) {
+          // 編集中のノートは現在の状態を維持
+          setNotes(updatedNotes.map(note =>
+            note.id === currentNoteRef.current?.id ? currentNoteRef.current : note
+          ));
+        } else {
+          setNotes(updatedNotes);
         }
+      } else {
+        setNotes(updatedNotes);
       }
     });
 
@@ -68,21 +103,41 @@ export const useNotes = () => {
       try {
         const noteToSave = currentNoteRef.current;
         if (noteToSave?.id && isNoteModified.current) {
-          await SaveNote(backend.Note.createFrom(noteToSave), "update");
+          await saveCurrentNote(noteToSave);
         }
       } catch (error) {
       }
       DestroyApp();
     };
 
+    // ドライブ関連のイベントハンドラを登録
+    const handleSync = () => {
+      setSyncStatus('syncing');
+    };
+
+    const handleDriveStatus = (status: string) => {
+      setSyncStatus(status as 'synced' | 'syncing' | 'offline');
+    };
+
+    const handleDriveError = (error: string) => {
+      showMessage('Drive error', error);
+      console.error('Drive error:', error);
+    };
+
     runtime.EventsOn('app:beforeclose', handleBeforeClose);
+    runtime.EventsOn('notes:updated', handleSync);
+    runtime.EventsOn('drive:status', handleDriveStatus);
+    runtime.EventsOn('drive:error', handleDriveError);
 
     return () => {
       runtime.EventsOff('app:beforeclose');
       runtime.EventsOff('notes:reload');
       runtime.EventsOff('note:updated');
+      runtime.EventsOff('notes:updated');
+      runtime.EventsOff('drive:status');
+      runtime.EventsOff('drive:error');
     };
-  }, []);
+  }, [showMessage]);
 
   // 自動保存の処理 (デバウンスありSynchingSynching)
   useEffect(() => {
@@ -90,7 +145,8 @@ export const useNotes = () => {
 
     const debounce = setTimeout(() => {
       if (isNoteModified.current) {
-        saveCurrentNote();
+        saveCurrentNote(currentNote);
+        isNoteModified.current = false;
       }
     }, 5000); // 5秒ごとに自動保存
 
@@ -99,14 +155,114 @@ export const useNotes = () => {
     };
   }, [currentNote]);
 
-  // 現在のノートを保存する
-  const saveCurrentNote = async () => {
-    if (!currentNote?.id || !isNoteModified.current) return;
+  // 同期状態の監視を開始
+  const startSyncMonitoring = () => {
+    // 既存の監視をクリア
+    if (syncCheckInterval.current) {
+      clearInterval(syncCheckInterval.current);
+    }
+
+    syncStartTime.current = Date.now();
+    syncCheckInterval.current = setInterval(async () => {
+      try {
+        // バックエンドの状態をチェック
+        const isConnected = await CheckDriveConnection();
+
+        if (!isConnected && syncStatus !== 'logging in') {
+          // 切断されている場合は強制ログアウト
+          await handleForcedLogout('Drive connection lost. Please login again.');
+          return;
+        }
+
+        // タイムアウトチェック
+        if (syncStartTime.current && Date.now() - syncStartTime.current > SYNC_TIMEOUT) {
+          await handleForcedLogout('Sync timeout. Please login again.');
+          return;
+        }
+      } catch (error) {
+        console.error('Sync monitoring error:', error);
+        await handleForcedLogout('Error checking sync status. Please login again.');
+      }
+    }, 10000); // 10秒ごとにチェック
+  };
+
+  // 同期状態の監視を停止
+  const stopSyncMonitoring = () => {
+    if (syncCheckInterval.current) {
+      clearInterval(syncCheckInterval.current);
+      syncCheckInterval.current = null;
+    }
+    syncStartTime.current = null;
+  };
+
+  // 強制ログアウト処理
+  const handleForcedLogout = async (message: string) => {
+    stopSyncMonitoring();
     try {
-      setNotes((prev) => prev.map((note) => (note.id === currentNote.id ? currentNote : note)));
-      await SaveNote(backend.Note.createFrom(currentNote), "update");
-      isNoteModified.current = false;
+      await LogoutDrive();
+      showMessage('Sync Error', message);
     } catch (error) {
+      console.error('Forced logout error:', error);
+      showMessage('Error', 'Failed to logout: ' + error);
+    }
+  };
+
+  // syncStatusの変更を監視
+  useEffect(() => {
+    if (syncStatus === 'syncing') {
+      startSyncMonitoring();
+    } else {
+      stopSyncMonitoring();
+    }
+
+    return () => {
+      stopSyncMonitoring();
+    };
+  }, [syncStatus]);
+
+  // Google Drive関連の処理
+  const handleGoogleAuth = async () => {
+    try {
+      setSyncStatus('syncing');
+      await AuthorizeDrive();
+    } catch (error) {
+      console.error('Google authentication error:', error);
+      showMessage('Error', 'Google authentication failed: ' + error);
+      setSyncStatus('offline');
+    }
+  };
+
+  // ログアウトする
+  const handleLogout = async () => {
+    try {
+      // ログイン中の場合はキャンセル処理を実行
+      if (syncStatus === 'logging in') {
+        await CancelLoginDrive();
+        return;
+      }
+
+      // 通常のログアウト処理（確認あり）
+      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout?', true);
+      if (result) {
+        await LogoutDrive();
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      showMessage('Error', 'Logout failed: ' + error);
+    }
+  };
+
+  // ただちに同期する
+  const handleSync = async () => {
+    if (syncStatus === 'synced') {
+      try {
+        setSyncStatus('syncing');
+        await SyncNow();
+        setSyncStatus('synced');
+      } catch (error) {
+        console.error('Manual sync error:', error);
+        showMessage('Sync Error', 'Failed to synchronize with Google Drive: ' + error);
+      }
     }
   };
 
@@ -121,17 +277,29 @@ export const useNotes = () => {
       modifiedTime: new Date().toISOString(),
       archived: false,
     };
+
+    const operation = backend.UpdateOperation.createFrom({
+      type: "CREATE",
+      noteId: newNote.id,
+      content: newNote,
+      timestamp: new Date().toISOString(),
+    });
+
+    await QueueNoteOperation(operation);
+
+    // バックエンドの保存が完了した後で状態を更新
     setShowArchived(false);
     setNotes((prev) => [newNote, ...prev]);
     setCurrentNote(newNote);
-    await SaveNote(backend.Note.createFrom(newNote), "create");
+
     return newNote;
   };
 
   // 新規ノート作成
   const handleNewNote = async () => {
-    if (currentNote) {
-      await saveCurrentNote();
+    if (currentNote && isNoteModified.current) {
+      await saveCurrentNote(currentNote);
+      isNoteModified.current = false;
     }
     await createNewNote();
   };
@@ -160,23 +328,22 @@ export const useNotes = () => {
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? archivedNote : n))
     );
-    await SaveNote(backend.Note.createFrom(archivedNote), "update");
+
+    const operation = backend.UpdateOperation.createFrom({
+      type: "UPDATE",
+      noteId: noteId,
+      content: archivedNote,
+      timestamp: new Date().toISOString(),
+    });
+    await QueueNoteOperation(operation);
+
 
     if (currentNote?.id === noteId) {
       const activeNotes = notes.filter((note) => !note.archived && note.id !== noteId);
       if (activeNotes.length > 0) {
         setCurrentNote(activeNotes[0]);
       } else {
-        const emptyNote: Note = {
-          id: crypto.randomUUID(),
-          title: '',
-          content: '',
-          contentHeader: null,
-          language: currentNote?.language || 'plaintext',
-          modifiedTime: new Date().toISOString(),
-          archived: false,
-        };
-        setCurrentNote(emptyNote);
+        await createNewNote();
       }
     }
   };
@@ -184,29 +351,24 @@ export const useNotes = () => {
   // ノートを選択する
   const handleNoteSelect = async (note: Note, isNew: boolean = false) => {
     if (currentNote?.id && isNoteModified.current) {
-      await saveCurrentNote();
+      await saveCurrentNote(currentNote);
+      isNoteModified.current = false;
     }
     setShowArchived(false);
 
     if (isNew) {
-      await SaveNote(backend.Note.createFrom(note), "create");
+      const operation = backend.UpdateOperation.createFrom({
+        type: "CREATE",
+        noteId: note.id,
+        content: note,
+        timestamp: new Date().toISOString(),
+      });
+      await QueueNoteOperation(operation);
     }
-    // アーカイブされたノートの場合、コンテンツを読み込む
-    if (note.archived) {
-      const fullNote = await LoadArchivedNote(note.id);
-      if (fullNote) {
-        previousContent.current = fullNote.content || '';
-        setCurrentNote(fullNote);
-        // ノートリストも更新
-        setNotes((prev) =>
-          prev.map((n) => (n.id === fullNote.id ? { ...n, content: fullNote.content } : n))
-        );
-      }
-    } else {
-      previousContent.current = note.content || '';
-      setCurrentNote(note);
-    }
-    isNoteModified.current = false;
+
+
+    previousContent.current = note.content || '';
+    setCurrentNote(note);
   };
 
   // ノートをアーカイブ解除する
@@ -214,144 +376,123 @@ export const useNotes = () => {
     const note = notes.find((note) => note.id === noteId);
     if (!note) return;
 
-    // アーカイブされたノートのコンテンツを読み込む
-    const fullNote = await LoadArchivedNote(noteId);
-    if (fullNote) {
-      const unarchivedNote = { ...fullNote, archived: false };
-      await SaveNote(backend.Note.createFrom(unarchivedNote), "update");
-      setNotes((prev) =>
-        prev.map((note) => (note.id === noteId ? unarchivedNote : note))
-      );
-    }
+    const unarchivedNote = { ...note, archived: false };
+    const operation = backend.UpdateOperation.createFrom({
+      type: "UPDATE",
+      noteId: noteId,
+      content: unarchivedNote,
+      timestamp: new Date().toISOString(),
+    });
+    await QueueNoteOperation(operation);
+
+
+    setNotes((prev) =>
+      prev.map((note) => (note.id === noteId ? unarchivedNote : note))
+    );
   };
 
   // ノートを削除する
   const handleDeleteNote = async (noteId: string) => {
-    // 削除前の状態を確認
-    const activeNotes = notes.filter(note => !note.archived);
-    const archivedNotes = notes.filter(note => note.archived);
-    const isLastNote = archivedNotes.length === 1 && archivedNotes[0].id === noteId;
-    const hasOnlyOneActiveNote = activeNotes.length === 1;
-    const hasNoActiveNotes = activeNotes.length === 0;
+    const operation = backend.UpdateOperation.createFrom({
+      type: "DELETE",
+      noteId: noteId,
+      content: null,
+      timestamp: new Date().toISOString(),
+    });
+    await QueueNoteOperation(operation);
 
-    // ノートの削除処理
-    await DeleteNote(noteId);
     setNotes((prev) => prev.filter((note) => note.id !== noteId));
 
-    // アーカイブページでの処理
-    if (showArchived) {
-      if (isLastNote) { // 最後のアーカイブノートを削除する場合
-        if (hasNoActiveNotes) {
-          // アクティブなノートが1つもない場合、新規ノートを作成して遷移
-          await createNewNote();
-        } else if (hasOnlyOneActiveNote) {
-          // アクティブなノートが1つだけある場合、そのノートに遷移
-          setShowArchived(false);
-          setCurrentNote(activeNotes[0]);
-        }
-        // アクティブなノートが2つ以上ある場合は何もしない（アーカイブページのまま）
-      }
-    }
-
-    // 現在のノートが削除された場合の処理
     if (currentNote?.id === noteId) {
-      const remainingNotes = notes.filter((note) =>
-        note.id !== noteId &&
-        (showArchived ? true : !note.archived)
-      );
-      if (remainingNotes.length > 0) {
-        setCurrentNote(remainingNotes[0]);
-      } else {
-        setCurrentNote(null);
-      }
-    }
-  };
-
-  // ノートをすべて削除する
-  const handleDeleteAllArchivedNotes = async () => {
-    const archivedNotes = notes.filter(note => note.archived);
-
-    // すべてのアーカイブされたノートを削除
-    for (const note of archivedNotes) {
-      await DeleteNote(note.id);
-    }
-
-    // ノートリストを更新
-    setNotes(prev => prev.filter(note => !note.archived));
-
-    // 現在のノートがアーカイブされていた場合、アクティブなノートに切り替える
-    if (currentNote?.archived) {
-      const activeNotes = notes.filter(note => !note.archived);
+      const activeNotes = notes.filter((note) => !note.archived && note.id !== noteId);
       if (activeNotes.length > 0) {
         setCurrentNote(activeNotes[0]);
       } else {
         await createNewNote();
       }
     }
-
-    setShowArchived(false);
   };
 
-  // ノートのタイトルを変更する
-  const handleTitleChange = (newTitle: string) => {
-    setCurrentNote((prev) => {
-      if (!prev) return prev;
-      isNoteModified.current = true;
-      return {
-        ...prev,
-        title: newTitle,
-        modifiedTime: new Date().toISOString(),
-      };
-    });
+  // アーカイブフラグのノートをすべて削除する
+  const handleDeleteAllArchivedNotes = async () => {
+    // notesの中からarchivedがtrueのノートをすべて削除キューに入れていく
+    const archivedNotes = notes.filter((note) => note.archived);
+    for (const note of archivedNotes) {
+      const operation = backend.UpdateOperation.createFrom({
+        type: "DELETE",
+        noteId: note.id,
+        content: null,
+        timestamp: new Date().toISOString(),
+      });
+      await QueueNoteOperation(operation);
+    }
+
+    setNotes((prev) => prev.filter((note) => !note.archived));
   };
 
-  // ノートの言語を変更する
-  const handleLanguageChange = (newLanguage: string) => {
-    setCurrentNote((prev) => {
-      if (!prev) return prev;
-      isNoteModified.current = true;
-      return {
-        ...prev,
-        language: newLanguage,
-      };
-    });
+  // ノートの順序を更新する
+  const handleReorderNotes = async (reorderedNotes: Note[]) => {
+    setNotes(reorderedNotes);
+    await QueueNoteOperation(backend.UpdateOperation.createFrom({
+      type: "REORDER",
+      noteId: "reorder", // 特別なIDを使用
+      content: reorderedNotes.map(note => backend.Note.createFrom(note)),
+      timestamp: new Date().toISOString(),
+    }));
   };
 
-  // ノートの内容を変更する
-  const handleContentChange = (newContent: string) => {
-    setCurrentNote((prev) => {
-      if (!prev) return prev;
+  // タイトルを変更する
+  const handleTitleChange = (title: string) => {
+    if (!currentNote) return;
+    const updatedNote = { ...currentNote, title, modifiedTime: new Date().toISOString() };
+    setCurrentNote(updatedNote);
+    setNotes((prev) =>
+      prev.map((note) => (note.id === currentNote.id ? updatedNote : note))
+    );
+    isNoteModified.current = true;
+  };
 
-      // 前回の内容と同じ場合は変更なしとする
-      if (newContent === previousContent.current) {
-        return prev;
-      }
+  // 言語を変更する
+  const handleLanguageChange = (language: string) => {
+    if (!currentNote) return;
+    const updatedNote = { ...currentNote, language, modifiedTime: new Date().toISOString() };
+    setCurrentNote(updatedNote);
+    setNotes((prev) =>
+      prev.map((note) => (note.id === currentNote.id ? updatedNote : note))
+    );
+    isNoteModified.current = true;
+  };
 
-      previousContent.current = newContent;
-      isNoteModified.current = true;
-      return {
-        ...prev,
-        content: newContent,
-        modifiedTime: new Date().toISOString(),
-      };
-    });
+  // 内容を変更する
+  const handleContentChange = (content: string) => {
+    if (!currentNote) return;
+    const updatedNote = { ...currentNote, content, modifiedTime: new Date().toISOString() };
+    setCurrentNote(updatedNote);
+    setNotes((prev) =>
+      prev.map((note) => (note.id === currentNote.id ? updatedNote : note))
+    );
+    isNoteModified.current = true;
   };
 
   return {
     notes,
-    setNotes,
     currentNote,
     showArchived,
     setShowArchived,
-    saveCurrentNote,
+    syncStatus,
+    setNotes,
     handleNewNote,
     handleArchiveNote,
     handleNoteSelect,
     handleUnarchiveNote,
     handleDeleteNote,
     handleDeleteAllArchivedNotes,
+    handleReorderNotes,
     handleTitleChange,
     handleLanguageChange,
     handleContentChange,
+    handleGoogleAuth,
+    handleLogout,
+    handleSync,
   };
 }; 
