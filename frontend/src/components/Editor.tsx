@@ -3,7 +3,6 @@ import { getMonaco, getOrCreateEditor, disposeEditor } from '../lib/monaco';
 import type { editor } from 'monaco-editor';
 import { EditorSettings } from '../types';
 import { Box } from '@mui/material';
-import { EditorStatusBar } from './EditorStatusBar';
 import { Note } from '../types';
 
 interface EditorProps {
@@ -12,9 +11,17 @@ interface EditorProps {
   language?: string;
   settings: EditorSettings;
   currentNote: Note | null;
+  onEditorInstance?: (instance: editor.IStandaloneCodeEditor | null) => void;
 }
 
-export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language = 'plaintext', settings, currentNote }) => {
+export const Editor: React.FC<EditorProps> = ({
+  value = '',
+  onChange,
+  language = 'plaintext',
+  settings,
+  currentNote,
+  onEditorInstance,
+}) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
@@ -41,6 +48,9 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
       occurrencesHighlight: 'off',
       wordWrap: settings.wordWrap,
     });
+
+    // エディタインスタンスを親コンポーネントに通知
+    onEditorInstance?.(editorInstanceRef.current);
 
     // イベントリスナーの設定
     const disposables = [
@@ -124,7 +134,6 @@ export const Editor: React.FC<EditorProps> = ({ value = '', onChange, language =
       <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
         <div ref={editorRef} style={{ width: '100%', height: '100%', position: 'absolute' }} />
       </Box>
-      <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentNote} key={forceUpdate} />
     </Box>
   );
 };

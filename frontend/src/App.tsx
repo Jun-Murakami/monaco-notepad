@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { Editor } from './components/Editor';
 import { Box, Divider } from '@mui/material';
@@ -15,6 +15,8 @@ import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import * as runtime from '../wailsjs/runtime';
+import { EditorStatusBar } from './components/EditorStatusBar';
+import type { editor } from 'monaco-editor';
 
 function App() {
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
@@ -42,6 +44,8 @@ function App() {
 
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
+  const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const [forceUpdate, setForceUpdate] = useState(0);
 
   useEffect(() => {
     const asyncFunc = async () => {
@@ -85,6 +89,12 @@ function App() {
       setLanguages([]);
     };
   }, []);
+
+  // エディタインスタンスを更新するためのコールバック
+  const handleEditorInstance = (instance: editor.IStandaloneCodeEditor | null) => {
+    editorInstanceRef.current = instance;
+    setForceUpdate((prev) => prev + 1);
+  };
 
   return (
     <ThemeProvider theme={editorSettings.isDarkMode ? darkTheme : lightTheme}>
@@ -158,25 +168,31 @@ function App() {
             left: 242,
             width: 'calc(100% - 242px)',
             height: platform === 'darwin' ? 'calc(100% - 83px)' : 'calc(100% - 57px)',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          {showArchived ? (
-            <ArchivedNoteList
-              notes={notes}
-              onUnarchive={handleUnarchiveNote}
-              onDelete={handleDeleteNote}
-              onDeleteAll={handleDeleteAllArchivedNotes}
-              onClose={() => setShowArchived(false)}
-            />
-          ) : (
-            <Editor
-              value={currentNote?.content || ''}
-              onChange={handleContentChange}
-              language={currentNote?.language || 'plaintext'}
-              settings={editorSettings}
-              currentNote={currentNote}
-            />
-          )}
+          <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+            {showArchived ? (
+              <ArchivedNoteList
+                notes={notes}
+                onUnarchive={handleUnarchiveNote}
+                onDelete={handleDeleteNote}
+                onDeleteAll={handleDeleteAllArchivedNotes}
+                onClose={() => setShowArchived(false)}
+              />
+            ) : (
+              <Editor
+                value={currentNote?.content || ''}
+                onChange={handleContentChange}
+                language={currentNote?.language || 'plaintext'}
+                settings={editorSettings}
+                currentNote={currentNote}
+                onEditorInstance={handleEditorInstance}
+              />
+            )}
+          </Box>
+          <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentNote} key={forceUpdate} />
         </Box>
       </Box>
 

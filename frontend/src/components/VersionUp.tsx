@@ -13,7 +13,6 @@ export const VersionUp = () => {
     const fetchVersion = async () => {
       try {
         const ver = await GetAppVersion();
-        setVersion(ver);
 
         const response = await fetch(repoUrl);
         const data = await response.json();
@@ -23,6 +22,7 @@ export const VersionUp = () => {
         }
 
         const latestVersion = data.tag_name.replace('v', '');
+        setVersion(latestVersion);
         if (latestVersion > ver) {
           setShowChip(true);
         } else {
