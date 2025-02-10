@@ -3,6 +3,9 @@ package backend
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -22,13 +25,42 @@ type DriveLogger interface {
 type driveLoggerImpl struct {
 	ctx        context.Context
 	isTestMode bool
+	logFile    *os.File
+	logDir     string
 }
 
 // NewDriveLogger は新しいDriveLoggerインスタンスを作成
-func NewDriveLogger(ctx context.Context, isTestMode bool) DriveLogger {
+func NewDriveLogger(ctx context.Context, isTestMode bool, appDataDir string) DriveLogger {
+	logDir := filepath.Join(appDataDir, "logs")
+	os.MkdirAll(logDir, 0755)
+
+	logPath := filepath.Join(logDir, fmt.Sprintf("app_%s.log", time.Now().Format("2006-01-02")))
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("Error opening log file: %v\n", err)
+		return &driveLoggerImpl{
+			ctx:        ctx,
+			isTestMode: isTestMode,
+			logDir:     logDir,
+		}
+	}
+
 	return &driveLoggerImpl{
 		ctx:        ctx,
 		isTestMode: isTestMode,
+		logFile:    logFile,
+		logDir:     logDir,
+	}
+}
+
+// writeToLog はログファイルに書き込みを行う
+func (l *driveLoggerImpl) writeToLog(message string) {
+	if l.logFile != nil {
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		logMessage := fmt.Sprintf("[%s] %s\n", timestamp, message)
+		if _, err := l.logFile.WriteString(logMessage); err != nil {
+			fmt.Printf("Error writing to log file: %v\n", err)
+		}
 	}
 }
 
@@ -61,6 +93,7 @@ func (l *driveLoggerImpl) Console(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
 		fmt.Println(message)
+		l.writeToLog(message)
 	}
 }
 
@@ -69,6 +102,7 @@ func (l *driveLoggerImpl) Info(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
 		fmt.Println(message)
+		l.writeToLog(message)
 		l.sendLogMessage(message)
 	}
 }
@@ -81,8 +115,10 @@ func (l *driveLoggerImpl) Error(err error, format string, args ...interface{}) e
 
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		fmt.Printf("%s: %s\n", message, err.Error())
-		l.sendLogMessage(fmt.Sprintf("%s: %s", message, err.Error()))
+		errorMessage := fmt.Sprintf("%s: %s", message, err.Error())
+		fmt.Println(errorMessage)
+		l.writeToLog(errorMessage)
+		l.sendLogMessage(errorMessage)
 	}
 	return err
 }
@@ -95,8 +131,10 @@ func (l *driveLoggerImpl) ErrorWithNotify(err error, format string, args ...inte
 
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		fmt.Printf("%s: %s\n", message, err.Error())
-		l.sendLogMessage(fmt.Sprintf("%s: %s", message, err.Error()))
+		errorMessage := fmt.Sprintf("%s: %s", message, err.Error())
+		fmt.Println(errorMessage)
+		l.writeToLog(errorMessage)
+		l.sendLogMessage(errorMessage)
 		wailsRuntime.EventsEmit(l.ctx, "drive:error", err.Error())
 	}
 	return err

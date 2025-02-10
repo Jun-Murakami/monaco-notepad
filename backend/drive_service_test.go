@@ -285,7 +285,7 @@ func setupTest(t *testing.T) *testHelper {
 		appDataDir:  tempDir,
 		notesDir:    notesDir,
 		noteService: noteService,
-		logger:      NewDriveLogger(ctx, true),
+		logger:      NewDriveLogger(ctx, true, tempDir),
 		isTestMode:  true,
 		driveOps:    driveOps,
 	}

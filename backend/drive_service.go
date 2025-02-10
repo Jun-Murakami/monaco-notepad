@@ -46,22 +46,22 @@ type driveService struct {
 	operationsQueue *DriveOperationsQueue
 }
 
-// NewDriveService は新しいdriveServiceインスタンスを作成します
+// NewDriveService は新しいDriveServiceインスタンスを作成します
 func NewDriveService(
 	ctx context.Context,
 	appDataDir string,
 	notesDir string,
 	noteService *noteService,
-	credentials []byte,
-) DriveService {
+	credentialsJSON []byte,
+) *driveService {
+	logger := NewDriveLogger(ctx, false, appDataDir)
 	isTestMode := false
-	logger := NewDriveLogger(ctx, isTestMode)
 	authService := NewDriveAuthService(
 		ctx,
 		appDataDir,
 		notesDir,
 		noteService,
-		credentials,
+		credentialsJSON,
 		isTestMode,
 	)
 
