@@ -42,9 +42,11 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,7 +70,7 @@ type mockDriveService struct {
 	noteService     *noteService
 	driveSync       DriveSyncService
 	driveOps        DriveOperations
-	logger          DriveLogger
+	logger          AppLogger
 	isTestMode      bool
 	operationsQueue *DriveOperationsQueue
 }
@@ -93,7 +95,35 @@ func (m *mockDriveService) CreateNote(note *Note) error {
 	if !m.isTestMode {
 		return nil
 	}
-	return m.driveSync.CreateNote(m.ctx, note)
+
+	// ノートのJSONデータを作成
+	noteData, err := json.Marshal(note)
+	if err != nil {
+		return fmt.Errorf("failed to marshal note: %v", err)
+	}
+
+	// DriveOperationsを使用してファイルを作成
+	_, err = m.driveOps.CreateFile(
+		note.ID+".json",
+		noteData,
+		"test-folder",
+		"application/json",
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %v", err)
+	}
+
+	// クラウドノートリストを更新
+	syncImpl, ok := m.driveSync.(*driveSyncServiceImpl)
+	if ok && syncImpl.cloudNoteList != nil {
+		syncImpl.cloudNoteList.Notes = append(syncImpl.cloudNoteList.Notes, NoteMetadata{
+			ID:           note.ID,
+			Title:        note.Title,
+			ModifiedTime: note.ModifiedTime,
+		})
+	}
+
+	return nil
 }
 
 func (m *mockDriveService) UpdateNote(note *Note) error {
@@ -184,8 +214,11 @@ type mockDriveOperations struct {
 
 func newMockDriveOperations() *mockDriveOperations {
 	return &mockDriveOperations{
-		service: &drive.Service{},
-		files:   make(map[string][]byte),
+		service: &drive.Service{
+			BasePath:  "https://www.googleapis.com/drive/v3/",
+			UserAgent: "mock-user-agent",
+		},
+		files: make(map[string][]byte),
 	}
 }
 
@@ -194,39 +227,53 @@ func (m *mockDriveOperations) GetService() *drive.Service {
 }
 
 func (m *mockDriveOperations) CreateFile(name string, content []byte, rootFolderID string, mimeType string) (string, error) {
-	fileID := "test-file-id-" + name
+	// テスト用のファイルIDを生成
+	fileID := fmt.Sprintf("test-file-%s", name)
+	// コンテンツをメモリに保存
 	m.files[fileID] = content
 	return fileID, nil
 }
 
 func (m *mockDriveOperations) UpdateFile(fileID string, content []byte) error {
+	if _, exists := m.files[fileID]; !exists {
+		return fmt.Errorf("file not found: %s", fileID)
+	}
 	m.files[fileID] = content
 	return nil
 }
 
 func (m *mockDriveOperations) DeleteFile(fileID string) error {
+	if _, exists := m.files[fileID]; !exists {
+		return fmt.Errorf("file not found: %s", fileID)
+	}
 	delete(m.files, fileID)
 	return nil
 }
 
 func (m *mockDriveOperations) GetFile(fileID string) (*drive.File, error) {
-	if _, ok := m.files[fileID]; !ok {
-		return nil, fmt.Errorf("file not found")
+	if _, exists := m.files[fileID]; !exists {
+		return nil, fmt.Errorf("file not found: %s", fileID)
 	}
-	return &drive.File{Id: fileID}, nil
+	return &drive.File{
+		Id:   fileID,
+		Name: fmt.Sprintf("test-file-%s", fileID),
+	}, nil
 }
 
 func (m *mockDriveOperations) DownloadFile(fileID string) ([]byte, error) {
-	if content, ok := m.files[fileID]; ok {
+	if content, exists := m.files[fileID]; exists {
 		return content, nil
 	}
-	return nil, fmt.Errorf("file not found")
+	return nil, fmt.Errorf("file not found: %s", fileID)
 }
 
 func (m *mockDriveOperations) ListFiles(query string) ([]*drive.File, error) {
-	files := make([]*drive.File, 0)
+	files := make([]*drive.File, 0, len(m.files))
 	for fileID := range m.files {
-		files = append(files, &drive.File{Id: fileID})
+		files = append(files, &drive.File{
+			Id:   fileID,
+			Name: fmt.Sprintf("test-file-%s", fileID),
+		})
 	}
 	return files, nil
 }
@@ -236,11 +283,20 @@ func (m *mockDriveOperations) CreateFolder(name string, parentID string) (string
 }
 
 func (m *mockDriveOperations) GetFileID(fileName string, noteFolderID string, rootFolderID string) (string, error) {
-	fileID := "test-file-id-" + fileName
-	if _, ok := m.files[fileID]; !ok {
-		return "", fmt.Errorf("file not found")
+	// テスト用のファイルIDを生成
+	fileID := fmt.Sprintf("test-file-%s", fileName)
+
+	// ファイルが存在するか確認
+	if _, exists := m.files[fileID]; exists {
+		return fileID, nil
 	}
-	return fileID, nil
+
+	// ファイル名からIDを生成（新規作成の場合）
+	if strings.HasSuffix(fileName, ".json") {
+		return fileID, nil
+	}
+
+	return "", fmt.Errorf("file not found: %s", fileName)
 }
 
 func (m *mockDriveOperations) FindLatestFile(files []*drive.File) *drive.File {
@@ -285,7 +341,7 @@ func setupTest(t *testing.T) *testHelper {
 		appDataDir:  tempDir,
 		notesDir:    notesDir,
 		noteService: noteService,
-		logger:      NewDriveLogger(ctx, true, tempDir),
+		logger:      NewAppLogger(ctx, true, tempDir),
 		isTestMode:  true,
 		driveOps:    driveOps,
 	}
@@ -418,18 +474,33 @@ func TestConflictResolution(t *testing.T) {
 		ModifiedTime: time.Now(),
 	}
 
-	// クラウドノートをDriveSyncに設定
-	ds, ok := helper.driveService.(*mockDriveService)
-	assert.True(t, ok)
+	// DriveServiceのモックを設定
+	mockDriveOps := newMockDriveOperations()
+	ds := &mockDriveService{
+		ctx:         context.Background(),
+		appDataDir:  helper.tempDir,
+		notesDir:    helper.notesDir,
+		noteService: helper.noteService,
+		logger:      NewAppLogger(context.Background(), true, helper.tempDir),
+		isTestMode:  true,
+		driveOps:    mockDriveOps,
+	}
 
-	syncImpl, ok := ds.driveSync.(*driveSyncServiceImpl)
-	assert.True(t, ok)
+	// クラウドノートをDriveOperationsに保存
+	noteData, err := json.Marshal(cloudNote)
+	assert.NoError(t, err)
+	_, err = mockDriveOps.CreateFile(cloudNote.ID+".json", noteData, "test-folder", "application/json")
+	assert.NoError(t, err)
 
-	// オンライン状態に設定
-	syncImpl.SetConnected(true)
-	syncImpl.SetInitialSyncCompleted(true)
+	// DriveSyncServiceを設定
+	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root")
+	ds.driveSync = syncService
 
 	// クラウドノートリストを設定
+	syncImpl, ok := syncService.(*driveSyncServiceImpl)
+	assert.True(t, ok)
+	syncImpl.SetConnected(true)
+	syncImpl.SetInitialSyncCompleted(true)
 	syncImpl.SetCloudNoteList(&NoteList{
 		Version: "1.0",
 		Notes: []NoteMetadata{
@@ -441,18 +512,15 @@ func TestConflictResolution(t *testing.T) {
 		},
 	})
 
-	// クラウドノートを保存
-	err = ds.driveSync.CreateNote(ds.ctx, cloudNote)
-	assert.NoError(t, err)
-
 	// 同期を実行
-	err = helper.driveService.SyncNotes()
+	err = ds.SyncNotes()
 	assert.NoError(t, err)
 
 	// クラウドバージョンが優先されることを確認
 	syncedNote, err := helper.noteService.LoadNote(localNote.ID)
 	assert.NoError(t, err)
 	assert.Equal(t, cloudNote.Title, syncedNote.Title)
+	assert.Equal(t, cloudNote.Content, syncedNote.Content)
 }
 
 // TestErrorHandling はエラー処理をテストします
@@ -499,18 +567,19 @@ func TestPeriodicSync(t *testing.T) {
 	err := helper.noteService.SaveNote(localNote)
 	assert.NoError(t, err)
 
+	// DriveServiceのモックを設定
+	mockDriveOps := newMockDriveOperations()
+	ds := &mockDriveService{
+		ctx:         context.Background(),
+		appDataDir:  helper.tempDir,
+		notesDir:    helper.notesDir,
+		noteService: helper.noteService,
+		logger:      NewAppLogger(context.Background(), true, helper.tempDir),
+		isTestMode:  true,
+		driveOps:    mockDriveOps,
+	}
+
 	// クラウドの変更をシミュレート
-	ds, ok := helper.driveService.(*mockDriveService)
-	assert.True(t, ok)
-
-	syncImpl, ok := ds.driveSync.(*driveSyncServiceImpl)
-	assert.True(t, ok)
-
-	// オンライン状態に設定
-	syncImpl.SetConnected(true)
-	syncImpl.SetInitialSyncCompleted(true)
-
-	// クラウドノートリストを設定
 	cloudNote := &Note{
 		ID:           localNote.ID,
 		Title:        "更新されたタイトル",
@@ -519,10 +588,21 @@ func TestPeriodicSync(t *testing.T) {
 		ModifiedTime: time.Now(),
 	}
 
-	// クラウドノートを保存
-	err = ds.driveSync.CreateNote(ds.ctx, cloudNote)
+	// クラウドノートをDriveOperationsに保存
+	noteData, err := json.Marshal(cloudNote)
+	assert.NoError(t, err)
+	_, err = mockDriveOps.CreateFile(cloudNote.ID+".json", noteData, "test-folder", "application/json")
 	assert.NoError(t, err)
 
+	// DriveSyncServiceを設定
+	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root")
+	ds.driveSync = syncService
+
+	// クラウドノートリストを設定
+	syncImpl, ok := syncService.(*driveSyncServiceImpl)
+	assert.True(t, ok)
+	syncImpl.SetConnected(true)
+	syncImpl.SetInitialSyncCompleted(true)
 	syncImpl.SetCloudNoteList(&NoteList{
 		Version: "1.0",
 		Notes: []NoteMetadata{
@@ -535,13 +615,14 @@ func TestPeriodicSync(t *testing.T) {
 	})
 
 	// 同期を実行
-	err = helper.driveService.SyncNotes()
+	err = ds.SyncNotes()
 	assert.NoError(t, err)
 
 	// クラウドの変更が反映されることを確認
 	updatedNote, err := helper.noteService.LoadNote(localNote.ID)
 	assert.NoError(t, err)
 	assert.Equal(t, "更新されたタイトル", updatedNote.Title)
+	assert.Equal(t, "更新された内容", updatedNote.Content)
 }
 
 // TestNoteOrderSync はノートの順序変更をテストします
@@ -591,59 +672,66 @@ func TestNoteOrderConflict(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
 
+	// DriveServiceのモックを設定
+	mockDriveOps := newMockDriveOperations()
+	ds := &mockDriveService{
+		ctx:         context.Background(),
+		appDataDir:  helper.tempDir,
+		notesDir:    helper.notesDir,
+		noteService: helper.noteService,
+		logger:      NewAppLogger(context.Background(), true, helper.tempDir),
+		isTestMode:  true,
+		driveOps:    mockDriveOps,
+	}
+
+	// DriveSyncServiceを設定
+	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root")
+	ds.driveSync = syncService
+
 	// 複数のノートを作成
 	notes := []*Note{
-		{ID: "note1", Title: "ノート1", Order: 0},
-		{ID: "note2", Title: "ノート2", Order: 1},
-		{ID: "note3", Title: "ノート3", Order: 2},
+		{ID: "note1", Title: "ノート1", Order: 0, ModifiedTime: time.Now().Add(-time.Hour)},
+		{ID: "note2", Title: "ノート2", Order: 1, ModifiedTime: time.Now().Add(-time.Hour)},
+		{ID: "note3", Title: "ノート3", Order: 2, ModifiedTime: time.Now().Add(-time.Hour)},
 	}
 
 	// ノートを保存
 	for _, note := range notes {
 		err := helper.noteService.SaveNote(note)
 		assert.NoError(t, err)
-	}
 
-	// クラウドの異なる順序をシミュレート
-	ds, ok := helper.driveService.(*mockDriveService)
-	assert.True(t, ok)
-
-	syncImpl, ok := ds.driveSync.(*driveSyncServiceImpl)
-	assert.True(t, ok)
-
-	// オンライン状態に設定
-	syncImpl.SetConnected(true)
-	syncImpl.SetInitialSyncCompleted(true)
-
-	// クラウドノートリストを設定
-	cloudNotes := []*Note{
-		{ID: "note2", Title: "ノート2", Order: 0},
-		{ID: "note1", Title: "ノート1", Order: 1},
-		{ID: "note3", Title: "ノート3", Order: 2},
-	}
-
-	// クラウドノートを保存
-	for _, note := range cloudNotes {
-		err := ds.driveSync.CreateNote(ds.ctx, note)
+		// クラウドにも保存
+		noteData, err := json.Marshal(note)
+		assert.NoError(t, err)
+		_, err = mockDriveOps.CreateFile(note.ID+".json", noteData, "test-folder", "application/json")
 		assert.NoError(t, err)
 	}
 
+	// クラウドの異なる順序をシミュレート
+	cloudNotes := []NoteMetadata{
+		{ID: "note2", Title: "ノート2", Order: 0, ModifiedTime: time.Now()},
+		{ID: "note1", Title: "ノート1", Order: 1, ModifiedTime: time.Now()},
+		{ID: "note3", Title: "ノート3", Order: 2, ModifiedTime: time.Now()},
+	}
+
+	// クラウドノートリストを設定
+	syncImpl, ok := syncService.(*driveSyncServiceImpl)
+	assert.True(t, ok)
+	syncImpl.SetConnected(true)
+	syncImpl.SetInitialSyncCompleted(true)
 	syncImpl.SetCloudNoteList(&NoteList{
 		Version: "1.0",
-		Notes: []NoteMetadata{
-			{ID: "note2", Title: "ノート2", Order: 0},
-			{ID: "note1", Title: "ノート1", Order: 1},
-			{ID: "note3", Title: "ノート3", Order: 2},
-		},
+		Notes:   cloudNotes,
 	})
 
 	// 同期を実行
-	err := helper.driveService.SyncNotes()
+	err := ds.SyncNotes()
 	assert.NoError(t, err)
 
 	// クラウドの順序が反映されることを確認
 	updatedNotes, err := helper.noteService.ListNotes()
 	assert.NoError(t, err)
+	assert.Equal(t, 3, len(updatedNotes))
 	assert.Equal(t, "note2", updatedNotes[0].ID)
 	assert.Equal(t, "note1", updatedNotes[1].ID)
 	assert.Equal(t, "note3", updatedNotes[2].ID)

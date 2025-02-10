@@ -31,6 +31,7 @@
 //    - 外部ファイルの読み込み
 //
 // ファイル構成：
+// - app_logger.go: ログ出力とフロントエンド通知を担当
 // - domain.go: データモデルの定義
 // - app.go: メインアプリケーションロジック
 // - note_service.go: ノート操作の実装
@@ -113,16 +114,19 @@ func (a *App) Startup(ctx context.Context) {
 	// ディレクトリの作成
 	os.MkdirAll(a.notesDir, 0755)
 
+	// AppLoggerの初期化
+	a.logger = NewAppLogger(ctx, false, a.appDataDir)
+
 	// FileServiceの初期化
 	a.fileService = NewFileService(a.ctx)
 
 	// SettingsServiceの初期化
 	a.settingsService = NewSettingsService(a.appDataDir)
 
-	// NoteServiceの初期化
+	// NoteServiceの初期化 (NoteList読み込みを含む)
 	noteService, err := NewNoteService(a.notesDir)
 	if err != nil {
-		fmt.Printf("Error initializing note service: %v\n", err)
+		a.logger.Error(err, "Error initializing note service")
 		return
 	}
 	a.noteService = noteService
@@ -130,7 +134,18 @@ func (a *App) Startup(ctx context.Context) {
 
 // フロントエンドにDOMが読み込まれたときに呼び出される関数 ------------------------------------------------------------
 func (a *App) DomReady(ctx context.Context) {
-	fmt.Println("DomReady called")
+	a.logger.Console("DomReady called")
+
+	// AuthServiceの初期化
+	authService := NewAuthService(
+		ctx,
+		a.appDataDir,
+		a.notesDir,
+		a.noteService,
+		credentialsJSON,
+		a.logger,
+		false,
+	)
 
 	// DriveServiceの初期化
 	driveService := NewDriveService(
@@ -139,10 +154,12 @@ func (a *App) DomReady(ctx context.Context) {
 		a.notesDir,
 		a.noteService,
 		credentialsJSON,
+		a.logger,
+		authService,
 	)
 	// Google Driveの初期化。保存済みトークンがあればポーリング開始
 	if err := driveService.InitializeDrive(); err != nil {
-		fmt.Printf("Error initializing drive service: %v\n", err)
+		a.logger.Error(err, "Error initializing drive service")
 	}
 	a.driveService = driveService
 
@@ -169,7 +186,7 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 
 // アプリケーションを強制終了する ------------------------------------------------------------
 func (a *App) DestroyApp() {
-	fmt.Println("DestroyApp")
+	a.logger.Console("DestroyApp called")
 	// BeforeCloseイベントをスキップしてアプリケーションを終了
 	a.ctx.SkipBeforeClose(true)
 	wailsRuntime.Quit(a.ctx.ctx)
@@ -177,11 +194,11 @@ func (a *App) DestroyApp() {
 
 // フロントエンドの準備完了を通知する ------------------------------------------------------------
 func (a *App) NotifyFrontendReady() {
-	fmt.Println("App.NotifyFrontendReady called") // デバッグログ
+	a.logger.Console("App.NotifyFrontendReady called") // デバッグログ
 	if a.driveService != nil {
 		a.driveService.NotifyFrontendReady()
 	} else {
-		fmt.Println("Warning: driveService is nil") // デバッグログ
+		a.logger.Console("Warning: driveService is nil") // デバッグログ
 	}
 }
 
@@ -216,46 +233,32 @@ func (a *App) SaveNote(note *Note, action string) error {
 		noteCopy := *note
 		go func() {
 			// テストモード時はイベント通知をスキップ
-			if !a.driveService.IsTestMode() {
-				// 同期開始を通知
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
-			}
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
 
 			// ノートをアップロード
 			if action == "create" {
 				if err := a.driveService.CreateNote(&noteCopy); err != nil {
-					fmt.Printf("Error uploading note to Drive: %v\n", err)
-					if !a.driveService.IsTestMode() {
-						wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
-					}
+					a.logger.Error(err, fmt.Sprintf("Error uploading note to Drive: %v", err))
+
 					return
 				}
 			} else {
 				if err := a.driveService.UpdateNote(&noteCopy); err != nil {
-					fmt.Printf("Error uploading note to Drive: %v\n", err)
-					if !a.driveService.IsTestMode() {
-						wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
-					}
+					a.logger.Error(err, fmt.Sprintf("Error uploading note to Drive: %v", err))
 					return
 				}
 			}
 
 			// ノートリストをアップロード
 			if err := a.driveService.UpdateNoteList(); err != nil {
-				fmt.Printf("Error uploading note list to Drive: %v\n", err)
-				if !a.driveService.IsTestMode() {
-					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
-				}
+				a.logger.Error(err, fmt.Sprintf("Error uploading note list to Drive: %v", err))
 				return
 			}
 
 			// 同期完了を通知
-			if !a.driveService.IsTestMode() {
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
-			}
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 		}()
 	}
-
 	return nil
 }
 

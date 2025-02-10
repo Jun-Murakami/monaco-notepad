@@ -10,8 +10,8 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// DriveLogger はログ出力とフロントエンド通知を担当するインターフェース
-type DriveLogger interface {
+// AppLogger はログ出力とフロントエンド通知を担当するインターフェース
+type AppLogger interface {
 	NotifyDriveStatus(ctx context.Context, status string)                // ドライブステータスの通知
 	NotifyFrontendSyncedAndReload(ctx context.Context)                   // フロントエンドの変更通知
 	Console(format string, args ...interface{})                          // コンソール出力
@@ -21,16 +21,16 @@ type DriveLogger interface {
 	IsTestMode() bool
 }
 
-// driveLoggerImpl はDriveLoggerの実装
-type driveLoggerImpl struct {
+// appLoggerImpl はAppLoggerの実装
+type appLoggerImpl struct {
 	ctx        context.Context
 	isTestMode bool
 	logFile    *os.File
 	logDir     string
 }
 
-// NewDriveLogger は新しいDriveLoggerインスタンスを作成
-func NewDriveLogger(ctx context.Context, isTestMode bool, appDataDir string) DriveLogger {
+// NewAppLogger は新しいAppLoggerインスタンスを作成
+func NewAppLogger(ctx context.Context, isTestMode bool, appDataDir string) AppLogger {
 	logDir := filepath.Join(appDataDir, "logs")
 	os.MkdirAll(logDir, 0755)
 
@@ -38,14 +38,14 @@ func NewDriveLogger(ctx context.Context, isTestMode bool, appDataDir string) Dri
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Printf("Error opening log file: %v\n", err)
-		return &driveLoggerImpl{
+		return &appLoggerImpl{
 			ctx:        ctx,
 			isTestMode: isTestMode,
 			logDir:     logDir,
 		}
 	}
 
-	return &driveLoggerImpl{
+	return &appLoggerImpl{
 		ctx:        ctx,
 		isTestMode: isTestMode,
 		logFile:    logFile,
@@ -54,7 +54,7 @@ func NewDriveLogger(ctx context.Context, isTestMode bool, appDataDir string) Dri
 }
 
 // writeToLog はログファイルに書き込みを行う
-func (l *driveLoggerImpl) writeToLog(message string) {
+func (l *appLoggerImpl) writeToLog(message string) {
 	if l.logFile != nil {
 		timestamp := time.Now().Format("2006-01-02 15:04:05")
 		logMessage := fmt.Sprintf("[%s] %s\n", timestamp, message)
@@ -69,14 +69,14 @@ func (l *driveLoggerImpl) writeToLog(message string) {
 // ----------------------------------------------------------------
 
 // ドライブの状態をフロントエンドに通知
-func (l *driveLoggerImpl) NotifyDriveStatus(ctx context.Context, status string) {
+func (l *appLoggerImpl) NotifyDriveStatus(ctx context.Context, status string) {
 	if !l.isTestMode {
 		wailsRuntime.EventsEmit(l.ctx, "drive:status", status)
 	}
 }
 
-// フロントエンドに変更を通知
-func (l *driveLoggerImpl) NotifyFrontendSyncedAndReload(ctx context.Context) {
+// フロントエンドに同期完了を通知してリロード
+func (l *appLoggerImpl) NotifyFrontendSyncedAndReload(ctx context.Context) {
 	if !l.isTestMode {
 		wailsRuntime.EventsEmit(l.ctx, "notes:updated")
 		wailsRuntime.EventsEmit(l.ctx, "drive:status", "synced")
@@ -89,7 +89,7 @@ func (l *driveLoggerImpl) NotifyFrontendSyncedAndReload(ctx context.Context) {
 // ----------------------------------------------------------------
 
 // ログメッセージをコンソールのみに出力
-func (l *driveLoggerImpl) Console(format string, args ...interface{}) {
+func (l *appLoggerImpl) Console(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
 		fmt.Println(message)
@@ -98,7 +98,7 @@ func (l *driveLoggerImpl) Console(format string, args ...interface{}) {
 }
 
 // 情報メッセージをコンソールとフロントエンドに出力
-func (l *driveLoggerImpl) Info(format string, args ...interface{}) {
+func (l *appLoggerImpl) Info(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
 		fmt.Println(message)
@@ -108,7 +108,7 @@ func (l *driveLoggerImpl) Info(format string, args ...interface{}) {
 }
 
 // エラーメッセージをコンソールとフロントエンドに出力し、エラーを返す
-func (l *driveLoggerImpl) Error(err error, format string, args ...interface{}) error {
+func (l *appLoggerImpl) Error(err error, format string, args ...interface{}) error {
 	if err == nil {
 		return nil
 	}
@@ -124,7 +124,7 @@ func (l *driveLoggerImpl) Error(err error, format string, args ...interface{}) e
 }
 
 // ErrorWithNotify はエラーメッセージをコンソールとフロントエンドに出力し、さらにフロントエンドにエラー通知を送信
-func (l *driveLoggerImpl) ErrorWithNotify(err error, format string, args ...interface{}) error {
+func (l *appLoggerImpl) ErrorWithNotify(err error, format string, args ...interface{}) error {
 	if err == nil {
 		return nil
 	}
@@ -141,12 +141,12 @@ func (l *driveLoggerImpl) ErrorWithNotify(err error, format string, args ...inte
 }
 
 // ログメッセージをフロントエンドのステータスバーに通知
-func (l *driveLoggerImpl) sendLogMessage(message string) {
+func (l *appLoggerImpl) sendLogMessage(message string) {
 	if !l.isTestMode {
 		wailsRuntime.EventsEmit(l.ctx, "logMessage", message)
 	}
 }
 
-func (l *driveLoggerImpl) IsTestMode() bool {
+func (l *appLoggerImpl) IsTestMode() bool {
 	return l.isTestMode
 }

@@ -11,7 +11,7 @@ type DrivePollingService struct {
 	driveService     *driveService
 	resetPollingChan chan struct{}
 	stopPollingChan  chan struct{}
-	logger           DriveLogger
+	logger           AppLogger
 }
 
 // NewDrivePollingService は新しいDrivePollingServiceインスタンスを作成

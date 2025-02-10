@@ -72,6 +72,9 @@ func setupAppTest(t *testing.T) *appTestHelper {
 	}
 	app.noteService = noteService
 
+	// AppLoggerの初期化を追加
+	app.logger = NewAppLogger(context.Background(), true, app.appDataDir) // テストモードはtrue
+
 	// テスト用の認証情報
 	credentials := []byte(`{
 		"installed": {
@@ -82,12 +85,13 @@ func setupAppTest(t *testing.T) *appTestHelper {
 	}`)
 
 	// DriveAuthServiceの初期化
-	authService := NewDriveAuthService(
+	authService := NewAuthService(
 		context.Background(),
 		app.appDataDir,
 		app.notesDir,
 		noteService,
 		credentials,
+		app.logger,
 		true, // テストモード
 	)
 
@@ -119,6 +123,16 @@ func setupAppTest(t *testing.T) *appTestHelper {
 		app.notesDir,
 		noteService,
 		credentials,
+		app.logger,
+		authService,
+	)
+
+	// DriveOpsの初期化を追加
+	driveService.driveOps = NewDriveOperations(authService.driveSync.service)
+	driveService.driveSync = NewDriveSyncService(
+		driveService.driveOps,
+		"test-folder", // notesFolderID
+		"test-root",   // rootFolderID
 	)
 
 	app.driveService = driveService
@@ -164,6 +178,23 @@ func TestSaveNoteWithSync(t *testing.T) {
 		ModifiedTime: time.Now(),
 	}
 
+	// DriveServiceのモックを設定
+	mockDriveOps := newMockDriveOperations()
+	helper.app.driveService = &mockDriveService{
+		ctx:         helper.app.ctx.ctx,
+		appDataDir:  helper.app.appDataDir,
+		notesDir:    helper.app.notesDir,
+		noteService: helper.app.noteService,
+		logger:      helper.app.logger,
+		isTestMode:  true,
+		driveOps:    mockDriveOps,
+		driveSync: NewDriveSyncService(
+			mockDriveOps,
+			"test-folder",
+			"test-root",
+		),
+	}
+
 	// ノートを保存（同期処理も実行される）
 	err := helper.app.SaveNote(note, "create")
 	assert.NoError(t, err)
@@ -189,6 +220,23 @@ func TestDeleteNoteWithSync(t *testing.T) {
 		ModifiedTime: time.Now(),
 	}
 
+	// DriveServiceのモックを設定
+	mockDriveOps := newMockDriveOperations()
+	helper.app.driveService = &mockDriveService{
+		ctx:         helper.app.ctx.ctx,
+		appDataDir:  helper.app.appDataDir,
+		notesDir:    helper.app.notesDir,
+		noteService: helper.app.noteService,
+		logger:      helper.app.logger,
+		isTestMode:  true,
+		driveOps:    mockDriveOps,
+		driveSync: NewDriveSyncService(
+			mockDriveOps,
+			"test-folder",
+			"test-root",
+		),
+	}
+
 	// まずノートを保存
 	err := helper.app.SaveNote(note, "create")
 	assert.NoError(t, err)
@@ -211,6 +259,23 @@ func TestDeleteNoteWithSync(t *testing.T) {
 func TestSaveNoteListWithSync(t *testing.T) {
 	helper := setupAppTest(t)
 	defer helper.cleanup()
+
+	// DriveServiceのモックを設定
+	mockDriveOps := newMockDriveOperations()
+	helper.app.driveService = &mockDriveService{
+		ctx:         helper.app.ctx.ctx,
+		appDataDir:  helper.app.appDataDir,
+		notesDir:    helper.app.notesDir,
+		noteService: helper.app.noteService,
+		logger:      helper.app.logger,
+		isTestMode:  true,
+		driveOps:    mockDriveOps,
+		driveSync: NewDriveSyncService(
+			mockDriveOps,
+			"test-folder",
+			"test-root",
+		),
+	}
 
 	// テスト用のノートを複数作成
 	notes := []*Note{
@@ -262,6 +327,23 @@ func TestSaveNoteListWithSync(t *testing.T) {
 func TestUpdateNoteOrderWithSync(t *testing.T) {
 	helper := setupAppTest(t)
 	defer helper.cleanup()
+
+	// DriveServiceのモックを設定
+	mockDriveOps := newMockDriveOperations()
+	helper.app.driveService = &mockDriveService{
+		ctx:         helper.app.ctx.ctx,
+		appDataDir:  helper.app.appDataDir,
+		notesDir:    helper.app.notesDir,
+		noteService: helper.app.noteService,
+		logger:      helper.app.logger,
+		isTestMode:  true,
+		driveOps:    mockDriveOps,
+		driveSync: NewDriveSyncService(
+			mockDriveOps,
+			"test-folder",
+			"test-root",
+		),
+	}
 
 	// テスト用のノートを複数作成
 	notes := []*Note{

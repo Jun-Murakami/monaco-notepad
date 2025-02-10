@@ -13,15 +13,16 @@ import (
 
 // アプリケーションのメインの構造体
 type App struct {
-	ctx             *Context          // アプリケーションのコンテキスト
-	appDataDir      string            // アプリケーションデータディレクトリのパス
-	notesDir        string            // ノートファイル保存ディレクトリのパス
-	noteService     *noteService      // ノート操作サービス
-	driveService    DriveService      // Google Drive操作サービス (インターフェースで受けるよう変更)
-	authService     *driveAuthService // Google Drive認証サービス
-	settingsService *settingsService  // 設定操作サービス
-	fileService     *fileService      // ファイル操作サービス
-	frontendReady   chan struct{}     // フロントエンドの準備完了を通知するチャネル
+	ctx             *Context         // アプリケーションのコンテキスト
+	appDataDir      string           // アプリケーションデータディレクトリのパス
+	notesDir        string           // ノートファイル保存ディレクトリのパス
+	authService     AuthService      // Google Drive認証サービス
+	noteService     *noteService     // ノート操作サービス
+	driveService    DriveService     // Google Drive操作サービス (インターフェースで受けるよう変更)
+	settingsService *settingsService // 設定操作サービス
+	fileService     *fileService     // ファイル操作サービス
+	frontendReady   chan struct{}    // フロントエンドの準備完了を通知するチャネル
+	logger          AppLogger        // アプリケーションのロガー
 }
 
 // アプリケーションのコンテキストを管理

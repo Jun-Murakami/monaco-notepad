@@ -34,12 +34,12 @@ type DriveService interface {
 // driveService はDriveServiceインターフェースの実装
 type driveService struct {
 	ctx             context.Context
-	auth            *driveAuthService
+	auth            *authService
 	noteService     *noteService
 	appDataDir      string
 	notesDir        string
 	stopPollingChan chan struct{}
-	logger          DriveLogger
+	logger          AppLogger
 	driveOps        DriveOperations
 	driveSync       DriveSyncService
 	pollingService  *DrivePollingService
@@ -53,18 +53,9 @@ func NewDriveService(
 	notesDir string,
 	noteService *noteService,
 	credentialsJSON []byte,
+	logger AppLogger,
+	authService *authService,
 ) *driveService {
-	logger := NewDriveLogger(ctx, false, appDataDir)
-	isTestMode := false
-	authService := NewDriveAuthService(
-		ctx,
-		appDataDir,
-		notesDir,
-		noteService,
-		credentialsJSON,
-		isTestMode,
-	)
-
 	ds := &driveService{
 		ctx:             ctx,
 		auth:            authService,
@@ -855,6 +846,6 @@ func (s *driveService) GetDriveOperationsQueue() *DriveOperationsQueue {
 // ------------------------------------------------------------
 
 // driveService型にauthServiceを設定するメソッドを追加 (テスト用)
-func (ds *driveService) SetAuthService(auth *driveAuthService) {
+func (ds *driveService) SetAuthService(auth *authService) {
 	ds.auth = auth
 }
