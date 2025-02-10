@@ -128,7 +128,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 	)
 
 	// DriveOpsの初期化を追加
-	driveService.driveOps = NewDriveOperations(authService.driveSync.service)
+	driveService.driveOps = NewDriveOperations(authService.driveSync.service, app.logger)
 	driveService.driveSync = NewDriveSyncService(
 		driveService.driveOps,
 		"test-folder", // notesFolderID

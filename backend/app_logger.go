@@ -34,7 +34,7 @@ func NewAppLogger(ctx context.Context, isTestMode bool, appDataDir string) AppLo
 	logDir := filepath.Join(appDataDir, "logs")
 	os.MkdirAll(logDir, 0755)
 
-	logPath := filepath.Join(logDir, fmt.Sprintf("app_%s.log", time.Now().Format("2006-01-02")))
+	logPath := filepath.Join(logDir, fmt.Sprintf("app_%s.log", time.Now().Format("2006-01-02_15-04-05")))
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Printf("Error opening log file: %v\n", err)

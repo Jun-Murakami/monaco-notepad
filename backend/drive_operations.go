@@ -10,16 +10,6 @@ import (
 	"google.golang.org/api/drive/v3"
 )
 
-// ログ出力用のヘルパー関数
-func logGAPI(message string, args ...interface{}) {
-	timestamp := time.Now().Format("2006/01/02 15:04:05")
-	if len(args) > 0 {
-		fmt.Printf("%s GAPI: %s %v\n", timestamp, message, args)
-	} else {
-		fmt.Printf("%s GAPI: %s\n", timestamp, message)
-	}
-}
-
 // DriveOperations はGoogle Driveの低レベル操作を提供するインターフェース
 type DriveOperations interface {
 	// ファイル操作 (Driveネイティブ)
@@ -43,12 +33,14 @@ type DriveOperations interface {
 // DriveOperationsの実装
 type driveOperationsImpl struct {
 	service *drive.Service
+	logger  AppLogger
 }
 
 // DriveOperationsインスタンスを作成
-func NewDriveOperations(service *drive.Service) DriveOperations {
+func NewDriveOperations(service *drive.Service, logger AppLogger) DriveOperations {
 	return &driveOperationsImpl{
 		service: service,
+		logger:  logger,
 	}
 }
 
@@ -58,7 +50,7 @@ func NewDriveOperations(service *drive.Service) DriveOperations {
 
 // 新しいファイルを作成 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) CreateFile(name string, content []byte, parentID string, mimeType string) (string, error) {
-	logGAPI("Creating file:", name)
+	d.logger.Console("GAPI: Creating file: ", name)
 	f := &drive.File{
 		Name:     name,
 		Parents:  []string{parentID},
@@ -77,7 +69,7 @@ func (d *driveOperationsImpl) CreateFile(name string, content []byte, parentID s
 
 // ファイルを更新 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) UpdateFile(fileId string, content []byte) error {
-	logGAPI("Updating file:", fileId)
+	d.logger.Console("GAPI: Updating file: ", fileId)
 
 	// ファイルを更新
 	_, err := d.service.Files.Update(fileId, &drive.File{}).
@@ -92,7 +84,7 @@ func (d *driveOperationsImpl) UpdateFile(fileId string, content []byte) error {
 
 // ファイルを削除 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) DeleteFile(fileID string) error {
-	logGAPI("Deleting file:", fileID)
+	d.logger.Console("Deleting file: ", fileID)
 	err := d.service.Files.Delete(fileID).Do()
 	if err != nil {
 		return fmt.Errorf("failed to delete file: %w", err)
@@ -102,7 +94,7 @@ func (d *driveOperationsImpl) DeleteFile(fileID string) error {
 
 // ファイルをダウンロード (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) DownloadFile(fileID string) ([]byte, error) {
-	logGAPI("Downloading file:", fileID)
+	d.logger.Console("GAPI: Downloading file:", fileID)
 	resp, err := d.service.Files.Get(fileID).Download()
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file: %w", err)
@@ -120,7 +112,7 @@ func (d *driveOperationsImpl) DownloadFile(fileID string) ([]byte, error) {
 
 // フォルダを作成 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) CreateFolder(name string, rootFolderID string) (string, error) {
-	logGAPI("Creating folder:", name)
+	d.logger.Console("GAPI: Creating folder: ", name)
 	f := &drive.File{
 		Name:     name,
 		MimeType: "application/vnd.google-apps.folder",
@@ -139,7 +131,7 @@ func (d *driveOperationsImpl) CreateFolder(name string, rootFolderID string) (st
 
 // ファイルを検索 (Driveネイティブ)
 func (d *driveOperationsImpl) ListFiles(query string) ([]*drive.File, error) {
-	logGAPI("Listing files:", query)
+	d.logger.Console("GAPI: Listing files: ", query)
 	files, err := d.service.Files.List().
 		Q(query).
 		Fields("files(id, name, createdTime)").

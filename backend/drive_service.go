@@ -108,7 +108,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 	s.logger.Info("Connected to Google Drive")
 
 	// DriveOps生成
-	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service)
+	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service, s.logger)
 
 	// キューシステムの初期化
 	s.operationsQueue = NewDriveOperationsQueue(s.driveOps)

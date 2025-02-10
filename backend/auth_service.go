@@ -260,7 +260,6 @@ func (a *authService) HandleOfflineTransition(err error) error {
 func (a *authService) handleFullOfflineTransition(err error) {
 	// エラーメッセージをログに記録
 	errMsg := fmt.Sprintf("Drive error: %v", err)
-	a.logger.Info(errMsg)
 
 	// トークンファイルを削除
 	tokenFile := filepath.Join(a.appDataDir, "token.json")
@@ -280,10 +279,10 @@ func (a *authService) handleFullOfflineTransition(err error) {
 	a.driveSync.isConnected = false
 
 	// フロントエンドに通知
-	if !a.isTestMode {
-		wailsRuntime.EventsEmit(a.ctx, "drive:error", errMsg)
-		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
+	if err != nil || errMsg != "" {
+		a.logger.Error(err, errMsg)
 	}
+	a.logger.NotifyDriveStatus(a.ctx, "offline")
 }
 
 // initializeDriveService はDriveサービスを初期化します

@@ -238,20 +238,19 @@ func (a *App) SaveNote(note *Note, action string) error {
 			// ノートをアップロード
 			if action == "create" {
 				if err := a.driveService.CreateNote(&noteCopy); err != nil {
-					a.logger.Error(err, fmt.Sprintf("Error uploading note to Drive: %v", err))
-
+					a.authService.HandleOfflineTransition(fmt.Errorf("error creating note to Drive: %v", err))
 					return
 				}
 			} else {
 				if err := a.driveService.UpdateNote(&noteCopy); err != nil {
-					a.logger.Error(err, fmt.Sprintf("Error uploading note to Drive: %v", err))
+					a.authService.HandleOfflineTransition(fmt.Errorf("error updating note to Drive: %v", err))
 					return
 				}
 			}
 
 			// ノートリストをアップロード
 			if err := a.driveService.UpdateNoteList(); err != nil {
-				a.logger.Error(err, fmt.Sprintf("Error uploading note list to Drive: %v", err))
+				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
 				return
 			}
 
@@ -275,16 +274,11 @@ func (a *App) SaveNoteList() error {
 
 	// ドライブサービスが初期化されており、接続中の場合はアップロード
 	if a.driveService != nil && a.driveService.IsConnected() {
-		if !a.driveService.IsTestMode() {
-			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
-		}
+		a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
 		if err := a.driveService.UpdateNoteList(); err != nil {
-			fmt.Printf("Error uploading note list to Drive: %v\n", err)
-			return err
+			return a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
 		}
-		if !a.driveService.IsTestMode() {
-			wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
-		}
+		a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 	}
 	return nil
 }
@@ -299,31 +293,21 @@ func (a *App) DeleteNote(id string) error {
 	// ドライブサービスが初期化されており、接続中の場合は削除
 	if a.driveService != nil && a.driveService.IsConnected() {
 		go func() {
-			// テストモード時はイベント通知をスキップ
-			if !a.driveService.IsTestMode() {
-				// 同期開始を通知
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "syncing")
-			}
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
 
 			// ノートを削除
 			if err := a.driveService.DeleteNoteDrive(id); err != nil {
-				fmt.Printf("Error deleting note from Drive: %v\n", err)
+				a.authService.HandleOfflineTransition(fmt.Errorf("error deleting note from Drive: %v", err))
+				return
 			}
 
 			// ノートリストをアップロード
 			if err := a.driveService.UpdateNoteList(); err != nil {
-				fmt.Printf("Error uploading note list to Drive: %v\n", err)
-				if !a.driveService.IsTestMode() {
-					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
-				}
+				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
 				return
 			}
 
-			// テストモード時はイベント通知をスキップ
-			if !a.driveService.IsTestMode() {
-				// 削除完了後に同期完了を通知
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
-			}
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 		}()
 	}
 	return nil
@@ -339,7 +323,7 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 	fmt.Println("UpdateNoteOrder called")
 	// まずノートサービスで順序を更新
 	if err := a.noteService.UpdateNoteOrder(noteID, newIndex); err != nil {
-		return err
+		return a.authService.HandleOfflineTransition(fmt.Errorf("error updating note order: %v", err))
 	}
 
 	// ドライブサービスが初期化されており、接続中の場合はアップロード
@@ -347,17 +331,11 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 		go func() {
 			// ノートリストをアップロード
 			if err := a.driveService.UpdateNoteList(); err != nil {
-				fmt.Printf("Error uploading note list to Drive: %v\n", err)
-				if !a.driveService.IsTestMode() {
-					wailsRuntime.EventsEmit(a.ctx.ctx, "drive:error", err.Error())
-				}
+				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
 				return
 			}
 
-			// テストモード時はイベント通知をスキップ
-			if !a.driveService.IsTestMode() {
-				wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "synced")
-			}
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 		}()
 	}
 	return nil
@@ -370,7 +348,7 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 // Google Drive APIの初期化 ------------------------------------------------------------
 func (a *App) InitializeDrive() error {
 	if a.driveService == nil {
-		return fmt.Errorf("DriveService not initialized yet")
+		return a.authService.HandleOfflineTransition(fmt.Errorf("driveService not initialized yet"))
 	}
 	return a.driveService.InitializeDrive()
 }
@@ -378,11 +356,11 @@ func (a *App) InitializeDrive() error {
 // Google Driveの認証フローを開始 ------------------------------------------------------------
 func (a *App) AuthorizeDrive() (string, error) {
 	if a.driveService == nil {
-		return "", fmt.Errorf("DriveService not initialized yet")
+		return "", a.authService.HandleOfflineTransition(fmt.Errorf("driveService not initialized yet"))
 	}
 	err := a.driveService.AuthorizeDrive()
 	if err != nil {
-		return "", err
+		return "", a.authService.HandleOfflineTransition(fmt.Errorf("error authorizing drive: %v", err))
 	}
 	return "", nil
 }
@@ -392,7 +370,7 @@ func (a *App) CancelLoginDrive() error {
 	if a.driveService != nil {
 		return a.driveService.CancelLoginDrive()
 	}
-	return fmt.Errorf("drive service is not initialized")
+	return a.authService.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 }
 
 // Google Driveからログアウト ------------------------------------------------------------
@@ -405,7 +383,7 @@ func (a *App) SyncNow() error {
 	if a.driveService != nil && a.driveService.IsConnected() {
 		return a.driveService.SyncNotes()
 	}
-	return fmt.Errorf("drive service is not initialized or not connected")
+	return a.authService.HandleOfflineTransition(fmt.Errorf("drive service is not initialized or not connected"))
 }
 
 // Google Driveとの接続状態をチェック ------------------------------------------------------------
@@ -446,8 +424,7 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 	// ファイルの内容を読み込む
 	content, err := a.fileService.OpenFile(filePath)
 	if err != nil {
-
-		return err
+		return a.logger.Error(err, "error opening file from external")
 	}
 
 	// フロントエンドにファイルオープンイベントを送信
@@ -488,12 +465,12 @@ func (a *App) GetAppVersion() (string, error) {
 	// wails.jsonを読み込む
 	data, err := os.ReadFile("wails.json")
 	if err != nil {
-		return "", fmt.Errorf("failed to read wails.json: %v", err)
+		return "", a.logger.Error(err, "failed to read wails.json")
 	}
 
 	var config WailsConfig
 	if err := json.Unmarshal(data, &config); err != nil {
-		return "", fmt.Errorf("failed to parse wails.json: %v", err)
+		return "", a.logger.Error(err, "failed to parse wails.json")
 	}
 
 	return config.Info.ProductVersion, nil

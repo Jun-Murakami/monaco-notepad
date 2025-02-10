@@ -65,7 +65,7 @@ func NewDriveOperationsQueue(operations DriveOperations) *DriveOperationsQueue {
 
 // キューの処理を開始
 func (q *DriveOperationsQueue) processQueue() {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
