@@ -124,6 +124,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 		s.driveOps,                     // ドライブ操作オブジェクト
 		s.auth.driveSync.notesFolderID, // ノート保存用フォルダID
 		s.auth.driveSync.rootFolderID,  // アプリケーションのルートフォルダID
+		s.logger,
 	)
 
 	// ノートリストの確保
@@ -502,7 +503,7 @@ func (s *driveService) mergeNotes(
 			// ハッシュが異なる場合は更新日時を比較
 			if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
 				mergedNotes = append(mergedNotes, cloudNote)
-				s.logger.Info("Downloading note %s from cloud", id)
+				s.logger.Info("Downloading note %s from cloud because hash is different", id)
 				note, err := s.driveSync.DownloadNote(ctx, id)
 				if err != nil {
 					return nil, nil, fmt.Errorf("failed to download note %s: %w", id, err)
@@ -512,7 +513,7 @@ func (s *driveService) mergeNotes(
 				mergedNotes = append(mergedNotes, localNote)
 				note, err := s.noteService.LoadNote(id)
 				if err == nil {
-					s.logger.Info("Uploading note %s to cloud", id)
+					s.logger.Info("Updateing note %s to cloud because local is newer", id)
 					if upErr := s.driveSync.UpdateNote(ctx, note); upErr != nil {
 						return nil, nil, fmt.Errorf("failed to upload note %s: %w", id, upErr)
 					}
@@ -524,7 +525,7 @@ func (s *driveService) mergeNotes(
 			mergedNotes = append(mergedNotes, localNote)
 			note, err := s.noteService.LoadNote(id)
 			if err == nil {
-				s.logger.Info("Uploading note %s to cloud", id)
+				s.logger.Info("Uploading note %s to cloud because it doesn't exist in cloud", id)
 				if createErr := s.driveSync.CreateNote(ctx, note); createErr != nil {
 					return nil, nil, fmt.Errorf("failed to upload note %s: %w", id, createErr)
 				}
@@ -535,7 +536,7 @@ func (s *driveService) mergeNotes(
 	// クラウドのみ存在するノートはダウンロード
 	for id, cloudNote := range cloudNotesMap {
 		mergedNotes = append(mergedNotes, cloudNote)
-		s.logger.Info("Downloading note %s from cloud", id)
+		s.logger.Info("Downloading note %s from cloud because it doesn't exist in local", id)
 		note, err := s.driveSync.DownloadNote(ctx, id)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to download note %s: %w", id, err)
@@ -583,7 +584,7 @@ func (s *driveService) syncNoteCloudToLocal(ctx context.Context, noteID string, 
 	localNote, err := s.noteService.LoadNote(noteID)
 	if err != nil {
 		// ローカルに存在しなければダウンロード
-		s.logger.Info("Downloading note %s from cloud", noteID)
+		s.logger.Info("Downloading note %s from cloud because it doesn't exist in local", noteID)
 		if note, dlErr := s.driveSync.DownloadNote(ctx, noteID); dlErr != nil {
 			return dlErr
 		} else {
@@ -593,7 +594,7 @@ func (s *driveService) syncNoteCloudToLocal(ctx context.Context, noteID string, 
 	}
 	// クラウドの方が新しい場合は上書きダウンロード
 	if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
-		s.logger.Info("Downloading note %s from cloud (cloud is newer)", noteID)
+		s.logger.Info("Downloading note %s from cloud because it is newer than local", noteID)
 		if note, dlErr := s.driveSync.DownloadNote(ctx, noteID); dlErr != nil {
 			return dlErr
 		} else {

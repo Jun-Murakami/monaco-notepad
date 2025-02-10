@@ -48,6 +48,8 @@ function App() {
 
   const { languages, platform } = useInitialize(setNotes, handleNewNote, handleNoteSelect);
 
+  const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
+
   const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
 
@@ -106,12 +108,12 @@ function App() {
           aria-label='Note List'
           sx={{
             position: 'absolute',
-            top: platform === 'darwin' ? 83 : 57,
+            top: STATUS_BAR_HEIGHT,
             left: 0,
             borderRight: 1,
             borderColor: 'divider',
             width: 242,
-            height: platform === 'darwin' ? 'calc(100% - 83px)' : 'calc(100% - 57px)',
+            height: `calc(100% - ${STATUS_BAR_HEIGHT}px)`,
           }}
         >
           <NoteList
@@ -129,34 +131,32 @@ function App() {
         <Box
           sx={{
             position: 'absolute',
-            top: platform === 'darwin' ? 83 : 57,
+            top: STATUS_BAR_HEIGHT,
             left: 242,
             width: 'calc(100% - 242px)',
-            height: platform === 'darwin' ? 'calc(100% - 83px)' : 'calc(100% - 57px)',
+            height: `calc(100% - ${STATUS_BAR_HEIGHT}px)`,
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-            {showArchived ? (
-              <ArchivedNoteList
-                notes={notes}
-                onUnarchive={handleUnarchiveNote}
-                onDelete={handleDeleteNote}
-                onDeleteAll={handleDeleteAllArchivedNotes}
-                onClose={() => setShowArchived(false)}
-              />
-            ) : (
-              <Editor
-                value={currentNote?.content || ''}
-                onChange={handleContentChange}
-                language={currentNote?.language || 'plaintext'}
-                settings={editorSettings}
-                currentNote={currentNote}
-                onEditorInstance={handleEditorInstance}
-              />
-            )}
-          </Box>
+          {showArchived ? (
+            <ArchivedNoteList
+              notes={notes}
+              onUnarchive={handleUnarchiveNote}
+              onDelete={handleDeleteNote}
+              onDeleteAll={handleDeleteAllArchivedNotes}
+              onClose={() => setShowArchived(false)}
+            />
+          ) : (
+            <Editor
+              value={currentNote?.content || ''}
+              onChange={handleContentChange}
+              language={currentNote?.language || 'plaintext'}
+              settings={editorSettings}
+              currentNote={currentNote}
+              onEditorInstance={handleEditorInstance}
+            />
+          )}
           <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentNote} key={forceUpdate} />
         </Box>
       </Box>

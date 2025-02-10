@@ -335,6 +335,8 @@ func setupTest(t *testing.T) *testHelper {
 	// driveOpsの初期化
 	driveOps := newMockDriveOperations()
 
+	logger := NewAppLogger(ctx, true, tempDir)
+
 	// driveServiceの初期化（テストモード）
 	ds := &mockDriveService{
 		ctx:         ctx,
@@ -351,6 +353,7 @@ func setupTest(t *testing.T) *testHelper {
 		driveOps,
 		"test-folder",
 		"test-root",
+		logger,
 	)
 
 	ds.driveSync = syncService
@@ -486,6 +489,8 @@ func TestConflictResolution(t *testing.T) {
 		driveOps:    mockDriveOps,
 	}
 
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+
 	// クラウドノートをDriveOperationsに保存
 	noteData, err := json.Marshal(cloudNote)
 	assert.NoError(t, err)
@@ -493,7 +498,7 @@ func TestConflictResolution(t *testing.T) {
 	assert.NoError(t, err)
 
 	// DriveSyncServiceを設定
-	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root")
+	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root", logger)
 	ds.driveSync = syncService
 
 	// クラウドノートリストを設定
@@ -579,6 +584,8 @@ func TestPeriodicSync(t *testing.T) {
 		driveOps:    mockDriveOps,
 	}
 
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+
 	// クラウドの変更をシミュレート
 	cloudNote := &Note{
 		ID:           localNote.ID,
@@ -595,7 +602,7 @@ func TestPeriodicSync(t *testing.T) {
 	assert.NoError(t, err)
 
 	// DriveSyncServiceを設定
-	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root")
+	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root", logger)
 	ds.driveSync = syncService
 
 	// クラウドノートリストを設定
@@ -684,8 +691,10 @@ func TestNoteOrderConflict(t *testing.T) {
 		driveOps:    mockDriveOps,
 	}
 
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+
 	// DriveSyncServiceを設定
-	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root")
+	syncService := NewDriveSyncService(mockDriveOps, "test-folder", "test-root", logger)
 	ds.driveSync = syncService
 
 	// 複数のノートを作成

@@ -133,6 +133,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 		driveService.driveOps,
 		"test-folder", // notesFolderID
 		"test-root",   // rootFolderID
+		app.logger,
 	)
 
 	app.driveService = driveService
@@ -192,6 +193,7 @@ func TestSaveNoteWithSync(t *testing.T) {
 			mockDriveOps,
 			"test-folder",
 			"test-root",
+			helper.app.logger,
 		),
 	}
 
@@ -234,6 +236,7 @@ func TestDeleteNoteWithSync(t *testing.T) {
 			mockDriveOps,
 			"test-folder",
 			"test-root",
+			helper.app.logger,
 		),
 	}
 
@@ -274,6 +277,7 @@ func TestSaveNoteListWithSync(t *testing.T) {
 			mockDriveOps,
 			"test-folder",
 			"test-root",
+			helper.app.logger,
 		),
 	}
 
@@ -342,6 +346,7 @@ func TestUpdateNoteOrderWithSync(t *testing.T) {
 			mockDriveOps,
 			"test-folder",
 			"test-root",
+			helper.app.logger,
 		),
 	}
 

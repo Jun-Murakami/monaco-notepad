@@ -48,6 +48,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({ notes, onUna
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
+        minHeight: 0,
         '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
           backgroundColor: 'text.secondary',
         },

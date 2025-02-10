@@ -52,6 +52,7 @@ type driveSyncServiceImpl struct {
 	isConnected             bool
 	hasCompletedInitialSync bool
 	cloudNoteList           *NoteList
+	logger                  AppLogger
 }
 
 // DriveSyncServiceインスタンスを作成
@@ -59,11 +60,13 @@ func NewDriveSyncService(
 	driveOps DriveOperations,
 	notesFolderID string,
 	rootFolderID string,
+	logger AppLogger,
 ) DriveSyncService {
 	return &driveSyncServiceImpl{
 		driveOps:      driveOps,
 		notesFolderID: notesFolderID,
 		rootFolderID:  rootFolderID,
+		logger:        logger,
 	}
 }
 
@@ -514,6 +517,7 @@ func (d *driveSyncServiceImpl) ListUnknownNotes(
 			if arrowDownload {
 				err := d.withRetry(func() error {
 					var err error
+					d.logger.Info("Downloading note %s from cloud because it doesn't exist in local", noteID)
 					note, err = d.driveOps.DownloadFile(file.Id)
 					return err
 				}, downloadRetryConfig)
