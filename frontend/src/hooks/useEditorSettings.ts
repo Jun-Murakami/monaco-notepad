@@ -77,7 +77,8 @@ export const useEditorSettings = () => {
     editorSettings.isDarkMode,
     editorSettings.wordWrap,
     editorSettings.minimap,
-    isInitialized
+    editorSettings.isDebug,
+    isInitialized,
   ]);
 
   const handleSettingsChange = (newSettings: EditorSettings) => {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
+import { Console } from '../../wailsjs/go/backend/App';
 
 interface MessageDialogProps {
   isOpen: boolean;
@@ -14,7 +15,11 @@ export const MessageDialog: React.FC<MessageDialogProps> = ({ isOpen, title, mes
     try {
       await onResult?.(result);
     } catch (error) {
-      console.error('Dialog close error:', error);
+      if (error instanceof Error) {
+        await Console('Dialog close error:', [error.message]);
+      } else {
+        await Console('Dialog close error:', [String(error)]);
+      }
     }
   };
 

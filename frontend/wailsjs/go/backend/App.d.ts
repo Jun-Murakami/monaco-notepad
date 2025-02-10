@@ -11,6 +11,8 @@ export function CancelLoginDrive():Promise<void>;
 
 export function CheckDriveConnection():Promise<boolean>;
 
+export function Console(arg1:string,arg2:Array<any>):Promise<void>;
+
 export function DeleteNote(arg1:string):Promise<void>;
 
 export function DestroyApp():Promise<void>;

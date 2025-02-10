@@ -8,13 +8,13 @@
     !define INFO_PROJECTNAME "Monaco Notepad"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "Monaco Notepad"
+    !define INFO_COMPANYNAME "bucketrelay"
 !endif
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "Monaco Notepad"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "1.0.2"
+    !define INFO_PRODUCTVERSION "1.0.4"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "Copyright........."

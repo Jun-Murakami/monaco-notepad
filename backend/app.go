@@ -48,7 +48,6 @@ package backend
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,6 +62,9 @@ import (
 //
 //go:embed credentials.json
 var credentialsJSON []byte
+
+// バージョン情報（ビルド時に-ldflagsで上書きされます）
+var Version = "development"
 
 // 新しいContextインスタンスを作成 ------------------------------------------------------------
 func NewContext(ctx context.Context) *Context {
@@ -201,6 +203,11 @@ func (a *App) NotifyFrontendReady() {
 	} else {
 		a.logger.Console("Warning: driveService is nil") // デバッグログ
 	}
+}
+
+// フロントエンドからのログ出力 ------------------------------------------------------------
+func (a *App) Console(format string, args ...interface{}) {
+	a.logger.Console(format, args...)
 }
 
 // ------------------------------------------------------------
@@ -470,16 +477,5 @@ func (a *App) BringToFront() {
 
 // アプリケーションのバージョンを返す
 func (a *App) GetAppVersion() (string, error) {
-	// wails.jsonを読み込む
-	data, err := os.ReadFile("wails.json")
-	if err != nil {
-		return "", a.logger.Error(err, "failed to read wails.json")
-	}
-
-	var config WailsConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return "", a.logger.Error(err, "failed to parse wails.json")
-	}
-
-	return config.Info.ProductVersion, nil
+	return Version, nil
 }

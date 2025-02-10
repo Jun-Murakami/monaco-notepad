@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Chip } from '@mui/material';
 import { GetAppVersion } from '../../wailsjs/go/backend/App';
+import { Console } from '../../wailsjs/go/backend/App';
 
 const repoUrl = 'https://api.github.com/repos/Jun-Murakami/monaco-notepad/releases/latest';
 const releaseUrl = 'https://jun-murakami.web.app/#monacoNotepad';
@@ -17,7 +18,7 @@ export const VersionUp = () => {
         const response = await fetch(repoUrl);
         const data = await response.json();
         if (!data) {
-          console.error('データが見つかりません');
+          await Console('App version data not found', []);
           return;
         }
 
@@ -26,10 +27,10 @@ export const VersionUp = () => {
         if (latestVersion > ver) {
           setShowChip(true);
         } else {
-          console.log('最新バージョンです');
+          await Console('Latest version', [latestVersion, ver]);
         }
       } catch (error) {
-        console.error('バージョン取得に失敗しました', error);
+        await Console('Failed to get version', [error]);
       }
     };
     fetchVersion();
