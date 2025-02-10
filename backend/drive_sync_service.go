@@ -21,6 +21,7 @@ type DriveSyncService interface {
 	UploadAllNotes(ctx context.Context, notes []NoteMetadata) error
 	DownloadNote(ctx context.Context, noteID string) (*Note, error)
 	DeleteNote(ctx context.Context, noteID string) error
+	GetNoteID(ctx context.Context, noteID string) (string, error)
 	RemoveDuplicateNoteFiles(ctx context.Context) error                    // 重複するノートファイルを削除
 	RemoveNoteFromList(notes []NoteMetadata, noteID string) []NoteMetadata // ノートリストから指定のノートを除外
 
@@ -28,8 +29,8 @@ type DriveSyncService interface {
 	CreateNoteList(ctx context.Context, noteList *NoteList) error
 	UpdateNoteList(ctx context.Context, noteList *NoteList, noteListID string) error
 	DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error)
-	// クラウドのノートリストにないノートをリストアップ
-	ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList) (*NoteList, error)
+	// クラウドのノートリストにないノートをリストアップ (ダウンロードオプション付き)
+	ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, arrowDownload bool) (*NoteList, error)
 	// クラウドに存在しないファイルをリストから除外して返す
 	ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error)
 	// 重複IDを持つノートを処理し、最新のものだけを保持
@@ -297,7 +298,7 @@ func (d *driveSyncServiceImpl) DownloadNote(
 
 	var note Note
 	if err := json.Unmarshal(content, &note); err != nil {
-		return nil, fmt.Errorf("failed to decode note: %w", err)
+		return nil, fmt.Errorf("failed to decode note %s: %w", noteID, err)
 	}
 
 	return &note, nil
@@ -333,7 +334,13 @@ func (d *driveSyncServiceImpl) DeleteNote(
 	return nil
 }
 
+// クラウド内のノートのIDを取得する ------------------------------------------------------------
+func (d *driveSyncServiceImpl) GetNoteID(ctx context.Context, noteID string) (string, error) {
+	return d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
+}
+
 // クラウド内の重複するノートファイルを削除する ------------------------------------------------------------
+
 func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context) error {
 	var files []*drive.File
 
@@ -481,6 +488,7 @@ func (d *driveSyncServiceImpl) DownloadNoteList(
 func (d *driveSyncServiceImpl) ListUnknownNotes(
 	ctx context.Context,
 	cloudNoteList *NoteList,
+	arrowDownload bool,
 ) (*NoteList, error) {
 	var files []*drive.File
 
@@ -503,31 +511,37 @@ func (d *driveSyncServiceImpl) ListUnknownNotes(
 		if slices.IndexFunc(cloudNoteList.Notes, func(n NoteMetadata) bool { return n.ID == noteID }) == -1 {
 			var note []byte
 			// 不明なノートのダウンロードをリトライ付きで実行
-			err := d.withRetry(func() error {
-				var err error
-				note, err = d.driveOps.DownloadFile(file.Id)
-				return err
-			}, downloadRetryConfig)
+			if arrowDownload {
+				err := d.withRetry(func() error {
+					var err error
+					note, err = d.driveOps.DownloadFile(file.Id)
+					return err
+				}, downloadRetryConfig)
 
-			if err != nil {
-				return nil, fmt.Errorf("failed to download note: %w", err)
-			}
+				if err != nil {
+					return nil, fmt.Errorf("failed to download note: %w", err)
+				}
 
-			var parsedNote Note
-			if err := json.Unmarshal(note, &parsedNote); err != nil {
-				return nil, fmt.Errorf("failed to decode note: %w", err)
-			}
+				var parsedNote Note
+				if err := json.Unmarshal(note, &parsedNote); err != nil {
+					return nil, fmt.Errorf("failed to decode note %s: %w", noteID, err)
+				}
 
-			//メタデータのみを抽出
-			metadata := NoteMetadata{
-				ID:            parsedNote.ID,
-				Title:         parsedNote.Title,
-				ContentHeader: parsedNote.ContentHeader,
-				ModifiedTime:  parsedNote.ModifiedTime,
-				Language:      parsedNote.Language,
-				Archived:      parsedNote.Archived,
+				//メタデータのみを抽出
+				metadata := NoteMetadata{
+					ID:            parsedNote.ID,
+					Title:         parsedNote.Title,
+					ContentHeader: parsedNote.ContentHeader,
+					ModifiedTime:  parsedNote.ModifiedTime,
+					Language:      parsedNote.Language,
+					Archived:      parsedNote.Archived,
+				}
+				unknownNotes = append(unknownNotes, metadata)
+			} else {
+				unknownNotes = append(unknownNotes, NoteMetadata{
+					ID: noteID,
+				})
 			}
-			unknownNotes = append(unknownNotes, metadata)
 		}
 	}
 

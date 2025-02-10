@@ -62,14 +62,15 @@ type testHelper struct {
 
 // mockDriveService はDriveServiceのモック実装
 type mockDriveService struct {
-	ctx         context.Context
-	appDataDir  string
-	notesDir    string
-	noteService *noteService
-	driveSync   DriveSyncService
-	driveOps    DriveOperations
-	logger      DriveLogger
-	isTestMode  bool
+	ctx             context.Context
+	appDataDir      string
+	notesDir        string
+	noteService     *noteService
+	driveSync       DriveSyncService
+	driveOps        DriveOperations
+	logger          DriveLogger
+	isTestMode      bool
+	operationsQueue *DriveOperationsQueue
 }
 
 func (m *mockDriveService) InitializeDrive() error {
@@ -169,6 +170,10 @@ func (m *mockDriveService) IsConnected() bool {
 
 func (m *mockDriveService) IsTestMode() bool {
 	return m.isTestMode
+}
+
+func (m *mockDriveService) GetDriveOperationsQueue() *DriveOperationsQueue {
+	return m.operationsQueue
 }
 
 // mockDriveOperations はDriveOperationsのモック実装
@@ -271,6 +276,9 @@ func setupTest(t *testing.T) *testHelper {
 
 	ctx := context.Background()
 
+	// driveOpsの初期化
+	driveOps := newMockDriveOperations()
+
 	// driveServiceの初期化（テストモード）
 	ds := &mockDriveService{
 		ctx:         ctx,
@@ -279,11 +287,10 @@ func setupTest(t *testing.T) *testHelper {
 		noteService: noteService,
 		logger:      NewDriveLogger(ctx, true),
 		isTestMode:  true,
+		driveOps:    driveOps,
 	}
 
 	// driveSyncServiceを初期化
-	driveOps := newMockDriveOperations()
-
 	syncService := NewDriveSyncService(
 		driveOps,
 		"test-folder",
@@ -291,7 +298,9 @@ func setupTest(t *testing.T) *testHelper {
 	)
 
 	ds.driveSync = syncService
-	ds.driveOps = driveOps
+
+	// キューシステムの初期化
+	ds.operationsQueue = NewDriveOperationsQueue(driveOps)
 
 	return &testHelper{
 		tempDir:      tempDir,

@@ -70,6 +70,13 @@ func (p *DrivePollingService) StartPolling() {
 				continue
 			}
 
+			// キューにアイテムがある場合は同期をスキップ
+			if p.driveService.operationsQueue != nil && p.driveService.operationsQueue.HasItems() {
+				interval = initialInterval
+				ticker.Reset(interval)
+				continue
+			}
+
 			err := p.driveService.SyncNotes()
 			if err != nil {
 				p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
