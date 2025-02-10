@@ -108,7 +108,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.appDataDir = filepath.Join(appData, "monaco-notepad")
 	a.notesDir = filepath.Join(a.appDataDir, "notes")
 
-	fmt.Println("appDataDir", a.appDataDir)
+	fmt.Println("appDataDir: ", a.appDataDir)
 
 	// ディレクトリの作成
 	os.MkdirAll(a.notesDir, 0755)

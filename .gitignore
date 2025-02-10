@@ -2,6 +2,7 @@
 credentials.json
 token.json
 .env
+.DS_Store
 
 build/bin
 node_modules

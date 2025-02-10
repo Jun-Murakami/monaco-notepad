@@ -31,15 +31,15 @@ func NewSettingsService(appDataDir string) *settingsService {
 // ファイルが存在しない場合はデフォルト設定を返します
 func (s *settingsService) LoadSettings() (*Settings, error) {
 	settingsPath := filepath.Join(s.appDataDir, "settings.json")
-	
+
 	// ファイルが存在しない場合はデフォルト設定を返す
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		return &Settings{
-			FontFamily: "Consolas, Monaco, \"Courier New\", monospace",
-			FontSize:   14,
-			IsDarkMode: false,
-			WordWrap:   "off",
-			Minimap:    true,
+			FontFamily:   "Consolas, Monaco, \"Courier New\", monospace",
+			FontSize:     14,
+			IsDarkMode:   false,
+			WordWrap:     "off",
+			Minimap:      true,
 			WindowWidth:  800,
 			WindowHeight: 600,
 			WindowX:      0,
@@ -47,17 +47,17 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 			IsMaximized:  false,
 		}, nil
 	}
-	
+
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var settings Settings
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return nil, err
 	}
-	
+
 	return &settings, nil
 }
 
@@ -67,7 +67,7 @@ func (s *settingsService) SaveSettings(settings *Settings) error {
 	if err != nil {
 		return err
 	}
-	
+
 	settingsPath := filepath.Join(s.appDataDir, "settings.json")
 	return os.WriteFile(settingsPath, data, 0644)
 }
@@ -91,4 +91,4 @@ func (s *settingsService) SaveWindowState(ctx *Context) error {
 	settings.IsMaximized = maximized
 
 	return s.SaveSettings(settings)
-} 
+}

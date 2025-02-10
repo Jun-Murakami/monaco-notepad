@@ -262,4 +262,4 @@ func TestNoteListSync(t *testing.T) {
 	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
 	assert.Equal(t, note.ID, helper.noteService.noteList.Notes[0].ID)
 	assert.Equal(t, note.Title, helper.noteService.noteList.Notes[0].Title)
-} 
+}
