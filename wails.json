@@ -12,6 +12,8 @@
   },
   "info": {
     "productVersion": "1.0.3",
+    "companyName": "bucketrelay",
+    "productName": "Monaco Notepad",
     "fileAssociations": [
       {
         "ext": "*",
