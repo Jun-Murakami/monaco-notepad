@@ -34,6 +34,7 @@
 // - app_logger.go: ログ出力とフロントエンド通知を担当
 // - domain.go: データモデルの定義
 // - app.go: メインアプリケーションロジック
+// - auth_service.go: 認証管理の実装
 // - note_service.go: ノート操作の実装
 // - drive_service.go: Google Drive連携の中核実装
 // - drive_sync_service.go: 同期ロジックの中レベル実装
@@ -441,7 +442,14 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 
 // 設定を読み込む
 func (a *App) LoadSettings() (*Settings, error) {
-	return a.settingsService.LoadSettings()
+	settings, err := a.settingsService.LoadSettings()
+	if err != nil {
+		return nil, a.logger.Error(err, "failed to load settings")
+	}
+
+	// デバッグモードを設定
+	a.logger.SetDebugMode(settings.IsDebug)
+	return settings, nil
 }
 
 // 設定を保存する

@@ -45,6 +45,7 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 			WindowX:      0,
 			WindowY:      0,
 			IsMaximized:  false,
+			IsDebug:      false,
 		}, nil
 	}
 
@@ -58,6 +59,7 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 		return nil, err
 	}
 
+	// デバッグモードを設定
 	return &settings, nil
 }
 

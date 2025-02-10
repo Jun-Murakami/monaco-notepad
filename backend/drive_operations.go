@@ -50,7 +50,7 @@ func NewDriveOperations(service *drive.Service, logger AppLogger) DriveOperation
 
 // 新しいファイルを作成 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) CreateFile(name string, content []byte, parentID string, mimeType string) (string, error) {
-	d.logger.Console("GAPI: Creating file: ", name)
+	d.logger.Console("[GAPI] Creating file: ", name)
 	f := &drive.File{
 		Name:     name,
 		Parents:  []string{parentID},
@@ -69,7 +69,7 @@ func (d *driveOperationsImpl) CreateFile(name string, content []byte, parentID s
 
 // ファイルを更新 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) UpdateFile(fileId string, content []byte) error {
-	d.logger.Console("GAPI: Updating file: ", fileId)
+	d.logger.Console("[GAPI] Updating file: ", fileId)
 
 	// ファイルを更新
 	_, err := d.service.Files.Update(fileId, &drive.File{}).
@@ -84,7 +84,7 @@ func (d *driveOperationsImpl) UpdateFile(fileId string, content []byte) error {
 
 // ファイルを削除 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) DeleteFile(fileID string) error {
-	d.logger.Console("Deleting file: ", fileID)
+	d.logger.Console("[GAPI] Deleting file: ", fileID)
 	err := d.service.Files.Delete(fileID).Do()
 	if err != nil {
 		return fmt.Errorf("failed to delete file: %w", err)
@@ -94,7 +94,7 @@ func (d *driveOperationsImpl) DeleteFile(fileID string) error {
 
 // ファイルをダウンロード (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) DownloadFile(fileID string) ([]byte, error) {
-	d.logger.Console("GAPI: Downloading file:", fileID)
+	d.logger.Console("[GAPI] Downloading file:", fileID)
 	resp, err := d.service.Files.Get(fileID).Download()
 	if err != nil {
 		return nil, fmt.Errorf("failed to download file: %w", err)
@@ -112,7 +112,7 @@ func (d *driveOperationsImpl) DownloadFile(fileID string) ([]byte, error) {
 
 // フォルダを作成 (Driveネイティブ) ------------------------------------------------------------
 func (d *driveOperationsImpl) CreateFolder(name string, rootFolderID string) (string, error) {
-	d.logger.Console("GAPI: Creating folder: ", name)
+	d.logger.Console("[GAPI] Creating folder: ", name)
 	f := &drive.File{
 		Name:     name,
 		MimeType: "application/vnd.google-apps.folder",
@@ -131,7 +131,7 @@ func (d *driveOperationsImpl) CreateFolder(name string, rootFolderID string) (st
 
 // ファイルを検索 (Driveネイティブ)
 func (d *driveOperationsImpl) ListFiles(query string) ([]*drive.File, error) {
-	d.logger.Console("GAPI: Listing files: ", query)
+	d.logger.Console("[GAPI] Listing files: ", query)
 	files, err := d.service.Files.List().
 		Q(query).
 		Fields("files(id, name, createdTime)").

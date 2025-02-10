@@ -68,6 +68,7 @@ export namespace backend {
 	    windowX: number;
 	    windowY: number;
 	    isMaximized: boolean;
+	    isDebug: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -85,6 +86,7 @@ export namespace backend {
 	        this.windowX = source["windowX"];
 	        this.windowY = source["windowY"];
 	        this.isMaximized = source["isMaximized"];
+	        this.isDebug = source["isDebug"];
 	    }
 	}
 

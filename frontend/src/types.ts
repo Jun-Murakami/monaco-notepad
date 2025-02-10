@@ -37,6 +37,7 @@ export type Settings = {
   windowX: number;
   windowY: number;
   isMaximized: boolean;
+  isDebug: boolean;
 }
 
 export type EditorSettings = {
@@ -50,6 +51,7 @@ export type EditorSettings = {
   windowX: number;
   windowY: number;
   isMaximized: boolean;
+  isDebug: boolean;
 };
 
 export const DEFAULT_EDITOR_SETTINGS: Partial<EditorSettings> = {
@@ -58,4 +60,5 @@ export const DEFAULT_EDITOR_SETTINGS: Partial<EditorSettings> = {
   isDarkMode: false,
   wordWrap: 'off',
   minimap: true,
+  isDebug: false,
 };

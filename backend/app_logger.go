@@ -19,6 +19,7 @@ type AppLogger interface {
 	Error(err error, format string, args ...interface{}) error           // エラーメッセージ出力
 	ErrorWithNotify(err error, format string, args ...interface{}) error // エラーメッセージ出力とフロントエンド通知
 	IsTestMode() bool
+	SetDebugMode(isDebug bool) // デバッグモードの設定
 }
 
 // appLoggerImpl はAppLoggerの実装
@@ -27,6 +28,7 @@ type appLoggerImpl struct {
 	isTestMode bool
 	logFile    *os.File
 	logDir     string
+	isDebug    bool
 }
 
 // NewAppLogger は新しいAppLoggerインスタンスを作成
@@ -34,28 +36,43 @@ func NewAppLogger(ctx context.Context, isTestMode bool, appDataDir string) AppLo
 	logDir := filepath.Join(appDataDir, "logs")
 	os.MkdirAll(logDir, 0755)
 
-	logPath := filepath.Join(logDir, fmt.Sprintf("app_%s.log", time.Now().Format("2006-01-02_15-04-05")))
-	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Printf("Error opening log file: %v\n", err)
-		return &appLoggerImpl{
-			ctx:        ctx,
-			isTestMode: isTestMode,
-			logDir:     logDir,
-		}
-	}
-
 	return &appLoggerImpl{
 		ctx:        ctx,
 		isTestMode: isTestMode,
-		logFile:    logFile,
 		logDir:     logDir,
+		isDebug:    false,
+	}
+}
+
+// SetDebugMode はデバッグモードを設定し、必要に応じてログファイルを開く/閉じる
+func (l *appLoggerImpl) SetDebugMode(isDebug bool) {
+	if l.isDebug == isDebug {
+		return
+	}
+
+	l.isDebug = isDebug
+
+	// 現在のログファイルを閉じる
+	if l.logFile != nil {
+		l.logFile.Close()
+		l.logFile = nil
+	}
+
+	// デバッグモードがオンの場合、新しいログファイルを開く
+	if isDebug {
+		logPath := filepath.Join(l.logDir, fmt.Sprintf("app_%s.log", time.Now().Format("2006-01-02_15-04-05")))
+		logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("Error opening log file: %v\n", err)
+			return
+		}
+		l.logFile = logFile
 	}
 }
 
 // writeToLog はログファイルに書き込みを行う
 func (l *appLoggerImpl) writeToLog(message string) {
-	if l.logFile != nil {
+	if l.logFile != nil && l.isDebug {
 		timestamp := time.Now().Format("2006-01-02 15:04:05")
 		logMessage := fmt.Sprintf("[%s] %s\n", timestamp, message)
 		if _, err := l.logFile.WriteString(logMessage); err != nil {

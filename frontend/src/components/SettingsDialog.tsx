@@ -4,8 +4,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Divider,
   Button,
   TextField,
+  Typography,
   FormControl,
   InputLabel,
   Select,
@@ -160,6 +162,24 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
                 label='Minimap'
               />
             </Grid>
+
+            <Divider orientation='horizontal' sx={{ width: '100%' }} />
+
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', gap: 2, alignItems: 'center', width: '100%' }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size='small'
+                    checked={localSettings.isDebug}
+                    onChange={(e) => handleChange({ isDebug: e.target.checked })}
+                  />
+                }
+                label='Debug Mode'
+              />
+              <Typography variant='caption' color='textSecondary'>
+                Debug mode will output logs to app folder.
+              </Typography>
+            </Box>
           </Grid>
         </Box>
       </DialogContent>

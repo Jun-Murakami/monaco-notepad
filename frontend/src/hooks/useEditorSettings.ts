@@ -16,6 +16,7 @@ export const useEditorSettings = () => {
     windowX: 0,
     windowY: 0,
     isMaximized: false,
+    isDebug: false,
   });
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -35,6 +36,7 @@ export const useEditorSettings = () => {
           windowX: settings.windowX,
           windowY: settings.windowY,
           isMaximized: settings.isMaximized,
+          isDebug: settings.isDebug,
         };
 
         // ウィンドウの位置とサイズを復元

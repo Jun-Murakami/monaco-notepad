@@ -74,6 +74,7 @@ type Settings struct {
 	WindowX      int    `json:"windowX"`
 	WindowY      int    `json:"windowY"`
 	IsMaximized  bool   `json:"isMaximized"`
+	IsDebug      bool   `json:"isDebug"`
 }
 
 // Google Driveとの同期機能を管理
