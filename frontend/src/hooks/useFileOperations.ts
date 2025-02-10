@@ -60,6 +60,38 @@ export const useFileOperations = (
     }
   };
 
+  const handleFileDrop = async (files: FileList) => {
+    try {
+      const file = files[0];
+      if (!file) return;
+
+      const content = await file.text();
+      if (isBinaryFile(content)) {
+        showMessage('Error', 'Failed to open the file. Please check the file format.');
+        return;
+      }
+
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      const detectedLanguage = getLanguageByExtension('.' + extension);
+      const language = typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
+
+      const newNote: Note = {
+        id: crypto.randomUUID(),
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        content,
+        contentHeader: null,
+        language,
+        modifiedTime: new Date().toISOString(),
+        archived: false,
+      };
+
+      setNotes([newNote, ...notes]);
+      await handleNoteSelect(newNote, true);
+    } catch (error) {
+      console.error('Failed to handle dropped file:', error);
+    }
+  };
+
   useEffect(() => {
     const cleanup = EventsOn('file:open-external', (data: { path: string, content: string }) => {
       const fileName = data.path.split(/[/\\]/).pop() || '';
@@ -87,5 +119,6 @@ export const useFileOperations = (
   return {
     handleOpenFile,
     handleSaveFile,
+    handleFileDrop,
   };
 }; 

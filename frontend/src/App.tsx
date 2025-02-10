@@ -1,22 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { Editor } from './components/Editor';
 import { Box, Divider } from '@mui/material';
 import { AppBar } from './components/AppBar';
 import { NoteList } from './components/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
-import { getSupportedLanguages, LanguageInfo } from './lib/monaco';
 import { SettingsDialog } from './components/SettingsDialog';
-import { ListNotes, NotifyFrontendReady, SaveNoteList } from '../wailsjs/go/backend/App';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { useNotes } from './hooks/useNotes';
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
 import { useMessageDialog } from './hooks/useMessageDialog';
-import * as runtime from '../wailsjs/runtime';
 import { EditorStatusBar } from './components/EditorStatusBar';
 import type { editor } from 'monaco-editor';
+import { useInitialize } from './hooks/useInitialize';
 
 function App() {
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
@@ -40,55 +38,18 @@ function App() {
 
   const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
 
-  const { handleOpenFile, handleSaveFile } = useFileOperations(notes, currentNote, handleNoteSelect, setNotes, showMessage);
+  const { handleOpenFile, handleSaveFile, handleFileDrop } = useFileOperations(
+    notes,
+    currentNote,
+    handleNoteSelect,
+    setNotes,
+    showMessage
+  );
 
-  const [languages, setLanguages] = useState<LanguageInfo[]>([]);
-  const [platform, setPlatform] = useState<string>('');
+  const { languages, platform } = useInitialize(setNotes, handleNewNote, handleNoteSelect);
+
   const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
-
-  useEffect(() => {
-    const asyncFunc = async () => {
-      try {
-        // プラットフォームを取得
-        const env = await runtime.Environment();
-        setPlatform(env.platform);
-
-        // コンポーネントのマウント時に言語一覧を取得
-        setLanguages(getSupportedLanguages());
-
-        // ノート一覧を取得
-        const notes = await ListNotes();
-        if (!notes) {
-          setNotes([]);
-          handleNewNote();
-          return;
-        }
-        setNotes(notes);
-        const activeNotes = notes.filter((note) => !note.archived);
-        if (activeNotes.length > 0) {
-          handleNoteSelect(activeNotes[0]);
-        } else {
-          handleNewNote();
-        }
-      } catch (error) {
-        console.error('Failed to load notes:', error);
-        setNotes([]);
-        handleNewNote();
-      }
-    };
-    asyncFunc();
-
-    // バックエンドの準備完了を待ってから通知
-    const unsubscribe = runtime.EventsOn('backend:ready', () => {
-      NotifyFrontendReady();
-    });
-
-    return () => {
-      unsubscribe();
-      setLanguages([]);
-    };
-  }, []);
 
   // エディタインスタンスを更新するためのコールバック
   const handleEditorInstance = (instance: editor.IStandaloneCodeEditor | null) => {
@@ -111,6 +72,13 @@ function App() {
           '--wails-drop-target': 'drop',
         }}
         component='main'
+        onDrop={(e) => {
+          e.preventDefault();
+          if (e.dataTransfer.files) {
+            handleFileDrop(e.dataTransfer.files);
+          }
+        }}
+        onDragOver={(e) => e.preventDefault()}
       >
         {platform !== 'windows' && (
           <Box
@@ -132,9 +100,6 @@ function App() {
           onOpen={handleOpenFile}
           onSave={handleSaveFile}
           showMessage={showMessage}
-          handleNoteSelect={handleNoteSelect}
-          notes={notes}
-          setNotes={setNotes}
         />
         <Divider />
         <Box
