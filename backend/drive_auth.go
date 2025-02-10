@@ -97,7 +97,12 @@ func (a *driveAuthService) InitializeWithSavedToken() (bool, error) {
 	// 保存済みトークンの読み込みを試行
 	token, err := a.loadToken()
 	if err != nil {
-		// トークンがない場合はエラーを返すが、これは正常系
+		return false, err
+	}
+
+	// トークンの有効性チェックを追加
+	if !token.Valid() {
+		a.sendLogMessage("Saved token is expired")
 		return false, nil
 	}
 
@@ -163,9 +168,16 @@ func (a *driveAuthService) loadToken() (*oauth2.Token, error) {
 	defer f.Close()
 
 	token := &oauth2.Token{}
-	if err := json.NewDecoder(f).Decode(token); err != nil {
+	err = json.NewDecoder(f).Decode(token)
+	if err != nil {
 		return nil, err
 	}
+	
+	// デバッグ用のログ追加
+	a.sendLogMessage(fmt.Sprintf("Loaded token - Expiry: %v, Valid: %v", 
+		token.Expiry, 
+		token.Valid()))
+
 	return token, nil
 }
 
@@ -223,7 +235,7 @@ func (a *driveAuthService) HandleOfflineTransition(err error) error {
 	}
 
 	// エラーの種類に応じて処理を分岐
-	if strings.Contains(err.Error(), "oauth2: token expired and refresh token is not set") {
+	if strings.Contains(err.Error(), "oauth2") {
 		// 認証切れの場合は完全なオフライン遷移
 		a.handleFullOfflineTransition(err)
 	} else if strings.Contains(err.Error(), "note file") && strings.Contains(err.Error(), "not found") {

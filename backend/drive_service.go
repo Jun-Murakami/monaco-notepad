@@ -89,7 +89,7 @@ func NewDriveService(
 func (s *driveService) InitializeDrive() error {
 	// 保存済みトークンでの初期化を試行
 	if success, err := s.auth.InitializeWithSavedToken(); err != nil {
-		return s.logger.ErrorWithNotify(err, "Failed to initialize Drive API")
+		return s.auth.HandleOfflineTransition(err)
 	} else if success {
 		s.logger.Info("InitializeDrive success")
 		return s.onConnected(false)
@@ -102,18 +102,20 @@ func (s *driveService) AuthorizeDrive() error {
 	s.logger.NotifyDriveStatus(s.ctx, "logging in")
 	s.logger.Info("Waiting for login...")
 	if err := s.auth.StartManualAuth(); err != nil {
-		return s.logger.ErrorWithNotify(err, "Failed to complete authentication")
+		return s.auth.HandleOfflineTransition(err)
 	}
 	s.logger.Info("AuthorizeDrive success")
 	return s.onConnected(true)
+
 }
 
 // 接続成功時の処理
 func (s *driveService) onConnected(performInitialSync bool) error {
 	if !s.IsConnected() {
-		return s.logger.ErrorWithNotify(fmt.Errorf("not connected to Google Drive"), "Not connected to Google Drive")
+		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
 	s.logger.Info("Connected to Google Drive")
+
 
 	// DriveOps生成
 	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service)
@@ -124,7 +126,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 
 	// フォルダの確保
 	if err := s.ensureDriveFolders(); err != nil {
-		return s.logger.ErrorWithNotify(err, "Failed to ensure drive folders")
+		return s.auth.HandleOfflineTransition(err)
 	}
 
 	// driveSync生成
@@ -136,14 +138,13 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 
 	// ノートリストの確保
 	if err := s.ensureNoteList(); err != nil {
-		return s.logger.ErrorWithNotify(err, "Failed to ensure note list")
+		return s.auth.HandleOfflineTransition(err)
 	}
 
 	// 必要な場合(手動ログインで呼ばれた場合)は初回マージを実行
 	if performInitialSync {
 		if err := s.performInitialSync(); err != nil {
-			s.auth.HandleOfflineTransition(err)
-			return s.logger.ErrorWithNotify(err, "Failed to perform initial sync")
+			return s.auth.HandleOfflineTransition(err)
 		}
 	}
 
@@ -239,7 +240,7 @@ func (s *driveService) UpdateNote(note *Note) error {
 // ノートを削除
 func (s *driveService) DeleteNoteDrive(noteID string) error {
 	if !s.IsConnected() {
-		return s.logger.ErrorWithNotify(fmt.Errorf("drive service is not initialized"), "Drive service is not initialized")
+		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 	}
 
 	err := s.driveSync.DeleteNote(s.ctx, noteID)
@@ -248,7 +249,7 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 			s.logger.Console("Note deletion was cancelled: %v", err)
 			return nil
 		}
-		return s.logger.ErrorWithNotify(err, "Failed to delete note from cloud")
+		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to delete note from cloud"))
 	}
 
 	s.logger.Info("Deleted note from cloud")
@@ -259,7 +260,7 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 // 現在のノートリストをアップロード
 func (s *driveService) UpdateNoteList() error {
 	if !s.IsConnected() {
-		return s.logger.ErrorWithNotify(fmt.Errorf("drive service is not initialized"), "Drive service is not initialized")
+		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 	}
 
 	s.logger.Console("Modifying note list: %v, Notes count: %d", s.noteService.noteList.LastSync, len(s.noteService.noteList.Notes))
@@ -274,7 +275,7 @@ func (s *driveService) UpdateNoteList() error {
 			s.logger.Console("Note list update was cancelled: %v", err)
 			return nil
 		}
-		return s.logger.ErrorWithNotify(err, "Failed to update note list")
+		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note list"))
 	}
 
 	// アップロード成功後、保持していたLastSyncをcloudNoteListに設定
