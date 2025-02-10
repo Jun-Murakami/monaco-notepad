@@ -41,15 +41,15 @@ create-dmg \
   --format UDZO \
   --skip-jenkins \
   --codesign "$DEVELOPER_ID_APP" \
-  "build/bin/Monaco Notepad-mac-universal-$VERSION.dmg" \
+  "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg" \
   "build/bin/Monaco Notepad.app"
 
 # DMGファイルの権限を修正
-chmod 644 "build/bin/Monaco Notepad-mac-universal-$VERSION.dmg"
-xattr -c "build/bin/Monaco Notepad-mac-universal-$VERSION.dmg"
+chmod 644 "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg"
+xattr -c "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg"
 
 echo "Submitting DMG for notarization..."
-xcrun notarytool submit "build/bin/Monaco Notepad-mac-universal-$VERSION.dmg" \
+xcrun notarytool submit "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg" \
   --keychain-profile monaconotepad \
   --wait
 
@@ -60,7 +60,7 @@ echo "Stapling DMG..."
 max_attempts=3
 attempt=1
 while [ $attempt -le $max_attempts ]; do
-    if xcrun stapler staple "build/bin/Monaco Notepad-mac-universal-$VERSION.dmg"; then
+    if xcrun stapler staple "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg"; then
         echo "Stapling successful!"
         break
     else

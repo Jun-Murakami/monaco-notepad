@@ -632,7 +632,7 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 		return err
 	}
 	for _, note := range unknownNotes.Notes {
-		s.logger.Info("Deleting unknown note: %s", note.ID)
+		s.logger.Info("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
 		if err := s.driveSync.DeleteNote(s.ctx, note.ID); err != nil {
 			return err
 		}
@@ -644,7 +644,7 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 func (s *driveService) syncNoteLocalToCloud(localNote *Note) error {
 	cloudNoteID, err := s.driveSync.GetNoteID(s.ctx, localNote.ID)
 	if cloudNoteID == "" || err != nil {
-		s.logger.Info("Creating note %s in cloud", localNote.ID)
+		s.logger.Info("Creating note %s in cloud because it doesn't exist in cloud", localNote.ID)
 		if err := s.driveSync.CreateNote(s.ctx, localNote); err != nil {
 			return err
 		}
