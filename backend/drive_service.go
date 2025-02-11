@@ -197,6 +197,8 @@ func (s *driveService) CreateNote(note *Note) error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
+	s.logger.Info("Creating note: %s", note.ID)
+	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 	err := s.driveSync.CreateNote(s.ctx, note)
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
@@ -205,7 +207,8 @@ func (s *driveService) CreateNote(note *Note) error {
 		}
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note: %v", err))
 	}
-	s.logger.Info("Note created successfully")
+	s.logger.Info("Note created: %s", note.ID)
+	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
 }
@@ -215,6 +218,8 @@ func (s *driveService) UpdateNote(note *Note) error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
+	s.logger.NotifyDriveStatus(s.ctx, "syncing")
+	s.logger.Info("Updating note: %s", note.ID)
 	err := s.driveSync.UpdateNote(s.ctx, note)
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
@@ -223,7 +228,8 @@ func (s *driveService) UpdateNote(note *Note) error {
 		}
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note: %v", err))
 	}
-	s.logger.Info("Note updated successfully")
+	s.logger.Info("Note updated: %s", note.ID)
+	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
 }
@@ -233,7 +239,8 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 	}
-
+	s.logger.NotifyDriveStatus(s.ctx, "syncing")
+	s.logger.Info("Deleting note: %s", noteID)
 	err := s.driveSync.DeleteNote(s.ctx, noteID)
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
@@ -242,8 +249,8 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 		}
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to delete note from cloud"))
 	}
-
-	s.logger.Info("Deleted note from cloud")
+	s.logger.Info("Deleted note from cloud: %s", noteID)
+	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
 }
@@ -253,7 +260,7 @@ func (s *driveService) UpdateNoteList() error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 	}
-
+	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 	s.logger.Console("Modifying note list: %v, Notes count: %d", s.noteService.noteList.LastSync, len(s.noteService.noteList.Notes))
 
 	// アップロード前に最新のLastSyncを保持
@@ -275,7 +282,8 @@ func (s *driveService) UpdateNoteList() error {
 		s.auth.driveSync.cloudNoteList.Notes = s.noteService.noteList.Notes
 	}
 
-	s.logger.Info("Note list updated successfully")
+	s.logger.Info("Note list updated")
+	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
 }
@@ -295,7 +303,8 @@ func (s *driveService) SyncNotes() error {
 	}
 
 	// 3. 同期開始の通知
-	s.notifySyncStart()
+	s.logger.NotifyDriveStatus(s.ctx, "syncing")
+	s.logger.Info("Starting sync with Drive...")
 
 	// 4. クラウド上のノートリストを確実に取得
 	cloudNoteList, err := s.ensureCloudNoteList(s.ctx)
@@ -318,7 +327,6 @@ func (s *driveService) SyncNotes() error {
 			return nil
 		}
 		// 同じタイムスタンプかつ内容も同じなら「最新」
-		s.logger.Info("Sync status is up to date (same timestamp, no diff)")
 		s.notifySyncComplete()
 		return nil
 	}
@@ -356,6 +364,7 @@ func (s *driveService) SyncNotes() error {
 // ------------------------------------------------------------
 func (s *driveService) performInitialSync() error {
 	s.logger.Info("Starting initial sync...")
+	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 
 	// 1. クラウドのノートリストを確実に取得（存在しなければアップロード後再取得）
 	cloudNoteList, err := s.ensureCloudNoteList(s.ctx)
@@ -424,14 +433,6 @@ func (s *driveService) ensureSyncIsPossible() error {
 		return fmt.Errorf("not connected to Google Drive")
 	}
 	return nil
-}
-
-// 同期開始の通知
-func (s *driveService) notifySyncStart() {
-	s.logger.Info("Starting sync with Drive...")
-	if !s.IsTestMode() {
-		wailsRuntime.EventsEmit(s.ctx, "drive:status", "syncing")
-	}
 }
 
 // 同期が完了したらフロントエンドへ通知
@@ -626,7 +627,7 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 		}
 	}
 
-	// クラウドのノートリストにないノートをリストアップして削除
+	// クラウドのノートリストにないノートをリストアップして削除 (ダウンロードはしない)
 	unknownNotes, err := s.driveSync.ListUnknownNotes(s.ctx, cloudNoteList, false)
 	if err != nil {
 		return err

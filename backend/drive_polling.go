@@ -54,6 +54,24 @@ func (p *DrivePollingService) StartPolling() {
 		p.logger.Error(err, "Failed to clean duplicate note files")
 	}
 
+	// クラウドのノートリストを取得
+	cloudNoteList, err := p.driveService.driveSync.DownloadNoteList(p.ctx, p.driveService.auth.driveSync.noteListID)
+	if err != nil {
+		p.logger.Error(err, "Failed to download cloud noteList")
+	}
+
+	// クラウドのノートリストにないノートをリストアップしてクリンナップ (ダウンロードはしない)
+	unknownNotes, err := p.driveService.driveSync.ListUnknownNotes(p.ctx, cloudNoteList, false)
+	if err != nil {
+		p.logger.Error(err, "Failed to list unknown notes")
+	}
+	for _, note := range unknownNotes.Notes {
+		p.logger.Info("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
+		if err := p.driveService.driveSync.DeleteNote(p.ctx, note.ID); err != nil {
+			p.logger.Error(err, "Failed to delete unknown note")
+		}
+	}
+
 	// 初回同期
 	if err := p.driveService.SyncNotes(); err != nil {
 		p.logger.Error(err, "Error syncing with Drive")
