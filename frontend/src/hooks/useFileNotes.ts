@@ -53,20 +53,11 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
 
   // ファイルノートを選択したときの処理
   const handleSelectFileNote = async (fileNote: FileNote) => {
-    // 現在のファイルに未保存の変更がある場合は確認
-    if (currentFileNote && currentFileNote.content !== currentFileNote.originalContent) {
-      const shouldProceed = await showMessage('File has unsaved changes', 'Do you want to discard the changes and switch to the file?', true, 'Proceed', 'Cancel');
-
-      if (!shouldProceed) {
-        return;
-      }
-    }
-
     try {
       // ファイルが外部で変更されているかチェック
       const isModified = await CheckFileModified(fileNote.filePath, fileNote.modifiedTime);
       if (isModified) {
-        const shouldReload = await showMessage('File has been modified', 'Do you want to reload the file?', true, 'Reload', 'Keep current state');
+        const shouldReload = await showMessage('File has been modified outside of the app', 'Do you want to reload the file?', true, 'Reload', 'Keep current state');
 
         if (shouldReload) {
           const reloadedContent = await ReloadFileContent(fileNote.filePath);
