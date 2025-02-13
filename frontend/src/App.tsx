@@ -3,7 +3,7 @@ import { ThemeProvider, CssBaseline, Typography } from '@mui/material';
 import { Editor } from './components/Editor';
 import { Box, Divider, Button } from '@mui/material';
 import { AppBar } from './components/AppBar';
-import { NoteList } from './components/NoteList';
+import { NoteList } from './components/note-list/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
