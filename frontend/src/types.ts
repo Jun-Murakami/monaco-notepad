@@ -62,3 +62,13 @@ export const DEFAULT_EDITOR_SETTINGS: Partial<EditorSettings> = {
   minimap: true,
   isDebug: false,
 };
+
+export interface FileNote {
+  id: string;
+  filePath: string;
+  fileName: string;
+  content: string;
+  originalContent: string;
+  language: string;
+  modifiedTime: string;
+}

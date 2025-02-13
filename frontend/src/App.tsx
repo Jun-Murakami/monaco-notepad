@@ -1,13 +1,14 @@
 import { useState, useRef } from 'react';
-import { ThemeProvider, CssBaseline } from '@mui/material';
+import { ThemeProvider, CssBaseline, Typography } from '@mui/material';
 import { Editor } from './components/Editor';
-import { Box, Divider } from '@mui/material';
+import { Box, Divider, Button } from '@mui/material';
 import { AppBar } from './components/AppBar';
 import { NoteList } from './components/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { useNotes } from './hooks/useNotes';
+import { useFileNotes } from './hooks/useFileNotes';
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
@@ -15,14 +16,29 @@ import { useMessageDialog } from './hooks/useMessageDialog';
 import { EditorStatusBar } from './components/EditorStatusBar';
 import type { editor } from 'monaco-editor';
 import { useInitialize } from './hooks/useInitialize';
+import { FileNote, Note } from './types';
+import SimpleBar from 'simplebar-react';
+import 'simplebar-react/dist/simplebar.min.css';
+import { Inventory } from '@mui/icons-material';
 
 function App() {
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
+  const {
+    isMessageDialogOpen,
+    messageTitle,
+    messageContent,
+    showMessage,
+    onResult,
+    isTwoButton,
+    primaryButtonText,
+    secondaryButtonText,
+  } = useMessageDialog();
 
   const {
     notes,
     setNotes,
     currentNote,
+    setCurrentNote,
     showArchived,
     setShowArchived,
     handleNewNote,
@@ -33,20 +49,43 @@ function App() {
     handleDeleteAllArchivedNotes,
     handleTitleChange,
     handleLanguageChange,
-    handleContentChange,
+    handleNoteContentChange,
   } = useNotes();
 
-  const { isMessageDialogOpen, messageTitle, messageContent, showMessage, onResult, isTwoButton } = useMessageDialog();
+  const {
+    fileNotes,
+    setFileNotes,
+    currentFileNote,
+    setCurrentFileNote,
+    handleSaveFileNotes,
+    handleFileNoteContentChange,
+    handleCloseFile,
+    isFileModified,
+  } = useFileNotes({ showMessage });
 
-  const { handleOpenFile, handleSaveFile, handleFileDrop } = useFileOperations(
+  const handleNoteOrFileSelect = async (note: Note | FileNote) => {
+    if (isFileNote(note)) {
+      setCurrentFileNote(note);
+      setCurrentNote(null);
+    } else {
+      setCurrentNote(note);
+      setCurrentFileNote(null);
+    }
+  };
+
+  const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
     notes,
-    currentNote,
-    handleNoteSelect,
     setNotes,
-    showMessage
+    currentNote,
+    currentFileNote,
+    fileNotes,
+    setFileNotes,
+    handleNoteOrFileSelect,
+    showMessage,
+    handleSaveFileNotes
   );
 
-  const { languages, platform } = useInitialize(setNotes, handleNewNote, handleNoteSelect);
+  const { languages, platform } = useInitialize(setNotes, setFileNotes, handleNewNote, handleNoteSelect);
 
   const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
 
@@ -74,13 +113,6 @@ function App() {
           '--wails-drop-target': 'drop',
         }}
         component='main'
-        onDrop={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer.files) {
-            handleFileDrop(e.dataTransfer.files);
-          }
-        }}
-        onDragOver={(e) => e.preventDefault()}
       >
         {platform !== 'windows' && (
           <Box
@@ -93,14 +125,14 @@ function App() {
           />
         )}
         <AppBar
-          currentNote={currentNote}
+          currentNote={currentFileNote || currentNote}
           languages={languages}
           onTitleChange={handleTitleChange}
           onLanguageChange={handleLanguageChange}
           onSettings={() => setIsSettingsOpen(true)}
           onNew={handleNewNote}
           onOpen={handleOpenFile}
-          onSave={handleSaveFile}
+          onSave={handleSaveAsFile}
           showMessage={showMessage}
         />
         <Divider />
@@ -114,18 +146,90 @@ function App() {
             borderColor: 'divider',
             width: 242,
             height: `calc(100% - ${STATUS_BAR_HEIGHT}px)`,
+            display: 'flex',
+            flexDirection: 'column',
+            '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
+              backgroundColor: 'text.secondary',
+            },
           }}
         >
-          <NoteList
-            notes={notes}
-            currentNote={currentNote}
-            onNoteSelect={handleNoteSelect}
-            onArchive={handleArchiveNote}
-            onShowArchived={() => setShowArchived(true)}
-            onReorder={async (newNotes) => {
-              setNotes(newNotes);
+          <SimpleBar
+            style={{
+              height: 'calc(100% - 37.5px)',
             }}
-          />
+          >
+            {fileNotes.length > 0 && (
+              <>
+                <Box
+                  sx={{
+                    height: 26,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    display: 'flex',
+                    backgroundColor: 'action.disabledBackground',
+                  }}
+                >
+                  <Typography variant='body2' color='text.secondary'>
+                    Local files
+                  </Typography>
+                </Box>
+                <NoteList
+                  notes={fileNotes}
+                  currentNote={currentFileNote}
+                  onNoteSelect={handleNoteOrFileSelect}
+                  onConvertToNote={handleConvertToNote}
+                  onSaveFile={handleSaveFile}
+                  onReorder={async (newNotes) => {
+                    setFileNotes(newNotes as FileNote[]);
+                  }}
+                  isFileMode={true}
+                  onCloseFile={handleCloseFile}
+                  isFileModified={isFileModified}
+                />
+              </>
+            )}
+            <Box
+              sx={{
+                height: 26,
+                justifyContent: 'center',
+                alignItems: 'center',
+                display: 'flex',
+                backgroundColor: 'action.disabledBackground',
+              }}
+            >
+              <Typography variant='body2' color='text.secondary'>
+                Notes
+              </Typography>
+            </Box>
+            <NoteList
+              notes={notes}
+              currentNote={currentNote}
+              onNoteSelect={handleNoteOrFileSelect}
+              onArchive={handleArchiveNote}
+              onReorder={async (newNotes) => {
+                setNotes(newNotes as Note[]);
+              }}
+            />
+          </SimpleBar>
+          <Button
+            fullWidth
+            disabled={notes.filter((note) => note.archived).length === 0}
+            sx={{
+              mt: 'auto',
+              borderRadius: 0,
+              borderTop: 1,
+              borderColor: 'divider',
+              zIndex: 1000,
+              backgroundColor: 'background.paper',
+              '&:hover': {
+                backgroundColor: 'action.hover',
+              },
+            }}
+            onClick={() => setShowArchived(true)}
+            startIcon={<Inventory />}
+          >
+            Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
+          </Button>
         </Box>
 
         <Box
@@ -149,15 +253,15 @@ function App() {
             />
           ) : (
             <Editor
-              value={currentNote?.content || ''}
-              onChange={handleContentChange}
-              language={currentNote?.language || 'plaintext'}
+              value={currentFileNote?.content || currentNote?.content || ''}
+              onChange={currentFileNote ? handleFileNoteContentChange : handleNoteContentChange}
+              language={currentFileNote?.language || currentNote?.language || 'plaintext'}
               settings={editorSettings}
-              currentNote={currentNote}
+              currentNote={currentFileNote || currentNote}
               onEditorInstance={handleEditorInstance}
             />
           )}
-          <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentNote} key={forceUpdate} />
+          <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentFileNote || currentNote} key={forceUpdate} />
         </Box>
       </Box>
 
@@ -173,10 +277,17 @@ function App() {
         title={messageTitle}
         message={messageContent}
         isTwoButton={isTwoButton}
+        primaryButtonText={primaryButtonText}
+        secondaryButtonText={secondaryButtonText}
         onResult={onResult}
       />
     </ThemeProvider>
   );
+}
+
+// 型ガード関数
+function isFileNote(note: Note | FileNote): note is FileNote {
+  return 'filePath' in note && 'fileName' in note;
 }
 
 export default App;

@@ -3,14 +3,14 @@ import { getMonaco, getOrCreateEditor, disposeEditor } from '../lib/monaco';
 import type { editor } from 'monaco-editor';
 import { EditorSettings } from '../types';
 import { Box } from '@mui/material';
-import { Note } from '../types';
+import { Note, FileNote } from '../types';
 
 interface EditorProps {
   value?: string;
   onChange?: (value: string) => void;
   language?: string;
   settings: EditorSettings;
-  currentNote: Note | null;
+  currentNote: Note | FileNote | null;
   onEditorInstance?: (instance: editor.IStandaloneCodeEditor | null) => void;
 }
 
@@ -52,11 +52,22 @@ export const Editor: React.FC<EditorProps> = ({
     // エディタインスタンスを親コンポーネントに通知
     onEditorInstance?.(editorInstanceRef.current);
 
-    // イベントリスナーの設定
+    return () => {
+      disposeEditor();
+    };
+  }, []); // 初期化は一度だけ
+
+  // イベントリスナーの設定
+  useEffect(() => {
+    if (!editorInstanceRef.current) return;
+
     const disposables = [
       editorInstanceRef.current.onDidChangeModelContent(() => {
         const currentValue = editorInstanceRef.current?.getValue();
-        onChange?.(currentValue || '');
+        if (currentValue !== value) {
+          // 値が実際に変更された場合のみ通知
+          onChange?.(currentValue || '');
+        }
       }),
       editorInstanceRef.current.onDidChangeCursorPosition(() => {
         setForceUpdate((prev) => prev + 1);
@@ -68,9 +79,8 @@ export const Editor: React.FC<EditorProps> = ({
 
     return () => {
       disposables.forEach((d) => d.dispose());
-      disposeEditor();
     };
-  }, []); // 初期化は一度だけ
+  }, [onChange, value]); // onChangeとvalueの変更時のみリスナーを更新
 
   // 言語変更時の処理
   useEffect(() => {

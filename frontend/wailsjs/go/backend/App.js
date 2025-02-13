@@ -18,6 +18,10 @@ export function CheckDriveConnection() {
   return window['go']['backend']['App']['CheckDriveConnection']();
 }
 
+export function CheckFileModified(arg1, arg2) {
+  return window['go']['backend']['App']['CheckFileModified'](arg1, arg2);
+}
+
 export function Console(arg1, arg2) {
   return window['go']['backend']['App']['Console'](arg1, arg2);
 }
@@ -38,6 +42,10 @@ export function GetAppVersion() {
   return window['go']['backend']['App']['GetAppVersion']();
 }
 
+export function GetModifiedTime(arg1) {
+  return window['go']['backend']['App']['GetModifiedTime'](arg1);
+}
+
 export function InitializeDrive() {
   return window['go']['backend']['App']['InitializeDrive']();
 }
@@ -48,6 +56,10 @@ export function ListNotes() {
 
 export function LoadArchivedNote(arg1) {
   return window['go']['backend']['App']['LoadArchivedNote'](arg1);
+}
+
+export function LoadFileNotes() {
+  return window['go']['backend']['App']['LoadFileNotes']();
 }
 
 export function LoadNote(arg1) {
@@ -74,8 +86,16 @@ export function OpenFileFromExternal(arg1) {
   return window['go']['backend']['App']['OpenFileFromExternal'](arg1);
 }
 
+export function ReloadFileContent(arg1) {
+  return window['go']['backend']['App']['ReloadFileContent'](arg1);
+}
+
 export function SaveFile(arg1, arg2) {
   return window['go']['backend']['App']['SaveFile'](arg1, arg2);
+}
+
+export function SaveFileNotes(arg1) {
+  return window['go']['backend']['App']['SaveFileNotes'](arg1);
 }
 
 export function SaveNote(arg1, arg2) {

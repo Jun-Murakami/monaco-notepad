@@ -1,7 +1,7 @@
-import { Box, IconButton, List, ListItemButton, Typography, Button, Tooltip } from '@mui/material';
-import { Archive, Inventory, DragHandle, ImportExport } from '@mui/icons-material';
+import { Box, IconButton, List, ListItemButton, Typography, Button, Tooltip, ListItemIcon, ListItemText } from '@mui/material';
+import { Archive, DragHandle, ImportExport, Save, Close, DriveFileRenameOutline, SimCardDownload } from '@mui/icons-material';
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
-import { Note } from '../types';
+import { Note, FileNote } from '../types';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ja';
 import 'dayjs/locale/en';
@@ -16,7 +16,6 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 
 // プラグインを追加
@@ -27,23 +26,43 @@ const userLocale = navigator.language.toLowerCase().split('-')[0];
 dayjs.locale(userLocale);
 
 interface NoteListProps {
-  notes: Note[];
-  currentNote: Note | null;
-  onNoteSelect: (note: Note) => Promise<void>;
-  onArchive: (noteId: string) => Promise<void>;
-  onShowArchived: () => void;
-  onReorder?: (notes: Note[]) => void;
+  notes: Note[] | FileNote[];
+  currentNote: Note | FileNote | null;
+  onNoteSelect: (note: Note | FileNote) => Promise<void>;
+  onArchive?: (noteId: string) => Promise<void>;
+  onConvertToNote?: (fileNote: FileNote) => Promise<void>;
+  onSaveFile?: (fileNote: FileNote) => Promise<void>;
+  onReorder?: (notes: Note[] | FileNote[]) => void;
+  isFileMode?: boolean;
+  onCloseFile?: (note: FileNote) => Promise<void>;
+  isFileModified?: (fileId: string) => boolean;
 }
 
 interface SortableNoteItemProps {
-  note: Note;
-  currentNote: Note | null;
-  onNoteSelect: (note: Note) => Promise<void>;
-  onArchive: (noteId: string) => Promise<void>;
-  getNoteTitle: (note: Note) => string;
+  note: Note | FileNote;
+  currentNote: Note | FileNote | null;
+  onNoteSelect: (note: Note | FileNote) => Promise<void>;
+  onArchive?: (noteId: string) => Promise<void>;
+  onConvertToNote?: (fileNote: FileNote) => Promise<void>;
+  onSaveFile?: (fileNote: FileNote) => Promise<void>;
+  getNoteTitle: (note: Note | FileNote) => string;
+  isFileMode?: boolean;
+  onCloseFile?: (note: FileNote) => Promise<void>;
+  isFileModified?: (fileId: string) => boolean;
 }
 
-const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, onNoteSelect, onArchive, getNoteTitle }) => {
+const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
+  note,
+  currentNote,
+  onNoteSelect,
+  onArchive,
+  onConvertToNote,
+  onSaveFile,
+  getNoteTitle,
+  isFileMode,
+  onCloseFile,
+  isFileModified,
+}) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: note.id });
 
   const style = {
@@ -52,13 +71,17 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const isFileNote = (note: Note | FileNote): note is FileNote => {
+    return 'filePath' in note;
+  };
+
   return (
     <Box
       ref={setNodeRef}
       style={style}
       sx={{
         position: 'relative',
-        '&:hover .drag-handle, &:hover .archive-button': { opacity: 1 },
+        '&:hover .drag-handle, &:hover .action-button': { opacity: 1 },
       }}
     >
       <ListItemButton
@@ -72,7 +95,8 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
-          py: 1.5,
+          pt: 1,
+          pb: 0.5,
           px: 2,
         }}
       >
@@ -81,9 +105,12 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
           variant='body2'
           sx={{
             width: '100%',
-            fontWeight: currentNote?.id === note.id ? 'bold' : 'normal',
+            fontStyle: isFileModified?.(note.id) ? 'italic' : 'normal',
           }}
         >
+          {isFileModified?.(note.id) && (
+            <DriveFileRenameOutline sx={{ mb: -0.5, mr: 0.5, width: 18, height: 18, color: 'text.secondary' }} />
+          )}
           {getNoteTitle(note)}
         </Typography>
         <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -114,36 +141,133 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({ note, currentNote, 
           </Typography>
         </Box>
       </ListItemButton>
-      <Tooltip title='Archive' arrow placement='right'>
-        <IconButton
-          className='archive-button'
-          onClick={async (e) => {
-            e.stopPropagation();
-            await onArchive(note.id);
-          }}
-          sx={{
-            position: 'absolute',
-            right: 8,
-            top: 8,
-            opacity: 0,
-            transition: 'opacity 0.2s',
-            width: 26,
-            height: 26,
-            backgroundColor: 'background.default',
-            '&:hover': {
-              backgroundColor: 'primary.main',
-            },
-          }}
-        >
-          <Archive sx={{ width: 18, height: 18 }} />
-        </IconButton>
-      </Tooltip>
+      {isFileMode ? (
+        <>
+          <Tooltip title='Save File' arrow placement='bottom'>
+            <IconButton
+              className='action-button'
+              disabled={!isFileModified?.(note.id)}
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (isFileNote(note) && isFileModified?.(note.id) && onSaveFile) {
+                  await onSaveFile(note);
+                }
+              }}
+              sx={{
+                position: 'absolute',
+                right: 72,
+                top: 8,
+                opacity: 0,
+                transition: 'opacity 0.2s',
+                width: 26,
+                height: 26,
+                backgroundColor: 'background.default',
+                '&:hover': {
+                  backgroundColor: 'primary.main',
+                },
+              }}
+            >
+              <Save sx={{ width: 18, height: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title='Convert to Note' arrow placement='bottom'>
+            <IconButton
+              className='action-button'
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (isFileNote(note) && onConvertToNote) {
+                  await onConvertToNote(note);
+                }
+              }}
+              sx={{
+                position: 'absolute',
+                right: 40,
+                top: 8,
+                opacity: 0,
+                transition: 'opacity 0.2s',
+                width: 26,
+                height: 26,
+                backgroundColor: 'background.default',
+                '&:hover': {
+                  backgroundColor: 'primary.main',
+                },
+              }}
+            >
+              <SimCardDownload sx={{ width: 18, height: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title='Close' arrow placement='bottom'>
+            <IconButton
+              className='action-button'
+              onClick={async (e) => {
+                e.stopPropagation();
+                if (isFileNote(note) && onCloseFile) {
+                  await onCloseFile(note);
+                }
+              }}
+              sx={{
+                position: 'absolute',
+                right: 8,
+                top: 8,
+                opacity: 0,
+                transition: 'opacity 0.2s',
+                width: 26,
+                height: 26,
+                backgroundColor: 'background.default',
+                '&:hover': {
+                  backgroundColor: 'primary.main',
+                },
+              }}
+            >
+              <Close sx={{ width: 18, height: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </>
+      ) : (
+        onArchive && (
+          <Tooltip title='Archive' arrow placement='bottom'>
+            <IconButton
+              className='action-button'
+              onClick={async (e) => {
+                e.stopPropagation();
+                await onArchive(note.id);
+              }}
+              sx={{
+                position: 'absolute',
+                right: 8,
+                top: 8,
+                opacity: 0,
+                transition: 'opacity 0.2s',
+                width: 26,
+                height: 26,
+                backgroundColor: 'background.default',
+                '&:hover': {
+                  backgroundColor: 'primary.main',
+                },
+              }}
+            >
+              <Archive sx={{ width: 18, height: 18 }} />
+            </IconButton>
+          </Tooltip>
+        )
+      )}
     </Box>
   );
 };
 
-export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSelect, onArchive, onShowArchived, onReorder }) => {
-  const activeNotes = notes?.filter((note) => !note.archived) || [];
+export const NoteList: React.FC<NoteListProps> = ({
+  notes,
+  currentNote,
+  onNoteSelect,
+  onArchive,
+  onConvertToNote,
+  onSaveFile,
+  onReorder,
+  isFileMode,
+  onCloseFile,
+  isFileModified,
+}) => {
+  const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -158,27 +282,36 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldIndex = activeNotes.findIndex((note) => note.id === active.id);
-      const newIndex = activeNotes.findIndex((note) => note.id === over.id);
+    if (!over || active.id === over.id) return;
 
-      // まずフロントエンドの状態を更新
-      const archivedNotes = notes.filter((note) => note.archived);
-      const newActiveNotes = arrayMove(activeNotes, oldIndex, newIndex);
+    const oldIndex = activeNotes.findIndex((note) => note.id === active.id);
+    const newIndex = activeNotes.findIndex((note) => note.id === over.id);
+
+    if (isFileMode) {
+      // FileNoteモードの場合は単純に並び替え
+      const newFileNotes = arrayMove(activeNotes as FileNote[], oldIndex, newIndex);
+      onReorder?.(newFileNotes);
+    } else {
+      // 通常のノートモードの場合は、アーカイブされたノートも考慮
+      const archivedNotes = (notes as Note[]).filter((note) => note.archived);
+      const newActiveNotes = arrayMove(activeNotes as Note[], oldIndex, newIndex);
       const newNotes = [...newActiveNotes, ...archivedNotes];
       onReorder?.(newNotes);
 
       // その後、バックエンドの更新を行う
       try {
-        // @ts-ignore (window.go is injected by Wails)
-        await UpdateNoteOrder(active.id, newIndex);
+        await UpdateNoteOrder(active.id as string, newIndex);
       } catch (error) {
         console.error('Failed to update note order:', error);
       }
     }
   };
 
-  const getNoteTitle = (note: Note) => {
+  const getNoteTitle = (note: Note | FileNote) => {
+    if ('filePath' in note) {
+      return note.fileName;
+    }
+
     // タイトルがある場合はそれを使用
     if (note.title.trim()) return note.title;
 
@@ -203,57 +336,26 @@ export const NoteList: React.FC<NoteListProps> = ({ notes, currentNote, onNoteSe
   };
 
   return (
-    <Box
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
-          backgroundColor: 'text.secondary',
-        },
-      }}
-    >
-      <SimpleBar
-        style={{
-          height: 'calc(100% - 37.5px)',
-        }}
-      >
-        <List sx={{ flexGrow: 1, overflow: 'auto' }}>
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis, restrictToParentElement]}>
-            <SortableContext items={activeNotes.map((note) => note.id)} strategy={verticalListSortingStrategy}>
-              {activeNotes.map((note) => (
-                <SortableNoteItem
-                  key={note.id}
-                  note={note}
-                  currentNote={currentNote}
-                  onNoteSelect={onNoteSelect}
-                  onArchive={onArchive}
-                  getNoteTitle={getNoteTitle}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-        </List>
-      </SimpleBar>
-      <Button
-        fullWidth
-        sx={{
-          mt: 'auto',
-          borderRadius: 0,
-          borderTop: 1,
-          borderColor: 'divider',
-          zIndex: 1000,
-          backgroundColor: 'background.paper',
-          '&:hover': {
-            backgroundColor: 'action.hover',
-          },
-        }}
-        startIcon={<Inventory sx={{ width: 20, height: 20 }} />}
-        disabled={!notes?.some((note) => note.archived)}
-        onClick={onShowArchived}
-      >
-        Archive {notes?.filter((note) => note.archived).length > 0 && `(${notes?.filter((note) => note.archived).length})`}
-      </Button>
-    </Box>
+    <List sx={{ flexGrow: 1, overflow: 'auto' }}>
+      <DndContext sensors={sensors} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis, restrictToParentElement]}>
+        <SortableContext items={activeNotes.map((note) => note.id)} strategy={verticalListSortingStrategy}>
+          {activeNotes.map((note) => (
+            <SortableNoteItem
+              key={note.id}
+              note={note}
+              currentNote={currentNote}
+              onNoteSelect={onNoteSelect}
+              onArchive={onArchive}
+              onConvertToNote={onConvertToNote}
+              onSaveFile={onSaveFile}
+              getNoteTitle={getNoteTitle}
+              isFileMode={isFileMode}
+              onCloseFile={onCloseFile}
+              isFileModified={isFileModified}
+            />
+          ))}
+        </SortableContext>
+      </DndContext>
+    </List>
   );
 };

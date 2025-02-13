@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"os"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -13,6 +14,7 @@ type FileService interface {
 	OpenFile(filePath string) (string, error)
 	SelectSaveFileUri(fileName string, extension string) (string, error)
 	SaveFile(filePath string, content string) error
+	GetModifiedTime(filePath string) (string, error)
 }
 
 // fileService はFileServiceの実装です
@@ -75,4 +77,13 @@ func (s *fileService) SelectSaveFileUri(fileName string, extension string) (stri
 // SaveFile は指定されたパスにコンテンツを保存します
 func (s *fileService) SaveFile(filePath string, content string) error {
 	return os.WriteFile(filePath, []byte(content), 0644)
+}
+
+// GetModifiedTime は指定されたパスのファイルの変更時間を取得します
+func (s *fileService) GetModifiedTime(filePath string) (string, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return "", err
+	}
+	return info.ModTime().Format(time.RFC3339), nil
 }

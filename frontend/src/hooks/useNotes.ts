@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Note } from '../types';
+import { Note, FileNote } from '../types';
 import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { backend } from '../../wailsjs/go/models';
@@ -182,11 +182,16 @@ export const useNotes = () => {
   };
 
   // ノートを選択する
-  const handleNoteSelect = async (note: Note, isNew: boolean = false) => {
+  const handleNoteSelect = async (note: Note | FileNote, isNew: boolean = false) => {
     if (currentNote?.id && isNoteModified.current) {
       await saveCurrentNote();
     }
     setShowArchived(false);
+
+    if ('filePath' in note) {
+      // FileNoteの場合は何もしない
+      return;
+    }
 
     if (isNew) {
       await SaveNote(backend.Note.createFrom(note), "create");
@@ -318,7 +323,7 @@ export const useNotes = () => {
   };
 
   // ノートの内容を変更する
-  const handleContentChange = (newContent: string) => {
+  const handleNoteContentChange = (newContent: string) => {
     setCurrentNote((prev) => {
       if (!prev) return prev;
 
@@ -341,6 +346,7 @@ export const useNotes = () => {
     notes,
     setNotes,
     currentNote,
+    setCurrentNote,
     showArchived,
     setShowArchived,
     saveCurrentNote,
@@ -352,6 +358,6 @@ export const useNotes = () => {
     handleDeleteAllArchivedNotes,
     handleTitleChange,
     handleLanguageChange,
-    handleContentChange,
+    handleNoteContentChange,
   };
 }; 

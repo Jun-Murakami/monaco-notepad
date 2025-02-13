@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { ListNotes, NotifyFrontendReady } from '../../wailsjs/go/backend/App';
+import { ListNotes, NotifyFrontendReady, LoadFileNotes } from '../../wailsjs/go/backend/App';
 import { getSupportedLanguages, LanguageInfo } from '../lib/monaco';
 import * as runtime from '../../wailsjs/runtime';
-import { Note } from '../types';
-import type { editor } from 'monaco-editor';
+import { Note, FileNote } from '../types';
 
 export const useInitialize = (
   setNotes: (notes: Note[]) => void,
+  setFileNotes: (files: FileNote[]) => void,
   handleNewNote: () => void,
   handleNoteSelect: (note: Note) => void,
 ) => {
@@ -20,8 +20,23 @@ export const useInitialize = (
         const env = await runtime.Environment();
         setPlatform(env.platform);
 
-        // コンポーネントのマウント時に言語一覧を取得
+        // 言語一覧を取得
         setLanguages(getSupportedLanguages());
+
+        // ファイルノート一覧を取得
+        const lists = await LoadFileNotes();
+        if (lists) {
+          const loadedFileNotes = lists.map(file => ({
+            id: file.id,
+            filePath: file.filePath,
+            fileName: file.fileName,
+            content: file.content,
+            originalContent: file.content,
+            language: file.language,
+            modifiedTime: file.modifiedTime,
+          }));
+          setFileNotes(loadedFileNotes);
+        }
 
         // ノート一覧を取得
         const notes = await ListNotes();

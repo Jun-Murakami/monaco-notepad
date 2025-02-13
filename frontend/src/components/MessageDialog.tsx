@@ -7,10 +7,20 @@ interface MessageDialogProps {
   title: string;
   message: string;
   isTwoButton?: boolean;
+  primaryButtonText?: string;
+  secondaryButtonText?: string;
   onResult: ((result: boolean) => Promise<void>) | null;
 }
 
-export const MessageDialog: React.FC<MessageDialogProps> = ({ isOpen, title, message, isTwoButton, onResult }) => {
+export const MessageDialog: React.FC<MessageDialogProps> = ({
+  isOpen,
+  title,
+  message,
+  isTwoButton,
+  primaryButtonText,
+  secondaryButtonText,
+  onResult,
+}) => {
   const handleClose = async (result: boolean) => {
     try {
       await onResult?.(result);
@@ -36,11 +46,11 @@ export const MessageDialog: React.FC<MessageDialogProps> = ({ isOpen, title, mes
       <DialogActions>
         {isTwoButton && (
           <Button onClick={() => handleClose(false)} autoFocus={!isTwoButton}>
-            Cancel
+            {secondaryButtonText}
           </Button>
         )}
         <Button onClick={() => handleClose(true)} variant='contained' autoFocus={isTwoButton}>
-          {isTwoButton ? 'OK' : 'Close'}
+          {isTwoButton ? primaryButtonText : 'Close'}
         </Button>
       </DialogActions>
     </Dialog>

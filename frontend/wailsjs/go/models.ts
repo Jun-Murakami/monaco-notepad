@@ -12,6 +12,30 @@ export namespace backend {
 	
 	    }
 	}
+	export class FileNote {
+	    id: string;
+	    filePath: string;
+	    fileName: string;
+	    content: string;
+	    originalContent: string;
+	    language: string;
+	    modifiedTime: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileNote(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.filePath = source["filePath"];
+	        this.fileName = source["fileName"];
+	        this.content = source["content"];
+	        this.originalContent = source["originalContent"];
+	        this.language = source["language"];
+	        this.modifiedTime = source["modifiedTime"];
+	    }
+	}
 	export class Note {
 	    id: string;
 	    title: string;

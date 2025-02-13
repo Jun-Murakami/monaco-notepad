@@ -21,6 +21,7 @@ type App struct {
 	driveService    DriveService     // Google Drive操作サービス (インターフェースで受けるよう変更)
 	settingsService *settingsService // 設定操作サービス
 	fileService     *fileService     // ファイル操作サービス
+	fileNoteService *fileNoteService // ファイルノート操作サービス
 	frontendReady   chan struct{}    // フロントエンドの準備完了を通知するチャネル
 	logger          AppLogger        // アプリケーションのロガー
 }

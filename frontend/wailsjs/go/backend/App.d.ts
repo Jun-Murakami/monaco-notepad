@@ -11,6 +11,8 @@ export function CancelLoginDrive():Promise<void>;
 
 export function CheckDriveConnection():Promise<boolean>;
 
+export function CheckFileModified(arg1:string,arg2:string):Promise<boolean>;
+
 export function Console(arg1:string,arg2:Array<any>):Promise<void>;
 
 export function DeleteNote(arg1:string):Promise<void>;
@@ -21,11 +23,15 @@ export function DomReady(arg1:context.Context):Promise<void>;
 
 export function GetAppVersion():Promise<string>;
 
+export function GetModifiedTime(arg1:string):Promise<string>;
+
 export function InitializeDrive():Promise<void>;
 
 export function ListNotes():Promise<Array<backend.Note>>;
 
 export function LoadArchivedNote(arg1:string):Promise<backend.Note>;
+
+export function LoadFileNotes():Promise<Array<backend.FileNote>>;
 
 export function LoadNote(arg1:string):Promise<backend.Note>;
 
@@ -39,7 +45,11 @@ export function OpenFile(arg1:string):Promise<string>;
 
 export function OpenFileFromExternal(arg1:string):Promise<void>;
 
+export function ReloadFileContent(arg1:string):Promise<string>;
+
 export function SaveFile(arg1:string,arg2:string):Promise<void>;
+
+export function SaveFileNotes(arg1:Array<backend.FileNote>):Promise<string>;
 
 export function SaveNote(arg1:backend.Note,arg2:string):Promise<void>;
 

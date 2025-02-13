@@ -14,18 +14,23 @@
 //    - ノートの作成、読み込み、保存、削除
 //    - ノートリストの管理とメタデータの同期
 //
-// 3. DriveService (drive_service.go, drive_sync_service.go, drive_operations.go)
+// 3. FileNoteService (file_note_service.go)
+//    - ローカルのファイルノート操作を担当
+//    - ファイルノートの作成、読み込み、保存、削除
+//    - ファイルノートリストの管理とメタデータの同期
+//
+// 4. DriveService (drive_service.go, drive_sync_service.go, drive_operations.go)
 //    - Google Driveとの同期機能を提供
 //    - 認証管理（OAuth2.0）
 //    - ノートのクラウド同期
 //    - 非同期操作のキュー管理
 //
-// 4. SettingsService (settings_service.go)
+// 5. SettingsService (settings_service.go)
 //    - アプリケーション設定の管理
 //    - ウィンドウ状態の保存/復元
 //    - ユーザー設定の保存/読み込み
 //
-// 5. FileService (file_service.go)
+// 6. FileService (file_service.go)
 //    - ローカルファイルシステムとの操作
 //    - ファイルの開く/保存ダイアログ
 //    - 外部ファイルの読み込み
@@ -41,6 +46,7 @@
 // - drive_operations.go: Drive操作の低レベル実装
 // - drive_operations_queue.go: Drive操作のキュー管理ラッパー
 // - settings_service.go: 設定管理の実装
+// - file_note_service.go: ファイルノート操作の実装
 // - file_service.go: ファイル操作の実装
 
 package backend
@@ -125,6 +131,9 @@ func (a *App) Startup(ctx context.Context) {
 
 	// SettingsServiceの初期化
 	a.settingsService = NewSettingsService(a.appDataDir)
+
+	// FileNoteServiceの初期化
+	a.fileNoteService = NewFileNoteService(a.appDataDir)
 
 	// NoteServiceの初期化 (NoteList読み込みを含む)
 	noteService, err := NewNoteService(a.notesDir)
@@ -211,7 +220,7 @@ func (a *App) Console(format string, args ...interface{}) {
 }
 
 // ------------------------------------------------------------
-// ノート関連の操作 (ローカルノート操作メソッドとGoogle Drive操作メソッドを結合)
+// ノート関連の操作 (ノート操作メソッドとGoogle Drive操作メソッドを結合)
 // ------------------------------------------------------------
 
 // 全てのノートのリストを返す ------------------------------------------------------------
@@ -403,6 +412,20 @@ func (a *App) CheckDriveConnection() bool {
 }
 
 // ------------------------------------------------------------
+// ファイルノート関連の操作
+// ------------------------------------------------------------
+
+// ファイルノートを読み込む
+func (a *App) LoadFileNotes() ([]FileNote, error) {
+	return a.fileNoteService.LoadFileNotes()
+}
+
+// ファイルノートを保存する
+func (a *App) SaveFileNotes(list []FileNote) (string, error) {
+	return a.fileNoteService.SaveFileNotes(list)
+}
+
+// ------------------------------------------------------------
 // ファイル操作関連の操作
 // ------------------------------------------------------------
 
@@ -414,6 +437,11 @@ func (a *App) SelectFile() (string, error) {
 // 指定されたパスのファイルの内容を読み込む
 func (a *App) OpenFile(filePath string) (string, error) {
 	return a.fileService.OpenFile(filePath)
+}
+
+// 指定されたパスのファイルの変更時間を取得
+func (a *App) GetModifiedTime(filePath string) (string, error) {
+	return a.fileService.GetModifiedTime(filePath)
 }
 
 // 保存ダイアログを表示し、選択された保存先のパスを返す
@@ -478,4 +506,28 @@ func (a *App) BringToFront() {
 // アプリケーションのバージョンを返す
 func (a *App) GetAppVersion() (string, error) {
 	return Version, nil
+}
+
+// ファイルが変更されているかチェック
+func (a *App) CheckFileModified(filePath string, lastModifiedTime string) (bool, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return false, err
+	}
+
+	lastModified, err := time.Parse(time.RFC3339, lastModifiedTime)
+	if err != nil {
+		return false, err
+	}
+
+	return info.ModTime().After(lastModified), nil
+}
+
+// ファイルの内容を再読み込み
+func (a *App) ReloadFileContent(filePath string) (string, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }

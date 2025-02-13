@@ -2,12 +2,12 @@ import { useEffect, useState, useRef } from 'react';
 import { Box, Typography, Divider } from '@mui/material';
 import type { editor, IDisposable } from 'monaco-editor';
 import { VersionUp } from './VersionUp';
-import { Note } from '../types';
+import { Note, FileNote } from '../types';
 import * as wailsRuntime from '../../wailsjs/runtime';
 
 interface EditorStatusBarProps {
   editor: editor.IStandaloneCodeEditor | null;
-  currentNote: Note | null;
+  currentNote: Note | FileNote | null;
 }
 
 export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) => {
