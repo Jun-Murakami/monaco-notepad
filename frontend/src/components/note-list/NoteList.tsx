@@ -109,7 +109,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   onCloseFile,
   isFileModified,
 }) => {
-  const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived);
+  const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => note.type === 'memory' && !note.archived);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -134,7 +134,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       const newFileNotes = arrayMove(activeNotes as FileNote[], oldIndex, newIndex);
       onReorder?.(newFileNotes);
     } else {
-      const archivedNotes = (notes as Note[]).filter((note) => note.archived);
+      const archivedNotes = (notes as Note[]).filter((note) => note.type === 'memory' && note.archived);
       const newActiveNotes = arrayMove(activeNotes as Note[], oldIndex, newIndex);
       const newNotes = [...newActiveNotes, ...archivedNotes];
       onReorder?.(newNotes);

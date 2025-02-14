@@ -14,9 +14,11 @@ interface ArchivedNoteListProps {
 }
 
 export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({ notes, onUnarchive, onDelete, onDeleteAll, onClose }) => {
-  const archivedNotes = notes.filter((note) => note.archived);
+  // アーカイブされたノートを取得
+  const archivedNotes = notes.filter((note) => note.type === 'memory' && note.archived);
 
   const getNoteTitle = (note: Note) => {
+    if (note.type !== 'memory') return;
     if (note.title.trim()) return note.title;
     const content = note.content?.trim();
     if (!content) return 'Empty Note';

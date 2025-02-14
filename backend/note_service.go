@@ -59,6 +59,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			// アーカイブされたノートはコンテンツを読み込まない
 			notes = append(notes, Note{
 				ID:            metadata.ID,
+				Type:          "memory",
 				Title:         metadata.Title,
 				Content:       "", // コンテンツは空
 				ContentHeader: metadata.ContentHeader,
@@ -73,6 +74,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			if err != nil {
 				continue
 			}
+			note.Type = "memory"
 			notes = append(notes, *note)
 			notes[len(notes)-1].Order = metadata.Order
 		}

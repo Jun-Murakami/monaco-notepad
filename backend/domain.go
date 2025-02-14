@@ -35,6 +35,7 @@ type Context struct {
 // ノートの基本情報
 type Note struct {
 	ID            string    `json:"id"`            // ノートの一意識別子
+	Type          string    `json:"type"`          // ノートの種類（memory/file）
 	Title         string    `json:"title"`         // ノートのタイトル
 	Content       string    `json:"content"`       // ノートの本文内容
 	ContentHeader string    `json:"contentHeader"` // アーカイブ時に表示される内容のプレビュー
@@ -42,6 +43,18 @@ type Note struct {
 	ModifiedTime  time.Time `json:"modifiedTime"`  // 最終更新日時
 	Archived      bool      `json:"archived"`      // アーカイブ状態（true=アーカイブ済み）
 	Order         int       `json:"order"`         // ノートの表示順序
+}
+
+// ファイルノートのメタデータ
+type FileNote struct {
+	ID              string    `json:"id"`
+	Type            string    `json:"type"`
+	FilePath        string    `json:"filePath"`
+	FileName        string    `json:"fileName"`
+	Content         string    `json:"content"`
+	OriginalContent string    `json:"originalContent"`
+	Language        string    `json:"language"`
+	ModifiedTime    time.Time `json:"modifiedTime"`
 }
 
 // ノートのメタデータのみを保持

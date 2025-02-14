@@ -7,8 +7,7 @@ import { NoteList } from './components/note-list/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
-import { useNotes } from './hooks/useNotes';
-import { useFileNotes } from './hooks/useFileNotes';
+import { useNoteManager } from './hooks/useNoteManager';
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
@@ -16,7 +15,6 @@ import { useMessageDialog } from './hooks/useMessageDialog';
 import { EditorStatusBar } from './components/EditorStatusBar';
 import type { editor } from 'monaco-editor';
 import { useInitialize } from './hooks/useInitialize';
-import { FileNote, Note } from './types';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import { Inventory } from '@mui/icons-material';
@@ -38,57 +36,30 @@ function App() {
     notes,
     setNotes,
     currentNote,
-    setCurrentNote,
     showArchived,
     setShowArchived,
-    handleNewNote,
-    handleArchiveNote,
+    isNoteModified,
+    createNewNote,
     handleNoteSelect,
+    handleArchiveNote,
     handleUnarchiveNote,
     handleDeleteNote,
     handleDeleteAllArchivedNotes,
+    handleCloseFile,
     handleTitleChange,
     handleLanguageChange,
     handleNoteContentChange,
-  } = useNotes();
+  } = useNoteManager({ showMessage });
 
-  const {
-    fileNotes,
-    setFileNotes,
-    currentFileNote,
-    setCurrentFileNote,
-    handleSaveFileNotes,
-    handleFileNoteContentChange,
-    handleCloseFile,
-    isFileModified,
-  } = useFileNotes({ showMessage });
-
-  const handleNoteOrFileSelect = async (note: Note | FileNote) => {
-    if (showArchived) {
-      setShowArchived(false);
-    }
-    if (isFileNote(note)) {
-      setCurrentFileNote(note);
-      setCurrentNote(null);
-    } else {
-      setCurrentNote(note);
-      setCurrentFileNote(null);
-    }
-  };
-
-  const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
+  const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations({
     notes,
     setNotes,
     currentNote,
-    currentFileNote,
-    fileNotes,
-    setFileNotes,
-    handleNoteOrFileSelect,
+    handleNoteSelect,
     showMessage,
-    handleSaveFileNotes
-  );
+  });
 
-  const { languages, platform } = useInitialize(setNotes, setFileNotes, handleNewNote, handleNoteSelect);
+  const { languages, platform } = useInitialize();
 
   const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
 
@@ -128,12 +99,14 @@ function App() {
           />
         )}
         <AppBar
-          currentNote={currentFileNote || currentNote}
+          currentNote={currentNote}
           languages={languages}
           onTitleChange={handleTitleChange}
           onLanguageChange={handleLanguageChange}
           onSettings={() => setIsSettingsOpen(true)}
-          onNew={handleNewNote}
+          onNew={async () => {
+            await createNewNote();
+          }}
           onOpen={handleOpenFile}
           onSave={handleSaveAsFile}
           showMessage={showMessage}
@@ -161,7 +134,7 @@ function App() {
               height: 'calc(100% - 37.5px)',
             }}
           >
-            {fileNotes.length > 0 && (
+            {notes.some((note) => 'filePath' in note) && (
               <>
                 <Box
                   sx={{
@@ -177,17 +150,18 @@ function App() {
                   </Typography>
                 </Box>
                 <NoteList
-                  notes={fileNotes}
-                  currentNote={currentFileNote}
-                  onNoteSelect={handleNoteOrFileSelect}
+                  notes={notes.filter((note) => 'filePath' in note)}
+                  currentNote={currentNote}
+                  onNoteSelect={handleNoteSelect}
                   onConvertToNote={handleConvertToNote}
                   onSaveFile={handleSaveFile}
                   onReorder={async (newNotes) => {
-                    setFileNotes(newNotes as FileNote[]);
+                    const otherNotes = notes.filter((note) => !('filePath' in note));
+                    setNotes([...newNotes, ...otherNotes]);
                   }}
                   isFileMode={true}
                   onCloseFile={handleCloseFile}
-                  isFileModified={isFileModified}
+                  isFileModified={isNoteModified}
                 />
               </>
             )}
@@ -205,18 +179,20 @@ function App() {
               </Typography>
             </Box>
             <NoteList
-              notes={notes}
+              notes={notes.filter((note) => !('filePath' in note) && !note.archived)}
               currentNote={currentNote}
-              onNoteSelect={handleNoteOrFileSelect}
+              onNoteSelect={handleNoteSelect}
               onArchive={handleArchiveNote}
               onReorder={async (newNotes) => {
-                setNotes(newNotes as Note[]);
+                const fileNotes = notes.filter((note) => 'filePath' in note);
+                const archivedNotes = notes.filter((note) => !('filePath' in note) && note.archived);
+                setNotes([...fileNotes, ...newNotes, ...archivedNotes]);
               }}
             />
           </SimpleBar>
           <Button
             fullWidth
-            disabled={notes.filter((note) => note.archived).length === 0}
+            disabled={notes.filter((note) => !('filePath' in note) && note.archived).length === 0}
             sx={{
               mt: 'auto',
               borderRadius: 0,
@@ -231,7 +207,10 @@ function App() {
             onClick={() => setShowArchived(true)}
             startIcon={<Inventory />}
           >
-            Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
+            Archives{' '}
+            {notes.filter((note) => !('filePath' in note) && note.archived).length
+              ? `(${notes.filter((note) => !('filePath' in note) && note.archived).length})`
+              : ''}
           </Button>
         </Box>
 
@@ -248,7 +227,7 @@ function App() {
         >
           {showArchived ? (
             <ArchivedNoteList
-              notes={notes}
+              notes={notes.filter((note) => !('filePath' in note) && note.archived)}
               onUnarchive={handleUnarchiveNote}
               onDelete={handleDeleteNote}
               onDeleteAll={handleDeleteAllArchivedNotes}
@@ -256,15 +235,15 @@ function App() {
             />
           ) : (
             <Editor
-              value={currentFileNote?.content || currentNote?.content || ''}
-              onChange={currentFileNote ? handleFileNoteContentChange : handleNoteContentChange}
-              language={currentFileNote?.language || currentNote?.language || 'plaintext'}
+              value={currentNote?.content || ''}
+              onChange={handleNoteContentChange}
+              language={currentNote?.language || 'plaintext'}
               settings={editorSettings}
-              currentNote={currentFileNote || currentNote}
+              currentNote={currentNote}
               onEditorInstance={handleEditorInstance}
             />
           )}
-          <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentFileNote || currentNote} key={forceUpdate} />
+          <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentNote} key={forceUpdate} />
         </Box>
       </Box>
 
@@ -286,11 +265,6 @@ function App() {
       />
     </ThemeProvider>
   );
-}
-
-// 型ガード関数
-function isFileNote(note: Note | FileNote): note is FileNote {
-  return 'filePath' in note && 'fileName' in note;
 }
 
 export default App;

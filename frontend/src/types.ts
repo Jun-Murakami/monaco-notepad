@@ -1,14 +1,3 @@
-// 型定義
-export type Note = {
-  id: string;
-  title: string;
-  content: string | null;  // コンテンツはオプショナル
-  contentHeader: string | null;  // アーカイブ時のコンテンツヘッダー
-  language: string;
-  modifiedTime: string;
-  archived: boolean;
-}
-
 // ノートのメタデータを管理するための型
 export type NoteMetadata = {
   id: string;
@@ -63,12 +52,29 @@ export const DEFAULT_EDITOR_SETTINGS: Partial<EditorSettings> = {
   isDebug: false,
 };
 
-export interface FileNote {
+// 基底となるノートの型
+interface BaseNote {
   id: string;
-  filePath: string;
-  fileName: string;
   content: string;
-  originalContent: string;
   language: string;
   modifiedTime: string;
 }
+
+// メモリ上で管理されるノート
+export interface MemoryNote extends BaseNote {
+  type: 'memory';
+  title: string;
+  contentHeader: string | null;
+  archived: boolean;
+}
+
+// ファイルシステム上のファイルと紐づくノート
+export interface FileNote extends BaseNote {
+  type: 'file';
+  filePath: string;
+  fileName: string;
+  originalContent: string;
+}
+
+// Union型としてのNote
+export type Note = MemoryNote | FileNote;

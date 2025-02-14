@@ -14,7 +14,7 @@ type FileService interface {
 	OpenFile(filePath string) (string, error)
 	SelectSaveFileUri(fileName string, extension string) (string, error)
 	SaveFile(filePath string, content string) error
-	GetModifiedTime(filePath string) (string, error)
+	GetModifiedTime(filePath string) (time.Time, error)
 }
 
 // fileService はFileServiceの実装です
@@ -80,10 +80,25 @@ func (s *fileService) SaveFile(filePath string, content string) error {
 }
 
 // GetModifiedTime は指定されたパスのファイルの変更時間を取得します
-func (s *fileService) GetModifiedTime(filePath string) (string, error) {
+func (s *fileService) GetModifiedTime(filePath string) (time.Time, error) {
 	info, err := os.Stat(filePath)
 	if err != nil {
-		return "", err
+		return time.Time{}, err
 	}
-	return info.ModTime().Format(time.RFC3339), nil
+	return info.ModTime(), nil
+}
+
+// ファイルが変更されているかチェック
+func (s *fileService) CheckFileModified(filePath string, lastModifiedTime string) (bool, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return false, err
+	}
+
+	lastModified, err := time.Parse(time.RFC3339, lastModifiedTime)
+	if err != nil {
+		return false, err
+	}
+
+	return info.ModTime().After(lastModified), nil
 }

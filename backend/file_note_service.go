@@ -6,17 +6,6 @@ import (
 	"path/filepath"
 )
 
-// ファイルノートのメタデータ
-type FileNote struct {
-	ID              string `json:"id"`
-	FilePath        string `json:"filePath"`
-	FileName        string `json:"fileName"`
-	Content         string `json:"content"`
-	OriginalContent string `json:"originalContent"`
-	Language        string `json:"language"`
-	ModifiedTime    string `json:"modifiedTime"`
-}
-
 // ファイルノートの操作
 type FileNotesService interface {
 	LoadFileNotes() ([]FileNote, error)
@@ -52,6 +41,15 @@ func (s *fileNoteService) LoadFileNotes() ([]FileNote, error) {
 	var list []FileNote
 	if err := json.Unmarshal(data, &list); err != nil {
 		return nil, err
+	}
+
+	// Set type field for each note and update modifiedTime
+	for i := range list {
+		list[i].Type = "file"
+		// Get actual file modification time
+		if info, err := os.Stat(list[i].FilePath); err == nil {
+			list[i].ModifiedTime = info.ModTime()
+		}
 	}
 
 	return list, nil
