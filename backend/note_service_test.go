@@ -105,7 +105,7 @@ func TestSaveAndLoadNote(t *testing.T) {
 		Content:       "これはテストノートです。",
 		ContentHeader: "# テストノート",
 		Language:      "markdown",
-		ModifiedTime:  time.Now(),
+		ModifiedTime:  time.Now().Format(time.RFC3339),
 	}
 
 	// ノートを保存

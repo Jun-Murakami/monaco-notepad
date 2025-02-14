@@ -176,7 +176,7 @@ func TestSaveNoteWithSync(t *testing.T) {
 		Title:        "同期テスト",
 		Content:      "これは同期テスト用のノートです。",
 		Language:     "plaintext",
-		ModifiedTime: time.Now(),
+		ModifiedTime: time.Now().Format(time.RFC3339),
 	}
 
 	// DriveServiceのモックを設定
@@ -219,7 +219,7 @@ func TestDeleteNoteWithSync(t *testing.T) {
 		Title:        "削除テスト",
 		Content:      "これは削除テスト用のノートです。",
 		Language:     "plaintext",
-		ModifiedTime: time.Now(),
+		ModifiedTime: time.Now().Format(time.RFC3339),
 	}
 
 	// DriveServiceのモックを設定
@@ -288,14 +288,14 @@ func TestSaveNoteListWithSync(t *testing.T) {
 			Title:        "ノート1",
 			Content:      "これはノート1です。",
 			Language:     "plaintext",
-			ModifiedTime: time.Now(),
+			ModifiedTime: time.Now().Format(time.RFC3339),
 		},
 		{
 			ID:           "note2",
 			Title:        "ノート2",
 			Content:      "これはノート2です。",
 			Language:     "plaintext",
-			ModifiedTime: time.Now(),
+			ModifiedTime: time.Now().Format(time.RFC3339),
 		},
 	}
 
@@ -357,14 +357,14 @@ func TestUpdateNoteOrderWithSync(t *testing.T) {
 			Title:        "ノート1",
 			Content:      "これはノート1です。",
 			Language:     "plaintext",
-			ModifiedTime: time.Now(),
+			ModifiedTime: time.Now().Format(time.RFC3339),
 		},
 		{
 			ID:           "note2",
 			Title:        "ノート2",
 			Content:      "これはノート2です。",
 			Language:     "plaintext",
-			ModifiedTime: time.Now(),
+			ModifiedTime: time.Now().Format(time.RFC3339),
 		},
 	}
 

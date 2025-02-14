@@ -605,7 +605,7 @@ func (d *driveSyncServiceImpl) DeduplicateNotes(notes []NoteMetadata) []NoteMeta
 	for _, noteVersions := range noteMap {
 		latest := noteVersions[0]
 		for _, note := range noteVersions[1:] {
-			if note.ModifiedTime.After(latest.ModifiedTime) {
+			if note.ModifiedTime > latest.ModifiedTime {
 				latest = note
 			}
 		}

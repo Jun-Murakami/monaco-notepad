@@ -34,26 +34,26 @@ type Context struct {
 
 // ノートの基本情報
 type Note struct {
-	ID            string    `json:"id"`            // ノートの一意識別子
-	Title         string    `json:"title"`         // ノートのタイトル
-	Content       string    `json:"content"`       // ノートの本文内容
-	ContentHeader string    `json:"contentHeader"` // アーカイブ時に表示される内容のプレビュー
-	Language      string    `json:"language"`      // ノートで使用されているプログラミング言語
-	ModifiedTime  time.Time `json:"modifiedTime"`  // 最終更新日時
-	Archived      bool      `json:"archived"`      // アーカイブ状態（true=アーカイブ済み）
-	Order         int       `json:"order"`         // ノートの表示順序
+	ID            string `json:"id"`            // ノートの一意識別子
+	Title         string `json:"title"`         // ノートのタイトル
+	Content       string `json:"content"`       // ノートの本文内容
+	ContentHeader string `json:"contentHeader"` // アーカイブ時に表示される内容のプレビュー
+	Language      string `json:"language"`      // ノートで使用されているプログラミング言語
+	ModifiedTime  string `json:"modifiedTime"`  // 最終更新日時
+	Archived      bool   `json:"archived"`      // アーカイブ状態（true=アーカイブ済み）
+	Order         int    `json:"order"`         // ノートの表示順序
 }
 
 // ノートのメタデータのみを保持
 type NoteMetadata struct {
-	ID            string    `json:"id"`
-	Title         string    `json:"title"`
-	ContentHeader string    `json:"contentHeader"`
-	Language      string    `json:"language"`
-	ModifiedTime  time.Time `json:"modifiedTime"`
-	Archived      bool      `json:"archived"`
-	ContentHash   string    `json:"contentHash"`
-	Order         int       `json:"order"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	ContentHeader string `json:"contentHeader"`
+	Language      string `json:"language"`
+	ModifiedTime  string `json:"modifiedTime"`
+	Archived      bool   `json:"archived"`
+	ContentHash   string `json:"contentHash"`
+	Order         int    `json:"order"`
 }
 
 // ノートのリストを管理

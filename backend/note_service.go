@@ -104,6 +104,9 @@ func (s *noteService) LoadNote(id string) (*Note, error) {
 
 // ノートを保存する ------------------------------------------------------------
 func (s *noteService) SaveNote(note *Note) error {
+	// 現在時刻を ISO 8601 形式で設定
+	note.ModifiedTime = time.Now().Format(time.RFC3339)
+
 	data, err := json.MarshalIndent(note, "", "  ")
 	if err != nil {
 		return err
@@ -261,7 +264,7 @@ func (s *noteService) deduplicateNoteList() {
 	noteMap := make(map[string]NoteMetadata)
 	for _, metadata := range s.noteList.Notes {
 		existing, exists := noteMap[metadata.ID]
-		if !exists || metadata.ModifiedTime.After(existing.ModifiedTime) {
+		if !exists || metadata.ModifiedTime > existing.ModifiedTime {
 			noteMap[metadata.ID] = metadata
 		}
 	}
@@ -350,7 +353,7 @@ func (s *noteService) isNoteListEqual(a, b []NoteMetadata) bool {
 			sortedA[i].Title != sortedB[i].Title ||
 			sortedA[i].ContentHeader != sortedB[i].ContentHeader ||
 			sortedA[i].Language != sortedB[i].Language ||
-			!sortedA[i].ModifiedTime.Equal(sortedB[i].ModifiedTime) ||
+			sortedA[i].ModifiedTime != sortedB[i].ModifiedTime ||
 			sortedA[i].Archived != sortedB[i].Archived ||
 			sortedA[i].ContentHash != sortedB[i].ContentHash ||
 			sortedA[i].Order != sortedB[i].Order {
@@ -422,10 +425,10 @@ func (s *noteService) resolveMetadataConflicts() error {
 // 2つのメタデータを比較して競合を解決する ------------------------------------------------------------
 func (s *noteService) resolveMetadata(listMetadata, fileMetadata NoteMetadata) NoteMetadata {
 	// ModifiedTimeを比較して新しい方を採用
-	if listMetadata.ModifiedTime.After(fileMetadata.ModifiedTime) {
+	if listMetadata.ModifiedTime > fileMetadata.ModifiedTime {
 		// リストの方が新しい場合はリストのメタデータを採用
 		return listMetadata
-	} else if fileMetadata.ModifiedTime.After(listMetadata.ModifiedTime) {
+	} else if fileMetadata.ModifiedTime > listMetadata.ModifiedTime {
 		// ファイルの方が新しい場合はファイルのメタデータを採用（OrderとContentHashは保持）
 		fileMetadata.Order = listMetadata.Order
 		fileMetadata.ContentHash = listMetadata.ContentHash

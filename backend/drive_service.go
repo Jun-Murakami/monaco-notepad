@@ -502,7 +502,7 @@ func (s *driveService) mergeNotes(
 				continue
 			}
 			// ハッシュが異なる場合は更新日時を比較
-			if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
+			if cloudNote.ModifiedTime > localNote.ModifiedTime {
 				mergedNotes = append(mergedNotes, cloudNote)
 				s.logger.Info("Downloading note %s from cloud because hash is different", id)
 				note, err := s.driveSync.DownloadNote(ctx, id)
@@ -594,7 +594,7 @@ func (s *driveService) syncNoteCloudToLocal(ctx context.Context, noteID string, 
 		}
 	}
 	// クラウドの方が新しい場合は上書きダウンロード
-	if cloudNote.ModifiedTime.After(localNote.ModifiedTime) {
+	if cloudNote.ModifiedTime > localNote.ModifiedTime {
 		s.logger.Info("Downloading note %s from cloud because it is newer than local", noteID)
 		if note, dlErr := s.driveSync.DownloadNote(ctx, noteID); dlErr != nil {
 			return dlErr

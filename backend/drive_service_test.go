@@ -423,7 +423,7 @@ func TestOfflineToOnlineSync(t *testing.T) {
 		Title:        "オフラインノート",
 		Content:      "オフライン状態で作成されたノート",
 		Language:     "plaintext",
-		ModifiedTime: time.Now(),
+		ModifiedTime: time.Now().Format(time.RFC3339),
 	}
 
 	// オフライン状態でノートを保存
@@ -461,7 +461,7 @@ func TestConflictResolution(t *testing.T) {
 		Title:        "ローカルバージョン",
 		Content:      "ローカルの内容",
 		Language:     "plaintext",
-		ModifiedTime: time.Now().Add(-time.Hour),
+		ModifiedTime: time.Now().Add(-time.Hour).Format(time.RFC3339),
 	}
 
 	// ローカルノートを保存
@@ -474,7 +474,7 @@ func TestConflictResolution(t *testing.T) {
 		Title:        "クラウドバージョン",
 		Content:      "クラウドの内容",
 		Language:     "plaintext",
-		ModifiedTime: time.Now(),
+		ModifiedTime: time.Now().Format(time.RFC3339),
 	}
 
 	// DriveServiceのモックを設定
@@ -565,7 +565,7 @@ func TestPeriodicSync(t *testing.T) {
 		Title:        "定期同期テスト",
 		Content:      "定期的な同期のテスト用ノート",
 		Language:     "plaintext",
-		ModifiedTime: time.Now().Add(-time.Hour),
+		ModifiedTime: time.Now().Add(-time.Hour).Format(time.RFC3339),
 	}
 
 	// ローカルノートを保存
@@ -592,7 +592,7 @@ func TestPeriodicSync(t *testing.T) {
 		Title:        "更新されたタイトル",
 		Content:      "更新された内容",
 		Language:     "plaintext",
-		ModifiedTime: time.Now(),
+		ModifiedTime: time.Now().Format(time.RFC3339),
 	}
 
 	// クラウドノートをDriveOperationsに保存
@@ -699,9 +699,9 @@ func TestNoteOrderConflict(t *testing.T) {
 
 	// 複数のノートを作成
 	notes := []*Note{
-		{ID: "note1", Title: "ノート1", Order: 0, ModifiedTime: time.Now().Add(-time.Hour)},
-		{ID: "note2", Title: "ノート2", Order: 1, ModifiedTime: time.Now().Add(-time.Hour)},
-		{ID: "note3", Title: "ノート3", Order: 2, ModifiedTime: time.Now().Add(-time.Hour)},
+		{ID: "note1", Title: "ノート1", Order: 0, ModifiedTime: time.Now().Add(-time.Hour).Format(time.RFC3339)},
+		{ID: "note2", Title: "ノート2", Order: 1, ModifiedTime: time.Now().Add(-time.Hour).Format(time.RFC3339)},
+		{ID: "note3", Title: "ノート3", Order: 2, ModifiedTime: time.Now().Add(-time.Hour).Format(time.RFC3339)},
 	}
 
 	// ノートを保存
@@ -718,9 +718,9 @@ func TestNoteOrderConflict(t *testing.T) {
 
 	// クラウドの異なる順序をシミュレート
 	cloudNotes := []NoteMetadata{
-		{ID: "note2", Title: "ノート2", Order: 0, ModifiedTime: time.Now()},
-		{ID: "note1", Title: "ノート1", Order: 1, ModifiedTime: time.Now()},
-		{ID: "note3", Title: "ノート3", Order: 2, ModifiedTime: time.Now()},
+		{ID: "note2", Title: "ノート2", Order: 0, ModifiedTime: time.Now().Format(time.RFC3339)},
+		{ID: "note1", Title: "ノート1", Order: 1, ModifiedTime: time.Now().Format(time.RFC3339)},
+		{ID: "note3", Title: "ノート3", Order: 2, ModifiedTime: time.Now().Format(time.RFC3339)},
 	}
 
 	// クラウドノートリストを設定
