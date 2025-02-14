@@ -15,7 +15,7 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
   const [fileNotes, setFileNotes] = useState<FileNote[]>([]);
   const [currentFileNote, setCurrentFileNote] = useState<FileNote | null>(null);
 
-  // ファイルの変更チェックとリロードの共通処理
+  // ファイルの変更チェックとリロードの共通処理 ------------------------------------------------------------
   const checkAndReloadFile = async (fileNote: FileNote) => {
     try {
       const isModified = await CheckFileModified(fileNote.filePath, fileNote.modifiedTime);
@@ -52,20 +52,20 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
     }
   };
 
-  //自動保存の処理 (デバウンスあり)
+  //自動保存の処理 (デバウンスあり) ------------------------------------------------------------
   useEffect(() => {
     const debounce = setTimeout(() => {
       if (fileNotes.length > 0) {
         handleSaveFileNotes(fileNotes);
       }
-    }, 5000);
+    }, 1000);
 
     return () => {
       clearTimeout(debounce);
     };
   }, [fileNotes, currentFileNote]);
 
-  // ウィンドウフォーカス時のファイル変更チェック
+  // ウィンドウフォーカス時のファイル変更チェック ------------------------------------------------------------
   useEffect(() => {
     const handleFocus = async () => {
       if (currentFileNote) {
@@ -79,7 +79,7 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
     };
   }, [currentFileNote, checkAndReloadFile]);
 
-  // ファイルノートが変更されたときの処理
+  // ファイルノートが変更されたときの処理 ------------------------------------------------------------
   const handleFileNoteContentChange = (newContent: string) => {
     if (!currentFileNote) {
       return;
@@ -95,7 +95,7 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
     ));
   };
 
-  // ファイルノートを保存したときの処理
+  // ファイルノートを保存したときの処理 ------------------------------------------------------------
   const handleSaveFileNotes = async (fileNotes: FileNote[]) => {
     try {
       if (!fileNotes) return;
@@ -106,11 +106,10 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
     }
   };
 
-  // ノートを選択したときの処理
+  // ノートを選択したときの処理 ------------------------------------------------------------
   const handleSelectFileNote = async (note: Note | FileNote) => {
     if (!('filePath' in note)) {
       // FileNoteでない場合は何もしない
-      setCurrentFileNote(null);
       return;
     }
     const wasReloaded = await checkAndReloadFile(note);
@@ -119,8 +118,9 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
     }
   };
 
-  // 現在のファイルを閉じる処理
+  // ファイルを閉じる処理 ------------------------------------------------------------
   const handleCloseFile = async (fileNote: FileNote) => {
+    // ファイルが変更されている場合は、保存するかどうかを確認
     if (fileNote && fileNote.content !== fileNote.originalContent) {
       const shouldClose = await showMessage('File has unsaved changes', 'Do you want to discard the changes and close the file?', true, 'Discard', 'Cancel');
 
@@ -128,29 +128,29 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
         return;
       }
     }
+    // ファイルを閉じる
     const newFileNotes = fileNotes.filter(note => note.id !== fileNote.id);
     setFileNotes(newFileNotes);
     await SaveFileNotes(newFileNotes.map(note => backend.FileNote.createFrom(note)));
-    if (currentFileNote?.id === fileNote.id) {
-      setCurrentFileNote(null);
-    }
+    // ファイルが残っている場合は、最初のファイルを選択
     if (newFileNotes.length > 0) {
       setCurrentFileNote(newFileNotes[0]);
-      return;
     } else {
+      // ファイルがない場合は、現在のファイルを閉じる
       setCurrentFileNote(null);
-    }
-
-    const activeNotes = notes.filter(note => !note.archived);
-    if (activeNotes.length > 0) {
-      handleSelectNote(activeNotes[0]);
-      handleSelectFileNote(activeNotes[0]);
-      setCurrentNote(activeNotes[0]);
-    } else {
-      handleNewNote();
+      // アクティブなノートがある場合は、そのノートを選択
+      const activeNotes = notes.filter(note => !note.archived);
+      if (activeNotes.length > 0) {
+        handleSelectNote(activeNotes[0]);
+        setCurrentFileNote(null);
+        setCurrentNote(activeNotes[0]);
+      } else {
+        handleNewNote();
+      }
     }
   };
 
+  // ファイルが変更されているかどうかを確認する ------------------------------------------------------------
   const isFileModified = (fileId: string) => {
     const note = fileNotes.find(note => note.id === fileId);
     return note ? note.content !== note.originalContent : false;

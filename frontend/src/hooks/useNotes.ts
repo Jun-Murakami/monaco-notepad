@@ -13,20 +13,13 @@ export const useNotes = () => {
   const isClosing = useRef(false);
   const currentNoteRef = useRef<Note | null>(null);
 
-  // currentNoteの変更を追跡
+  // currentNoteの変更を追跡 ------------------------------------------------------------
   useEffect(() => {
     currentNoteRef.current = currentNote;
   }, [currentNote]);
 
-  // 初期ロードとイベントリスナーの設定
+  // 初期ロードとイベントリスナーの設定 ------------------------------------------------------------
   useEffect(() => {
-    const loadNotes = async () => {
-      const notes = await ListNotes();
-      setNotes(notes);
-    };
-
-    loadNotes();
-
     // notes:reloadイベントのハンドラを登録
     runtime.EventsOn('notes:reload', async () => {
       const notes = await ListNotes();
@@ -84,7 +77,7 @@ export const useNotes = () => {
     };
   }, []);
 
-  // 自動保存の処理 (デバウンスありSynchingSynching)
+  // 自動保存の処理 (デバウンスありSynchingSynching) ------------------------------------------------------------
   useEffect(() => {
     if (!currentNote) return;
 
@@ -92,14 +85,14 @@ export const useNotes = () => {
       if (isNoteModified.current) {
         saveCurrentNote();
       }
-    }, 5000); // 5秒ごとに自動保存
+    }, 3000); // 3秒ごとに自動保存
 
     return () => {
       clearTimeout(debounce);
     };
   }, [currentNote]);
 
-  // 現在のノートを保存する
+  // 現在のノートを保存する ------------------------------------------------------------
   const saveCurrentNote = async () => {
     if (!currentNote?.id || !isNoteModified.current) return;
     try {
@@ -110,7 +103,7 @@ export const useNotes = () => {
     }
   };
 
-  // 新規ノート作成のロジックを関数として抽出
+  // 新規ノート作成のロジックを関数として抽出 ------------------------------------------------------------
   const createNewNote = async () => {
     const newNote: Note = {
       id: crypto.randomUUID(),
@@ -128,7 +121,7 @@ export const useNotes = () => {
     return newNote;
   };
 
-  // 新規ノート作成
+  // 新規ノート作成 ------------------------------------------------------------
   const handleNewNote = async () => {
     if (currentNote && isNoteModified.current) {
       await saveCurrentNote();
@@ -136,19 +129,14 @@ export const useNotes = () => {
     await createNewNote();
   };
 
-  // ノートをアーカイブする
+  // ノートをアーカイブする ------------------------------------------------------------
   const handleArchiveNote = async (noteId: string) => {
     const note = notes.find((note) => note.id === noteId);
     if (!note) return;
 
-    // コンテンツヘッダーを生成
+    // コンテンツヘッダーを生成(最初の3行を200文字まで)
     const content = note.content || '';
-    const contentHeader = content
-      .split('\n')
-      .filter(line => line.trim().length > 0)
-      .slice(0, 3)  // 最初の3行を取得
-      .join('\n')
-      .slice(0, 200);  // 最大200文字まで
+    const contentHeader = content.match(/^.+$/gm)?.slice(0, 3).join('\n').slice(0, 200) || '';
 
     const archivedNote = {
       ...note,
@@ -162,30 +150,24 @@ export const useNotes = () => {
     );
     await SaveNote(backend.Note.createFrom(archivedNote), "update");
 
+    // アーカイブされたノートを選択している場合は、アクティブなノートに切り替える
     if (currentNote?.id === noteId) {
       const activeNotes = notes.filter((note) => !note.archived && note.id !== noteId);
       if (activeNotes.length > 0) {
         setCurrentNote(activeNotes[0]);
       } else {
-        const emptyNote: Note = {
-          id: crypto.randomUUID(),
-          title: '',
-          content: '',
-          contentHeader: null,
-          language: currentNote?.language || 'plaintext',
-          modifiedTime: new Date().toISOString(),
-          archived: false,
-        };
-        setCurrentNote(emptyNote);
+        await handleNewNote();
       }
     }
   };
 
-  // ノートを選択する
-  const handleSelectNote = async (note: Note | FileNote, isNew: boolean = false) => {
+  // ノートを選択する ------------------------------------------------------------
+  const handleSelectNote = async (note: Note | FileNote) => {
+    // 現在のノートが変更されている場合は切り替える前に保存
     if (currentNote?.id && isNoteModified.current) {
       await saveCurrentNote();
     }
+    // アーカイブページを閉じる
     setShowArchived(false);
 
     if ('filePath' in note) {
@@ -193,45 +175,29 @@ export const useNotes = () => {
       setCurrentNote(null);
       return;
     }
-
-    if (isNew) {
-      await SaveNote(backend.Note.createFrom(note), "create");
-    }
-    // アーカイブされたノートの場合、コンテンツを読み込む
-    if (note.archived) {
-      const fullNote = await LoadArchivedNote(note.id);
-      if (fullNote) {
-        previousContent.current = fullNote.content || '';
-        setCurrentNote(fullNote);
-        // ノートリストも更新
-        setNotes((prev) =>
-          prev.map((n) => (n.id === fullNote.id ? { ...n, content: fullNote.content } : n))
-        );
-      }
-    } else {
-      previousContent.current = note.content || '';
-      setCurrentNote(note);
-    }
+    previousContent.current = note.content || '';
+    setCurrentNote(note);
     isNoteModified.current = false;
   };
 
-  // ノートをアーカイブ解除する
+  // ノートをアーカイブ解除する ------------------------------------------------------------
   const handleUnarchiveNote = async (noteId: string) => {
     const note = notes.find((note) => note.id === noteId);
     if (!note) return;
 
     // アーカイブされたノートのコンテンツを読み込む
-    const fullNote = await LoadArchivedNote(noteId);
-    if (fullNote) {
-      const unarchivedNote = { ...fullNote, archived: false };
+    const loadedNote = await LoadArchivedNote(noteId);
+    if (loadedNote) {
+      const unarchivedNote = { ...loadedNote, archived: false };
       await SaveNote(backend.Note.createFrom(unarchivedNote), "update");
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note))
       );
     }
+    setCurrentNote(note);
   };
 
-  // ノートを削除する
+  // ノートを削除する ------------------------------------------------------------
   const handleDeleteNote = async (noteId: string) => {
     // 削除前の状態を確認
     const activeNotes = notes.filter(note => !note.archived);
@@ -242,6 +208,7 @@ export const useNotes = () => {
 
     // ノートの削除処理
     await DeleteNote(noteId);
+    // ノートリストを更新
     setNotes((prev) => prev.filter((note) => note.id !== noteId));
 
     // アーカイブページでの処理
@@ -258,22 +225,9 @@ export const useNotes = () => {
         // アクティブなノートが2つ以上ある場合は何もしない（アーカイブページのまま）
       }
     }
-
-    // 現在のノートが削除された場合の処理
-    if (currentNote?.id === noteId) {
-      const remainingNotes = notes.filter((note) =>
-        note.id !== noteId &&
-        (showArchived ? true : !note.archived)
-      );
-      if (remainingNotes.length > 0) {
-        setCurrentNote(remainingNotes[0]);
-      } else {
-        setCurrentNote(null);
-      }
-    }
   };
 
-  // ノートをすべて削除する
+  // ノートをすべて削除する ------------------------------------------------------------
   const handleDeleteAllArchivedNotes = async () => {
     const archivedNotes = notes.filter(note => note.archived);
 
@@ -281,66 +235,58 @@ export const useNotes = () => {
     for (const note of archivedNotes) {
       await DeleteNote(note.id);
     }
-
     // ノートリストを更新
     setNotes(prev => prev.filter(note => !note.archived));
 
-    // 現在のノートがアーカイブされていた場合、アクティブなノートに切り替える
-    if (currentNote?.archived) {
-      const activeNotes = notes.filter(note => !note.archived);
-      if (activeNotes.length > 0) {
-        setCurrentNote(activeNotes[0]);
-      } else {
-        await createNewNote();
-      }
+    // アクティブなノートがある場合はそのノートに遷移
+    const activeNotes = notes.filter(note => !note.archived);
+    if (activeNotes.length > 0) {
+      setCurrentNote(activeNotes[0]);
+    } else {
+      // アクティブなノートがない場合は新規ノートを作成
+      await createNewNote();
     }
-
     setShowArchived(false);
   };
 
-  // ノートのタイトルを変更する
+  // ノートのタイトル、言語、内容を変更する ------------------------------------------------------------
+  const stateChanger = (target: 'title' | 'language' | 'content') => {
+    return (newState: string) => {
+      setCurrentNote((prev) => {
+        if (!prev) return prev;
+        // 前回の内容と同じ場合は変更なしとする
+        if (newState === previousContent.current) {
+          return prev;
+        }
+
+        // コンテンツの変更は、前回の内容と同じ場合は変更なしとする
+        if (target === 'content') {
+          previousContent.current = newState;
+        }
+        // 変更があった場合は、modifiedTimeを更新
+        isNoteModified.current = true;
+        return {
+          ...prev,
+          [target]: newState,
+          modifiedTime: new Date().toISOString(),
+        };
+      });
+    }
+  }
+
+  // ノートのタイトルを変更する ------------------------------------------------------------
   const handleTitleChange = (newTitle: string) => {
-    setCurrentNote((prev) => {
-      if (!prev) return prev;
-      isNoteModified.current = true;
-      return {
-        ...prev,
-        title: newTitle,
-        modifiedTime: new Date().toISOString(),
-      };
-    });
+    stateChanger('title')(newTitle);
   };
 
-  // ノートの言語を変更する
+  // ノートの言語を変更する ------------------------------------------------------------
   const handleLanguageChange = (newLanguage: string) => {
-    setCurrentNote((prev) => {
-      if (!prev) return prev;
-      isNoteModified.current = true;
-      return {
-        ...prev,
-        language: newLanguage,
-      };
-    });
+    stateChanger('language')(newLanguage);
   };
 
-  // ノートの内容を変更する
+  // ノートの内容を変更する ------------------------------------------------------------
   const handleNoteContentChange = (newContent: string) => {
-    setCurrentNote((prev) => {
-      if (!prev) return prev;
-
-      // 前回の内容と同じ場合は変更なしとする
-      if (newContent === previousContent.current) {
-        return prev;
-      }
-
-      previousContent.current = newContent;
-      isNoteModified.current = true;
-      return {
-        ...prev,
-        content: newContent,
-        modifiedTime: new Date().toISOString(),
-      };
-    });
+    stateChanger('content')(newContent);
   };
 
   return {

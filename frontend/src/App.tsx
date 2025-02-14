@@ -192,7 +192,6 @@ function App() {
                   notes={fileNotes}
                   currentNote={currentFileNote}
                   onNoteSelect={async (note) => {
-                    await handleSelectNote(note);
                     await handleSelectFileNote(note);
                   }}
                   onConvertToNote={handleConvertToNote}
@@ -225,7 +224,6 @@ function App() {
               currentNote={currentNote}
               onNoteSelect={async (note) => {
                 await handleSelectNote(note);
-                await handleSelectFileNote(note);
               }}
               onArchive={handleArchiveNote}
               onReorder={async (newNotes) => {
