@@ -1,8 +1,7 @@
 import { getLanguageByExtension, getExtensionByLanguage } from '../lib/monaco';
 import { SelectFile, OpenFile, SaveFile, SelectSaveFileUri, GetModifiedTime, } from '../../wailsjs/go/backend/App';
 import { Note, FileNote } from '../types';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { isBinaryFile } from '../utils/fileUtils';
 import * as runtime from '../../wailsjs/runtime';
 
@@ -18,7 +17,7 @@ export function useFileOperations(
   handleSaveFileNotes: (fileNotes: FileNote[]) => Promise<void>
 ) {
   // ファイルを開く共通処理
-  const createFileNote = async (content: string, filePath: string): Promise<FileNote | null> => {
+  const createFileNote = useCallback(async (content: string, filePath: string): Promise<FileNote | null> => {
     if (isBinaryFile(content)) {
       showMessage('Error', 'Failed to open the file. Please check the file format.');
       return null;
@@ -42,13 +41,20 @@ export function useFileOperations(
     };
 
     return newFileNote;
-  };
+  }, [showMessage]);
 
   // ファイルを開く
   const handleOpenFile = async () => {
     try {
       const filePath = await SelectFile();
       if (!filePath || Array.isArray(filePath)) return;
+
+      // 既に同じファイルが開かれているかチェック
+      const existingFile = fileNotes.find(note => note.filePath === filePath);
+      if (existingFile) {
+        await handleNoteSelect(existingFile);
+        return;
+      }
 
       const content = await OpenFile(filePath);
       if (typeof content !== 'string') return;
@@ -66,17 +72,22 @@ export function useFileOperations(
   };
 
   // ファイルをドラッグアンドドロップする
-  const handleFileDrop = async (filePath: string) => {
+  const handleFileDrop = useCallback(async (filePath: string) => {
     try {
       if (!filePath) return;
+
+      // 既に同じファイルが開かれているかチェック
+      const existingFile = fileNotes.find(note => note.filePath === filePath);
+      if (existingFile) {
+        await handleNoteSelect(existingFile);
+        return;
+      }
+
       const content = await OpenFile(filePath);
       if (typeof content !== 'string') return;
 
       const newFileNote = await createFileNote(content, filePath);
       if (!newFileNote) return;
-
-      console.log('newFileNote', newFileNote);
-      console.log('fileNotes', fileNotes);
 
       const updatedFileNotes = [newFileNote, ...fileNotes];
       setFileNotes(updatedFileNotes);
@@ -85,7 +96,7 @@ export function useFileOperations(
     } catch (error) {
       console.error('Failed to handle dropped file:', error);
     }
-  };
+  }, [fileNotes, createFileNote, setFileNotes, handleSaveFileNotes, handleNoteSelect, showMessage]);
 
   // ファイルをエクスポートする
   const handleSaveAsFile = async () => {
@@ -152,7 +163,7 @@ export function useFileOperations(
 
 
   useEffect(() => {
-    const cleanup = EventsOn('file:open-external', async (data: { path: string, content: string }) => {
+    const cleanup = runtime.EventsOn('file:open-external', async (data: { path: string, content: string }) => {
       const newFileNote = await createFileNote(data.content, data.path);
       if (!newFileNote) return;
 
@@ -171,8 +182,11 @@ export function useFileOperations(
       }
     }, true);
 
-    return () => cleanup();
-  }, [fileNotes, handleNoteSelect, setFileNotes, handleFileDrop, handleSaveFileNotes]);
+    return () => {
+      cleanup();
+      runtime.OnFileDropOff();
+    };
+  }, [fileNotes, handleNoteSelect, setFileNotes, handleSaveFileNotes, handleFileDrop]);
 
   const handleCloseFile = async (note: FileNote) => {
     const updatedFileNotes = fileNotes.filter(f => f.fileName !== note.fileName);

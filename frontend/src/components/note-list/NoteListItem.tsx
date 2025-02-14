@@ -1,7 +1,7 @@
 import { Box, IconButton, ListItemButton, Typography, Tooltip } from '@mui/material';
 import { Archive, DriveFileRenameOutline } from '@mui/icons-material';
 import { Note, FileNote } from '../../types';
-import dayjs from 'dayjs';
+import dayjs from '../../utils/dayjs';
 import { DragHandleIcon } from './DragHandleIcon';
 
 interface NoteListItemProps {

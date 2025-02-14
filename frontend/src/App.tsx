@@ -64,6 +64,9 @@ function App() {
   } = useFileNotes({ showMessage });
 
   const handleNoteOrFileSelect = async (note: Note | FileNote) => {
+    if (showArchived) {
+      setShowArchived(false);
+    }
     if (isFileNote(note)) {
       setCurrentFileNote(note);
       setCurrentNote(null);

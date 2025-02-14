@@ -83,10 +83,10 @@ export const AppBar: React.FC<{
       <Box sx={{ width: '100%', height: 70, display: 'flex', alignItems: 'center', gap: 1 }}>
         <TextField
           sx={{ width: '100%' }}
-          label={isFileNote(currentNote) ? 'File Name' : 'Title'}
+          label={isFileNote(currentNote) ? 'File Path' : 'Title'}
           variant='outlined'
           size='small'
-          value={isFileNote(currentNote) ? currentNote.fileName : currentNote?.title || ''}
+          value={isFileNote(currentNote) ? currentNote.filePath : currentNote?.title || ''}
           onChange={(e) => onTitleChange(e.target.value)}
           disabled={isFileNote(currentNote)}
         />
