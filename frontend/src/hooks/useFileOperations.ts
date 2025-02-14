@@ -37,7 +37,7 @@ export function useFileOperations(
       content: content,
       originalContent: content,
       language: language,
-      modifiedTime: modifiedTime,
+      modifiedTime: modifiedTime.toString(),
     };
 
     return newFileNote;

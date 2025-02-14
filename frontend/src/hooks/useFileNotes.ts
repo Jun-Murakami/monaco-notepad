@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FileNote } from '../types';
-import { SaveFileNotes, CheckFileModified, ReloadFileContent, GetModifiedTime } from '../../wailsjs/go/backend/App';
+import { SaveFileNotes, CheckFileModified, OpenFile, GetModifiedTime } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 
 interface UseFileNotesProps {
@@ -60,25 +60,30 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
         const shouldReload = await showMessage('File has been modified outside of the app', 'Do you want to reload the file?', true, 'Reload', 'Keep current state');
 
         if (shouldReload) {
-          const reloadedContent = await ReloadFileContent(fileNote.filePath);
-          fileNote = {
+          const reloadedContent = await OpenFile(fileNote.filePath);
+          const modifiedTime = await GetModifiedTime(fileNote.filePath);
+          const newFileNote = {
             ...fileNote,
             content: reloadedContent,
             originalContent: reloadedContent,
-            modifiedTime: new Date().toISOString(),
+            modifiedTime: modifiedTime.toString(),
           };
+          setCurrentFileNote(newFileNote);
+          setFileNotes(prev => prev.map(note =>
+            note.id === fileNote.id ? newFileNote : note
+          ));
+          await SaveFileNotes([newFileNote]);
+          return;
         }
       }
     } catch (error) {
       console.error('Failed to check file modification:', error);
     }
-
     setCurrentFileNote(fileNote);
   };
 
   // 現在のファイルを閉じる処理
   const handleCloseFile = async (fileNote: FileNote) => {
-    console.log('handleCloseFile', fileNote);
     if (fileNote && fileNote.content !== fileNote.originalContent) {
       const shouldClose = await showMessage('File has unsaved changes', 'Do you want to discard the changes and close the file?', true, 'Discard', 'Cancel');
 

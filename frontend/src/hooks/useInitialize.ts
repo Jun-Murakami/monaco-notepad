@@ -33,7 +33,7 @@ export const useInitialize = (
             content: file.content,
             originalContent: file.content,
             language: file.language,
-            modifiedTime: file.modifiedTime,
+            modifiedTime: file.modifiedTime.toString(),
           }));
           setFileNotes(loadedFileNotes);
         }
@@ -45,8 +45,12 @@ export const useInitialize = (
           handleNewNote();
           return;
         }
-        setNotes(notes);
-        const activeNotes = notes.filter((note) => !note.archived);
+        const parsedNotes = notes.map(note => ({
+          ...note,
+          modifiedTime: note.modifiedTime.toString(),
+        }));
+        setNotes(parsedNotes);
+        const activeNotes = parsedNotes.filter((note) => !note.archived);
         if (activeNotes.length > 0) {
           handleNoteSelect(activeNotes[0]);
         } else {

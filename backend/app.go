@@ -440,8 +440,13 @@ func (a *App) OpenFile(filePath string) (string, error) {
 }
 
 // 指定されたパスのファイルの変更時間を取得
-func (a *App) GetModifiedTime(filePath string) (string, error) {
+func (a *App) GetModifiedTime(filePath string) (time.Time, error) {
 	return a.fileService.GetModifiedTime(filePath)
+}
+
+// ファイルが変更されているかチェック
+func (a *App) CheckFileModified(filePath string, lastModifiedTime string) (bool, error) {
+	return a.fileService.CheckFileModified(filePath, lastModifiedTime)
 }
 
 // 保存ダイアログを表示し、選択された保存先のパスを返す
@@ -506,28 +511,4 @@ func (a *App) BringToFront() {
 // アプリケーションのバージョンを返す
 func (a *App) GetAppVersion() (string, error) {
 	return Version, nil
-}
-
-// ファイルが変更されているかチェック
-func (a *App) CheckFileModified(filePath string, lastModifiedTime string) (bool, error) {
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return false, err
-	}
-
-	lastModified, err := time.Parse(time.RFC3339, lastModifiedTime)
-	if err != nil {
-		return false, err
-	}
-
-	return info.ModTime().After(lastModified), nil
-}
-
-// ファイルの内容を再読み込み
-func (a *App) ReloadFileContent(filePath string) (string, error) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-	return string(content), nil
 }

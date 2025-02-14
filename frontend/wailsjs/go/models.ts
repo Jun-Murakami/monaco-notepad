@@ -42,8 +42,7 @@ export namespace backend {
 	    content: string;
 	    contentHeader: string;
 	    language: string;
-	    // Go type: time
-	    modifiedTime: any;
+	    modifiedTime: time.Time;
 	    archived: boolean;
 	    order: number;
 	
@@ -58,7 +57,7 @@ export namespace backend {
 	        this.content = source["content"];
 	        this.contentHeader = source["contentHeader"];
 	        this.language = source["language"];
-	        this.modifiedTime = this.convertValues(source["modifiedTime"], null);
+	        this.modifiedTime = this.convertValues(source["modifiedTime"], time.Time);
 	        this.archived = source["archived"];
 	        this.order = source["order"];
 	    }
@@ -111,6 +110,23 @@ export namespace backend {
 	        this.windowY = source["windowY"];
 	        this.isMaximized = source["isMaximized"];
 	        this.isDebug = source["isDebug"];
+	    }
+	}
+
+}
+
+export namespace time {
+	
+	export class Time {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new Time(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
 	    }
 	}
 

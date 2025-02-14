@@ -57,6 +57,7 @@ function App() {
     setFileNotes,
     currentFileNote,
     setCurrentFileNote,
+    handleSelectFileNote,
     handleSaveFileNotes,
     handleFileNoteContentChange,
     handleCloseFile,
@@ -70,6 +71,7 @@ function App() {
     if (isFileNote(note)) {
       setCurrentFileNote(note);
       setCurrentNote(null);
+      await handleSelectFileNote(note);
     } else {
       setCurrentNote(note);
       setCurrentFileNote(null);
