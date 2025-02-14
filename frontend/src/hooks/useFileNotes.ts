@@ -11,6 +11,43 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
   const [fileNotes, setFileNotes] = useState<FileNote[]>([]);
   const [currentFileNote, setCurrentFileNote] = useState<FileNote | null>(null);
 
+  // ファイルの変更チェックとリロードの共通処理
+  const checkAndReloadFile = async (fileNote: FileNote) => {
+    try {
+      const isModified = await CheckFileModified(fileNote.filePath, fileNote.modifiedTime);
+      if (isModified) {
+        const shouldReload = await showMessage(
+          'File has been modified outside of the app',
+          'Do you want to reload the file?',
+          true,
+          'Reload',
+          'Keep current state'
+        );
+
+        if (shouldReload) {
+          const reloadedContent = await OpenFile(fileNote.filePath);
+          const modifiedTime = await GetModifiedTime(fileNote.filePath);
+          const newFileNote = {
+            ...fileNote,
+            content: reloadedContent,
+            originalContent: reloadedContent,
+            modifiedTime: modifiedTime.toString(),
+          };
+          setCurrentFileNote(newFileNote);
+          setFileNotes(prev => prev.map(note =>
+            note.id === fileNote.id ? newFileNote : note
+          ));
+          await SaveFileNotes([newFileNote]);
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to check file modification:', error);
+      return false;
+    }
+  };
+
   //自動保存の処理 (デバウンスあり)
   useEffect(() => {
     const debounce = setTimeout(() => {
@@ -23,6 +60,20 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
       clearTimeout(debounce);
     };
   }, [fileNotes, currentFileNote]);
+
+  // ウィンドウフォーカス時のファイル変更チェック
+  useEffect(() => {
+    const handleFocus = async () => {
+      if (currentFileNote) {
+        await checkAndReloadFile(currentFileNote);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [currentFileNote, checkAndReloadFile]);
 
   // ファイルノートが変更されたときの処理
   const handleFileNoteContentChange = (newContent: string) => {
@@ -53,33 +104,10 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
 
   // ファイルノートを選択したときの処理
   const handleSelectFileNote = async (fileNote: FileNote) => {
-    try {
-      // ファイルが外部で変更されているかチェック
-      const isModified = await CheckFileModified(fileNote.filePath, fileNote.modifiedTime);
-      if (isModified) {
-        const shouldReload = await showMessage('File has been modified outside of the app', 'Do you want to reload the file?', true, 'Reload', 'Keep current state');
-
-        if (shouldReload) {
-          const reloadedContent = await OpenFile(fileNote.filePath);
-          const modifiedTime = await GetModifiedTime(fileNote.filePath);
-          const newFileNote = {
-            ...fileNote,
-            content: reloadedContent,
-            originalContent: reloadedContent,
-            modifiedTime: modifiedTime.toString(),
-          };
-          setCurrentFileNote(newFileNote);
-          setFileNotes(prev => prev.map(note =>
-            note.id === fileNote.id ? newFileNote : note
-          ));
-          await SaveFileNotes([newFileNote]);
-          return;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to check file modification:', error);
+    const wasReloaded = await checkAndReloadFile(fileNote);
+    if (!wasReloaded) {
+      setCurrentFileNote(fileNote);
     }
-    setCurrentFileNote(fileNote);
   };
 
   // 現在のファイルを閉じる処理
