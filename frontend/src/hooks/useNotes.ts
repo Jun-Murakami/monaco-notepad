@@ -130,7 +130,7 @@ export const useNotes = () => {
 
   // 新規ノート作成
   const handleNewNote = async () => {
-    if (currentNote) {
+    if (currentNote && isNoteModified.current) {
       await saveCurrentNote();
     }
     await createNewNote();
@@ -182,7 +182,7 @@ export const useNotes = () => {
   };
 
   // ノートを選択する
-  const handleNoteSelect = async (note: Note | FileNote, isNew: boolean = false) => {
+  const handleSelectNote = async (note: Note | FileNote, isNew: boolean = false) => {
     if (currentNote?.id && isNoteModified.current) {
       await saveCurrentNote();
     }
@@ -190,6 +190,7 @@ export const useNotes = () => {
 
     if ('filePath' in note) {
       // FileNoteの場合は何もしない
+      setCurrentNote(null);
       return;
     }
 
@@ -346,13 +347,12 @@ export const useNotes = () => {
     notes,
     setNotes,
     currentNote,
-    setCurrentNote,
     showArchived,
     setShowArchived,
     saveCurrentNote,
     handleNewNote,
     handleArchiveNote,
-    handleNoteSelect,
+    handleSelectNote,
     handleUnarchiveNote,
     handleDeleteNote,
     handleDeleteAllArchivedNotes,

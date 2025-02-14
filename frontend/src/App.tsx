@@ -3,7 +3,7 @@ import { ThemeProvider, CssBaseline, Typography } from '@mui/material';
 import { Editor } from './components/Editor';
 import { Box, Divider, Button } from '@mui/material';
 import { AppBar } from './components/AppBar';
-import { NoteList } from './components/note-list/NoteList';
+import { NoteList } from './components/NoteList';
 import { lightTheme, darkTheme } from './lib/theme';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
@@ -22,7 +22,9 @@ import 'simplebar-react/dist/simplebar.min.css';
 import { Inventory } from '@mui/icons-material';
 
 function App() {
+  // エディタ設定
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
+  // メッセージダイアログ
   const {
     isMessageDialogOpen,
     messageTitle,
@@ -33,17 +35,16 @@ function App() {
     primaryButtonText,
     secondaryButtonText,
   } = useMessageDialog();
-
+  // ノート
   const {
     notes,
     setNotes,
     currentNote,
-    setCurrentNote,
     showArchived,
     setShowArchived,
     handleNewNote,
     handleArchiveNote,
-    handleNoteSelect,
+    handleSelectNote,
     handleUnarchiveNote,
     handleDeleteNote,
     handleDeleteAllArchivedNotes,
@@ -51,33 +52,18 @@ function App() {
     handleLanguageChange,
     handleNoteContentChange,
   } = useNotes();
-
+  // ファイルノート
   const {
     fileNotes,
     setFileNotes,
     currentFileNote,
-    setCurrentFileNote,
     handleSelectFileNote,
     handleSaveFileNotes,
     handleFileNoteContentChange,
     handleCloseFile,
     isFileModified,
   } = useFileNotes({ showMessage });
-
-  const handleNoteOrFileSelect = async (note: Note | FileNote) => {
-    if (showArchived) {
-      setShowArchived(false);
-    }
-    if (isFileNote(note)) {
-      setCurrentFileNote(note);
-      setCurrentNote(null);
-      await handleSelectFileNote(note);
-    } else {
-      setCurrentNote(note);
-      setCurrentFileNote(null);
-    }
-  };
-
+  // ファイル操作
   const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
     notes,
     setNotes,
@@ -85,12 +71,13 @@ function App() {
     currentFileNote,
     fileNotes,
     setFileNotes,
-    handleNoteOrFileSelect,
+    handleSelectNote,
+    handleSelectFileNote,
     showMessage,
     handleSaveFileNotes
   );
-
-  const { languages, platform } = useInitialize(setNotes, setFileNotes, handleNewNote, handleNoteSelect);
+  // 初期化
+  const { languages, platform } = useInitialize(setNotes, setFileNotes, handleNewNote, handleSelectNote, handleSelectFileNote);
 
   const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
 
@@ -181,7 +168,10 @@ function App() {
                 <NoteList
                   notes={fileNotes}
                   currentNote={currentFileNote}
-                  onNoteSelect={handleNoteOrFileSelect}
+                  onNoteSelect={async (note) => {
+                    await handleSelectNote(note);
+                    await handleSelectFileNote(note);
+                  }}
                   onConvertToNote={handleConvertToNote}
                   onSaveFile={handleSaveFile}
                   onReorder={async (newNotes) => {
@@ -209,7 +199,10 @@ function App() {
             <NoteList
               notes={notes}
               currentNote={currentNote}
-              onNoteSelect={handleNoteOrFileSelect}
+              onNoteSelect={async (note) => {
+                await handleSelectNote(note);
+                await handleSelectFileNote(note);
+              }}
               onArchive={handleArchiveNote}
               onReorder={async (newNotes) => {
                 setNotes(newNotes as Note[]);

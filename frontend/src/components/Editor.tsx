@@ -24,7 +24,6 @@ export const Editor: React.FC<EditorProps> = ({
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const [forceUpdate, setForceUpdate] = useState(0);
 
   // エディタの初期化
   useEffect(() => {
@@ -68,12 +67,6 @@ export const Editor: React.FC<EditorProps> = ({
           // 値が実際に変更された場合のみ通知
           onChange?.(currentValue || '');
         }
-      }),
-      editorInstanceRef.current.onDidChangeCursorPosition(() => {
-        setForceUpdate((prev) => prev + 1);
-      }),
-      editorInstanceRef.current.onDidChangeCursorSelection(() => {
-        setForceUpdate((prev) => prev + 1);
       }),
     ];
 
@@ -122,7 +115,6 @@ export const Editor: React.FC<EditorProps> = ({
         editorInstanceRef.current.setPosition(position);
         editorInstanceRef.current.revealPositionInCenter(position);
       }
-      setForceUpdate((prev) => prev + 1);
     }
   }, [value]);
 
@@ -136,7 +128,6 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.setPosition(position);
       editorInstanceRef.current.revealPositionInCenter(position);
     }
-    setForceUpdate((prev) => prev + 1);
   }, [currentNote]);
 
   return (

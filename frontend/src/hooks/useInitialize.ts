@@ -8,7 +8,8 @@ export const useInitialize = (
   setNotes: (notes: Note[]) => void,
   setFileNotes: (files: FileNote[]) => void,
   handleNewNote: () => void,
-  handleNoteSelect: (note: Note) => void,
+  handleSelectNote: (note: Note | FileNote) => void,
+  handleSelectFileNote: (note: Note | FileNote) => void,
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
@@ -24,17 +25,17 @@ export const useInitialize = (
         setLanguages(getSupportedLanguages());
 
         // ファイルノート一覧を取得
-        const lists = await LoadFileNotes();
-        if (lists) {
-          const loadedFileNotes = lists.map(file => ({
-            id: file.id,
-            filePath: file.filePath,
-            fileName: file.fileName,
-            content: file.content,
-            originalContent: file.content,
-            language: file.language,
-            modifiedTime: file.modifiedTime.toString(),
-          }));
+        const fileNotes = await LoadFileNotes();
+        const loadedFileNotes = fileNotes.map(file => ({
+          id: file.id,
+          filePath: file.filePath,
+          fileName: file.fileName,
+          content: file.content,
+          originalContent: file.content,
+          language: file.language,
+          modifiedTime: file.modifiedTime.toString(),
+        }));
+        if (loadedFileNotes.length > 0) {
           setFileNotes(loadedFileNotes);
         }
 
@@ -51,8 +52,12 @@ export const useInitialize = (
         }));
         setNotes(parsedNotes);
         const activeNotes = parsedNotes.filter((note) => !note.archived);
-        if (activeNotes.length > 0) {
-          handleNoteSelect(activeNotes[0]);
+        if (loadedFileNotes.length > 0) {
+          handleSelectNote(loadedFileNotes[0]);
+          handleSelectFileNote(loadedFileNotes[0]);
+        } else if (activeNotes.length > 0) {
+          handleSelectNote(activeNotes[0]);
+          handleSelectFileNote(activeNotes[0]);
         } else {
           handleNewNote();
         }

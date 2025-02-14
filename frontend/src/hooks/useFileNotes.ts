@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileNote } from '../types';
+import { Note, FileNote } from '../types';
 import { SaveFileNotes, CheckFileModified, OpenFile, GetModifiedTime } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 
@@ -102,11 +102,16 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
     }
   };
 
-  // ファイルノートを選択したときの処理
-  const handleSelectFileNote = async (fileNote: FileNote) => {
-    const wasReloaded = await checkAndReloadFile(fileNote);
+  // ノートを選択したときの処理
+  const handleSelectFileNote = async (note: Note | FileNote) => {
+    if (!('filePath' in note)) {
+      // FileNoteでない場合は何もしない
+      setCurrentFileNote(null);
+      return;
+    }
+    const wasReloaded = await checkAndReloadFile(note);
     if (!wasReloaded) {
-      setCurrentFileNote(fileNote);
+      setCurrentFileNote(note);
     }
   };
 
@@ -140,7 +145,6 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
     fileNotes,
     setFileNotes,
     currentFileNote,
-    setCurrentFileNote,
     handleSelectFileNote,
     handleSaveFileNotes,
     handleFileNoteContentChange,

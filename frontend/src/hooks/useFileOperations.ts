@@ -12,7 +12,8 @@ export function useFileOperations(
   currentFileNote: FileNote | null,
   fileNotes: FileNote[],
   setFileNotes: (files: FileNote[]) => void,
-  handleNoteSelect: (note: Note | FileNote, isNew?: boolean) => Promise<void>,
+  handleSelectNote: (note: Note | FileNote, isNew?: boolean) => Promise<void>,
+  handleSelectFileNote: (note: Note | FileNote) => Promise<void>,
   showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>,
   handleSaveFileNotes: (fileNotes: FileNote[]) => Promise<void>
 ) {
@@ -52,7 +53,8 @@ export function useFileOperations(
       // 既に同じファイルが開かれているかチェック
       const existingFile = fileNotes.find(note => note.filePath === filePath);
       if (existingFile) {
-        await handleNoteSelect(existingFile);
+        await handleSelectNote(existingFile);
+        await handleSelectFileNote(existingFile);
         return;
       }
 
@@ -65,7 +67,8 @@ export function useFileOperations(
       const updatedFileNotes = [newFileNote, ...fileNotes];
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
-      await handleNoteSelect(newFileNote);
+      await handleSelectNote(newFileNote);
+      await handleSelectFileNote(newFileNote);
     } catch (error) {
       console.error('Failed to open file:', error);
     }
@@ -79,7 +82,7 @@ export function useFileOperations(
       // 既に同じファイルが開かれているかチェック
       const existingFile = fileNotes.find(note => note.filePath === filePath);
       if (existingFile) {
-        await handleNoteSelect(existingFile);
+        await handleSelectFileNote(existingFile);
         return;
       }
 
@@ -92,11 +95,12 @@ export function useFileOperations(
       const updatedFileNotes = [newFileNote, ...fileNotes];
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
-      await handleNoteSelect(newFileNote);
+      await handleSelectNote(newFileNote);
+      await handleSelectFileNote(newFileNote);
     } catch (error) {
       console.error('Failed to handle dropped file:', error);
     }
-  }, [fileNotes, createFileNote, setFileNotes, handleSaveFileNotes, handleNoteSelect, showMessage]);
+  }, [fileNotes, createFileNote, setFileNotes, handleSaveFileNotes, handleSelectFileNote, showMessage]);
 
   // ファイルをエクスポートする
   const handleSaveAsFile = async () => {
@@ -158,7 +162,8 @@ export function useFileOperations(
     const updatedFileNotes = fileNotes.filter(f => f.id !== fileNote.id);
     setFileNotes(updatedFileNotes);
     await handleSaveFileNotes(updatedFileNotes);
-    await handleNoteSelect(newNote);
+    await handleSelectNote(newNote);
+    await handleSelectFileNote(newNote);
   };
 
 
@@ -170,7 +175,8 @@ export function useFileOperations(
       const updatedFileNotes = [newFileNote, ...fileNotes];
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
-      await handleNoteSelect(newFileNote);
+      await handleSelectNote(newFileNote);
+      await handleSelectFileNote(newFileNote);
     });
 
     runtime.OnFileDrop(async (_, __, paths) => {
@@ -186,14 +192,15 @@ export function useFileOperations(
       cleanup();
       runtime.OnFileDropOff();
     };
-  }, [fileNotes, handleNoteSelect, setFileNotes, handleSaveFileNotes, handleFileDrop]);
+  }, [fileNotes, handleSelectNote, setFileNotes, handleSaveFileNotes, handleFileDrop]);
 
   const handleCloseFile = async (note: FileNote) => {
     const updatedFileNotes = fileNotes.filter(f => f.fileName !== note.fileName);
     setFileNotes(updatedFileNotes);
     await handleSaveFileNotes(updatedFileNotes);
     if (currentNote?.id === note.id) {
-      await handleNoteSelect(notes[0]);
+      await handleSelectNote(notes[0]);
+      await handleSelectFileNote(notes[0]);
     }
   };
 
