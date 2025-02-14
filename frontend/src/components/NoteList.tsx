@@ -26,6 +26,7 @@ interface NoteListProps {
   isFileMode?: boolean;
   onCloseFile?: (note: FileNote) => Promise<void>;
   isFileModified?: (fileId: string) => boolean;
+  platform: string;
 }
 
 interface SortableNoteItemProps {
@@ -39,6 +40,7 @@ interface SortableNoteItemProps {
   isFileMode?: boolean;
   onCloseFile?: (note: FileNote) => Promise<void>;
   isFileModified?: (fileId: string) => boolean;
+  platform: string;
 }
 
 const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
@@ -52,6 +54,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
   isFileMode,
   onCloseFile,
   isFileModified,
+  platform,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: note.id });
 
@@ -60,6 +63,8 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+
+  const cmdKey = platform === 'windows' ? 'Ctrl' : 'Cmd';
 
   const isFileNote = (note: Note | FileNote): note is FileNote => {
     return 'filePath' in note;
@@ -133,8 +138,8 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
       </ListItemButton>
       {isFileMode ? (
         <>
-          <Tooltip title='Save File' arrow placement='bottom'>
-            <span>
+          <Tooltip title={`Save (${cmdKey} + S)`} arrow placement='bottom'>
+            <span style={{ position: 'absolute', right: 72, top: 8 }}>
               <IconButton
                 className='action-button'
                 disabled={!isFileModified?.(note.id)}
@@ -145,9 +150,6 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
                   }
                 }}
                 sx={{
-                  position: 'absolute',
-                  right: 72,
-                  top: 8,
                   opacity: 0,
                   transition: 'opacity 0.2s',
                   width: 26,
@@ -163,7 +165,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
             </span>
           </Tooltip>
           <Tooltip title='Convert to Note' arrow placement='bottom'>
-            <span>
+            <span style={{ position: 'absolute', right: 40, top: 8 }}>
               <IconButton
                 className='action-button'
                 onClick={async (e) => {
@@ -173,9 +175,6 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
                   }
                 }}
                 sx={{
-                  position: 'absolute',
-                  right: 40,
-                  top: 8,
                   opacity: 0,
                   transition: 'opacity 0.2s',
                   width: 26,
@@ -190,8 +189,8 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title='Close' arrow placement='bottom'>
-            <span>
+          <Tooltip title={`Close (${cmdKey} + W)`} arrow placement='bottom'>
+            <span style={{ position: 'absolute', right: 8, top: 8 }}>
               <IconButton
                 className='action-button'
                 onClick={async (e) => {
@@ -201,9 +200,6 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
                   }
                 }}
                 sx={{
-                  position: 'absolute',
-                  right: 8,
-                  top: 8,
                   opacity: 0,
                   transition: 'opacity 0.2s',
                   width: 26,
@@ -221,8 +217,8 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
         </>
       ) : (
         onArchive && (
-          <Tooltip title='Archive' arrow placement='bottom'>
-            <span>
+          <Tooltip title={`Archive (${cmdKey} + W)`} arrow placement='bottom'>
+            <span style={{ position: 'absolute', right: 8, top: 8 }}>
               <IconButton
                 className='action-button'
                 onClick={async (e) => {
@@ -230,9 +226,6 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
                   await onArchive(note.id);
                 }}
                 sx={{
-                  position: 'absolute',
-                  right: 8,
-                  top: 8,
                   opacity: 0,
                   transition: 'opacity 0.2s',
                   width: 26,
@@ -264,6 +257,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   isFileMode,
   onCloseFile,
   isFileModified,
+  platform,
 }) => {
   const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived);
   const sensors = useSensors(
@@ -351,6 +345,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               isFileMode={isFileMode}
               onCloseFile={onCloseFile}
               isFileModified={isFileModified}
+              platform={platform}
             />
           ))}
         </SortableContext>

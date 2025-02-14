@@ -10,7 +10,7 @@ import {
   Tooltip,
   CircularProgress,
 } from '@mui/material';
-import { NoteAdd, OpenInBrowser, Save, Settings, Logout, FolderOpen, NoteAlt, FileOpen } from '@mui/icons-material';
+import { NoteAdd, Save, Settings, Logout, FileOpen } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import { GoogleDriveIcon } from './Icons';
@@ -28,6 +28,7 @@ const fadeAnimation = keyframes`
 export const AppBar: React.FC<{
   currentNote: Note | FileNote | null;
   languages: LanguageInfo[];
+  platform: string;
   onTitleChange: (title: string) => void;
   onLanguageChange: (language: string) => void;
   onSettings: () => void;
@@ -35,13 +36,15 @@ export const AppBar: React.FC<{
   onOpen: () => Promise<void>;
   onSave: () => Promise<void>;
   showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>;
-}> = ({ currentNote, languages, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave, showMessage }) => {
+}> = ({ currentNote, languages, platform, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave, showMessage }) => {
   const { syncStatus, isHoveringSync, setIsHoveringSync, isHoverLocked, handleGoogleAuth, handleLogout, handleSync } =
     useDriveSync(showMessage);
 
   const isFileNote = (note: Note | FileNote | null): note is FileNote => {
     return note !== null && 'filePath' in note;
   };
+
+  const commandKey = platform === 'darwin' ? 'Command' : 'Ctrl';
 
   return (
     <Box sx={{ height: 56, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
@@ -55,30 +58,36 @@ export const AppBar: React.FC<{
           gap: 1,
         }}
       >
-        <Button
-          sx={{ fontSize: 12, width: 70, height: 32 }}
-          startIcon={<NoteAdd sx={{ mr: -0.75 }} />}
-          variant='contained'
-          onClick={onNew}
-        >
-          New
-        </Button>
-        <Button
-          sx={{ fontSize: 12, width: 70, height: 32 }}
-          startIcon={<FileOpen sx={{ mr: -0.75 }} />}
-          variant='contained'
-          onClick={onOpen}
-        >
-          Open
-        </Button>
-        <Button
-          sx={{ fontSize: 12, width: 70, height: 32, whiteSpace: 'nowrap' }}
-          startIcon={<Save sx={{ mr: -1 }} />}
-          variant='contained'
-          onClick={onSave}
-        >
-          Save as
-        </Button>
+        <Tooltip title={`New (${commandKey} + N)`} arrow placement='bottom'>
+          <Button
+            sx={{ fontSize: 12, width: 70, height: 32 }}
+            startIcon={<NoteAdd sx={{ mr: -0.75 }} />}
+            variant='contained'
+            onClick={onNew}
+          >
+            New
+          </Button>
+        </Tooltip>
+        <Tooltip title={`Open (${commandKey} + O)`} arrow placement='bottom'>
+          <Button
+            sx={{ fontSize: 12, width: 70, height: 32 }}
+            startIcon={<FileOpen sx={{ mr: -0.75 }} />}
+            variant='contained'
+            onClick={onOpen}
+          >
+            Open
+          </Button>
+        </Tooltip>
+        <Tooltip title={`Save as (${commandKey} + S)`} arrow placement='bottom'>
+          <Button
+            sx={{ fontSize: 12, width: 70, height: 32, whiteSpace: 'nowrap' }}
+            startIcon={<Save sx={{ mr: -1 }} />}
+            variant='contained'
+            onClick={onSave}
+          >
+            Save as
+          </Button>
+        </Tooltip>
       </Box>
       <Box sx={{ width: '100%', height: 70, display: 'flex', alignItems: 'center', gap: 1 }}>
         <TextField

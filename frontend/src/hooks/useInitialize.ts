@@ -10,6 +10,15 @@ export const useInitialize = (
   handleNewNote: () => void,
   handleSelectNote: (note: Note | FileNote) => void,
   handleSelectFileNote: (note: Note | FileNote) => void,
+  currentFileNote: FileNote | null,
+  setCurrentFileNote: (file: FileNote | null) => void,
+  handleSaveFile: (file: FileNote) => Promise<void>,
+  handleOpenFile: () => Promise<void>,
+  handleCloseFile: (file: FileNote) => Promise<void>,
+  isFileModified: (fileId: string) => boolean,
+  currentNote: Note | null,
+  handleArchiveNote: (noteId: string) => Promise<void>,
+  handleSaveAsFile: () => Promise<void>,
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
@@ -79,6 +88,63 @@ export const useInitialize = (
       setLanguages([]);
     };
   }, []);
+
+  // グローバルキーボードショートカット
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      // Ctrl/Cmd + N
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setCurrentFileNote(null);
+        handleNewNote();
+      }
+
+      // Ctrl/Cmd + O
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        await handleOpenFile();
+      }
+
+      // Ctrl/Cmd + S
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (currentFileNote && isFileModified(currentFileNote.id)) {
+          await handleSaveFile(currentFileNote);
+        }
+      }
+
+      // Ctrl/Cmd + Alt + S
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (currentNote || currentFileNote) {
+          await handleSaveAsFile();
+        }
+      }
+
+      // Ctrl/Cmd + W
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        if (currentFileNote) {
+          await handleCloseFile(currentFileNote);
+        } else if (currentNote) {
+          await handleArchiveNote(currentNote.id);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    currentFileNote,
+    currentNote,
+    handleSaveFile,
+    handleCloseFile,
+    handleArchiveNote,
+    handleSaveAsFile,
+    isFileModified
+  ]);
 
   return {
     languages,

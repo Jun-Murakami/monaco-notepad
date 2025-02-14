@@ -57,14 +57,24 @@ func (s *fileService) OpenFile(filePath string) (string, error) {
 
 // SelectSaveFileUri は保存ダイアログを表示し、選択された保存先のパスを返します
 func (s *fileService) SelectSaveFileUri(fileName string, extension string) (string, error) {
-	defaultFileName := fmt.Sprintf("%s.%s", fileName, extension)
+	var defaultFileName string
+	var pattern string
+
+	if extension == "" {
+		defaultFileName = fileName
+		pattern = "*.*"
+	} else {
+		defaultFileName = fmt.Sprintf("%s.%s", fileName, extension)
+		pattern = "*." + extension
+	}
+
 	file, err := wailsRuntime.SaveFileDialog(s.ctx.ctx, wailsRuntime.SaveDialogOptions{
 		Title:           "Please select export file path.",
 		DefaultFilename: defaultFileName,
 		Filters: []wailsRuntime.FileFilter{
 			{
 				DisplayName: "All Files (*.*)",
-				Pattern:     "*." + extension,
+				Pattern:     pattern,
 			},
 		},
 	})

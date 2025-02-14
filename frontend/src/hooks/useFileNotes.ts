@@ -4,10 +4,14 @@ import { SaveFileNotes, CheckFileModified, OpenFile, GetModifiedTime } from '../
 import { backend } from '../../wailsjs/go/models';
 
 interface UseFileNotesProps {
+  notes: Note[];
+  setCurrentNote: (note: Note | null) => void;
+  handleNewNote: () => void;
+  handleSelectNote: (note: Note | FileNote) => void;
   showMessage: (title: string, message: string, isTwoButton?: boolean, button1?: string, button2?: string) => Promise<boolean>;
 }
 
-export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
+export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelectNote, showMessage }: UseFileNotesProps) => {
   const [fileNotes, setFileNotes] = useState<FileNote[]>([]);
   const [currentFileNote, setCurrentFileNote] = useState<FileNote | null>(null);
 
@@ -94,7 +98,7 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
   // ファイルノートを保存したときの処理
   const handleSaveFileNotes = async (fileNotes: FileNote[]) => {
     try {
-      if (!fileNotes || fileNotes.length === 0) return;
+      if (!fileNotes) return;
       await SaveFileNotes(fileNotes.map(note => backend.FileNote.createFrom(note)));
 
     } catch (error) {
@@ -126,13 +130,24 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
     }
     const newFileNotes = fileNotes.filter(note => note.id !== fileNote.id);
     setFileNotes(newFileNotes);
+    await SaveFileNotes(newFileNotes.map(note => backend.FileNote.createFrom(note)));
     if (currentFileNote?.id === fileNote.id) {
       setCurrentFileNote(null);
     }
     if (newFileNotes.length > 0) {
       setCurrentFileNote(newFileNotes[0]);
+      return;
     } else {
       setCurrentFileNote(null);
+    }
+
+    const activeNotes = notes.filter(note => !note.archived);
+    if (activeNotes.length > 0) {
+      handleSelectNote(activeNotes[0]);
+      handleSelectFileNote(activeNotes[0]);
+      setCurrentNote(activeNotes[0]);
+    } else {
+      handleNewNote();
     }
   };
 
@@ -145,6 +160,7 @@ export const useFileNotes = ({ showMessage }: UseFileNotesProps) => {
     fileNotes,
     setFileNotes,
     currentFileNote,
+    setCurrentFileNote,
     handleSelectFileNote,
     handleSaveFileNotes,
     handleFileNoteContentChange,

@@ -24,6 +24,7 @@ import { Inventory } from '@mui/icons-material';
 function App() {
   // エディタ設定
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
+
   // メッセージダイアログ
   const {
     isMessageDialogOpen,
@@ -35,11 +36,13 @@ function App() {
     primaryButtonText,
     secondaryButtonText,
   } = useMessageDialog();
+
   // ノート
   const {
     notes,
     setNotes,
     currentNote,
+    setCurrentNote,
     showArchived,
     setShowArchived,
     handleNewNote,
@@ -52,17 +55,20 @@ function App() {
     handleLanguageChange,
     handleNoteContentChange,
   } = useNotes();
+
   // ファイルノート
   const {
     fileNotes,
     setFileNotes,
     currentFileNote,
+    setCurrentFileNote,
     handleSelectFileNote,
     handleSaveFileNotes,
     handleFileNoteContentChange,
     handleCloseFile,
     isFileModified,
-  } = useFileNotes({ showMessage });
+  } = useFileNotes({ notes, setCurrentNote, handleNewNote, handleSelectNote, showMessage });
+
   // ファイル操作
   const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
     notes,
@@ -76,8 +82,24 @@ function App() {
     showMessage,
     handleSaveFileNotes
   );
+
   // 初期化
-  const { languages, platform } = useInitialize(setNotes, setFileNotes, handleNewNote, handleSelectNote, handleSelectFileNote);
+  const { languages, platform } = useInitialize(
+    setNotes,
+    setFileNotes,
+    handleNewNote,
+    handleSelectNote,
+    handleSelectFileNote,
+    currentFileNote,
+    setCurrentFileNote,
+    handleSaveFile,
+    handleOpenFile,
+    handleCloseFile,
+    isFileModified,
+    currentNote,
+    handleArchiveNote,
+    handleSaveAsFile
+  );
 
   const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
 
@@ -119,6 +141,7 @@ function App() {
         <AppBar
           currentNote={currentFileNote || currentNote}
           languages={languages}
+          platform={platform}
           onTitleChange={handleTitleChange}
           onLanguageChange={handleLanguageChange}
           onSettings={() => setIsSettingsOpen(true)}
@@ -180,6 +203,7 @@ function App() {
                   isFileMode={true}
                   onCloseFile={handleCloseFile}
                   isFileModified={isFileModified}
+                  platform={platform}
                 />
               </>
             )}
@@ -207,6 +231,7 @@ function App() {
               onReorder={async (newNotes) => {
                 setNotes(newNotes as Note[]);
               }}
+              platform={platform}
             />
           </SimpleBar>
           <Button
@@ -251,12 +276,26 @@ function App() {
             />
           ) : (
             <Editor
-              value={currentFileNote?.content || currentNote?.content || ''}
-              onChange={currentFileNote ? handleFileNoteContentChange : handleNoteContentChange}
-              language={currentFileNote?.language || currentNote?.language || 'plaintext'}
+              value={currentNote?.content || currentFileNote?.content || ''}
+              onChange={currentNote ? handleNoteContentChange : handleFileNoteContentChange}
+              language={currentNote?.language || currentFileNote?.language || 'plaintext'}
               settings={editorSettings}
-              currentNote={currentFileNote || currentNote}
+              currentNote={currentNote || currentFileNote}
               onEditorInstance={handleEditorInstance}
+              onNew={handleNewNote}
+              onOpen={handleOpenFile}
+              onSave={async () => {
+                if (currentFileNote && isFileModified(currentFileNote.id)) {
+                  await handleSaveFile(currentFileNote);
+                }
+              }}
+              onClose={async () => {
+                if (currentFileNote) {
+                  await handleCloseFile(currentFileNote);
+                } else if (currentNote) {
+                  await handleArchiveNote(currentNote.id);
+                }
+              }}
             />
           )}
           <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentFileNote || currentNote} key={forceUpdate} />

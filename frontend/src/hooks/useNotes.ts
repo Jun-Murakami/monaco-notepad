@@ -347,6 +347,7 @@ export const useNotes = () => {
     notes,
     setNotes,
     currentNote,
+    setCurrentNote,
     showArchived,
     setShowArchived,
     saveCurrentNote,

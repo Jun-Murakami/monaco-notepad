@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { getMonaco, getOrCreateEditor, disposeEditor } from '../lib/monaco';
 import type { editor } from 'monaco-editor';
 import { EditorSettings } from '../types';
@@ -12,6 +12,11 @@ interface EditorProps {
   settings: EditorSettings;
   currentNote: Note | FileNote | null;
   onEditorInstance?: (instance: editor.IStandaloneCodeEditor | null) => void;
+  onNew?: () => void;
+  onOpen?: () => void;
+  onSave?: () => void;
+  onSaveAs?: () => void;
+  onClose?: () => void;
 }
 
 export const Editor: React.FC<EditorProps> = ({
@@ -21,6 +26,11 @@ export const Editor: React.FC<EditorProps> = ({
   settings,
   currentNote,
   onEditorInstance,
+  onNew,
+  onOpen,
+  onSave,
+  onSaveAs,
+  onClose,
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -28,6 +38,8 @@ export const Editor: React.FC<EditorProps> = ({
   // エディタの初期化
   useEffect(() => {
     if (!editorRef.current) return;
+
+    const monaco = getMonaco();
 
     editorInstanceRef.current = getOrCreateEditor(editorRef.current, {
       value,
@@ -55,6 +67,54 @@ export const Editor: React.FC<EditorProps> = ({
       disposeEditor();
     };
   }, []); // 初期化は一度だけ
+
+  // キーボードコマンドの設定
+  useEffect(() => {
+    if (!editorInstanceRef.current) return;
+
+    const monaco = getMonaco();
+
+    // カスタムコマンドの登録
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN,
+      () => {
+        onNew?.();
+      },
+      'editorTextFocus'
+    );
+
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO,
+      () => {
+        onOpen?.();
+      },
+      'editorTextFocus'
+    );
+
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+      () => {
+        onSave?.();
+      },
+      'editorTextFocus'
+    );
+
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Alt | monaco.KeyCode.KeyS,
+      () => {
+        onSaveAs?.();
+      },
+      'editorTextFocus'
+    );
+
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW,
+      () => {
+        onClose?.();
+      },
+      'editorTextFocus'
+    );
+  }, [onSave, onClose]); // コマンドのコールバックが変更されたときのみ再登録
 
   // イベントリスナーの設定
   useEffect(() => {

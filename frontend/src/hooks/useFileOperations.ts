@@ -1,9 +1,10 @@
 import { getLanguageByExtension, getExtensionByLanguage } from '../lib/monaco';
-import { SelectFile, OpenFile, SaveFile, SelectSaveFileUri, GetModifiedTime, } from '../../wailsjs/go/backend/App';
+import { SelectFile, OpenFile, SaveFile, SaveNote, SelectSaveFileUri, GetModifiedTime, } from '../../wailsjs/go/backend/App';
 import { Note, FileNote } from '../types';
 import { useEffect, useCallback } from 'react';
 import { isBinaryFile } from '../utils/fileUtils';
 import * as runtime from '../../wailsjs/runtime';
+import { backend } from '../../wailsjs/go/models';
 
 export function useFileOperations(
   notes: Note[],
@@ -111,7 +112,7 @@ export function useFileOperations(
       const saveNote = currentNote || currentFileNote;
       if (!saveNote) return;
 
-      const extension = getExtensionByLanguage(saveNote.language) || 'txt';
+      const extension = currentFileNote ? '' : getExtensionByLanguage(saveNote.language) || 'txt';
       const title = 'title' in saveNote ? saveNote.title : saveNote.fileName;
       const filePath = await SelectSaveFileUri(title, extension);
       if (!filePath || Array.isArray(filePath)) return;
@@ -162,6 +163,7 @@ export function useFileOperations(
     const updatedFileNotes = fileNotes.filter(f => f.id !== fileNote.id);
     setFileNotes(updatedFileNotes);
     await handleSaveFileNotes(updatedFileNotes);
+    await SaveNote(backend.Note.createFrom(newNote), "create");
     await handleSelectNote(newNote);
     await handleSelectFileNote(newNote);
   };
