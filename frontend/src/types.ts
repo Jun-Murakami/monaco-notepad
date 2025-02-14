@@ -26,6 +26,18 @@ export type NoteList = {
   lastSync: string;  // 最後の同期時刻
 }
 
+// ファイルノートの型
+export type FileNote = {
+  id: string;
+  filePath: string;
+  fileName: string;
+  content: string;
+  originalContent: string;
+  language: string;
+  modifiedTime: string;
+}
+
+// 設定の型
 export type Settings = {
   fontFamily: string;
   fontSize: number;
@@ -40,21 +52,8 @@ export type Settings = {
   isDebug: boolean;
 }
 
-export type EditorSettings = {
-  fontFamily: string;
-  fontSize: number;
-  isDarkMode: boolean;
-  wordWrap: 'on' | 'off';
-  minimap: boolean;
-  windowWidth: number;
-  windowHeight: number;
-  windowX: number;
-  windowY: number;
-  isMaximized: boolean;
-  isDebug: boolean;
-};
-
-export const DEFAULT_EDITOR_SETTINGS: Partial<EditorSettings> = {
+// デフォルトの設定
+export const DEFAULT_EDITOR_SETTINGS: Partial<Settings> = {
   fontFamily: 'Consolas, Monaco, "Courier New", monospace',
   fontSize: 14,
   isDarkMode: false,
@@ -62,13 +61,3 @@ export const DEFAULT_EDITOR_SETTINGS: Partial<EditorSettings> = {
   minimap: true,
   isDebug: false,
 };
-
-export interface FileNote {
-  id: string;
-  filePath: string;
-  fileName: string;
-  content: string;
-  originalContent: string;
-  language: string;
-  modifiedTime: string;
-}

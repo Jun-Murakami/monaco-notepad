@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { getMonaco, getOrCreateEditor, disposeEditor } from '../lib/monaco';
 import type { editor } from 'monaco-editor';
-import { EditorSettings } from '../types';
+import { Settings } from '../types';
 import { Box } from '@mui/material';
 import { Note, FileNote } from '../types';
 
@@ -9,7 +9,7 @@ interface EditorProps {
   value?: string;
   onChange?: (value: string) => void;
   language?: string;
-  settings: EditorSettings;
+  settings: Settings;
   currentNote: Note | FileNote | null;
   onEditorInstance?: (instance: editor.IStandaloneCodeEditor | null) => void;
   onNew?: () => void;
@@ -57,7 +57,7 @@ export const Editor: React.FC<EditorProps> = ({
       fontSize: settings.fontSize,
       renderLineHighlightOnlyWhenFocus: true,
       occurrencesHighlight: 'off',
-      wordWrap: settings.wordWrap,
+      wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
     });
 
     // エディタインスタンスを親コンポーネントに通知
@@ -154,7 +154,7 @@ export const Editor: React.FC<EditorProps> = ({
         theme: settings.isDarkMode ? 'vs-dark' : 'vs',
         fontFamily: settings.fontFamily,
         fontSize: settings.fontSize,
-        wordWrap: settings.wordWrap,
+        wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
         minimap: {
           enabled: settings.minimap,
         },

@@ -18,19 +18,19 @@ import {
   Grid2 as Grid,
 } from '@mui/material';
 import { LightDarkSwitch } from './LightDarkSwitch';
-import { EditorSettings, DEFAULT_EDITOR_SETTINGS } from '../types';
+import { Settings, DEFAULT_EDITOR_SETTINGS } from '../types';
 import * as runtime from '../../wailsjs/runtime';
 
 interface SettingsDialogProps {
   open: boolean;
-  settings: EditorSettings;
+  settings: Settings;
   onClose: () => void;
-  onSave: (settings: EditorSettings) => void;
-  onChange: (settings: EditorSettings) => void;
+  onSave: (settings: Settings) => void;
+  onChange: (settings: Settings) => void;
 }
 
 export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, onClose, onSave, onChange }) => {
-  const [localSettings, setLocalSettings] = useState<EditorSettings>({ ...settings });
+  const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
 
   // ダイアログが開かれたときに現在の設定を保存
   useEffect(() => {
@@ -39,7 +39,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
     }
   }, [open, settings]);
 
-  const handleChange = async (newSettings: Partial<EditorSettings>) => {
+  const handleChange = async (newSettings: Partial<Settings>) => {
     const updatedSettings = { ...localSettings, ...newSettings };
     setLocalSettings(updatedSettings);
 

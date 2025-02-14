@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { LoadSettings, SaveSettings } from '../../wailsjs/go/backend/App';
-import { EditorSettings } from '../types';
+import { Settings } from '../types';
 import * as runtime from '../../wailsjs/runtime';
 
 export const useEditorSettings = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [editorSettings, setEditorSettings] = useState<EditorSettings>({
+  const [editorSettings, setEditorSettings] = useState<Settings>({
     fontFamily: 'Consolas, Monaco, "Courier New", monospace',
     fontSize: 14,
     isDarkMode: false,
@@ -25,11 +25,11 @@ export const useEditorSettings = () => {
     const loadSettings = async () => {
       try {
         const settings = await LoadSettings();
-        const editorSettings: EditorSettings = {
+        const editorSettings: Settings = {
           fontFamily: settings.fontFamily,
           fontSize: settings.fontSize,
           isDarkMode: settings.isDarkMode,
-          wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
+          wordWrap: settings.wordWrap,
           minimap: settings.minimap,
           windowWidth: settings.windowWidth,
           windowHeight: settings.windowHeight,
@@ -81,7 +81,7 @@ export const useEditorSettings = () => {
     isInitialized,
   ]);
 
-  const handleSettingsChange = (newSettings: EditorSettings) => {
+  const handleSettingsChange = (newSettings: Settings) => {
     setEditorSettings(newSettings);
     setIsSettingsOpen(false);
   };
