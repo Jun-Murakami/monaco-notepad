@@ -320,9 +320,4 @@ function App() {
   );
 }
 
-// 型ガード関数
-function isFileNote(note: Note | FileNote): note is FileNote {
-  return 'filePath' in note && 'fileName' in note;
-}
-
 export default App;
