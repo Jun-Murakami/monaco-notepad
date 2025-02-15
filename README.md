@@ -6,18 +6,21 @@ A cloud-synchronized notepad application built for programmers, featuring the Mo
 
 ## Overview
 
-Monaco Notepad is a specialized note-taking application designed for programmers who need a temporary, cloud-synchronized workspace for code snippets and technical notes. Unlike traditional text editors, it doesn't modify files directly on your system but instead manages notes in a dedicated cloud-synchronized environment.
+Monaco Notepad is a specialized note-taking application designed for programmers who need a temporary, cloud-synchronized workspace for code snippets and technical notes. It offers both cloud-based note management and direct file editing capabilities, providing flexibility in how you work with your code and notes.
 
 ## Key Features
 
 - **Monaco Editor Integration**: Powered by the same editor component used in VS Code
-- **Google Drive Sync**: Automatic cloud synchronization with your Google Drive
+- **Dual Operation Modes**:
+  - **Cloud Note Mode**: Manage notes in a dedicated cloud-synchronized environment
+  - **File Mode**: Direct file editing
+- **Google Drive Sync**: Automatic cloud synchronization for your notes with Google Drive
 - **Language Support**: Syntax highlighting for multiple programming languages
+- **Flexible Workflow**:
+  - Work directly with local files
+  - Create and manage cloud-synchronized notes
+  - Import/Export between files and notes
 - **Non-Invasive Design**: Never modifies your local files directly
-- **Import/Export Workflow**:
-  - Import text files to create new notes
-  - Export notes to text files when needed
-  - Keeps your file system clean and organized
 
 ## Use Cases
 
@@ -40,8 +43,9 @@ Monaco Notepad is a specialized note-taking application designed for programmers
 
 3. **Basic Usage**
    - Create new notes with the "New" button
-   - Import existing files via the "Import" button
-   - Export notes to files using the "Export" button
+   - Open and edit local files directly
+   - Import existing files to create new notes
+   - Export notes to files when needed
    - Select programming language for proper syntax highlighting
 
 ## Technical Details
@@ -55,10 +59,11 @@ Monaco Notepad is a specialized note-taking application designed for programmers
 
 Monaco Notepad is designed to be a "programmer's Evernote" with a focus on:
 
+- Flexible editing modes (cloud notes and direct files)
 - Cloud-first approach
 - Clean workspace management
 - Programming-specific features
-- Minimal file system interaction
+- Seamless file system interaction
 
 ## Requirements
 
