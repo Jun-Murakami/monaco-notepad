@@ -46,6 +46,8 @@ export function OpenFile(arg1:string):Promise<string>;
 
 export function OpenFileFromExternal(arg1:string):Promise<void>;
 
+export function OpenURL(arg1:string):Promise<void>;
+
 export function SaveFile(arg1:string,arg2:string):Promise<void>;
 
 export function SaveFileNotes(arg1:Array<backend.FileNote>):Promise<string>;

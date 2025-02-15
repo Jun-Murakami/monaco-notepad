@@ -512,3 +512,9 @@ func (a *App) BringToFront() {
 func (a *App) GetAppVersion() (string, error) {
 	return Version, nil
 }
+
+// OpenURL は指定されたURLをデフォルトブラウザで開きます
+func (a *App) OpenURL(url string) error {
+	wailsRuntime.BrowserOpenURL(a.ctx.ctx, url)
+	return nil
+}

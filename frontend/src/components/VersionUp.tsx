@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Chip } from '@mui/material';
-import { GetAppVersion } from '../../wailsjs/go/backend/App';
+import { GetAppVersion, OpenURL } from '../../wailsjs/go/backend/App';
 import { Console } from '../../wailsjs/go/backend/App';
 
 const repoUrl = 'https://api.github.com/repos/Jun-Murakami/monaco-notepad/releases/latest';
@@ -36,12 +36,20 @@ export const VersionUp = () => {
     fetchVersion();
   }, []);
 
+  const handleClick = async () => {
+    try {
+      await OpenURL(releaseUrl);
+    } catch (error) {
+      await Console('Failed to open URL', [error]);
+    }
+  };
+
   return (
     <>
       {showChip && (
         <Chip
           label={`Update? v${version}`}
-          onClick={() => window.open(releaseUrl, '_blank')}
+          onClick={handleClick}
           onDelete={() => setShowChip(false)}
           size='small'
           sx={{

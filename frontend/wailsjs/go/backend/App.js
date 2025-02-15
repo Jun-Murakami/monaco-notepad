@@ -86,6 +86,10 @@ export function OpenFileFromExternal(arg1) {
   return window['go']['backend']['App']['OpenFileFromExternal'](arg1);
 }
 
+export function OpenURL(arg1) {
+  return window['go']['backend']['App']['OpenURL'](arg1);
+}
+
 export function SaveFile(arg1, arg2) {
   return window['go']['backend']['App']['SaveFile'](arg1, arg2);
 }
