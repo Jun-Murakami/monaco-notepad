@@ -64,7 +64,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const cmdKey = platform === 'windows' ? 'Ctrl' : 'Cmd';
+  const cmdKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
 
   const isFileNote = (note: Note | FileNote): note is FileNote => {
     return 'filePath' in note;
@@ -221,6 +221,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
             <span style={{ position: 'absolute', right: 8, top: 8 }}>
               <IconButton
                 className='action-button'
+                aria-label={`Archive (${cmdKey} + W)`}
                 onClick={async (e) => {
                   e.stopPropagation();
                   await onArchive(note.id);

@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { useNotes } from '../useNotes';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote } from '../../../wailsjs/go/backend/App';
+import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
 import { backend } from '../../../wailsjs/go/models';
 import { Note } from '../../types';
@@ -442,6 +442,166 @@ describe('useNotes', () => {
       // 状態が変更されていないことを確認
       expect(result.current.notes[0].archived).toBe(true);
       expect(SaveNote).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ノートの変更検知', () => {
+    it('ノートの内容が変更された場合に正しく検知されること', async () => {
+      const { result } = renderHook(() => useNotes());
+      const oldNote = { ...mockNote, content: mockNote.content || '' };
+      const newNote = {
+        ...mockNote,
+        content: 'Updated content',
+        title: 'Updated title',
+        language: 'javascript',
+        modifiedTime: new Date().toISOString()
+      };
+
+      await act(async () => {
+        result.current.setNotes([oldNote]);
+        await result.current.handleSelectNote(oldNote);
+      });
+
+      // 各フィールドの変更をテスト
+      await act(async () => {
+        result.current.handleNoteContentChange(newNote.content);
+        result.current.handleTitleChange(newNote.title);
+        result.current.handleLanguageChange(newNote.language);
+      });
+
+      // 3秒待機して自動保存を確認
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: newNote.content,
+          title: newNote.title,
+          language: newNote.language
+        }),
+        'update'
+      );
+    });
+
+    it('同じ内容に変更された場合は保存されないこと', async () => {
+      const { result } = renderHook(() => useNotes());
+      const noteWithContent = { ...mockNote, content: mockNote.content || '' };
+
+      await act(async () => {
+        result.current.setNotes([noteWithContent]);
+        await result.current.handleSelectNote(noteWithContent);
+      });
+
+      // 同じ内容に変更
+      await act(async () => {
+        result.current.handleNoteContentChange(noteWithContent.content);
+      });
+
+      // 3秒待機
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      expect(SaveNote).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('アプリケーションの終了処理', () => {
+    it('アプリケーション終了時に変更があれば保存されること', async () => {
+      const { result } = renderHook(() => useNotes());
+
+      await act(async () => {
+        result.current.setNotes([mockNote]);
+        await result.current.handleSelectNote(mockNote);
+        result.current.handleNoteContentChange('Updated content before close');
+      });
+
+      // beforecloseイベントをシミュレート
+      const beforeCloseCallback = (runtime.EventsOn as any).mock.calls.find(
+        (call: [string, Function]) => call[0] === 'app:beforeclose'
+      )[1];
+
+      await act(async () => {
+        await beforeCloseCallback();
+      });
+
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'Updated content before close'
+        }),
+        'update'
+      );
+      expect(DestroyApp).toHaveBeenCalled();
+    });
+
+    it('アプリケーション終了時に変更がなければ保存されないこと', async () => {
+      const { result } = renderHook(() => useNotes());
+
+      await act(async () => {
+        result.current.setNotes([mockNote]);
+        await result.current.handleSelectNote(mockNote);
+      });
+
+      // beforecloseイベントをシミュレート
+      const beforeCloseCallback = (runtime.EventsOn as any).mock.calls.find(
+        (call: [string, Function]) => call[0] === 'app:beforeclose'
+      )[1];
+
+      await act(async () => {
+        await beforeCloseCallback();
+      });
+
+      expect(SaveNote).not.toHaveBeenCalled();
+      expect(DestroyApp).toHaveBeenCalled();
+    });
+  });
+
+  describe('アーカイブノートの一括削除', () => {
+    it('すべてのアーカイブノートが削除されること', async () => {
+      const { result } = renderHook(() => useNotes());
+      const archivedNote1 = { ...mockNote, id: '1', archived: true };
+      const archivedNote2 = { ...mockNote, id: '2', archived: true };
+      const activeNote = { ...mockNote, id: '3', archived: false };
+
+      await act(async () => {
+        result.current.setNotes([archivedNote1, archivedNote2, activeNote]);
+        result.current.setShowArchived(true);
+      });
+
+      await act(async () => {
+        await result.current.handleDeleteAllArchivedNotes();
+      });
+
+      expect(DeleteNote).toHaveBeenCalledWith(archivedNote1.id);
+      expect(DeleteNote).toHaveBeenCalledWith(archivedNote2.id);
+      expect(result.current.notes).toEqual([activeNote]);
+      expect(result.current.showArchived).toBeFalsy();
+    });
+
+    it('アーカイブノートをすべて削除後、アクティブなノートがない場合は新規ノートが作成されること', async () => {
+      const { result } = renderHook(() => useNotes());
+      const archivedNote = { ...mockNote, archived: true };
+
+      await act(async () => {
+        result.current.setNotes([archivedNote]);
+        result.current.setShowArchived(true);
+      });
+
+      await act(async () => {
+        await result.current.handleDeleteAllArchivedNotes();
+      });
+
+      expect(DeleteNote).toHaveBeenCalledWith(archivedNote.id);
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          archived: false,
+          content: '',
+          title: ''
+        }),
+        'create'
+      );
+      expect(result.current.showArchived).toBeFalsy();
     });
   });
 }); 

@@ -37,7 +37,6 @@ import { renderHook, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { useFileOperations } from '../useFileOperations';
 import { SelectFile, OpenFile, SaveFile, SaveNote, SelectSaveFileUri, GetModifiedTime } from '../../../wailsjs/go/backend/App';
-import { backend } from '../../../wailsjs/go/models';
 import { Note, FileNote } from '../../types';
 import * as runtime from '../../../wailsjs/runtime';
 
@@ -352,6 +351,163 @@ describe('useFileOperations', () => {
       expect(mockHandleSelecAnyNote).toHaveBeenCalledWith(mockNote);
       expect(mockSetFileNotes).toHaveBeenCalledBefore(mockHandleSaveFileNotes);
       expect(mockHandleSaveFileNotes).toHaveBeenCalledBefore(mockHandleSelecAnyNote);
+    });
+  });
+
+  describe('エラー処理', () => {
+    it('ファイルを開く際にエラーが発生した場合、適切に処理されること', async () => {
+      const { result } = renderHook(() => useFileOperations(
+        [mockNote],
+        mockSetNotes,
+        mockNote,
+        null,
+        [],
+        mockSetFileNotes,
+        mockHandleSelecAnyNote,
+        mockShowMessage,
+        mockHandleSaveFileNotes,
+      ));
+
+      (SelectFile as any).mockRejectedValue(new Error('Failed to select file'));
+
+      await act(async () => {
+        await result.current.handleOpenFile();
+      });
+
+      expect(mockSetFileNotes).not.toHaveBeenCalled();
+      expect(mockHandleSaveFileNotes).not.toHaveBeenCalled();
+    });
+
+    it('ファイルを保存する際にエラーが発生した場合、エラーメッセージが表示されること', async () => {
+      const { result } = renderHook(() => useFileOperations(
+        [mockNote],
+        mockSetNotes,
+        mockNote,
+        mockFileNote,
+        [mockFileNote],
+        mockSetFileNotes,
+        mockHandleSelecAnyNote,
+        mockShowMessage,
+        mockHandleSaveFileNotes,
+      ));
+
+      (SaveFile as any).mockRejectedValue(new Error('Failed to save file'));
+
+      await act(async () => {
+        await result.current.handleSaveAsFile();
+      });
+
+      expect(mockShowMessage).toHaveBeenCalledWith('Error', 'Failed to save the file.');
+    });
+
+    it('空のファイルパスが選択された場合、処理が中断されること', async () => {
+      const { result } = renderHook(() => useFileOperations(
+        [mockNote],
+        mockSetNotes,
+        mockNote,
+        null,
+        [],
+        mockSetFileNotes,
+        mockHandleSelecAnyNote,
+        mockShowMessage,
+        mockHandleSaveFileNotes,
+      ));
+
+      (SelectFile as any).mockResolvedValue('');
+
+      await act(async () => {
+        await result.current.handleOpenFile();
+      });
+
+      expect(OpenFile).not.toHaveBeenCalled();
+      expect(mockSetFileNotes).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('外部ファイルとドラッグアンドドロップ', () => {
+    it('外部から開かれたファイルが正しく処理されること', async () => {
+      const { result } = renderHook(() => useFileOperations(
+        [mockNote],
+        mockSetNotes,
+        mockNote,
+        null,
+        [],
+        mockSetFileNotes,
+        mockHandleSelecAnyNote,
+        mockShowMessage,
+        mockHandleSaveFileNotes,
+      ));
+
+      // EventsOnのコールバックを取得
+      const openExternalCallback = (runtime.EventsOn as any).mock.calls.find(
+        (call: [string, Function]) => call[0] === 'file:open-external'
+      )[1];
+
+      await act(async () => {
+        await openExternalCallback({
+          path: '/path/to/external.txt',
+          content: 'External file content'
+        });
+      });
+
+      expect(mockSetFileNotes).toHaveBeenCalled();
+      expect(mockHandleSaveFileNotes).toHaveBeenCalled();
+      expect(mockHandleSelecAnyNote).toHaveBeenCalled();
+    });
+
+    it('ドロップされたファイルが正しく処理されること', async () => {
+      const { result } = renderHook(() => useFileOperations(
+        [mockNote],
+        mockSetNotes,
+        mockNote,
+        null,
+        [],
+        mockSetFileNotes,
+        mockHandleSelecAnyNote,
+        mockShowMessage,
+        mockHandleSaveFileNotes,
+      ));
+
+      // OnFileDropのコールバックを取得
+      const onFileDropCallback = (runtime.OnFileDrop as any).mock.calls[0][0];
+
+      (OpenFile as any).mockResolvedValue('Dropped file content');
+
+      await act(async () => {
+        await onFileDropCallback(null, null, ['/path/to/dropped.txt']);
+      });
+
+      expect(OpenFile).toHaveBeenCalledWith('/path/to/dropped.txt');
+      expect(mockSetFileNotes).toHaveBeenCalled();
+      expect(mockHandleSaveFileNotes).toHaveBeenCalled();
+    });
+
+    it('バイナリファイルがドロップされた場合、エラーメッセージが表示されること', async () => {
+      const { result } = renderHook(() => useFileOperations(
+        [mockNote],
+        mockSetNotes,
+        mockNote,
+        null,
+        [],
+        mockSetFileNotes,
+        mockHandleSelecAnyNote,
+        mockShowMessage,
+        mockHandleSaveFileNotes,
+      ));
+
+      // バイナリファイルの内容をシミュレート
+      const binaryContent = '\x00\x01\x02\x03';
+      (OpenFile as any).mockResolvedValue(binaryContent);
+
+      await act(async () => {
+        await result.current.handleFileDrop('/path/to/binary.exe');
+      });
+
+      expect(mockShowMessage).toHaveBeenCalledWith(
+        'Error',
+        'Failed to open the file. Please check the file format.'
+      );
+      expect(mockSetFileNotes).not.toHaveBeenCalled();
     });
   });
 }); 

@@ -211,12 +211,13 @@ export const useNotes = () => {
     const loadedNote = await LoadArchivedNote(noteId);
     if (loadedNote) {
       const unarchivedNote = { ...loadedNote, archived: false };
-      await SaveNote(backend.Note.createFrom(unarchivedNote), "update");
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note))
       );
+      setCurrentNote(unarchivedNote);
+      setShowArchived(false);
+      await SaveNote(backend.Note.createFrom(unarchivedNote), "update");
     }
-    setCurrentNote(note);
   };
 
   // ノートを削除する ------------------------------------------------------------

@@ -22,12 +22,15 @@ export default defineConfig({
         web: {
           include: ['@mui/*'],  // MUIコンポーネントの最適化を含める（文字列形式で指定）
         }
-      }
+      },
+      interopDefault: true
     },
+    setupFiles: ['./src/test/setup.ts']
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      'monaco-editor': path.resolve(__dirname, './node_modules/monaco-editor/esm/vs/editor/editor.api.js'),
     },
   },
 }); 

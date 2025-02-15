@@ -7,3 +7,4 @@ token.json
 build/bin
 node_modules
 frontend/dist
+frontend/coverage
