@@ -20,7 +20,7 @@ export function useFileOperations(
   // ファイルを開く共通処理
   const createFileNote = useCallback(async (content: string, filePath: string): Promise<FileNote | null> => {
     if (isBinaryFile(content)) {
-      showMessage('Error', 'Failed to open the file. Please check the file format.');
+      await showMessage('Error', 'Failed to open the file. Please check the file format.');
       return null;
     }
 
@@ -191,10 +191,10 @@ export function useFileOperations(
   }, [fileNotes, handleSelecAnyNote, setFileNotes, handleSaveFileNotes, handleFileDrop]);
 
   const handleCloseFile = async (note: FileNote) => {
-    const updatedFileNotes = fileNotes.filter(f => f.fileName !== note.fileName);
+    const updatedFileNotes = fileNotes.filter(f => f.id !== note.id);
     setFileNotes(updatedFileNotes);
     await handleSaveFileNotes(updatedFileNotes);
-    if (currentNote?.id === note.id) {
+    if (notes.length > 0) {
       await handleSelecAnyNote(notes[0]);
     }
   };

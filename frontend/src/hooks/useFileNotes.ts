@@ -31,18 +31,20 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
         if (shouldReload) {
           const reloadedContent = await OpenFile(fileNote.filePath);
           const modifiedTime = await GetModifiedTime(fileNote.filePath);
-          const newFileNote = {
-            ...fileNote,
-            content: reloadedContent,
-            originalContent: reloadedContent,
-            modifiedTime: modifiedTime.toString(),
-          };
-          setCurrentFileNote(newFileNote);
-          setFileNotes(prev => prev.map(note =>
-            note.id === fileNote.id ? newFileNote : note
-          ));
-          await SaveFileNotes([newFileNote]);
-          return true;
+          if (modifiedTime) {
+            const newFileNote = {
+              ...fileNote,
+              content: reloadedContent,
+              originalContent: reloadedContent,
+              modifiedTime: modifiedTime.toString(),
+            };
+            setCurrentFileNote(newFileNote);
+            setFileNotes(prev => prev.map(note =>
+              note.id === fileNote.id ? newFileNote : note
+            ));
+            await SaveFileNotes([newFileNote]);
+            return true;
+          }
         }
       }
       return false;
@@ -113,10 +115,11 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
       return;
     }
     setCurrentNote(null);
-    const wasReloaded = await checkAndReloadFile(note);
-    if (!wasReloaded) {
-      setCurrentFileNote(note);
-    }
+    setCurrentFileNote(note);
+    setFileNotes(prev => {
+      const exists = prev.some(n => n.id === note.id);
+      return exists ? prev : [...prev, note];
+    });
   };
 
   // ファイルを閉じる処理 ------------------------------------------------------------

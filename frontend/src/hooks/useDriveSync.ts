@@ -21,7 +21,7 @@ export const useDriveSync = (
 
     // ドライブの状態をUIに反映
     const handleDriveStatus = (status: string) => {
-      setSyncStatus(status as 'synced' | 'syncing' | 'offline');
+      setSyncStatus(status as 'synced' | 'syncing' | 'logging in' | 'offline');
     };
 
     // ドライブのエラーを処理
@@ -30,10 +30,19 @@ export const useDriveSync = (
       console.error('Drive error:', error);
     };
 
-    // 各種里奈―登録
+    // 各種イベント登録
     EventsOn('notes:updated', handleSync);
     EventsOn('drive:status', handleDriveStatus);
     EventsOn('drive:error', handleDriveError);
+
+    // 初期状態のチェック
+    CheckDriveConnection().then(isConnected => {
+      if (isConnected) {
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('offline');
+      }
+    });
 
     return () => {
       EventsOff('notes:updated');

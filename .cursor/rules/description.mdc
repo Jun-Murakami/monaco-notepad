@@ -1,6 +1,6 @@
 ---
 description: Global rules and description
-globs: 
+globs: *.tsx, *.ts, *,go
 ---
 # このリポジトリはMonacoEditerを使ったプログラマー向けのメモ帳です。
 
@@ -15,6 +15,7 @@ globs:
 - バックエンドを修正したときは、リンタエラーが出るので、都度wails generate moduleを実行してください
 
 ## Wailsはｖ2
+## フロントエンドテストはVitestを採用します
 
 ------------------------------------------------------------
 バックエンドアーキテクチャの概要
