@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime';
 import { AuthorizeDrive, LogoutDrive, SyncNow, CheckDriveConnection, CancelLoginDrive } from '../../wailsjs/go/backend/App';
 
@@ -22,6 +22,22 @@ export const useDriveSync = (
     // ドライブの状態をUIに反映
     const handleDriveStatus = (status: string) => {
       setSyncStatus(status as 'synced' | 'syncing' | 'logging in' | 'offline');
+      // 同期中の場合は監視を開始
+      if (status === 'syncing') {
+        startSyncMonitoring();
+      } else {
+        // 同期完了時は監視を停止
+        stopSyncMonitoring();
+        // 同期完了時はホバー状態をリセット
+        if (status === 'synced') {
+          setIsHoveringSync(false);
+          setIsHoverLocked(true);
+          const timer = setTimeout(() => {
+            setIsHoverLocked(false);
+          }, 500);
+          return () => clearTimeout(timer);
+        }
+      }
     };
 
     // ドライブのエラーを処理
@@ -48,6 +64,7 @@ export const useDriveSync = (
       EventsOff('notes:updated');
       EventsOff('drive:status');
       EventsOff('drive:error');
+      stopSyncMonitoring();
     };
   }, [showMessage]);
 
@@ -58,7 +75,7 @@ export const useDriveSync = (
       await AuthorizeDrive();
     } catch (error) {
       console.error('Google authentication error:', error);
-      showMessage('Error', 'Google authentication failed: ' + error);
+      showMessage('Error', `Google authentication failed: ${error}`);
       setSyncStatus('offline');
     }
   };
@@ -79,7 +96,7 @@ export const useDriveSync = (
       }
     } catch (error) {
       console.error('Logout error:', error);
-      showMessage('Error', 'Logout failed: ' + error);
+      showMessage('Error', `Logout failed: ${error}`);
     }
   };
 
@@ -93,13 +110,13 @@ export const useDriveSync = (
         setSyncStatus('synced');
       } catch (error) {
         console.error('Manual sync error:', error);
-        showMessage('Sync Error', 'Failed to synchronize with Google Drive: ' + error);
+        showMessage('Sync Error', `Failed to synchronize with Google Drive: ${error}`);
       }
     }
   };
 
   // 同期状態の監視を開始
-  const startSyncMonitoring = () => {
+  const startSyncMonitoring = useCallback(() => {
     // 既存の監視をクリア
     if (syncCheckInterval.current) {
       clearInterval(syncCheckInterval.current);
@@ -127,60 +144,28 @@ export const useDriveSync = (
         await handleForcedLogout('Error checking sync status. Please login again.');
       }
     }, 10000); // 10秒ごとにチェック
-  };
+  }, [syncStatus]);
 
   // 同期状態の監視を停止
-  const stopSyncMonitoring = () => {
+  const stopSyncMonitoring = useCallback(() => {
     if (syncCheckInterval.current) {
       clearInterval(syncCheckInterval.current);
       syncCheckInterval.current = null;
     }
     syncStartTime.current = null;
-  };
+  }, []);
 
   // 強制ログアウト処理
-  const handleForcedLogout = async (message: string) => {
+  const handleForcedLogout = useCallback(async (message: string) => {
     stopSyncMonitoring();
     try {
       await LogoutDrive();
       showMessage('Sync Error', message);
     } catch (error) {
       console.error('Forced logout error:', error);
-      showMessage('Error', 'Failed to logout: ' + error);
+      showMessage('Error', `Failed to logout: ${error}`);
     }
-  };
-
-  // syncStatusの変更を監視
-  useEffect(() => {
-    if (syncStatus === 'syncing') {
-      startSyncMonitoring();
-    } else {
-      stopSyncMonitoring();
-    }
-
-    return () => {
-      stopSyncMonitoring();
-    };
-  }, [syncStatus]);
-
-  // コンポーネントのクリーンアップ
-  useEffect(() => {
-    return () => {
-      stopSyncMonitoring();
-    };
-  }, []);
-
-  // syncStatusの変更を監視して、同期完了時にホバー状態をリセット
-  useEffect(() => {
-    if (syncStatus === 'synced') {
-      setIsHoveringSync(false);
-      setIsHoverLocked(true);
-      const timer = setTimeout(() => {
-        setIsHoverLocked(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [syncStatus]);
+  }, [showMessage, stopSyncMonitoring]);
 
   return {
     syncStatus,
