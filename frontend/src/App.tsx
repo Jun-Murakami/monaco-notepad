@@ -17,7 +17,7 @@ import { useMessageDialog } from './hooks/useMessageDialog';
 import { EditorStatusBar } from './components/EditorStatusBar';
 import type { editor } from 'monaco-editor';
 import { useInitialize } from './hooks/useInitialize';
-import { FileNote, Note } from './types';
+import type { FileNote, Note } from './types';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import { Inventory } from '@mui/icons-material';

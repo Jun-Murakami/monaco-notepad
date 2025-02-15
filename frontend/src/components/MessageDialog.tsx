@@ -1,4 +1,3 @@
-import React from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
 import { Console } from '../../wailsjs/go/backend/App';
 
@@ -12,7 +11,7 @@ interface MessageDialogProps {
   onResult: ((result: boolean) => Promise<void>) | null;
 }
 
-export const MessageDialog: React.FC<MessageDialogProps> = ({
+export const MessageDialog = ({
   isOpen,
   title,
   message,
@@ -20,7 +19,7 @@ export const MessageDialog: React.FC<MessageDialogProps> = ({
   primaryButtonText,
   secondaryButtonText,
   onResult,
-}) => {
+}: MessageDialogProps) => {
   const handleClose = async (result: boolean) => {
     try {
       await onResult?.(result);

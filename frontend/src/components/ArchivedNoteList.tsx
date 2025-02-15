@@ -1,6 +1,6 @@
 import { Box, Typography, IconButton, List, ListItem, Tooltip, Divider, Button } from '@mui/material';
 import { Unarchive, DeleteForever, ArrowBack, DeleteSweep } from '@mui/icons-material';
-import { Note } from '../types';
+import type { Note } from '../types';
 import dayjs from 'dayjs';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';

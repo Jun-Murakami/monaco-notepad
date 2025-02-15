@@ -1,9 +1,9 @@
 import { Box, IconButton, List, ListItemButton, Typography, Tooltip } from '@mui/material';
 import { Archive, DragHandle, ImportExport, Save, Close, DriveFileRenameOutline, SimCardDownload } from '@mui/icons-material';
 import { UpdateNoteOrder, SaveFileNotes } from '../../wailsjs/go/backend/App';
-import { Note, FileNote } from '../types';
+import type { Note, FileNote } from '../types';
 import dayjs from '../utils/dayjs';
-import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import {
   arrayMove,

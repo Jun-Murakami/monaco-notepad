@@ -14,8 +14,8 @@ import { NoteAdd, Save, Settings, Logout, FileOpen } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import { GoogleDriveIcon } from './Icons';
-import { Note, FileNote } from '../types';
-import { LanguageInfo } from '../lib/monaco';
+import type { Note, FileNote } from '../types';
+import type { LanguageInfo } from '../lib/monaco';
 import { keyframes } from '@mui/system';
 import { useDriveSync } from '../hooks/useDriveSync';
 

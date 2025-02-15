@@ -18,7 +18,8 @@ import {
   Grid2 as Grid,
 } from '@mui/material';
 import { LightDarkSwitch } from './LightDarkSwitch';
-import { Settings, DEFAULT_EDITOR_SETTINGS } from '../types';
+import type { Settings } from '../types';
+import { DEFAULT_EDITOR_SETTINGS } from '../types';
 import * as runtime from '../../wailsjs/runtime';
 
 interface SettingsDialogProps {
