@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect } from 'vitest';
 import '@testing-library/jest-dom';
 import { ArchivedNoteList } from '../ArchivedNoteList';
-import { Note } from '../../types';
+import type { Note } from '../../types';
 import dayjs from 'dayjs';
 
 describe('ArchivedNoteList', () => {
@@ -57,11 +57,11 @@ describe('ArchivedNoteList', () => {
     expect(screen.getByText('Empty Note')).toBeInTheDocument();
 
     // 日付が正しく表示されることを確認
-    mockNotes.forEach((note) => {
+    for (const note of mockNotes) {
       const formattedDate = dayjs(note.modifiedTime).format('L HH:mm:ss');
       const dateElements = screen.getAllByText(formattedDate);
       expect(dateElements.length).toBeGreaterThan(0);
-    });
+    }
   });
 
   it('タイトルの表示ロジックが正しく動作すること', () => {

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach, Mock } from 'vitest';
+import { vi, describe, it, expect, beforeEach, type Mock } from 'vitest';
 import '@testing-library/jest-dom';
 import { VersionUp } from '../VersionUp';
 import { GetAppVersion, Console } from '../../../wailsjs/go/backend/App';

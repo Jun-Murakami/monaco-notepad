@@ -4,6 +4,7 @@ import '@testing-library/jest-dom';
 import { EditorStatusBar } from '../EditorStatusBar';
 import * as runtime from '../../../wailsjs/runtime';
 import type { editor } from 'monaco-editor';
+import type { Mock } from 'vitest';
 
 // runtimeのモック
 vi.mock('../../../wailsjs/runtime', () => ({
@@ -96,7 +97,7 @@ describe('EditorStatusBar', () => {
     render(<EditorStatusBar editor={null} currentNote={mockNote} />);
 
     // ログメッセージイベントをシミュレート
-    const eventCallback = (runtime.EventsOn as any).mock.calls[0][1];
+    const eventCallback = (runtime.EventsOn as unknown as Mock).mock.calls[0][1];
     act(() => {
       eventCallback('Test log message');
     });

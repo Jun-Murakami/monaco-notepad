@@ -1,10 +1,10 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import '@testing-library/jest-dom';
 import App from '../../App';
 import { ListNotes, LoadArchivedNote, SaveNote } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
-import { Note, FileNote } from '../../types';
+import type { Note, FileNote } from '../../types';
 
 // monaco-editorのモック
 vi.mock('monaco-editor', () => ({
@@ -76,15 +76,27 @@ vi.mock('../../components/Editor', () => ({
   Editor: ({
     value = '',
     onChange,
-    settings = {},
+    settings = {
+      fontFamily: 'Test Font',
+      fontSize: 14,
+      isDarkMode: false,
+      wordWrap: 'off',
+      minimap: true,
+    },
     platform = 'win32',
     currentNote = null,
   }: {
     value?: string;
     onChange?: (value: string) => void;
-    settings?: any;
+    settings?: {
+      fontFamily: string;
+      fontSize: number;
+      isDarkMode: boolean;
+      wordWrap: string;
+      minimap: boolean;
+    };
     platform?: string;
-    currentNote?: any;
+    currentNote?: Note | FileNote | null;
   }) => (
     <div data-testid='mock-editor'>
       <input type='text' value={value} onChange={(e) => onChange?.(e.target.value)} data-testid='mock-editor-input' />
@@ -172,7 +184,7 @@ describe('App', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (ListNotes as any).mockResolvedValue([mockNote]);
+    (ListNotes as Mock).mockResolvedValue([mockNote]);
   });
 
   describe('基本的なアプリケーション機能', () => {
@@ -212,7 +224,7 @@ describe('App', () => {
         id: '2',
         title: 'Another Note',
       };
-      (ListNotes as any).mockResolvedValue([mockNote, anotherNote]);
+      (ListNotes as Mock).mockResolvedValue([mockNote, anotherNote]);
 
       render(<App />);
 
@@ -313,7 +325,7 @@ describe('App', () => {
       const unarchiveButton = await screen.findByLabelText('Unarchive');
 
       // LoadArchivedNoteのモック結果を設定
-      (LoadArchivedNote as any).mockResolvedValue({
+      (LoadArchivedNote as Mock).mockResolvedValue({
         id: '1',
         title: 'Test Note',
         content: 'Test Content',
@@ -330,9 +342,16 @@ describe('App', () => {
 
       // アーカイブ解除時のSaveNoteの呼び出しを確認
       await waitFor(() => {
-        const calls = (SaveNote as any).mock.calls;
+        const calls = (SaveNote as Mock).mock.calls;
         const unarchiveCall = calls.find(
-          (call: any[]) => call[0].archived === false && call[0].id === '1' && call[1] === 'update'
+          (call: unknown[]) =>
+            call[0] &&
+            typeof call[0] === 'object' &&
+            'archived' in call[0] &&
+            'id' in call[0] &&
+            call[0].archived === false &&
+            call[0].id === '1' &&
+            call[1] === 'update'
         );
         expect(unarchiveCall).toBeTruthy();
       });
@@ -344,12 +363,11 @@ describe('App', () => {
       render(<App />);
 
       const updatedNote = { ...mockNote, title: 'Updated via reload' };
-      (ListNotes as any).mockResolvedValue([updatedNote]);
+      (ListNotes as Mock).mockResolvedValue([updatedNote]);
 
       // notes:reloadイベントをシミュレート
-      const reloadCallback = (runtime.EventsOn as any).mock.calls.find(
-        (call: [string, Function]) => call[0] === 'notes:reload'
-      )[1];
+      const reloadCallback = ((runtime.EventsOn as Mock).mock.calls.find((call: unknown[]) => call[0] === 'notes:reload') ??
+        [])[1];
 
       await act(async () => {
         await reloadCallback();
@@ -368,9 +386,9 @@ describe('App', () => {
       fireEvent.change(editor, { target: { value: 'Changed before close' } });
 
       // beforecloseイベントをシミュレート
-      const beforeCloseCallback = (runtime.EventsOn as any).mock.calls.find(
-        (call: [string, Function]) => call[0] === 'app:beforeclose'
-      )[1];
+      const beforeCloseCallback = ((runtime.EventsOn as Mock).mock.calls.find(
+        (call: unknown[]) => call[0] === 'app:beforeclose'
+      ) ?? [])[1];
 
       await act(async () => {
         await beforeCloseCallback();

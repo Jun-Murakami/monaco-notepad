@@ -69,7 +69,7 @@ export const useDriveSync = (
   }, [showMessage]);
 
   // ログイン認証
-  const handleGoogleAuth = async () => {
+  const handleGoogleAuth = useCallback(async () => {
     try {
       setSyncStatus('syncing');
       await AuthorizeDrive();
@@ -78,10 +78,10 @@ export const useDriveSync = (
       showMessage('Error', `Google authentication failed: ${error}`);
       setSyncStatus('offline');
     }
-  };
+  }, [showMessage]);
 
   // ログアウト
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       // ログイン中の場合はキャンセル処理を実行
       if (syncStatus === 'logging in') {
@@ -98,10 +98,10 @@ export const useDriveSync = (
       console.error('Logout error:', error);
       showMessage('Error', `Logout failed: ${error}`);
     }
-  };
+  }, [showMessage, syncStatus]);
 
   // 今すぐ同期
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     if (syncStatus === 'synced') {
       try {
         setIsHoveringSync(false);
@@ -113,7 +113,7 @@ export const useDriveSync = (
         showMessage('Sync Error', `Failed to synchronize with Google Drive: ${error}`);
       }
     }
-  };
+  }, [showMessage, syncStatus]);
 
   // 同期状態の監視を開始
   const startSyncMonitoring = useCallback(() => {

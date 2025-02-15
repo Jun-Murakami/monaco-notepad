@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LoadSettings, SaveSettings } from '../../wailsjs/go/backend/App';
-import { Settings } from '../types';
+import type { Settings } from '../types';
 import * as runtime from '../../wailsjs/runtime';
 
 export const useEditorSettings = () => {
@@ -71,15 +71,7 @@ export const useEditorSettings = () => {
     if (isInitialized) {
       SaveSettings(editorSettings);
     }
-  }, [
-    editorSettings.fontFamily,
-    editorSettings.fontSize,
-    editorSettings.isDarkMode,
-    editorSettings.wordWrap,
-    editorSettings.minimap,
-    editorSettings.isDebug,
-    isInitialized,
-  ]);
+  }, [editorSettings, isInitialized]);
 
   const handleSettingsChange = (newSettings: Settings) => {
     setEditorSettings(newSettings);

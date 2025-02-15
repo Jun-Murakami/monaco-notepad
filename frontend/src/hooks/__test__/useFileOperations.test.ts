@@ -34,10 +34,10 @@ vi.mock('../../../wailsjs/go/models', () => ({
 }));
 
 import { renderHook, act } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import { useFileOperations } from '../useFileOperations';
 import { SelectFile, OpenFile, SaveFile, SaveNote, SelectSaveFileUri, GetModifiedTime } from '../../../wailsjs/go/backend/App';
-import { Note, FileNote } from '../../types';
+import type { Note, FileNote } from '../../types';
 import * as runtime from '../../../wailsjs/runtime';
 
 describe('useFileOperations', () => {
@@ -71,7 +71,7 @@ describe('useFileOperations', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mockShowMessage.mockResolvedValue(true);
-    (GetModifiedTime as any).mockResolvedValue(new Date().toISOString());
+    (GetModifiedTime as unknown as Mock).mockResolvedValue(new Date().toISOString());
   });
 
   afterEach(() => {
@@ -93,8 +93,8 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SelectFile as any).mockResolvedValue('/path/to/newfile.txt');
-      (OpenFile as any).mockResolvedValue('New File Content');
+      (SelectFile as unknown as Mock).mockResolvedValue('/path/to/newfile.txt');
+      (OpenFile as unknown as Mock).mockResolvedValue('New File Content');
 
       await act(async () => {
         await result.current.handleOpenFile();
@@ -118,7 +118,7 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SelectFile as any).mockResolvedValue(mockFileNote.filePath);
+      (SelectFile as unknown as Mock).mockResolvedValue(mockFileNote.filePath);
 
       await act(async () => {
         await result.current.handleOpenFile();
@@ -141,10 +141,10 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SelectFile as any).mockResolvedValue('/path/to/binary.exe');
+      (SelectFile as unknown as Mock).mockResolvedValue('/path/to/binary.exe');
       // バイナリファイルの内容をシミュレート
       const binaryContent = '\x00\x01\x02\x03';
-      (OpenFile as any).mockResolvedValue(binaryContent);
+      (OpenFile as unknown as Mock).mockResolvedValue(binaryContent);
 
       await act(async () => {
         await result.current.handleOpenFile();
@@ -196,7 +196,7 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SaveFile as any).mockRejectedValue(new Error('Save failed'));
+      (SaveFile as unknown as Mock).mockRejectedValue(new Error('Save failed'));
 
       await act(async () => {
         await result.current.handleSaveFile(mockFileNote);
@@ -220,7 +220,7 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SelectSaveFileUri as any).mockResolvedValue('/path/to/saved.txt');
+      (SelectSaveFileUri as unknown as Mock).mockResolvedValue('/path/to/saved.txt');
 
       await act(async () => {
         await result.current.handleSaveAsFile();
@@ -243,8 +243,8 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SelectSaveFileUri as any).mockResolvedValue('/path/to/saved.txt');
-      (SaveFile as any).mockRejectedValue(new Error('Save failed'));
+      (SelectSaveFileUri as unknown as Mock).mockResolvedValue('/path/to/saved.txt');
+      (SaveFile as unknown as Mock).mockRejectedValue(new Error('Save failed'));
 
       await act(async () => {
         await result.current.handleSaveAsFile();
@@ -293,7 +293,7 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (OpenFile as any).mockResolvedValue('Dropped File Content');
+      (OpenFile as unknown as Mock).mockResolvedValue('Dropped File Content');
 
       await act(async () => {
         await result.current.handleFileDrop('/path/to/dropped.txt');
@@ -368,7 +368,7 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SelectFile as any).mockRejectedValue(new Error('Failed to select file'));
+      (SelectFile as unknown as Mock).mockRejectedValue(new Error('Failed to select file'));
 
       await act(async () => {
         await result.current.handleOpenFile();
@@ -391,7 +391,7 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SaveFile as any).mockRejectedValue(new Error('Failed to save file'));
+      (SaveFile as unknown as Mock).mockRejectedValue(new Error('Failed to save file'));
 
       await act(async () => {
         await result.current.handleSaveAsFile();
@@ -413,7 +413,7 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      (SelectFile as any).mockResolvedValue('');
+      (SelectFile as unknown as Mock).mockResolvedValue('');
 
       await act(async () => {
         await result.current.handleOpenFile();
@@ -438,10 +438,10 @@ describe('useFileOperations', () => {
         mockHandleSaveFileNotes,
       ));
 
-      // EventsOnのコールバックを取得
-      const openExternalCallback = (runtime.EventsOn as any).mock.calls.find(
-        (call: [string, Function]) => call[0] === 'file:open-external'
-      )[1];
+      const mockCalls = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundCallback = mockCalls.find(call => call[0] === 'file:open-external');
+      if (!foundCallback) throw new Error('Callback not found');
+      const openExternalCallback = foundCallback[1];
 
       await act(async () => {
         await openExternalCallback({
@@ -469,9 +469,9 @@ describe('useFileOperations', () => {
       ));
 
       // OnFileDropのコールバックを取得
-      const onFileDropCallback = (runtime.OnFileDrop as any).mock.calls[0][0];
+      const onFileDropCallback = (runtime.OnFileDrop as unknown as Mock).mock.calls[0][0];
 
-      (OpenFile as any).mockResolvedValue('Dropped file content');
+      (OpenFile as unknown as Mock).mockResolvedValue('Dropped file content');
 
       await act(async () => {
         await onFileDropCallback(null, null, ['/path/to/dropped.txt']);
@@ -497,7 +497,7 @@ describe('useFileOperations', () => {
 
       // バイナリファイルの内容をシミュレート
       const binaryContent = '\x00\x01\x02\x03';
-      (OpenFile as any).mockResolvedValue(binaryContent);
+      (OpenFile as unknown as Mock).mockResolvedValue(binaryContent);
 
       await act(async () => {
         await result.current.handleFileDrop('/path/to/binary.exe');

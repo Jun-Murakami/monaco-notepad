@@ -119,7 +119,7 @@ export const AppBar: React.FC<{
           <InputLabel size='small'>Language</InputLabel>
           <Select
             size='small'
-            value={currentNote?.language || ''}
+            value={languages.some((lang) => lang.id === currentNote?.language) ? currentNote?.language : ''}
             onChange={(e) => onLanguageChange(e.target.value)}
             label='Language'
           >

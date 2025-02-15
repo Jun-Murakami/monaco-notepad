@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as wailsRuntime from '../../wailsjs/runtime';
 
 export const useMessageDialog = () => {
@@ -10,7 +10,7 @@ export const useMessageDialog = () => {
   const [secondaryButtonText, setSecondaryButtonText] = useState('Cancel');
   const [onResult, setOnResult] = useState<((result: boolean) => Promise<void>) | null>(null);
 
-  const showMessage = (title: string, message: string, isTwoButton?: boolean, primaryButtonText?: string, secondaryButtonText?: string): Promise<boolean> => {
+  const showMessage = useCallback((title: string, message: string, isTwoButton?: boolean, primaryButtonText?: string, secondaryButtonText?: string): Promise<boolean> => {
     return new Promise((resolve) => {
       setIsMessageDialogOpen(true);
       setMessageTitle(title);
@@ -23,7 +23,7 @@ export const useMessageDialog = () => {
         resolve(result);
       });
     });
-  };
+  }, []);
 
   useEffect(() => {
     wailsRuntime.EventsOn("show-message", (title: string, message: string, isTwoButton: boolean) => {

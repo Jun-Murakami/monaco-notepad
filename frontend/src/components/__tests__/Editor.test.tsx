@@ -1,8 +1,9 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import '@testing-library/jest-dom';
 import { Editor } from '../Editor';
-import { Settings } from '../../types';
+import type { Settings } from '../../types';
 import { getMonaco, getOrCreateEditor, disposeEditor } from '../../lib/monaco';
 
 // lib/monacoのモック化をファイルの先頭で行う
@@ -51,10 +52,41 @@ vi.mock('../../lib/monaco', () => {
   };
 });
 
+type MockEditor = {
+  getValue: Mock;
+  setValue: Mock;
+  getPosition: Mock;
+  setPosition: Mock;
+  revealPositionInCenter: Mock;
+  getModel: Mock;
+  onDidChangeModelContent: Mock;
+  addCommand: Mock;
+  updateOptions: Mock;
+};
+
+type MockMonaco = {
+  editor: {
+    setModelLanguage: Mock;
+  };
+  KeyMod: {
+    CtrlCmd: number;
+    WinCtrl: number;
+    Shift: number;
+    Alt: number;
+  };
+  KeyCode: {
+    KeyN: number;
+    KeyO: number;
+    KeyS: number;
+    KeyW: number;
+    Tab: number;
+  };
+};
+
 // モック関数への参照を取得
 const getMockFunctions = () => {
-  const mockEditor = (getOrCreateEditor as any)();
-  const mockMonaco = (getMonaco as any)();
+  const mockEditor = (getOrCreateEditor as unknown as Mock<() => MockEditor>)();
+  const mockMonaco = (getMonaco as unknown as Mock<() => MockMonaco>)();
   return {
     editor: mockEditor,
     monaco: mockMonaco,

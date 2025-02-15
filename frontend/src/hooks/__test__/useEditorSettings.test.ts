@@ -1,9 +1,9 @@
 import { renderHook, act, RenderHookResult } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { useEditorSettings } from '../useEditorSettings';
 import { LoadSettings, SaveSettings } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
-import { Settings } from '../../types';
+import type { Settings } from '../../types';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({
@@ -37,8 +37,8 @@ describe('useEditorSettings フック', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (LoadSettings as any).mockResolvedValue(mockSettings);
-    (runtime.Environment as any).mockResolvedValue({ platform: 'windows' });
+    (LoadSettings as unknown as Mock).mockResolvedValue(mockSettings);
+    (runtime.Environment as unknown as Mock).mockResolvedValue({ platform: 'windows' });
   });
 
   describe('初期化処理', () => {
@@ -74,7 +74,7 @@ describe('useEditorSettings フック', () => {
     });
 
     it('設定の読み込みに失敗した場合、デフォルト値が使用されること', async () => {
-      (LoadSettings as any).mockRejectedValue(new Error('読み込みエラー'));
+      (LoadSettings as unknown as Mock).mockRejectedValue(new Error('読み込みエラー'));
 
       const { result } = renderHook(() => useEditorSettings());
 

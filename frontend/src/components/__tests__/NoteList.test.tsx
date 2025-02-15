@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
 import { NoteList } from '../NoteList';
-import { Note, FileNote } from '../../types';
+import type { Note, FileNote } from '../../types';
 import dayjs from 'dayjs';
 
 // DnD-kitのモック
@@ -39,7 +39,7 @@ vi.mock('@dnd-kit/sortable', () => ({
     isDragging: false,
   }),
   verticalListSortingStrategy: {},
-  arrayMove: (array: any[], from: number, to: number) => array,
+  arrayMove: (array: unknown[], from: number, to: number) => array,
   sortableKeyboardCoordinates: () => ({}),
 }));
 
@@ -119,11 +119,11 @@ describe('NoteList', () => {
     expect(screen.getByText('First line Second line')).toBeInTheDocument();
 
     // 日付が正しく表示されることを確認
-    mockNotes.forEach((note) => {
+    for (const note of mockNotes) {
       const formattedDate = dayjs(note.modifiedTime).format('L _ HH:mm:ss');
       const dateElements = screen.getAllByText(formattedDate);
       expect(dateElements.length).toBeGreaterThan(0);
-    });
+    }
   });
 
   it('ファイルノートが正しく表示されること', () => {
@@ -133,11 +133,11 @@ describe('NoteList', () => {
     expect(screen.getByText('file2.ts')).toBeInTheDocument();
 
     // 日付が正しく表示されることを確認
-    mockFileNotes.forEach((note) => {
+    for (const note of mockFileNotes) {
       const formattedDate = dayjs(note.modifiedTime).format('L _ HH:mm:ss');
       const dateElements = screen.getAllByText(formattedDate);
       expect(dateElements.length).toBeGreaterThan(0);
-    });
+    }
   });
 
   it('ノート選択が正しく動作すること', async () => {
@@ -154,7 +154,9 @@ describe('NoteList', () => {
     render(<NoteList {...defaultProps} />);
 
     const archiveButtons = screen.getAllByTestId('ArchiveIcon');
-    await fireEvent.click(archiveButtons[0].closest('button')!);
+    const archiveButton = archiveButtons[0].closest('button');
+    if (!archiveButton) throw new Error('Archive button not found');
+    await fireEvent.click(archiveButton);
 
     expect(defaultProps.onArchive).toHaveBeenCalledWith('1');
   });
@@ -165,17 +167,23 @@ describe('NoteList', () => {
 
     // 保存ボタン
     const saveButtons = screen.getAllByTestId('SaveIcon');
-    await fireEvent.click(saveButtons[0].closest('button')!);
+    const saveButton = saveButtons[0].closest('button');
+    if (!saveButton) throw new Error('Save button not found');
+    await fireEvent.click(saveButton);
     expect(defaultFileProps.onSaveFile).toHaveBeenCalledWith(mockFileNotes[0]);
 
     // 変換ボタン
     const convertButtons = screen.getAllByTestId('SimCardDownloadIcon');
-    await fireEvent.click(convertButtons[0].closest('button')!);
+    const convertButton = convertButtons[0].closest('button');
+    if (!convertButton) throw new Error('Convert button not found');
+    await fireEvent.click(convertButton);
     expect(defaultFileProps.onConvertToNote).toHaveBeenCalledWith(mockFileNotes[0]);
 
     // クローズボタン
     const closeButtons = screen.getAllByTestId('CloseIcon');
-    await fireEvent.click(closeButtons[0].closest('button')!);
+    const closeButton = closeButtons[0].closest('button');
+    if (!closeButton) throw new Error('Close button not found');
+    await fireEvent.click(closeButton);
     expect(defaultFileProps.onCloseFile).toHaveBeenCalledWith(mockFileNotes[0]);
   });
 

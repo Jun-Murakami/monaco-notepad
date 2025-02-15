@@ -1,6 +1,6 @@
 import { getLanguageByExtension, getExtensionByLanguage } from '../lib/monaco';
 import { SelectFile, OpenFile, SaveFile, SaveNote, SelectSaveFileUri, GetModifiedTime, } from '../../wailsjs/go/backend/App';
-import { Note, FileNote } from '../types';
+import type { Note, FileNote } from '../types';
 import { useEffect, useCallback } from 'react';
 import { isBinaryFile } from '../utils/fileUtils';
 import * as runtime from '../../wailsjs/runtime';
@@ -25,7 +25,7 @@ export function useFileOperations(
     }
 
     const extension = filePath.split('.').pop()?.toLowerCase() || '';
-    const detectedLanguage = getLanguageByExtension('.' + extension);
+    const detectedLanguage = getLanguageByExtension(`.${extension}`);
     const language = typeof detectedLanguage?.id === 'string' && detectedLanguage.id !== '' ? detectedLanguage.id : 'plaintext';
     const fileName = filePath.split(/[/\\]/).pop() || '';
 
@@ -97,7 +97,7 @@ export function useFileOperations(
     } catch (error) {
       console.error('Failed to handle dropped file:', error);
     }
-  }, [fileNotes, createFileNote, setFileNotes, handleSaveFileNotes, handleSelecAnyNote, showMessage]);
+  }, [fileNotes, createFileNote, setFileNotes, handleSaveFileNotes, handleSelecAnyNote]);
 
   // ファイルをエクスポートする
   const handleSaveAsFile = async () => {
@@ -188,7 +188,7 @@ export function useFileOperations(
       cleanup();
       runtime.OnFileDropOff();
     };
-  }, [fileNotes, handleSelecAnyNote, setFileNotes, handleSaveFileNotes, handleFileDrop]);
+  }, [fileNotes, handleSelecAnyNote, setFileNotes, handleSaveFileNotes, handleFileDrop, createFileNote]);
 
   const handleCloseFile = async (note: FileNote) => {
     const updatedFileNotes = fileNotes.filter(f => f.id !== note.id);

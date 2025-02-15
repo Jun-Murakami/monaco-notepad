@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useNoteSelecter } from '../useNoteSelecter';
-import { Note, FileNote } from '../../types';
+import type { Note, FileNote } from '../../types';
 
 describe('useNoteSelecter フック', () => {
   const mockNote: Note = {

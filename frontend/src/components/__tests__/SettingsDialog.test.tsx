@@ -2,7 +2,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
 import { SettingsDialog } from '../SettingsDialog';
-import { Settings, DEFAULT_EDITOR_SETTINGS } from '../../types';
+import type { Settings } from '../../types';
+import { DEFAULT_EDITOR_SETTINGS } from '../../types';
 import * as runtime from '../../../wailsjs/runtime';
 
 // runtimeのモック

@@ -1,10 +1,21 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import '@testing-library/jest-dom';
 import { AppBar } from '../AppBar';
 import { useDriveSync } from '../../hooks/useDriveSync';
-import { Note, FileNote } from '../../types';
-import { LanguageInfo } from '../../lib/monaco';
+import type { Note, FileNote } from '../../types';
+import type { LanguageInfo } from '../../lib/monaco';
+
+type DriveSyncReturn = {
+  syncStatus: 'synced' | 'syncing' | 'logging in' | 'offline';
+  isHoveringSync: boolean;
+  setIsHoveringSync: (value: boolean) => void;
+  isHoverLocked: boolean;
+  handleGoogleAuth: () => Promise<void>;
+  handleLogout: () => Promise<void>;
+  handleSync: () => Promise<void>;
+};
 
 // useDriveSyncのモック
 vi.mock('../../hooks/useDriveSync', () => ({
@@ -52,7 +63,7 @@ describe('AppBar', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (useDriveSync as any).mockReturnValue({
+    (useDriveSync as unknown as Mock<() => DriveSyncReturn>).mockReturnValue({
       syncStatus: 'offline',
       isHoveringSync: false,
       setIsHoveringSync: vi.fn(),
@@ -126,7 +137,7 @@ describe('AppBar', () => {
   });
 
   it('同期状態が"synced"の場合、同期完了アイコンが表示されること', () => {
-    (useDriveSync as any).mockReturnValue({
+    (useDriveSync as unknown as Mock<() => DriveSyncReturn>).mockReturnValue({
       syncStatus: 'synced',
       isHoveringSync: false,
       setIsHoveringSync: vi.fn(),
@@ -141,7 +152,7 @@ describe('AppBar', () => {
   });
 
   it('同期状態が"syncing"の場合、進行状況インジケータが表示されること', () => {
-    (useDriveSync as any).mockReturnValue({
+    (useDriveSync as unknown as Mock<() => DriveSyncReturn>).mockReturnValue({
       syncStatus: 'syncing',
       isHoveringSync: false,
       setIsHoveringSync: vi.fn(),

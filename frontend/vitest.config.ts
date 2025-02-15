@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import path from 'path';
+import path from 'node:path';
 
 export default defineConfig({
   test: {
@@ -15,6 +15,7 @@ export default defineConfig({
         'src/**/*.d.ts',
         'src/test/**/*',
         'src/types/**/*',
+        'src/lib/monaco.ts',  // Monaco Editorの設定ファイルを除外
       ],
     },
     deps: {

@@ -1,4 +1,5 @@
-import { Note, FileNote } from '../types';
+import { useCallback } from 'react';
+import type { Note, FileNote } from '../types';
 
 interface NoteSelecterProps {
   handleSelectNote: (note: Note) => Promise<void>;
@@ -12,8 +13,8 @@ interface NoteSelecterProps {
 }
 
 export const useNoteSelecter = ({ handleSelectNote, handleSelectFileNote, notes, fileNotes, currentNote, currentFileNote, setCurrentNote, setCurrentFileNote }: NoteSelecterProps) => {
-
-  const handleSelecAnyNote = async (note: Note | FileNote) => {
+  // ノートを選択する
+  const handleSelecAnyNote = useCallback(async (note: Note | FileNote) => {
     if ('filePath' in note) {
       await handleSelectFileNote(note);
       setCurrentNote(null);
@@ -21,9 +22,10 @@ export const useNoteSelecter = ({ handleSelectNote, handleSelectFileNote, notes,
       await handleSelectNote(note);
       setCurrentFileNote(null);
     }
-  }
+  }, [handleSelectFileNote, handleSelectNote, setCurrentFileNote, setCurrentNote]);
 
-  const handleSelectNextAnyNote = async () => {
+  // 次のノートを選択する
+  const handleSelectNextAnyNote = useCallback(async () => {
     const activeNotes = notes.filter(note => !note.archived);
 
     // 全てのノートを一つの配列にまとめる
@@ -41,9 +43,10 @@ export const useNoteSelecter = ({ handleSelectNote, handleSelectFileNote, notes,
     // 次のノートを選択
     const nextIndex = (currentIndex + 1) % allNotes.length;
     await handleSelecAnyNote(allNotes[nextIndex]);
-  }
+  }, [handleSelecAnyNote, currentFileNote, currentNote, fileNotes, notes]);
 
-  const handleSelectPreviousAnyNote = async () => {
+  // 前のノートを選択する
+  const handleSelectPreviousAnyNote = useCallback(async () => {
     const activeNotes = notes.filter(note => !note.archived);
 
     // 全てのノートを一つの配列にまとめる
@@ -61,7 +64,7 @@ export const useNoteSelecter = ({ handleSelectNote, handleSelectFileNote, notes,
     // 前のノートを選択
     const previousIndex = (currentIndex - 1 + allNotes.length) % allNotes.length;
     await handleSelecAnyNote(allNotes[previousIndex]);
-  }
+  }, [handleSelecAnyNote, currentFileNote, currentNote, fileNotes, notes]);
 
   return { handleSelecAnyNote, handleSelectNextAnyNote, handleSelectPreviousAnyNote };
 }

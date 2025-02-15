@@ -1,10 +1,10 @@
 import { renderHook, act } from '@testing-library/react';
 import { useNotes } from '../useNotes';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
 import { backend } from '../../../wailsjs/go/models';
-import { Note } from '../../types';
+import type { Note } from '../../types';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({
@@ -49,7 +49,7 @@ describe('useNotes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    (ListNotes as any).mockResolvedValue([mockNote]);
+    (ListNotes as unknown as Mock).mockResolvedValue([mockNote]);
   });
 
   afterEach(() => {
@@ -188,7 +188,7 @@ describe('useNotes', () => {
       const updatedContent = 'Updated Content';
 
       // SaveNoteをエラーを投げるようにモック
-      (SaveNote as any).mockRejectedValueOnce(new Error('保存エラー'));
+      (SaveNote as unknown as Mock).mockRejectedValueOnce(new Error('保存エラー'));
 
       await act(async () => {
         await result.current.handleSelectNote(mockNote);
@@ -209,7 +209,7 @@ describe('useNotes', () => {
 
       // 初期ノートリストを設定
       await act(async () => {
-        (ListNotes as any).mockResolvedValue([mockNote]);
+        (ListNotes as unknown as Mock).mockResolvedValue([mockNote]);
         await result.current.handleSelectNote(mockNote);
       });
 
@@ -237,8 +237,8 @@ describe('useNotes', () => {
 
       // アーカイブされたノートを設定
       const archivedContent = 'Archived content';
-      (ListNotes as any).mockResolvedValue([mockArchivedNote]);
-      (LoadArchivedNote as any).mockResolvedValue({
+      (ListNotes as unknown as Mock).mockResolvedValue([mockArchivedNote]);
+      (LoadArchivedNote as unknown as Mock).mockResolvedValue({
         ...mockArchivedNote,
         content: archivedContent,
       });
@@ -272,7 +272,7 @@ describe('useNotes', () => {
       };
 
       await act(async () => {
-        (ListNotes as any).mockResolvedValue([noteWithMultilineContent]);
+        (ListNotes as unknown as Mock).mockResolvedValue([noteWithMultilineContent]);
         result.current.setNotes([noteWithMultilineContent]);
       });
 
@@ -294,7 +294,7 @@ describe('useNotes', () => {
       const activeNote2 = { ...mockNote, id: '2' };
 
       await act(async () => {
-        (ListNotes as any).mockResolvedValue([activeNote1, activeNote2]);
+        (ListNotes as unknown as Mock).mockResolvedValue([activeNote1, activeNote2]);
         result.current.setNotes([activeNote1, activeNote2]);
         await result.current.handleSelectNote(activeNote1);
       });
@@ -316,11 +316,12 @@ describe('useNotes', () => {
       expect(runtime.EventsOn).toHaveBeenCalledWith('notes:reload', expect.any(Function));
 
       // notes:reloadイベントをシミュレート
-      const reloadCallback = (runtime.EventsOn as any).mock.calls.find(
-        (call: [string, Function]) => call[0] === 'notes:reload'
-      )[1];
+      const mockCalls = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundReloadCall = mockCalls.find(call => call[0] === 'notes:reload');
+      if (!foundReloadCall) throw new Error('notes:reload callback not found');
+      const reloadCallback = foundReloadCall[1];
 
-      (ListNotes as any).mockResolvedValue(updatedNotes);
+      (ListNotes as unknown as Mock).mockResolvedValue(updatedNotes);
 
       await act(async () => {
         await reloadCallback();
@@ -337,11 +338,12 @@ describe('useNotes', () => {
       expect(runtime.EventsOn).toHaveBeenCalledWith('note:updated', expect.any(Function));
 
       // note:updatedイベントをシミュレート
-      const updateCallback = (runtime.EventsOn as any).mock.calls.find(
-        (call: [string, Function]) => call[0] === 'note:updated'
-      )[1];
+      const mockCalls2 = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundUpdateCall = mockCalls2.find(call => call[0] === 'note:updated');
+      if (!foundUpdateCall) throw new Error('note:updated callback not found');
+      const updateCallback = foundUpdateCall[1];
 
-      (ListNotes as any).mockResolvedValue([updatedNote]);
+      (ListNotes as unknown as Mock).mockResolvedValue([updatedNote]);
 
       await act(async () => {
         await result.current.handleSelectNote(mockNote);
@@ -357,7 +359,7 @@ describe('useNotes', () => {
       const { result } = renderHook(() => useNotes());
 
       // 初期ノートリストを設定
-      (ListNotes as any).mockResolvedValue([mockNote]);
+      (ListNotes as unknown as Mock).mockResolvedValue([mockNote]);
 
       await act(async () => {
         await result.current.handleDeleteNote(mockNote.id);
@@ -370,7 +372,7 @@ describe('useNotes', () => {
       const { result } = renderHook(() => useNotes());
 
       // アーカイブノートのみの状態を設定
-      (ListNotes as any).mockResolvedValue([mockArchivedNote]);
+      (ListNotes as unknown as Mock).mockResolvedValue([mockArchivedNote]);
 
       await act(async () => {
         // アーカイブページを表示
@@ -403,7 +405,7 @@ describe('useNotes', () => {
 
       // 空のノートリストを設定
       await act(async () => {
-        (ListNotes as any).mockResolvedValue([]);
+        (ListNotes as unknown as Mock).mockResolvedValue([]);
         result.current.setNotes([]);
       });
 
@@ -423,12 +425,12 @@ describe('useNotes', () => {
 
       // アーカイブノートの初期状態を設定
       await act(async () => {
-        (ListNotes as any).mockResolvedValue([mockArchivedNote]);
+        (ListNotes as unknown as Mock).mockResolvedValue([mockArchivedNote]);
         result.current.setNotes([mockArchivedNote]);
       });
 
       // LoadArchivedNoteをエラーを投げるようにモック
-      (LoadArchivedNote as any).mockRejectedValueOnce(new Error('ロードエラー'));
+      (LoadArchivedNote as unknown as Mock).mockRejectedValueOnce(new Error('ロードエラー'));
 
       // エラーをキャッチしながらアンアーカイブを実行
       await act(async () => {
@@ -518,9 +520,10 @@ describe('useNotes', () => {
       });
 
       // beforecloseイベントをシミュレート
-      const beforeCloseCallback = (runtime.EventsOn as any).mock.calls.find(
-        (call: [string, Function]) => call[0] === 'app:beforeclose'
-      )[1];
+      const mockCalls3 = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundCloseCall = mockCalls3.find(call => call[0] === 'app:beforeclose');
+      if (!foundCloseCall) throw new Error('app:beforeclose callback not found');
+      const beforeCloseCallback = foundCloseCall[1];
 
       await act(async () => {
         await beforeCloseCallback();
@@ -544,9 +547,10 @@ describe('useNotes', () => {
       });
 
       // beforecloseイベントをシミュレート
-      const beforeCloseCallback = (runtime.EventsOn as any).mock.calls.find(
-        (call: [string, Function]) => call[0] === 'app:beforeclose'
-      )[1];
+      const mockCalls3 = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundCloseCall = mockCalls3.find(call => call[0] === 'app:beforeclose');
+      if (!foundCloseCall) throw new Error('app:beforeclose callback not found');
+      const beforeCloseCallback = foundCloseCall[1];
 
       await act(async () => {
         await beforeCloseCallback();

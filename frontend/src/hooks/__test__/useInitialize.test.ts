@@ -3,7 +3,17 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { useInitialize } from '../useInitialize';
 import { ListNotes, NotifyFrontendReady, LoadFileNotes } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
-import { Note, FileNote } from '../../types';
+import type { Note, FileNote } from '../../types';
+
+// Vitestのモック型定義
+type MockFunction = {
+  mockResolvedValue: (value: unknown) => void;
+  mockRejectedValue: (error: Error) => void;
+  mockImplementation: (fn: (event: string, callback: () => void) => () => void) => void;
+  mock: {
+    calls: unknown[][];
+  };
+};
 
 // Monaco Editorのモック
 vi.mock('../../lib/monaco', () => ({
@@ -13,7 +23,7 @@ vi.mock('../../lib/monaco', () => ({
   ]),
 }));
 
-// モックの設定
+// モックの設定を修正
 vi.mock('../../../wailsjs/go/backend/App', () => ({
   ListNotes: vi.fn(),
   NotifyFrontendReady: vi.fn(),
@@ -21,7 +31,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
 }));
 
 vi.mock('../../../wailsjs/runtime', () => ({
-  EventsOn: vi.fn().mockReturnValue(() => { }),
+  EventsOn: vi.fn(),  // mockReturnValueを削除
   EventsOff: vi.fn(),
   Environment: vi.fn(),
 }));
@@ -47,6 +57,16 @@ const mockFileNote: FileNote = {
   modifiedTime: new Date().toISOString(),
 };
 
+let isInitialized: boolean;
+vi.mock('../useInitialize', async () => {
+  const actual = await vi.importActual<typeof import('../useInitialize')>('../useInitialize');
+  return {
+    ...actual,
+    get isInitialized() { return isInitialized; },
+    set isInitialized(value: boolean) { isInitialized = value; }
+  };
+});
+
 describe('useInitialize', () => {
   // モック関数の準備
   const mockSetNotes = vi.fn();
@@ -64,14 +84,28 @@ describe('useInitialize', () => {
   const mockSetCurrentFileNote = vi.fn();
 
   beforeEach(() => {
+    console.log('beforeEach: テストの初期化を開始');
     vi.clearAllMocks();
     vi.useFakeTimers();
-    // 環境設定のモック
-    (runtime.Environment as any).mockResolvedValue({ platform: 'windows' });
-    // ノートリストのモック
-    (ListNotes as any).mockResolvedValue([mockNote]);
-    // ファイルノートリストのモック
-    (LoadFileNotes as any).mockResolvedValue([mockFileNote]);
+    isInitialized = false;
+
+    // モックの実装を設定
+    console.log('beforeEach: モックの設定を開始');
+    ((runtime.Environment as unknown) as MockFunction).mockResolvedValue({ platform: 'windows' });
+    ((ListNotes as unknown) as MockFunction).mockResolvedValue([mockNote]);
+    ((LoadFileNotes as unknown) as MockFunction).mockResolvedValue([mockFileNote]);
+    ((NotifyFrontendReady as unknown) as MockFunction).mockResolvedValue(undefined);
+    ((runtime.EventsOn as unknown) as MockFunction).mockImplementation((event: string, callback: () => void) => {
+      console.log(`EventsOn called with event: ${event}`);
+      if (event === 'backend:ready') {
+        console.log('Setting up backend:ready callback');
+        callback();
+      }
+      return () => {
+        console.log(`EventsOff called for event: ${event}`);
+      };
+    });
+    console.log('beforeEach: モックの設定完了');
   });
 
   afterEach(() => {
@@ -128,7 +162,8 @@ describe('useInitialize', () => {
   });
 
   it('バックエンド準備完了イベントを処理すること', async () => {
-    renderHook(() => useInitialize(
+    console.log('テスト開始: バックエンド準備完了イベント');
+    const hook = renderHook(() => useInitialize(
       mockSetNotes,
       mockSetFileNotes,
       mockHandleNewNote,
@@ -145,19 +180,15 @@ describe('useInitialize', () => {
       mockHandleSelectNextAnyNote,
       mockHandleSelectPreviousAnyNote,
     ));
+    console.log('フックのレンダリング完了');
 
-    // イベントリスナーが登録されていることを確認
-    expect(runtime.EventsOn).toHaveBeenCalledWith('backend:ready', expect.any(Function));
-
-    // イベントをシミュレート
-    const eventHandler = (runtime.EventsOn as any).mock.calls.find(
-      (call: [string, (...args: any[]) => void]) => call[0] === 'backend:ready'
-    )[1];
     await act(async () => {
-      eventHandler();
+      await Promise.resolve();
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
     });
 
-    // NotifyFrontendReadyが呼ばれていることを確認
+    expect(runtime.EventsOn).toHaveBeenCalledWith('backend:ready', expect.any(Function));
     expect(NotifyFrontendReady).toHaveBeenCalled();
   });
 
@@ -180,55 +211,59 @@ describe('useInitialize', () => {
       mockHandleSelectPreviousAnyNote,
     ));
 
-    await vi.runAllTimersAsync();
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // 新規ノート作成 (Ctrl+N)
-    await act(async () => {
-      const event = new KeyboardEvent('keydown', {
-        key: 'n',
-        ctrlKey: true,
-      });
-      window.dispatchEvent(event);
+    const newNoteEvent = new KeyboardEvent('keydown', {
+      key: 'n',
+      ctrlKey: true,
     });
+    window.dispatchEvent(newNoteEvent);
+    await vi.runAllTimersAsync();
+
     expect(mockSetCurrentFileNote).toHaveBeenCalledWith(null);
     expect(mockHandleNewNote).toHaveBeenCalled();
 
     // ファイルを開く (Ctrl+O)
-    await act(async () => {
-      const event = new KeyboardEvent('keydown', {
-        key: 'o',
-        ctrlKey: true,
-      });
-      window.dispatchEvent(event);
+    const openFileEvent = new KeyboardEvent('keydown', {
+      key: 'o',
+      ctrlKey: true,
     });
+    window.dispatchEvent(openFileEvent);
+    await vi.runAllTimersAsync();
+
     expect(mockHandleOpenFile).toHaveBeenCalled();
 
     // 次のノートに移動 (Ctrl+Tab)
-    await act(async () => {
-      const event = new KeyboardEvent('keydown', {
-        key: 'tab',
-        ctrlKey: true,
-      });
-      window.dispatchEvent(event);
+    const nextNoteEvent = new KeyboardEvent('keydown', {
+      key: 'tab',
+      ctrlKey: true,
     });
+    window.dispatchEvent(nextNoteEvent);
+    await vi.runAllTimersAsync();
+
     expect(mockHandleSelectNextAnyNote).toHaveBeenCalled();
 
     // 前のノートに移動 (Ctrl+Shift+Tab)
-    await act(async () => {
-      const event = new KeyboardEvent('keydown', {
-        key: 'tab',
-        ctrlKey: true,
-        shiftKey: true,
-      });
-      window.dispatchEvent(event);
+    const previousNoteEvent = new KeyboardEvent('keydown', {
+      key: 'tab',
+      ctrlKey: true,
+      shiftKey: true,
     });
+    window.dispatchEvent(previousNoteEvent);
+    await vi.runAllTimersAsync();
+
     expect(mockHandleSelectPreviousAnyNote).toHaveBeenCalled();
   });
 
   it('ノートリストが空の場合に新規ノートを作成すること', async () => {
-    (ListNotes as any).mockResolvedValue(null);
+    console.log('テスト開始: 空のノートリスト');
+    ((ListNotes as unknown) as MockFunction).mockResolvedValue(null);
+    ((LoadFileNotes as unknown) as MockFunction).mockResolvedValue([]);
 
-    renderHook(() => useInitialize(
+    const hook = renderHook(() => useInitialize(
       mockSetNotes,
       mockSetFileNotes,
       mockHandleNewNote,
@@ -246,16 +281,23 @@ describe('useInitialize', () => {
       mockHandleSelectPreviousAnyNote,
     ));
 
-    await vi.runAllTimersAsync();
+    await act(async () => {
+      await Promise.resolve();
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+      await vi.runAllTimersAsync();
+    });
 
     expect(mockSetNotes).toHaveBeenCalledWith([]);
     expect(mockHandleNewNote).toHaveBeenCalled();
   });
 
   it('エラー発生時に適切に処理すること', async () => {
-    (ListNotes as any).mockRejectedValue(new Error('Failed to load notes'));
+    console.log('テスト開始: エラー処理');
+    ((ListNotes as unknown) as MockFunction).mockRejectedValue(new Error('Failed to load notes'));
+    ((LoadFileNotes as unknown) as MockFunction).mockResolvedValue([]);
 
-    renderHook(() => useInitialize(
+    const hook = renderHook(() => useInitialize(
       mockSetNotes,
       mockSetFileNotes,
       mockHandleNewNote,
@@ -273,7 +315,12 @@ describe('useInitialize', () => {
       mockHandleSelectPreviousAnyNote,
     ));
 
-    await vi.runAllTimersAsync();
+    await act(async () => {
+      await Promise.resolve();
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+      await vi.runAllTimersAsync();
+    });
 
     expect(mockSetNotes).toHaveBeenCalledWith([]);
     expect(mockHandleNewNote).toHaveBeenCalled();

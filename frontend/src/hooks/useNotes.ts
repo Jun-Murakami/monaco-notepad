@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Note } from '../types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import type { Note } from '../types';
 import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { backend } from '../../wailsjs/go/models';
@@ -20,7 +20,7 @@ export const useNotes = () => {
 
   // 初期ロードとイベントリスナーの設定 ------------------------------------------------------------
   // ノートの内容を比較する関数
-  const isNoteChanged = (oldNote: Note | null, newNote: Note | null): boolean => {
+  const isNoteChanged = useCallback((oldNote: Note | null, newNote: Note | null): boolean => {
     if (!oldNote || !newNote) return true;
     return (
       oldNote.title !== newNote.title ||
@@ -29,13 +29,13 @@ export const useNotes = () => {
       oldNote.archived !== newNote.archived ||
       oldNote.modifiedTime !== newNote.modifiedTime
     );
-  };
+  }, []);
 
   // ノートリストの内容を比較する関数
-  const isNoteListChanged = (oldNotes: Note[], newNotes: Note[]): boolean => {
+  const isNoteListChanged = useCallback((oldNotes: Note[], newNotes: Note[]): boolean => {
     if (oldNotes.length !== newNotes.length) return true;
     return oldNotes.some((oldNote, index) => isNoteChanged(oldNote, newNotes[index]));
-  };
+  }, [isNoteChanged]);
 
   // メインエフェクト
   useEffect(() => {
@@ -102,7 +102,7 @@ export const useNotes = () => {
       runtime.EventsOff('notes:reload');
       runtime.EventsOff('note:updated');
     };
-  }, []);
+  }, [isNoteChanged, isNoteListChanged, notes]);
 
   // 自動保存の処理 (デバウンスありSynchingSynching) ------------------------------------------------------------
   useEffect(() => {
@@ -120,7 +120,7 @@ export const useNotes = () => {
   }, [currentNote]);
 
   // 現在のノートを保存する ------------------------------------------------------------
-  const saveCurrentNote = async () => {
+  const saveCurrentNote = useCallback(async () => {
     if (!currentNote?.id || !isNoteModified.current) return;
     try {
       setNotes((prev) => prev.map((note) => (note.id === currentNote.id ? currentNote : note)));
@@ -128,10 +128,10 @@ export const useNotes = () => {
       isNoteModified.current = false;
     } catch (error) {
     }
-  };
+  }, [currentNote]);
 
   // 新規ノート作成のロジックを関数として抽出 ------------------------------------------------------------
-  const createNewNote = async () => {
+  const createNewNote = useCallback(async () => {
     const newNote: Note = {
       id: crypto.randomUUID(),
       title: '',
@@ -146,18 +146,18 @@ export const useNotes = () => {
     setCurrentNote(newNote);
     await SaveNote(backend.Note.createFrom(newNote), "create");
     return newNote;
-  };
+  }, [currentNote]);
 
   // 新規ノート作成 ------------------------------------------------------------
-  const handleNewNote = async () => {
+  const handleNewNote = useCallback(async () => {
     if (currentNote && isNoteModified.current) {
       await saveCurrentNote();
     }
     await createNewNote();
-  };
+  }, [currentNote, saveCurrentNote, createNewNote]);
 
   // ノートをアーカイブする ------------------------------------------------------------
-  const handleArchiveNote = async (noteId: string) => {
+  const handleArchiveNote = useCallback(async (noteId: string) => {
     const note = notes.find((note) => note.id === noteId);
     if (!note) return;
 
@@ -186,10 +186,10 @@ export const useNotes = () => {
         await handleNewNote();
       }
     }
-  };
+  }, [currentNote, handleNewNote, notes]);
 
   // ノートを選択する ------------------------------------------------------------
-  const handleSelectNote = async (note: Note) => {
+  const handleSelectNote = useCallback(async (note: Note) => {
     // 現在のノートが変更されている場合は切り替える前に保存
     if (currentNote?.id && isNoteModified.current) {
       await saveCurrentNote();
@@ -200,10 +200,10 @@ export const useNotes = () => {
     previousContent.current = note.content || '';
     setCurrentNote(note);
     isNoteModified.current = false;
-  };
+  }, [currentNote, saveCurrentNote]);
 
   // ノートをアーカイブ解除する ------------------------------------------------------------
-  const handleUnarchiveNote = async (noteId: string) => {
+  const handleUnarchiveNote = useCallback(async (noteId: string) => {
     const note = notes.find((note) => note.id === noteId);
     if (!note) return;
 
@@ -218,10 +218,10 @@ export const useNotes = () => {
       setShowArchived(false);
       await SaveNote(backend.Note.createFrom(unarchivedNote), "update");
     }
-  };
+  }, [notes]);
 
   // ノートを削除する ------------------------------------------------------------
-  const handleDeleteNote = async (noteId: string) => {
+  const handleDeleteNote = useCallback(async (noteId: string) => {
     // 削除前の状態を確認
     const activeNotes = notes.filter(note => !note.archived);
     const archivedNotes = notes.filter(note => note.archived);
@@ -248,10 +248,10 @@ export const useNotes = () => {
         // アクティブなノートが2つ以上ある場合は何もしない（アーカイブページのまま）
       }
     }
-  };
+  }, [createNewNote, notes, showArchived]);
 
   // ノートをすべて削除する ------------------------------------------------------------
-  const handleDeleteAllArchivedNotes = async () => {
+  const handleDeleteAllArchivedNotes = useCallback(async () => {
     const archivedNotes = notes.filter(note => note.archived);
 
     // すべてのアーカイブされたノートを削除
@@ -270,10 +270,10 @@ export const useNotes = () => {
       await createNewNote();
     }
     setShowArchived(false);
-  };
+  }, [createNewNote, notes]);
 
   // ノートのタイトル、言語、内容を変更する ------------------------------------------------------------
-  const stateChanger = (target: 'title' | 'language' | 'content') => {
+  const stateChanger = useCallback((target: 'title' | 'language' | 'content') => {
     return (newState: string) => {
       setCurrentNote((prev) => {
         if (!prev) return prev;
@@ -295,7 +295,7 @@ export const useNotes = () => {
         };
       });
     }
-  }
+  }, []);
 
   // ノートのタイトルを変更する ------------------------------------------------------------
   const handleTitleChange = (newTitle: string) => {

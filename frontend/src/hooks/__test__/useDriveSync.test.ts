@@ -1,11 +1,11 @@
 import { renderHook, act } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import { useDriveSync } from '../useDriveSync';
 import { EventsEmit } from '../../../wailsjs/runtime';
 import { AuthorizeDrive, LogoutDrive, SyncNow, CheckDriveConnection, CancelLoginDrive } from '../../../wailsjs/go/backend/App';
 
 // イベントハンドラーの型定義
-type EventHandlers = { [key: string]: (data: any) => void };
+type EventHandlers = { [key: string]: (data: unknown) => void };
 let eventHandlers: EventHandlers = {};
 
 // モックの設定
@@ -40,7 +40,7 @@ describe('useDriveSync', () => {
     vi.useRealTimers();
   });
 
-  const emitEvent = async (event: string, data: any) => {
+  const emitEvent = async (event: string, data: unknown) => {
     await act(async () => {
       if (eventHandlers[event]) {
         eventHandlers[event](data);
@@ -57,7 +57,7 @@ describe('useDriveSync', () => {
 
   it('初期状態が正しく設定されること', async () => {
     // 初期状態ではオフライン
-    (CheckDriveConnection as any).mockResolvedValue(false);
+    (CheckDriveConnection as unknown as Mock).mockResolvedValue(false);
     const { result } = renderHook(() => useDriveSync(mockShowMessage));
     await waitForEffect();
 
@@ -67,7 +67,7 @@ describe('useDriveSync', () => {
   });
 
   it('Google認証が正しく機能すること', async () => {
-    (CheckDriveConnection as any).mockResolvedValue(true);
+    (CheckDriveConnection as unknown as Mock).mockResolvedValue(true);
     const { result } = renderHook(() => useDriveSync(mockShowMessage));
     await waitForEffect();
 
@@ -80,7 +80,7 @@ describe('useDriveSync', () => {
   });
 
   it('認証エラー時に適切に処理されること', async () => {
-    (AuthorizeDrive as any).mockRejectedValue(new Error('Auth failed'));
+    (AuthorizeDrive as unknown as Mock).mockRejectedValue(new Error('Auth failed'));
     const { result } = renderHook(() => useDriveSync(mockShowMessage));
     await waitForEffect();
 
@@ -125,7 +125,7 @@ describe('useDriveSync', () => {
   });
 
   it('同期エラー時に適切に処理されること', async () => {
-    (SyncNow as any).mockRejectedValue(new Error('Sync failed'));
+    (SyncNow as unknown as Mock).mockRejectedValue(new Error('Sync failed'));
     const { result } = renderHook(() => useDriveSync(mockShowMessage));
     await waitForEffect();
 
