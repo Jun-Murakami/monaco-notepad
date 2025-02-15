@@ -9,6 +9,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { useNotes } from './hooks/useNotes';
 import { useFileNotes } from './hooks/useFileNotes';
+import { useNoteSelecter } from './hooks/useNoteSelecter';
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
@@ -69,6 +70,18 @@ function App() {
     isFileModified,
   } = useFileNotes({ notes, setCurrentNote, handleNewNote, handleSelectNote, showMessage });
 
+  // ノート選択専用フック
+  const { handleSelecAnyNote, handleSelectNextAnyNote, handleSelectPreviousAnyNote } = useNoteSelecter({
+    handleSelectNote,
+    handleSelectFileNote,
+    notes,
+    fileNotes,
+    currentNote,
+    currentFileNote,
+    setCurrentNote,
+    setCurrentFileNote,
+  });
+
   // ファイル操作
   const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
     notes,
@@ -77,8 +90,7 @@ function App() {
     currentFileNote,
     fileNotes,
     setFileNotes,
-    handleSelectNote,
-    handleSelectFileNote,
+    handleSelecAnyNote,
     showMessage,
     handleSaveFileNotes
   );
@@ -88,8 +100,7 @@ function App() {
     setNotes,
     setFileNotes,
     handleNewNote,
-    handleSelectNote,
-    handleSelectFileNote,
+    handleSelecAnyNote,
     currentFileNote,
     setCurrentFileNote,
     handleSaveFile,
@@ -98,7 +109,9 @@ function App() {
     isFileModified,
     currentNote,
     handleArchiveNote,
-    handleSaveAsFile
+    handleSaveAsFile,
+    handleSelectNextAnyNote,
+    handleSelectPreviousAnyNote
   );
 
   const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
@@ -191,9 +204,7 @@ function App() {
                 <NoteList
                   notes={fileNotes}
                   currentNote={currentFileNote}
-                  onNoteSelect={async (note) => {
-                    await handleSelectFileNote(note);
-                  }}
+                  onNoteSelect={handleSelecAnyNote}
                   onConvertToNote={handleConvertToNote}
                   onSaveFile={handleSaveFile}
                   onReorder={async (newNotes) => {
@@ -222,9 +233,7 @@ function App() {
             <NoteList
               notes={notes}
               currentNote={currentNote}
-              onNoteSelect={async (note) => {
-                await handleSelectNote(note);
-              }}
+              onNoteSelect={handleSelecAnyNote}
               onArchive={handleArchiveNote}
               onReorder={async (newNotes) => {
                 setNotes(newNotes as Note[]);
@@ -278,6 +287,7 @@ function App() {
               onChange={currentNote ? handleNoteContentChange : handleFileNoteContentChange}
               language={currentNote?.language || currentFileNote?.language || 'plaintext'}
               settings={editorSettings}
+              platform={platform}
               currentNote={currentNote || currentFileNote}
               onEditorInstance={handleEditorInstance}
               onNew={handleNewNote}
@@ -294,6 +304,8 @@ function App() {
                   await handleArchiveNote(currentNote.id);
                 }
               }}
+              onSelectNext={handleSelectNextAnyNote}
+              onSelectPrevious={handleSelectPreviousAnyNote}
             />
           )}
           <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentFileNote || currentNote} key={forceUpdate} />

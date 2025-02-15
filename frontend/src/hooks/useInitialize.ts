@@ -8,8 +8,7 @@ export const useInitialize = (
   setNotes: (notes: Note[]) => void,
   setFileNotes: (files: FileNote[]) => void,
   handleNewNote: () => void,
-  handleSelectNote: (note: Note | FileNote) => void,
-  handleSelectFileNote: (note: Note | FileNote) => void,
+  handleSelecAnyNote: (note: Note | FileNote) => Promise<void>,
   currentFileNote: FileNote | null,
   setCurrentFileNote: (file: FileNote | null) => void,
   handleSaveFile: (file: FileNote) => Promise<void>,
@@ -19,6 +18,8 @@ export const useInitialize = (
   currentNote: Note | null,
   handleArchiveNote: (noteId: string) => Promise<void>,
   handleSaveAsFile: () => Promise<void>,
+  handleSelectNextAnyNote: () => Promise<void>,
+  handleSelectPreviousAnyNote: () => Promise<void>,
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
@@ -62,11 +63,9 @@ export const useInitialize = (
         setNotes(parsedNotes);
         const activeNotes = parsedNotes.filter((note) => !note.archived);
         if (loadedFileNotes.length > 0) {
-          handleSelectNote(loadedFileNotes[0]);
-          handleSelectFileNote(loadedFileNotes[0]);
+          await handleSelecAnyNote(loadedFileNotes[0]);
         } else if (activeNotes.length > 0) {
-          handleSelectNote(activeNotes[0]);
-          handleSelectFileNote(activeNotes[0]);
+          await handleSelecAnyNote(activeNotes[0]);
         } else {
           handleNewNote();
         }
@@ -129,6 +128,18 @@ export const useInitialize = (
         } else if (currentNote) {
           await handleArchiveNote(currentNote.id);
         }
+      }
+
+      // Ctrl/Cmd + Tab
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'tab') {
+        e.preventDefault();
+        await handleSelectNextAnyNote();
+      }
+
+      // Ctrl/Cmd + Shift + Tab
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'tab') {
+        e.preventDefault();
+        await handleSelectPreviousAnyNote();
       }
     };
 

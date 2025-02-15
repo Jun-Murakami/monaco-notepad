@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Note, FileNote } from '../types';
+import { Note } from '../types';
 import { SaveNote, ListNotes, LoadArchivedNote, DeleteNote, DestroyApp } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { backend } from '../../wailsjs/go/models';
@@ -19,16 +19,39 @@ export const useNotes = () => {
   }, [currentNote]);
 
   // 初期ロードとイベントリスナーの設定 ------------------------------------------------------------
+  // ノートの内容を比較する関数
+  const isNoteChanged = (oldNote: Note | null, newNote: Note | null): boolean => {
+    if (!oldNote || !newNote) return true;
+    return (
+      oldNote.title !== newNote.title ||
+      oldNote.content !== newNote.content ||
+      oldNote.language !== newNote.language ||
+      oldNote.archived !== newNote.archived ||
+      oldNote.modifiedTime !== newNote.modifiedTime
+    );
+  };
+
+  // ノートリストの内容を比較する関数
+  const isNoteListChanged = (oldNotes: Note[], newNotes: Note[]): boolean => {
+    if (oldNotes.length !== newNotes.length) return true;
+    return oldNotes.some((oldNote, index) => isNoteChanged(oldNote, newNotes[index]));
+  };
+
+  // メインエフェクト
   useEffect(() => {
     // notes:reloadイベントのハンドラを登録
     runtime.EventsOn('notes:reload', async () => {
-      const notes = await ListNotes();
-      setNotes(notes);
+      const newNotes = await ListNotes();
+
+      // ノートリストの内容を比較
+      if (isNoteListChanged(notes, newNotes)) {
+        setNotes(newNotes);
+      }
 
       // 現在表示中のノートも更新
       if (currentNoteRef.current) {
-        const updatedCurrentNote = notes.find(note => note.id === currentNoteRef.current?.id);
-        if (updatedCurrentNote) {
+        const updatedCurrentNote = newNotes.find(note => note.id === currentNoteRef.current?.id);
+        if (updatedCurrentNote && isNoteChanged(currentNoteRef.current, updatedCurrentNote)) {
           setCurrentNote(updatedCurrentNote);
           previousContent.current = updatedCurrentNote.content || '';
           isNoteModified.current = false;
@@ -39,13 +62,17 @@ export const useNotes = () => {
     // 個別のノート更新イベントのハンドラを登録
     runtime.EventsOn('note:updated', async (noteId: string) => {
       // 更新されたノートを再読み込み
-      const notes = await ListNotes();
-      setNotes(notes);
+      const newNotes = await ListNotes();
+
+      // ノートリストの内容を比較
+      if (isNoteListChanged(notes, newNotes)) {
+        setNotes(newNotes);
+      }
 
       // 現在表示中のノートが更新された場合、その内容も更新
       if (currentNoteRef.current?.id === noteId) {
-        const updatedNote = notes.find(note => note.id === noteId);
-        if (updatedNote) {
+        const updatedNote = newNotes.find(note => note.id === noteId);
+        if (updatedNote && isNoteChanged(currentNoteRef.current, updatedNote)) {
           setCurrentNote(updatedNote);
           previousContent.current = updatedNote.content || '';
           isNoteModified.current = false;
@@ -162,7 +189,7 @@ export const useNotes = () => {
   };
 
   // ノートを選択する ------------------------------------------------------------
-  const handleSelectNote = async (note: Note | FileNote) => {
+  const handleSelectNote = async (note: Note) => {
     // 現在のノートが変更されている場合は切り替える前に保存
     if (currentNote?.id && isNoteModified.current) {
       await saveCurrentNote();
@@ -170,11 +197,6 @@ export const useNotes = () => {
     // アーカイブページを閉じる
     setShowArchived(false);
 
-    if ('filePath' in note) {
-      // FileNoteの場合は何もしない
-      setCurrentNote(null);
-      return;
-    }
     previousContent.current = note.content || '';
     setCurrentNote(note);
     isNoteModified.current = false;

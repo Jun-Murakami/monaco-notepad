@@ -6,8 +6,8 @@ import { backend } from '../../wailsjs/go/models';
 interface UseFileNotesProps {
   notes: Note[];
   setCurrentNote: (note: Note | null) => void;
-  handleNewNote: () => void;
-  handleSelectNote: (note: Note | FileNote) => void;
+  handleNewNote: () => Promise<void>;
+  handleSelectNote: (note: Note) => Promise<void>;
   showMessage: (title: string, message: string, isTwoButton?: boolean, button1?: string, button2?: string) => Promise<boolean>;
 }
 
@@ -112,6 +112,7 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
       // FileNoteでない場合は何もしない
       return;
     }
+    setCurrentNote(null);
     const wasReloaded = await checkAndReloadFile(note);
     if (!wasReloaded) {
       setCurrentFileNote(note);
@@ -141,11 +142,11 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
       // アクティブなノートがある場合は、そのノートを選択
       const activeNotes = notes.filter(note => !note.archived);
       if (activeNotes.length > 0) {
-        handleSelectNote(activeNotes[0]);
+        await handleSelectNote(activeNotes[0]);
         setCurrentFileNote(null);
         setCurrentNote(activeNotes[0]);
       } else {
-        handleNewNote();
+        await handleNewNote();
       }
     }
   };

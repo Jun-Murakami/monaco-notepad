@@ -627,8 +627,14 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 		}
 	}
 
+	// ファイル一覧取得
+	files, err := s.driveSync.ListFiles(s.ctx, s.auth.driveSync.notesFolderID)
+	if err != nil {
+		return err
+	}
+
 	// クラウドのノートリストにないノートをリストアップして削除 (ダウンロードはしない)
-	unknownNotes, err := s.driveSync.ListUnknownNotes(s.ctx, cloudNoteList, false)
+	unknownNotes, err := s.driveSync.ListUnknownNotes(s.ctx, cloudNoteList, files, false)
 	if err != nil {
 		return err
 	}
@@ -683,7 +689,12 @@ func (s *driveService) prepareCloudNotesForMerge(ctx context.Context, cloudNoteL
 	if err != nil {
 		return nil, fmt.Errorf("failed to list available notes: %w", err)
 	}
-	unknownNotes, err := s.driveSync.ListUnknownNotes(ctx, availableNotes, true)
+	// ファイル一覧取得
+	files, err := s.driveSync.ListFiles(ctx, s.auth.driveSync.notesFolderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files in notes folder: %w", err)
+	}
+	unknownNotes, err := s.driveSync.ListUnknownNotes(ctx, availableNotes, files, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list unknown notes: %w", err)
 	}

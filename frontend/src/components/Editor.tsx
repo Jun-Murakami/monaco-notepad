@@ -10,6 +10,7 @@ interface EditorProps {
   onChange?: (value: string) => void;
   language?: string;
   settings: Settings;
+  platform: string;
   currentNote: Note | FileNote | null;
   onEditorInstance?: (instance: editor.IStandaloneCodeEditor | null) => void;
   onNew?: () => void;
@@ -17,6 +18,8 @@ interface EditorProps {
   onSave?: () => void;
   onSaveAs?: () => void;
   onClose?: () => void;
+  onSelectNext?: () => Promise<void>;
+  onSelectPrevious?: () => Promise<void>;
 }
 
 export const Editor: React.FC<EditorProps> = ({
@@ -24,6 +27,7 @@ export const Editor: React.FC<EditorProps> = ({
   onChange,
   language = 'plaintext',
   settings,
+  platform,
   currentNote,
   onEditorInstance,
   onNew,
@@ -31,6 +35,8 @@ export const Editor: React.FC<EditorProps> = ({
   onSave,
   onSaveAs,
   onClose,
+  onSelectNext,
+  onSelectPrevious,
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -114,7 +120,44 @@ export const Editor: React.FC<EditorProps> = ({
       },
       'editorTextFocus'
     );
-  }, [onSave, onClose]); // コマンドのコールバックが変更されたときのみ再登録
+
+    if (platform === 'darwin') {
+      editorInstanceRef.current.addCommand(
+        monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab,
+        async () => {
+          await onSelectNext?.();
+        },
+        'editorTextFocus'
+      );
+    } else {
+      editorInstanceRef.current.addCommand(
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab,
+        async () => {
+          await onSelectNext?.();
+        },
+        'editorTextFocus'
+      );
+    }
+
+    if (platform === 'darwin') {
+      editorInstanceRef.current.addCommand(
+        monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
+        async () => {
+          await onSelectPrevious?.();
+        },
+        'editorTextFocus'
+      );
+    } else {
+      editorInstanceRef.current.addCommand(
+        monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
+        async () => {
+          console.log('onSelectPrevious');
+          await onSelectPrevious?.();
+        },
+        'editorTextFocus'
+      );
+    }
+  }, [onSave, onClose, onSelectNext, onSelectPrevious, platform]); // コマンドのコールバックが変更されたときのみ再登録
 
   // イベントリスナーの設定
   useEffect(() => {

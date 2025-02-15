@@ -21,16 +21,17 @@ type DriveSyncService interface {
 	UploadAllNotes(ctx context.Context, notes []NoteMetadata) error
 	DownloadNote(ctx context.Context, noteID string) (*Note, error)
 	DeleteNote(ctx context.Context, noteID string) error
+	ListFiles(ctx context.Context, folderID string) ([]*drive.File, error)
 	GetNoteID(ctx context.Context, noteID string) (string, error)
-	RemoveDuplicateNoteFiles(ctx context.Context) error                    // 重複するノートファイルを削除
-	RemoveNoteFromList(notes []NoteMetadata, noteID string) []NoteMetadata // ノートリストから指定のノートを除外
+	RemoveDuplicateNoteFiles(ctx context.Context, files []*drive.File) error // 重複するノートファイルを削除
+	RemoveNoteFromList(notes []NoteMetadata, noteID string) []NoteMetadata   // ノートリストから指定のノートを除外
 
 	// ノートリスト操作 ------------------------------------------------------------
 	CreateNoteList(ctx context.Context, noteList *NoteList) error
 	UpdateNoteList(ctx context.Context, noteList *NoteList, noteListID string) error
 	DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error)
 	// クラウドのノートリストにないノートをリストアップ (ダウンロードオプション付き)
-	ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, arrowDownload bool) (*NoteList, error)
+	ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, files []*drive.File, arrowDownload bool) (*NoteList, error)
 	// クラウドに存在しないファイルをリストから除外して返す
 	ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error)
 	// 重複IDを持つノートを処理し、最新のものだけを保持
@@ -337,6 +338,11 @@ func (d *driveSyncServiceImpl) DeleteNote(
 	return nil
 }
 
+// クラウド内のファイル一覧を取得する ------------------------------------------------------------
+func (d *driveSyncServiceImpl) ListFiles(ctx context.Context, folderID string) ([]*drive.File, error) {
+	return d.driveOps.ListFiles(fmt.Sprintf("'%s' in parents and trashed=false", folderID))
+}
+
 // クラウド内のノートのIDを取得する ------------------------------------------------------------
 func (d *driveSyncServiceImpl) GetNoteID(ctx context.Context, noteID string) (string, error) {
 	return d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
@@ -344,21 +350,7 @@ func (d *driveSyncServiceImpl) GetNoteID(ctx context.Context, noteID string) (st
 
 // クラウド内の重複するノートファイルを削除する ------------------------------------------------------------
 
-func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context) error {
-	var files []*drive.File
-
-	// ファイル一覧取得をリトライ付きで実行
-	err := d.withRetry(func() error {
-		var err error
-		files, err = d.driveOps.ListFiles(
-			fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
-		return err
-	}, listOperationRetryConfig)
-
-	if err != nil {
-		return fmt.Errorf("failed to list files in notes folder: %w", err)
-	}
-
+func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context, files []*drive.File) error {
 	duplicateMap := make(map[string][]*drive.File)
 	for _, file := range files {
 		// 対象は「.json」で終わるファイルのみとする
@@ -488,25 +480,7 @@ func (d *driveSyncServiceImpl) DownloadNoteList(
 }
 
 // クラウドのnotesフォルダにある不明なノートをリストアップする ------------------------------------------------------------
-func (d *driveSyncServiceImpl) ListUnknownNotes(
-	ctx context.Context,
-	cloudNoteList *NoteList,
-	arrowDownload bool,
-) (*NoteList, error) {
-	var files []*drive.File
-
-	// ファイル一覧取得をリトライ付きで実行
-	err := d.withRetry(func() error {
-		var err error
-		files, err = d.driveOps.ListFiles(
-			fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
-		return err
-	}, listOperationRetryConfig)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to list files in notes folder: %w", err)
-	}
-
+func (d *driveSyncServiceImpl) ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, files []*drive.File, arrowDownload bool) (*NoteList, error) {
 	// 実ファイルのノートを反復して不明なノートをリストアップ
 	unknownNotes := make([]NoteMetadata, 0)
 	for _, file := range files {
