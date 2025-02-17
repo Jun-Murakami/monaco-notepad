@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime';
-import { AuthorizeDrive, LogoutDrive, SyncNow, CheckDriveConnection, CancelLoginDrive } from '../../wailsjs/go/backend/App';
+import { AuthorizeDrive, LogoutDrive, SyncNow, CheckDriveConnection, CancelLoginDrive, NotifyFrontendReady } from '../../wailsjs/go/backend/App';
 
 const SYNC_TIMEOUT = 5 * 60 * 1000; // 5分のタイムアウト
 
@@ -13,44 +13,10 @@ export const useDriveSync = (
   const syncStartTime = useRef<number | null>(null);
   const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // ドライブの状態を監視
-  useEffect(() => {
-    const handleSync = () => {
-      setSyncStatus('syncing');
-    };
-
-    // ドライブの状態をUIに反映
-    const handleDriveStatus = (status: string) => {
-      setSyncStatus(status as 'synced' | 'syncing' | 'logging in' | 'offline');
-      // 同期中の場合は監視を開始
-      if (status === 'syncing') {
-        startSyncMonitoring();
-      } else {
-        // 同期完了時は監視を停止
-        stopSyncMonitoring();
-        // 同期完了時はホバー状態をリセット
-        if (status === 'synced') {
-          setIsHoveringSync(false);
-          setIsHoverLocked(true);
-          const timer = setTimeout(() => {
-            setIsHoverLocked(false);
-          }, 500);
-          return () => clearTimeout(timer);
-        }
-      }
-    };
-
-    // ドライブのエラーを処理
-    const handleDriveError = (error: string) => {
-      showMessage('Drive error', error);
-      console.error('Drive error:', error);
-    };
-
-    // 各種イベント登録
-    EventsOn('notes:updated', handleSync);
-    EventsOn('drive:status', handleDriveStatus);
-    EventsOn('drive:error', handleDriveError);
-
+  const handleBackendReady = useCallback(async () => {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await NotifyFrontendReady();
+    await new Promise(resolve => setTimeout(resolve, 500));
     // 初期状態のチェック
     CheckDriveConnection().then(isConnected => {
       if (isConnected) {
@@ -59,61 +25,11 @@ export const useDriveSync = (
         setSyncStatus('offline');
       }
     });
+  }, []);
 
-    return () => {
-      EventsOff('notes:updated');
-      EventsOff('drive:status');
-      EventsOff('drive:error');
-      stopSyncMonitoring();
-    };
-  }, [showMessage]);
-
-  // ログイン認証
-  const handleGoogleAuth = useCallback(async () => {
-    try {
-      setSyncStatus('syncing');
-      await AuthorizeDrive();
-    } catch (error) {
-      console.error('Google authentication error:', error);
-      showMessage('Error', `Google authentication failed: ${error}`);
-      setSyncStatus('offline');
-    }
-  }, [showMessage]);
-
-  // ログアウト
-  const handleLogout = useCallback(async () => {
-    try {
-      // ログイン中の場合はキャンセル処理を実行
-      if (syncStatus === 'logging in') {
-        await CancelLoginDrive();
-        return;
-      }
-
-      // 通常のログアウト処理（確認あり）
-      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout?', true);
-      if (result) {
-        await LogoutDrive();
-      }
-    } catch (error) {
-      console.error('Logout error:', error);
-      showMessage('Error', `Logout failed: ${error}`);
-    }
-  }, [showMessage, syncStatus]);
-
-  // 今すぐ同期
-  const handleSync = useCallback(async () => {
-    if (syncStatus === 'synced') {
-      try {
-        setIsHoveringSync(false);
-        setSyncStatus('syncing');
-        await SyncNow();
-        setSyncStatus('synced');
-      } catch (error) {
-        console.error('Manual sync error:', error);
-        showMessage('Sync Error', `Failed to synchronize with Google Drive: ${error}`);
-      }
-    }
-  }, [showMessage, syncStatus]);
+  const handleSync = useCallback(() => {
+    setSyncStatus('syncing');
+  }, []);
 
   // 同期状態の監視を開始
   const startSyncMonitoring = useCallback(() => {
@@ -155,6 +71,99 @@ export const useDriveSync = (
     syncStartTime.current = null;
   }, []);
 
+  // ドライブの状態をUIに反映
+  const handleDriveStatus = useCallback((status: string) => {
+    setSyncStatus(status as 'synced' | 'syncing' | 'logging in' | 'offline');
+    // 同期中の場合は監視を開始
+    if (status === 'syncing') {
+      startSyncMonitoring();
+    } else {
+      // 同期完了時は監視を停止
+      stopSyncMonitoring();
+      // 同期完了時はホバー状態をリセット
+      if (status === 'synced') {
+        setIsHoveringSync(false);
+        setIsHoverLocked(true);
+        const timer = setTimeout(() => {
+          setIsHoverLocked(false);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [startSyncMonitoring, stopSyncMonitoring]);
+
+  // ドライブのエラーを処理
+  const handleDriveError = useCallback((error: string) => {
+    showMessage('Drive error', error);
+    console.error('Drive error:', error);
+  }, [showMessage]);
+
+  // ドライブの状態を監視
+  useEffect(() => {
+    // 各種イベント登録
+    EventsOn('notes:updated', handleSync);
+    EventsOn('drive:status', handleDriveStatus);
+    EventsOn('drive:error', handleDriveError);
+
+    // バックエンドの準備完了を待ってから通知
+    EventsOn('backend:ready', handleBackendReady);
+
+    return () => {
+      EventsOff('notes:updated');
+      EventsOff('drive:status');
+      EventsOff('drive:error');
+      EventsOff('backend:ready');
+      stopSyncMonitoring();
+    };
+  }, [handleBackendReady, handleSync, handleDriveStatus, handleDriveError, stopSyncMonitoring]);
+
+  // ログイン認証
+  const handleGoogleAuth = useCallback(async () => {
+    try {
+      setSyncStatus('syncing');
+      await AuthorizeDrive();
+    } catch (error) {
+      console.error('Google authentication error:', error);
+      showMessage('Error', `Google authentication failed: ${error}`);
+      setSyncStatus('offline');
+    }
+  }, [showMessage]);
+
+  // ログアウト
+  const handleLogout = useCallback(async () => {
+    try {
+      // ログイン中の場合はキャンセル処理を実行
+      if (syncStatus === 'logging in') {
+        await CancelLoginDrive();
+        return;
+      }
+
+      // 通常のログアウト処理（確認あり）
+      const result = await showMessage('Logout from Google Drive', 'Are you sure you want to logout?', true);
+      if (result) {
+        await LogoutDrive();
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      showMessage('Error', `Logout failed: ${error}`);
+    }
+  }, [showMessage, syncStatus]);
+
+  // 今すぐ同期
+  const handleSyncNow = useCallback(async () => {
+    if (syncStatus === 'synced') {
+      try {
+        setIsHoveringSync(false);
+        setSyncStatus('syncing');
+        await SyncNow();
+        setSyncStatus('synced');
+      } catch (error) {
+        console.error('Manual sync error:', error);
+        showMessage('Sync Error', `Failed to synchronize with Google Drive: ${error}`);
+      }
+    }
+  }, [showMessage, syncStatus]);
+
   // 強制ログアウト処理
   const handleForcedLogout = useCallback(async (message: string) => {
     stopSyncMonitoring();
@@ -174,6 +183,6 @@ export const useDriveSync = (
     isHoverLocked,
     handleGoogleAuth,
     handleLogout,
-    handleSync,
+    handleSyncNow,
   };
 }; 

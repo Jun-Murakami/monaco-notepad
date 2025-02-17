@@ -31,6 +31,8 @@ describe('SettingsDialog', () => {
   const defaultProps = {
     open: true,
     settings: mockSettings,
+    localSettings: mockSettings,
+    setLocalSettings: vi.fn(),
     onClose: vi.fn(),
     onSave: vi.fn(),
     onChange: vi.fn(),

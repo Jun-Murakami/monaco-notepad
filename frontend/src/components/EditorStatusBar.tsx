@@ -1,68 +1,92 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useMonaco } from '@monaco-editor/react';
 import { Box, Typography, Divider } from '@mui/material';
-import type { editor, IDisposable } from 'monaco-editor';
+import type { IDisposable } from 'monaco-editor';
 import { VersionUp } from './VersionUp';
-import { Note, FileNote } from '../types';
+import type{ Note, FileNote } from '../types';
 import * as wailsRuntime from '../../wailsjs/runtime';
 
 interface EditorStatusBarProps {
-  editor: editor.IStandaloneCodeEditor | null;
   currentNote: Note | FileNote | null;
 }
 
-export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) => {
+export const EditorStatusBar = ({ currentNote }: EditorStatusBarProps) => {
   const [logMessage, setLogMessage] = useState<string>('');
   const [opacity, setOpacity] = useState<number>(1);
   const logTimeoutRef = useRef<number | null>(null);
+  const [info, setInfo] = useState<string[]>(['Length: 0', 'Lines: 0', '']);
 
-  const getEditorInfo = () => {
-    if (!editor) return [];
+  const monaco = useMonaco();
 
-    const model = editor.getModel();
-    if (!model) return [];
+  const getEditorInfo = useCallback(() => {
+    if (!monaco) return ['Length: 0', 'Lines: 0', ''];
 
-    const position = editor.getPosition();
-    const selection = editor.getSelection();
-    const lineCount = model.getLineCount();
+    try {
+      const editor = monaco.editor.getEditors()[0];
+      if (!editor) return ['Length: 0', 'Lines: 0', ''];
 
-    let info = [`Length: ${model.getValueLength()}`, `Lines: ${lineCount}`];
+      const model = editor.getModel();
+      if (!model) return ['Length: 0', 'Lines: 0', ''];
 
-    if (selection && !selection.isEmpty()) {
-      const start = `${selection.startLineNumber}.${selection.startColumn}`;
-      const end = `${selection.endLineNumber}.${selection.endColumn}`;
-      info.push(`Select: [ ${start} -> ${end} ]`);
-    } else if (position) {
-      info.push(`Cursor Position: [ Line ${position.lineNumber}, Col ${position.column} ]`);
+      const position = editor.getPosition();
+      const selection = editor.getSelection();
+      const lineCount = model.getLineCount();
+
+      const info = [`Length: ${model.getValueLength()}`, `Lines: ${lineCount}`];
+
+      if (selection && !selection.isEmpty()) {
+        const start = `${selection.startLineNumber}.${selection.startColumn}`;
+        const end = `${selection.endLineNumber}.${selection.endColumn}`;
+        info.push(`Select: [ ${start} -> ${end} ]`);
+      } else if (position) {
+        info.push(`Cursor Position: [ Line ${position.lineNumber}, Col ${position.column} ]`);
+      } else {
+        info.push('');
+      }
+
+      return info;
+    } catch (error) {
+      console.error('Error getting editor info:', error);
+      return ['Length: 0', 'Lines: 0', ''];
     }
-
-    return info;
-  };
-
-  const [info, setInfo] = useState<string[]>(getEditorInfo());
+  }, [monaco]);
 
   useEffect(() => {
-    setInfo(getEditorInfo());
+    const updateInfo = () => {
+      try {
+        setInfo(getEditorInfo());
+      } catch (error) {
+        console.error('Error updating editor info:', error);
+      }
+    };
 
     const disposables: IDisposable[] = [];
+    if (!monaco) return;
 
-    if (editor) {
-      disposables.push(
-        editor.onDidChangeCursorPosition(() => {
-          setInfo(getEditorInfo());
-        }),
-        editor.onDidChangeCursorSelection(() => {
-          setInfo(getEditorInfo());
-        }),
-        editor.onDidChangeModelContent(() => {
-          setInfo(getEditorInfo());
-        })
-      );
+    try {
+      const editor = monaco.editor.getEditors()[0];
+      if (editor && currentNote) {
+        disposables.push(
+          editor.onDidChangeCursorPosition(updateInfo),
+          editor.onDidChangeCursorSelection(updateInfo),
+          editor.onDidChangeModelContent(updateInfo)
+        );
+        updateInfo();
+      }
+    } catch (error) {
+      console.error('Error setting up editor listeners:', error);
     }
 
     return () => {
-      disposables.forEach((d) => d.dispose());
+      for (const d of disposables) {
+        try {
+          d.dispose();
+        } catch (error) {
+          console.error('Error disposing editor listener:', error);
+        }
+      }
     };
-  }, [editor, currentNote]);
+  }, [currentNote, getEditorInfo, monaco]);
 
   useEffect(() => {
     wailsRuntime.EventsOn('logMessage', (message: string) => {

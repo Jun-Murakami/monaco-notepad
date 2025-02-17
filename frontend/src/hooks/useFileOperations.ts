@@ -165,7 +165,14 @@ export function useFileOperations(
 
 
   useEffect(() => {
-    const cleanup = runtime.EventsOn('file:open-external', async (data: { path: string, content: string }) => {
+    runtime.EventsOn('file:open-external', async (data: { path: string, content: string }) => {
+      // 既に同じファイルが開かれているかチェック
+      const existingFile = fileNotes.find(note => note.filePath === data.path);
+      if (existingFile) {
+        await handleSelecAnyNote(existingFile);
+        return;
+      }
+
       const newFileNote = await createFileNote(data.content, data.path);
       if (!newFileNote) return;
 
@@ -185,7 +192,7 @@ export function useFileOperations(
     }, true);
 
     return () => {
-      cleanup();
+      runtime.EventsOff('file:open-external');
       runtime.OnFileDropOff();
     };
   }, [fileNotes, handleSelecAnyNote, setFileNotes, handleSaveFileNotes, handleFileDrop, createFileNote]);

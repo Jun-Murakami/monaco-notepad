@@ -11,12 +11,6 @@ export const useNotes = () => {
   const isNoteModified = useRef(false);
   const previousContent = useRef<string>('');
   const isClosing = useRef(false);
-  const currentNoteRef = useRef<Note | null>(null);
-
-  // currentNoteの変更を追跡 ------------------------------------------------------------
-  useEffect(() => {
-    currentNoteRef.current = currentNote;
-  }, [currentNote]);
 
   // 初期ロードとイベントリスナーの設定 ------------------------------------------------------------
   // ノートの内容を比較する関数
@@ -49,9 +43,9 @@ export const useNotes = () => {
       }
 
       // 現在表示中のノートも更新
-      if (currentNoteRef.current) {
-        const updatedCurrentNote = newNotes.find(note => note.id === currentNoteRef.current?.id);
-        if (updatedCurrentNote && isNoteChanged(currentNoteRef.current, updatedCurrentNote)) {
+      if (currentNote) {
+        const updatedCurrentNote = newNotes.find(note => note.id === currentNote.id);
+        if (updatedCurrentNote && isNoteChanged(currentNote, updatedCurrentNote)) {
           setCurrentNote(updatedCurrentNote);
           previousContent.current = updatedCurrentNote.content || '';
           isNoteModified.current = false;
@@ -70,9 +64,9 @@ export const useNotes = () => {
       }
 
       // 現在表示中のノートが更新された場合、その内容も更新
-      if (currentNoteRef.current?.id === noteId) {
+      if (currentNote?.id === noteId) {
         const updatedNote = newNotes.find(note => note.id === noteId);
-        if (updatedNote && isNoteChanged(currentNoteRef.current, updatedNote)) {
+        if (updatedNote && isNoteChanged(currentNote, updatedNote)) {
           setCurrentNote(updatedNote);
           previousContent.current = updatedNote.content || '';
           isNoteModified.current = false;
@@ -86,9 +80,8 @@ export const useNotes = () => {
       isClosing.current = true;
 
       try {
-        const noteToSave = currentNoteRef.current;
-        if (noteToSave?.id && isNoteModified.current) {
-          await SaveNote(backend.Note.createFrom(noteToSave), "update");
+        if (currentNote?.id && isNoteModified.current) {
+          await SaveNote(backend.Note.createFrom(currentNote), "update");
         }
       } catch (error) {
       }
@@ -102,7 +95,7 @@ export const useNotes = () => {
       runtime.EventsOff('notes:reload');
       runtime.EventsOff('note:updated');
     };
-  }, [isNoteChanged, isNoteListChanged, notes]);
+  }, [isNoteChanged, isNoteListChanged, notes, currentNote]);
 
   // 自動保存の処理 (デバウンスありSynchingSynching) ------------------------------------------------------------
   useEffect(() => {
@@ -131,7 +124,7 @@ export const useNotes = () => {
   }, [currentNote]);
 
   // 新規ノート作成のロジックを関数として抽出 ------------------------------------------------------------
-  const createNewNote = useCallback(async () => {
+  const createNewNote = useCallback(async (): Promise<Note> => {
     const newNote: Note = {
       id: crypto.randomUUID(),
       title: '',
@@ -149,11 +142,11 @@ export const useNotes = () => {
   }, [currentNote]);
 
   // 新規ノート作成 ------------------------------------------------------------
-  const handleNewNote = useCallback(async () => {
+  const handleNewNote = useCallback(async (): Promise<Note> => {
     if (currentNote && isNoteModified.current) {
       await saveCurrentNote();
     }
-    await createNewNote();
+    return await createNewNote();
   }, [currentNote, saveCurrentNote, createNewNote]);
 
   // ノートをアーカイブする ------------------------------------------------------------

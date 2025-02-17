@@ -105,39 +105,59 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
-	s.logger.Info("Connected to Google Drive")
+	s.logger.Info("Starting Drive connection process...")
 
 	// DriveOps生成
+	s.logger.Info("Initializing DriveOperations...")
 	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service, s.logger)
+	if s.driveOps == nil {
+		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create DriveOperations"))
+	}
 
 	// キューシステムの初期化
+	s.logger.Info("Initializing operations queue...")
 	s.operationsQueue = NewDriveOperationsQueue(s.driveOps)
+	if s.operationsQueue == nil {
+		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create operations queue"))
+	}
 	s.driveOps = s.operationsQueue // キューシステムで元のdriveOpsをラップ
 
 	// フォルダの確保
+	s.logger.Info("Ensuring Drive folders...")
 	if err := s.ensureDriveFolders(); err != nil {
+		s.logger.Error(err, "Failed to ensure Drive folders")
 		return s.auth.HandleOfflineTransition(err)
 	}
 
 	// driveSync生成
+	s.logger.Info("Initializing Drive sync service...")
 	s.driveSync = NewDriveSyncService(
 		s.driveOps,                     // ドライブ操作オブジェクト
 		s.auth.driveSync.notesFolderID, // ノート保存用フォルダID
 		s.auth.driveSync.rootFolderID,  // アプリケーションのルートフォルダID
 		s.logger,
 	)
+	if s.driveSync == nil {
+		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create DriveSyncService"))
+	}
 
 	// ノートリストの確保
+	s.logger.Info("Ensuring note list...")
 	if err := s.ensureNoteList(); err != nil {
+		s.logger.Error(err, "Failed to ensure note list")
 		return s.auth.HandleOfflineTransition(err)
 	}
 
 	// 必要な場合(手動ログインで呼ばれた場合)は初回マージを実行
 	if performInitialSync {
+		s.logger.Info("Performing initial sync...")
 		if err := s.performInitialSync(); err != nil {
+			s.logger.Error(err, "Failed to perform initial sync")
 			return s.auth.HandleOfflineTransition(err)
 		}
 	}
+
+	s.logger.Info("Successfully connected to Google Drive")
 
 	// ポーリング開始
 	go s.waitForFrontendAndStartSync()
@@ -161,6 +181,7 @@ func (s *driveService) CancelLoginDrive() error {
 
 // フロントエンドへ準備完了を通知
 func (s *driveService) NotifyFrontendReady() {
+	s.logger.Info("DriveService.NotifyFrontendReady called")
 	s.auth.NotifyFrontendReady()
 }
 

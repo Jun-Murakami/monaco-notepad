@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -44,6 +45,7 @@ type authService struct {
 	notesDir      string
 	noteService   *noteService
 	initialized   bool
+	closeOnce     sync.Once // 追加：sync.Onceを使用してチャネルを一度だけ閉じる
 }
 
 // NewAuthService は認証を担当するサービスを生成します
@@ -91,6 +93,8 @@ func (a *authService) initializeGoogleDrive(token *oauth2.Token) error {
 
 // InitializeWithSavedToken は保存済みトークンを使用して初期化
 func (a *authService) InitializeWithSavedToken() (bool, error) {
+	a.logger.Info("Attempting to initialize with saved token...")
+
 	config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope)
 	if err != nil {
 		return false, fmt.Errorf("unable to parse client secret file to config: %v", err)
@@ -100,14 +104,43 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 	// 保存済みトークンの読み込みを試行
 	token, err := a.loadToken()
 	if err != nil {
-		return false, err
+		a.logger.Info("No saved token found or failed to load token")
+		return false, nil
 	}
 
 	// トークンの有効性チェックを追加
 	if !token.Valid() {
-		a.logger.Error(nil, "Saved token is expired")
+		a.logger.Info("Saved token is expired")
+		// トークンが無効な場合はファイルを削除
+		tokenFile := filepath.Join(a.appDataDir, "token.json")
+		if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
+			a.logger.Info(fmt.Sprintf("Failed to remove invalid token file: %v", err))
+		}
 		return false, nil
 	}
+
+	// トークンソースを作成して接続テスト
+	tokenSource := config.TokenSource(a.ctx, token)
+	client := oauth2.NewClient(a.ctx, tokenSource)
+
+	// 接続テストのタイムアウトを設定
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
+	defer cancel()
+
+	srv, err := drive.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		a.logger.Info(fmt.Sprintf("Failed to create Drive service: %v", err))
+		return false, nil
+	}
+
+	// 実際にDriveへの接続をテスト
+	_, err = srv.Files.List().Fields("files(id, name)").PageSize(1).Do()
+	if err != nil {
+		a.logger.Info(fmt.Sprintf("Failed to connect to Drive: %v", err))
+		return false, nil
+	}
+
+	a.logger.Info("Successfully validated saved token")
 
 	// 初期化処理
 	return true, a.initializeGoogleDrive(token)
@@ -316,14 +349,12 @@ func (a *authService) initializeDriveService(token *oauth2.Token) error {
 
 // NotifyFrontendReady はフロントエンドの準備完了を通知します
 func (a *authService) NotifyFrontendReady() {
-	a.logger.Console("AuthService.NotifyFrontendReady called")
-	select {
-	case <-a.frontendReady: // すでにチャネルが閉じていれば何もしない
-		return
-	default:
+	a.logger.Info("AuthService.NotifyFrontendReady called")
+	a.closeOnce.Do(func() {
+		a.logger.Info("Closing frontend ready channel")
 		close(a.frontendReady)
-		a.logger.Console("AuthService frontend ready channel closed")
-	}
+		a.logger.Info("Frontend ready channel closed")
+	})
 }
 
 // ----------- 以下、ラッパとして必要であればインターフェース満たすために空実装か委譲かを置ける -----------

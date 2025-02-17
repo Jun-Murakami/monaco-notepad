@@ -6,7 +6,7 @@ import { backend } from '../../wailsjs/go/models';
 interface UseFileNotesProps {
   notes: Note[];
   setCurrentNote: (note: Note | null) => void;
-  handleNewNote: () => Promise<void>;
+  handleNewNote: () => Promise<Note>;
   handleSelectNote: (note: Note) => Promise<void>;
   showMessage: (title: string, message: string, isTwoButton?: boolean, button1?: string, button2?: string) => Promise<boolean>;
 }

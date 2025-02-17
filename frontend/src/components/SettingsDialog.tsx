@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState} from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -25,20 +25,14 @@ import * as runtime from '../../wailsjs/runtime';
 interface SettingsDialogProps {
   open: boolean;
   settings: Settings;
+  localSettings: Settings;
+  setLocalSettings: (settings: Settings) => void;
   onClose: () => void;
   onSave: (settings: Settings) => void;
   onChange: (settings: Settings) => void;
 }
 
-export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, onClose, onSave, onChange }) => {
-  const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
-
-  // ダイアログが開かれたときに現在の設定を保存
-  useEffect(() => {
-    if (open) {
-      setLocalSettings({ ...settings });
-    }
-  }, [open, settings]);
+export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, localSettings, setLocalSettings, onClose, onSave, onChange }) => {
 
   const handleChange = async (newSettings: Partial<Settings>) => {
     const updatedSettings = { ...localSettings, ...newSettings };
@@ -76,6 +70,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
   return (
     <Dialog
       open={open}
+      keepMounted={false}
       onClose={handleClose}
       maxWidth='sm'
       fullWidth

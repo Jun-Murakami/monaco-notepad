@@ -37,7 +37,7 @@ export const AppBar: React.FC<{
   onSave: () => Promise<void>;
   showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>;
 }> = ({ currentNote, languages, platform, onTitleChange, onLanguageChange, onSettings, onNew, onOpen, onSave, showMessage }) => {
-  const { syncStatus, isHoveringSync, setIsHoveringSync, isHoverLocked, handleGoogleAuth, handleLogout, handleSync } =
+  const { syncStatus, isHoveringSync, setIsHoveringSync, isHoverLocked, handleGoogleAuth, handleLogout, handleSyncNow } =
     useDriveSync(showMessage);
 
   const isFileNote = (note: Note | FileNote | null): note is FileNote => {
@@ -135,7 +135,7 @@ export const AppBar: React.FC<{
             {syncStatus === 'synced' ? (
               <Tooltip title='Sync now!' arrow>
                 <IconButton
-                  onClick={handleSync}
+                  onClick={handleSyncNow}
                   size='small'
                   onMouseEnter={() => !isHoverLocked && setIsHoveringSync(true)}
                   onMouseLeave={() => setIsHoveringSync(false)}

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ListNotes, NotifyFrontendReady, LoadFileNotes } from '../../wailsjs/go/backend/App';
+import { ListNotes, LoadFileNotes } from '../../wailsjs/go/backend/App';
 import { getSupportedLanguages, type LanguageInfo } from '../lib/monaco';
 import * as runtime from '../../wailsjs/runtime';
 import type { Note, FileNote } from '../types';
@@ -23,77 +23,67 @@ export const useInitialize = (
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
-  const [isInitialized, setIsInitialized] = useState(false);
 
   const initialNortLoader = useCallback(async () => {
-    // ファイルノート一覧を取得
-    const fileNotes = await LoadFileNotes();
-    const loadedFileNotes = fileNotes.map(file => ({
-      id: file.id,
-      filePath: file.filePath,
-      fileName: file.fileName,
-      content: file.content,
-      originalContent: file.content,
-      language: file.language,
-      modifiedTime: file.modifiedTime.toString(),
-    }));
-    if (loadedFileNotes.length > 0) {
-      setFileNotes(loadedFileNotes);
-    }
+    try {
+      // ファイルノート一覧を取得
+      const fileNotes = await LoadFileNotes();
+      const loadedFileNotes = fileNotes.map(file => ({
+        id: file.id,
+        filePath: file.filePath,
+        fileName: file.fileName,
+        content: file.content,
+        originalContent: file.content,
+        language: file.language,
+        modifiedTime: file.modifiedTime.toString(),
+      }));
+      if (loadedFileNotes.length > 0) {
+        setFileNotes(loadedFileNotes);
+      }
 
-    // ノート一覧を取得
-    const notes = await ListNotes();
-    if (!notes) {
-      setNotes([]);
-      handleNewNote();
-      return;
-    }
-    const parsedNotes = notes.map(note => ({
-      ...note,
-      modifiedTime: note.modifiedTime.toString(),
-    }));
-    setNotes(parsedNotes);
-    const activeNotes = parsedNotes.filter((note) => !note.archived);
-    if (loadedFileNotes.length > 0) {
-      await handleSelecAnyNote(loadedFileNotes[0]);
-    } else if (activeNotes.length > 0) {
-      await handleSelecAnyNote(activeNotes[0]);
-    } else {
-      handleNewNote();
-    }
-  }, [handleNewNote, handleSelecAnyNote, setFileNotes, setNotes]);
-
-
-  useEffect(() => {
-    if (isInitialized) return;
-    const asyncFunc = async () => {
-      try {
-        // プラットフォームを取得
-        const env = await runtime.Environment();
-        setPlatform(env.platform);
-
-        // 言語一覧を取得
-        setLanguages(getSupportedLanguages());
-
-        await initialNortLoader();
-      } catch (error) {
+      // ノート一覧を取得
+      const notes = await ListNotes();
+      if (!notes) {
         setNotes([]);
         handleNewNote();
+        return;
       }
+      const parsedNotes = notes.map(note => ({
+        ...note,
+        modifiedTime: note.modifiedTime.toString(),
+      }));
+      setNotes(parsedNotes);
+      if (!currentNote) {
+        const activeNotes = parsedNotes.filter((note) => !note.archived);
+        if (loadedFileNotes.length > 0) {
+          await handleSelecAnyNote(loadedFileNotes[0]);
+        } else if (activeNotes.length > 0) {
+          await handleSelecAnyNote(activeNotes[0]);
+        } else {
+          handleNewNote();
+        }
+      }
+    } catch (error) {
+      setNotes([]);
+      handleNewNote();
+    }
+  }, [handleNewNote, handleSelecAnyNote, setFileNotes, setNotes, currentNote]);
+
+  useEffect(() => {
+    const asyncFunc = async () => {
+      // プラットフォームを取得
+      const env = await runtime.Environment();
+      setPlatform(env.platform);
+
+      // 言語一覧を取得
+      setLanguages(getSupportedLanguages());
+
+      // ノート一覧を取得
+      await initialNortLoader();
     };
+    // 初期化処理を実行
     asyncFunc();
-
-    // バックエンドの準備完了を待ってから通知
-    runtime.EventsOn('backend:ready', () => {
-      NotifyFrontendReady();
-    });
-
-    setIsInitialized(true);
-    return () => {
-      runtime.EventsOff('backend:ready');
-      setLanguages([]);
-    };
-  }, [initialNortLoader, isInitialized, handleNewNote, setNotes]);
+  }, [initialNortLoader]);
 
   // グローバルキーボードショートカット
   useEffect(() => {

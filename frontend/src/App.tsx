@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { ThemeProvider, CssBaseline, Typography } from '@mui/material';
-import { Editor } from './components/Editor';
+import { MonacoEditor } from './components/Editor';
 import { Box, Divider, Button } from '@mui/material';
 import { AppBar } from './components/AppBar';
 import { NoteList } from './components/NoteList';
@@ -15,7 +15,6 @@ import { useFileOperations } from './hooks/useFileOperations';
 import { MessageDialog } from './components/MessageDialog';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import { EditorStatusBar } from './components/EditorStatusBar';
-import type { editor } from 'monaco-editor';
 import { useInitialize } from './hooks/useInitialize';
 import type { FileNote, Note } from './types';
 import SimpleBar from 'simplebar-react';
@@ -24,7 +23,7 @@ import { Inventory } from '@mui/icons-material';
 
 function App() {
   // エディタ設定
-  const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
+  const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, localEditorSettings, setLocalEditorSettings, handleSettingsChange } = useEditorSettings();
 
   // メッセージダイアログ
   const {
@@ -116,15 +115,6 @@ function App() {
 
   const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
 
-  const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const [forceUpdate, setForceUpdate] = useState(0);
-
-  // エディタインスタンスを更新するためのコールバック
-  const handleEditorInstance = (instance: editor.IStandaloneCodeEditor | null) => {
-    editorInstanceRef.current = instance;
-    setForceUpdate((prev) => prev + 1);
-  };
-
   return (
     <ThemeProvider theme={editorSettings.isDarkMode ? darkTheme : lightTheme}>
       <CssBaseline />
@@ -158,7 +148,10 @@ function App() {
           onTitleChange={handleTitleChange}
           onLanguageChange={handleLanguageChange}
           onSettings={() => setIsSettingsOpen(true)}
-          onNew={handleNewNote}
+          onNew={async () => {
+            const newNote = await handleNewNote();
+            await handleSelecAnyNote(newNote);
+          }}
           onOpen={handleOpenFile}
           onSave={handleSaveAsFile}
           showMessage={showMessage}
@@ -282,14 +275,13 @@ function App() {
               onClose={() => setShowArchived(false)}
             />
           ) : (
-            <Editor
+            <MonacoEditor
               value={currentNote?.content || currentFileNote?.content || ''}
               onChange={currentNote ? handleNoteContentChange : handleFileNoteContentChange}
               language={currentNote?.language || currentFileNote?.language || 'plaintext'}
               settings={editorSettings}
               platform={platform}
               currentNote={currentNote || currentFileNote}
-              onEditorInstance={handleEditorInstance}
               onNew={handleNewNote}
               onOpen={handleOpenFile}
               onSave={async () => {
@@ -308,13 +300,15 @@ function App() {
               onSelectPrevious={handleSelectPreviousAnyNote}
             />
           )}
-          <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentFileNote || currentNote} key={forceUpdate} />
+          <EditorStatusBar currentNote={currentFileNote || currentNote} />
         </Box>
       </Box>
 
       <SettingsDialog
         open={isSettingsOpen}
         settings={editorSettings}
+        localSettings={localEditorSettings}
+        setLocalSettings={setLocalEditorSettings}
         onClose={() => setIsSettingsOpen(false)}
         onChange={setEditorSettings}
         onSave={handleSettingsChange}
