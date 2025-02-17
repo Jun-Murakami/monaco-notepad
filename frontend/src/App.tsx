@@ -16,6 +16,7 @@ import { MessageDialog } from './components/MessageDialog';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import { EditorStatusBar } from './components/EditorStatusBar';
 import { useInitialize } from './hooks/useInitialize';
+import { useEditorModels } from './hooks/useEditorModels';
 import type { FileNote, Note } from './types';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
@@ -36,6 +37,9 @@ function App() {
     primaryButtonText,
     secondaryButtonText,
   } = useMessageDialog();
+
+  // モデル
+  const { getOrCreateModel, updateModelLanguage, updateModelContent, disposeModel } = useEditorModels();
 
   // ノート
   const {
@@ -79,6 +83,7 @@ function App() {
     currentFileNote,
     setCurrentNote,
     setCurrentFileNote,
+    getOrCreateModel,
   });
 
   // ファイル操作

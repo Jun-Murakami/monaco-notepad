@@ -43,6 +43,7 @@ describe('useNoteSelecter フック', () => {
     currentFileNote: null,
     setCurrentNote: vi.fn(),
     setCurrentFileNote: vi.fn(),
+    getOrCreateModel: vi.fn(),
   };
 
   beforeEach(() => {

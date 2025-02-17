@@ -10,9 +10,10 @@ interface NoteSelecterProps {
   currentFileNote: FileNote | null;
   setCurrentNote: (note: Note | null) => void;
   setCurrentFileNote: (note: FileNote | null) => void;
+  getOrCreateModel: (note: Note | FileNote) => void;
 }
 
-export const useNoteSelecter = ({ handleSelectNote, handleSelectFileNote, notes, fileNotes, currentNote, currentFileNote, setCurrentNote, setCurrentFileNote }: NoteSelecterProps) => {
+export const useNoteSelecter = ({ handleSelectNote, handleSelectFileNote, notes, fileNotes, currentNote, currentFileNote, setCurrentNote, setCurrentFileNote, getOrCreateModel }: NoteSelecterProps) => {
   // ノートを選択する
   const handleSelecAnyNote = useCallback(async (note: Note | FileNote) => {
     if ('filePath' in note) {
@@ -22,7 +23,8 @@ export const useNoteSelecter = ({ handleSelectNote, handleSelectFileNote, notes,
       await handleSelectNote(note);
       setCurrentFileNote(null);
     }
-  }, [handleSelectFileNote, handleSelectNote, setCurrentFileNote, setCurrentNote]);
+    getOrCreateModel(note);
+  }, [handleSelectFileNote, handleSelectNote, setCurrentFileNote, setCurrentNote, getOrCreateModel]);
 
   // 次のノートを選択する
   const handleSelectNextAnyNote = useCallback(async () => {

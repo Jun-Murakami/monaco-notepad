@@ -102,7 +102,6 @@ export const MonacoEditor: React.FC<EditorProps> = ({
       <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
         <Editor
           height="100%"
-          value={value}
           language={language}
           theme={settings.isDarkMode ? 'vs-dark' : 'vs'}
           options={{
