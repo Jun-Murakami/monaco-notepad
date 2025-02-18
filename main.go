@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"os"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -38,9 +39,12 @@ func main() {
 		OnStartup:        app.Startup,
 		OnDomReady: func(ctx context.Context) {
 			app.DomReady(ctx)
-			// 最初のインスタンスで引数が渡された場合の処理
+			// フロントエンドの準備が整ってから少し待ってからファイルを開く
 			if len(args) > 1 {
-				app.OpenFileFromExternal(args[1])
+				go func() {
+					time.Sleep(500 * time.Millisecond)
+					app.OpenFileFromExternal(args[1])
+				}()
 			}
 		},
 		OnBeforeClose: app.BeforeClose,

@@ -15,6 +15,7 @@ type FileService interface {
 	SelectSaveFileUri(fileName string, extension string) (string, error)
 	SaveFile(filePath string, content string) error
 	GetModifiedTime(filePath string) (string, error)
+	CheckFileExists(path string) bool
 }
 
 // fileService はFileServiceの実装です
@@ -109,4 +110,10 @@ func (s *fileService) CheckFileModified(filePath string, lastModifiedTime string
 		return false, err
 	}
 	return info.ModTime().After(lastModified), nil
+}
+
+// CheckFileExists は指定されたパスのファイルが存在するかチェックします
+func (s *fileService) CheckFileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
 }

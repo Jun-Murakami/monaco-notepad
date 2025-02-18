@@ -142,7 +142,7 @@ const SortableNoteItem: React.FC<SortableNoteItemProps> = ({
             <span style={{ position: 'absolute', right: 72, top: 8 }}>
               <IconButton
                 className='action-button'
-                disabled={!isFileModified?.(note.id)}
+                disabled={!isFileModified?.(note.id) || (isFileNote(note) && note.filePath === '')}
                 onClick={async (e) => {
                   e.stopPropagation();
                   if (isFileNote(note) && isFileModified?.(note.id) && onSaveFile) {

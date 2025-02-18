@@ -11,8 +11,7 @@
     "email": "app@bucketrelay.com"
   },
   "info": {
-    "productVersion": "1.0.6",
-    "companyName": "bucketrelay",
+    "productVersion": "1.0.7",
     "productName": "Monaco Notepad",
     "fileAssociations": [
       {

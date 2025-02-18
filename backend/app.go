@@ -470,6 +470,11 @@ func (a *App) SaveFile(filePath string, content string) error {
 
 // OpenFileFromExternal は外部からファイルを開く際の処理を行います
 func (a *App) OpenFileFromExternal(filePath string) error {
+	// フロントエンドの準備状態をチェック
+	if a.ctx == nil || a.ctx.ctx == nil {
+		return fmt.Errorf("application context is not ready")
+	}
+
 	// ファイルの内容を読み込む
 	content, err := a.fileService.OpenFile(filePath)
 	if err != nil {
@@ -525,4 +530,9 @@ func (a *App) GetAppVersion() (string, error) {
 func (a *App) OpenURL(url string) error {
 	wailsRuntime.BrowserOpenURL(a.ctx.ctx, url)
 	return nil
+}
+
+// CheckFileExists は指定されたパスのファイルが存在するかチェックします
+func (a *App) CheckFileExists(path string) bool {
+	return a.fileService.CheckFileExists(path)
 }

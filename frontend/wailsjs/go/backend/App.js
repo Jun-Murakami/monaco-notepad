@@ -18,6 +18,10 @@ export function CheckDriveConnection() {
   return window['go']['backend']['App']['CheckDriveConnection']();
 }
 
+export function CheckFileExists(arg1) {
+  return window['go']['backend']['App']['CheckFileExists'](arg1);
+}
+
 export function CheckFileModified(arg1, arg2) {
   return window['go']['backend']['App']['CheckFileModified'](arg1, arg2);
 }

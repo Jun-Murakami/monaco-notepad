@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Note, FileNote } from '../types';
-import { SaveFileNotes, CheckFileModified, OpenFile, GetModifiedTime } from '../../wailsjs/go/backend/App';
+import { SaveFileNotes, CheckFileModified, OpenFile, GetModifiedTime, CheckFileExists } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 
 interface UseFileNotesProps {
@@ -18,6 +18,54 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
   // ファイルの変更チェックとリロードの共通処理 ------------------------------------------------------------
   const checkAndReloadFile = useCallback(async (fileNote: FileNote) => {
     try {
+      // ファイルの存在チェックを追加
+      const exists = await CheckFileExists(fileNote.filePath);
+      if (!exists) {
+        const shouldKeep = await showMessage(
+          'File not found',
+          'The file has been deleted or moved. Do you want to keep the content in the editor?',
+          true,
+          'Keep',
+          'Discard'
+        );
+
+        if (shouldKeep) {
+          // 内容を保持し、isModifiedをtrueに設定
+          const newFileNote = {
+            ...fileNote,
+            filePath: '',
+            originalContent: '',
+            modifiedTime: fileNote.modifiedTime,
+          };
+          setCurrentFileNote(newFileNote);
+          setFileNotes(prev => prev.map(note =>
+            note.id === fileNote.id ? newFileNote : note
+          ));
+          await SaveFileNotes([newFileNote]);
+        } else {
+          // ファイルノートを削除
+          const newFileNotes = fileNotes.filter(note => note.id !== fileNote.id);
+          setFileNotes(newFileNotes);
+          await SaveFileNotes(newFileNotes);
+
+          // 他のノートに切り替え
+          if (newFileNotes.length > 0) {
+            setCurrentFileNote(newFileNotes[0]);
+          } else {
+            setCurrentFileNote(null);
+            const activeNotes = notes.filter(note => !note.archived);
+            if (activeNotes.length > 0) {
+              await handleSelectNote(activeNotes[0]);
+              setCurrentNote(activeNotes[0]);
+            } else {
+              await handleNewNote();
+            }
+          }
+        }
+        return true;
+      }
+
+      // 既存のファイル変更チェックロジック
       const isModified = await CheckFileModified(fileNote.filePath, fileNote.modifiedTime);
       if (isModified) {
         const shouldReload = await showMessage(
@@ -47,10 +95,10 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
       }
       return false;
     } catch (error) {
-      console.error('Failed to check file modification:', error);
+      console.error('Failed to check file:', error);
       return false;
     }
-  }, [showMessage]);
+  }, [showMessage, fileNotes, notes, handleSelectNote, handleNewNote, setCurrentNote]);
 
   //自動保存の処理 (デバウンスあり) ------------------------------------------------------------
   useEffect(() => {
