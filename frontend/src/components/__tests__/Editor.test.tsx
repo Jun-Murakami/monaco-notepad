@@ -109,6 +109,7 @@ describe('Editor', () => {
   };
 
   const defaultProps = {
+    editorInstanceRef: { current: null },
     value: 'Test Content',
     onChange: vi.fn(),
     language: 'typescript',
@@ -123,7 +124,6 @@ describe('Editor', () => {
       modifiedTime: new Date().toISOString(),
       archived: false,
     },
-    onEditorInstance: vi.fn(),
     onNew: vi.fn(),
     onOpen: vi.fn(),
     onSave: vi.fn(),
@@ -151,11 +151,6 @@ describe('Editor', () => {
         fontSize: 14,
       })
     );
-  });
-
-  it('エディタインスタンスが親コンポーネントに通知されること', () => {
-    render(<Editor {...defaultProps} />);
-    expect(defaultProps.onEditorInstance).toHaveBeenCalled();
   });
 
   it('設定変更が反映されること', () => {

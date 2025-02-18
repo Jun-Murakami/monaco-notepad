@@ -64,7 +64,8 @@ describe('EditorStatusBar', () => {
 
   it('エディタの基本情報が正しく表示されること', () => {
     const mockEditor = createMockEditor();
-    render(<EditorStatusBar editor={mockEditor} currentNote={mockNote} />);
+    const editorRef = { current: mockEditor };
+    render(<EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />);
 
     expect(screen.getByText('Length: 100')).toBeInTheDocument();
     expect(screen.getByText('Lines: 10')).toBeInTheDocument();
@@ -73,6 +74,7 @@ describe('EditorStatusBar', () => {
 
   it('選択範囲が正しく表示されること', () => {
     const mockEditor = createMockEditor();
+    const editorRef = { current: mockEditor };
     mockEditor.getSelection = vi.fn().mockReturnValue({
       isEmpty: () => false,
       startLineNumber: 1,
@@ -81,12 +83,13 @@ describe('EditorStatusBar', () => {
       endColumn: 5,
     });
 
-    render(<EditorStatusBar editor={mockEditor} currentNote={mockNote} />);
+    render(<EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />);
     expect(screen.getByText('Select: [ 1.1 -> 2.5 ]')).toBeInTheDocument();
   });
 
   it('エディタがnullの場合、情報が表示されないこと', () => {
-    render(<EditorStatusBar editor={null} currentNote={mockNote} />);
+    const editorRef = { current: null };
+    render(<EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />);
 
     expect(screen.queryByText(/Length:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Lines:/)).not.toBeInTheDocument();
@@ -94,7 +97,8 @@ describe('EditorStatusBar', () => {
   });
 
   it('ログメッセージが正しく表示され、フェードアウトすること', async () => {
-    render(<EditorStatusBar editor={null} currentNote={mockNote} />);
+    const editorRef = { current: null };
+    render(<EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />);
 
     // ログメッセージイベントをシミュレート
     const eventCallback = (runtime.EventsOn as unknown as Mock).mock.calls[0][1];
@@ -116,14 +120,16 @@ describe('EditorStatusBar', () => {
   });
 
   it('コンポーネントのアンマウント時にイベントリスナーが解除されること', () => {
-    const { unmount } = render(<EditorStatusBar editor={null} currentNote={mockNote} />);
+    const editorRef = { current: null };
+    const { unmount } = render(<EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />);
     unmount();
 
     expect(runtime.EventsOff).toHaveBeenCalledWith('logMessage');
   });
 
   it('バージョンアップコンポーネントが表示されること', () => {
-    render(<EditorStatusBar editor={null} currentNote={mockNote} />);
+    const editorRef = { current: null };
+    render(<EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />);
     expect(screen.getByTestId('version-up')).toBeInTheDocument();
   });
 });

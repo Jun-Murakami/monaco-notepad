@@ -18,7 +18,7 @@ const initializeMonaco = () => {
   // Web Workerの設定
   // @ts-ignore
   self.MonacoEnvironment = {
-    getWorker(_: any, label: string) {
+    getWorker(moduleId: string, label: string) {
       if (label === 'json') {
         return new jsonWorker();
       }
@@ -35,16 +35,40 @@ const initializeMonaco = () => {
     }
   };
 
+  // TypeScriptの設定
+  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: true,
+    noSuggestionDiagnostics: true,
+    diagnosticCodesToIgnore: [1108, 1375, 1378],
+  });
+  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: true,
+    noSuggestionDiagnostics: true,
+    diagnosticCodesToIgnore: [1108, 1375, 1378],
+  });
+
+  // コンパイラオプションも設定
+  monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+    target: monaco.languages.typescript.ScriptTarget.Latest,
+    allowNonTsExtensions: true,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    module: monaco.languages.typescript.ModuleKind.CommonJS,
+    noEmit: true,
+    esModuleInterop: true,
+    jsx: monaco.languages.typescript.JsxEmit.React,
+    reactNamespace: 'React',
+    allowJs: true,
+    typeRoots: ['node_modules/@types']
+  });
+
   monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
 
   // ログ出力を抑制
   _monaco = monaco;
-  _monaco.editor.setTheme = function () {
-    return Promise.resolve();
-  };
-  _monaco.editor.onDidCreateEditor = function () {
-    return { dispose: function () { } };
-  };
+  _monaco.editor.setTheme = () => Promise.resolve();
+  _monaco.editor.onDidCreateEditor = () => ({ dispose: () => { } });
 
   _isInitialized = true;
 };
@@ -54,7 +78,10 @@ export const getMonaco = () => {
   if (!_isInitialized) {
     initializeMonaco();
   }
-  return _monaco!;
+  if (!_monaco) {
+    throw new Error('Monaco editor failed to initialize');
+  }
+  return _monaco;
 };
 
 // 言語情報の型定義

@@ -117,13 +117,6 @@ function App() {
   const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
 
   const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const [forceUpdate, setForceUpdate] = useState(0);
-
-  // エディタインスタンスを更新するためのコールバック
-  const handleEditorInstance = (instance: editor.IStandaloneCodeEditor | null) => {
-    editorInstanceRef.current = instance;
-    setForceUpdate((prev) => prev + 1);
-  };
 
   return (
     <ThemeProvider theme={editorSettings.isDarkMode ? darkTheme : lightTheme}>
@@ -283,13 +276,13 @@ function App() {
             />
           ) : (
             <Editor
+              editorInstanceRef={editorInstanceRef}
               value={currentNote?.content || currentFileNote?.content || ''}
               onChange={currentNote ? handleNoteContentChange : handleFileNoteContentChange}
               language={currentNote?.language || currentFileNote?.language || 'plaintext'}
               settings={editorSettings}
               platform={platform}
               currentNote={currentNote || currentFileNote}
-              onEditorInstance={handleEditorInstance}
               onNew={handleNewNote}
               onOpen={handleOpenFile}
               onSave={async () => {
@@ -308,7 +301,7 @@ function App() {
               onSelectPrevious={handleSelectPreviousAnyNote}
             />
           )}
-          <EditorStatusBar editor={editorInstanceRef.current} currentNote={currentFileNote || currentNote} key={forceUpdate} />
+          <EditorStatusBar currentNote={currentFileNote || currentNote} editorInstanceRef={editorInstanceRef} />
         </Box>
       </Box>
 

@@ -1,31 +1,31 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Box, Typography, Divider } from '@mui/material';
 import type { editor, IDisposable } from 'monaco-editor';
 import { VersionUp } from './VersionUp';
-import { Note, FileNote } from '../types';
+import type { Note, FileNote } from '../types';
 import * as wailsRuntime from '../../wailsjs/runtime';
 
 interface EditorStatusBarProps {
-  editor: editor.IStandaloneCodeEditor | null;
+  editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
   currentNote: Note | FileNote | null;
 }
 
-export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) => {
+export const EditorStatusBar = ({ editorInstanceRef, currentNote }: EditorStatusBarProps) => {
   const [logMessage, setLogMessage] = useState<string>('');
   const [opacity, setOpacity] = useState<number>(1);
   const logTimeoutRef = useRef<number | null>(null);
 
-  const getEditorInfo = () => {
-    if (!editor) return [];
+  const getEditorInfo = useCallback(() => {
+    if (!editorInstanceRef?.current) return [];
 
-    const model = editor.getModel();
+    const model = editorInstanceRef.current.getModel();
     if (!model) return [];
 
-    const position = editor.getPosition();
-    const selection = editor.getSelection();
+    const position = editorInstanceRef.current.getPosition();
+    const selection = editorInstanceRef.current.getSelection();
     const lineCount = model.getLineCount();
 
-    let info = [`Length: ${model.getValueLength()}`, `Lines: ${lineCount}`];
+    const info = [`Length: ${model.getValueLength()}`, `Lines: ${lineCount}`];
 
     if (selection && !selection.isEmpty()) {
       const start = `${selection.startLineNumber}.${selection.startColumn}`;
@@ -36,33 +36,37 @@ export const EditorStatusBar = ({ editor, currentNote }: EditorStatusBarProps) =
     }
 
     return info;
-  };
+  }, [editorInstanceRef]);
 
   const [info, setInfo] = useState<string[]>(getEditorInfo());
 
   useEffect(() => {
+    if (!editorInstanceRef?.current) return;
+
     setInfo(getEditorInfo());
 
     const disposables: IDisposable[] = [];
 
-    if (editor) {
+    if (editorInstanceRef.current) {
       disposables.push(
-        editor.onDidChangeCursorPosition(() => {
+        editorInstanceRef.current.onDidChangeCursorPosition(() => {
           setInfo(getEditorInfo());
         }),
-        editor.onDidChangeCursorSelection(() => {
+        editorInstanceRef.current.onDidChangeCursorSelection(() => {
           setInfo(getEditorInfo());
         }),
-        editor.onDidChangeModelContent(() => {
+        editorInstanceRef.current.onDidChangeModelContent(() => {
           setInfo(getEditorInfo());
         })
       );
     }
 
     return () => {
-      disposables.forEach((d) => d.dispose());
+      for (const d of disposables) {
+        d.dispose();
+      }
     };
-  }, [editor, currentNote]);
+  }, [editorInstanceRef, getEditorInfo]);
 
   useEffect(() => {
     wailsRuntime.EventsOn('logMessage', (message: string) => {
