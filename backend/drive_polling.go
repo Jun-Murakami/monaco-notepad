@@ -26,14 +26,16 @@ func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePolling
 
 // WaitForFrontendAndStartSync はフロントエンドの準備完了を待って同期を開始
 func (p *DrivePollingService) WaitForFrontendAndStartSync() {
+	p.logger.Info("Waiting for frontend ready signal...")
 	<-p.driveService.auth.GetFrontendReadyChan()
-	p.logger.Info("Frontend ready - starting sync...")
+	p.logger.Info("Frontend ready signal received - starting sync...")
 
 	if !p.driveService.IsTestMode() {
 		p.logger.NotifyDriveStatus(p.ctx, "synced")
 	}
 
 	time.Sleep(1 * time.Second)
+	p.logger.Info("Starting polling service...")
 	p.StartPolling()
 }
 

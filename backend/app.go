@@ -169,13 +169,18 @@ func (a *App) DomReady(ctx context.Context) {
 		a.logger,
 		authService,
 	)
+	a.driveService = driveService
+
 	// Google Driveの初期化。保存済みトークンがあればポーリング開始
 	if err := driveService.InitializeDrive(); err != nil {
 		a.logger.Error(err, "Error initializing drive service")
+		// 初期化エラーを通知
+		wailsRuntime.EventsEmit(ctx, "drive:status", "offline")
+		wailsRuntime.EventsEmit(ctx, "drive:error", "Google Drive is not connected")
 	}
-	a.driveService = driveService
 
-	// フロントエンドに初期化完了を通知
+	// 初期化完了を通知
+	a.logger.Info("Emitting backend:ready event")
 	wailsRuntime.EventsEmit(ctx, "backend:ready")
 }
 

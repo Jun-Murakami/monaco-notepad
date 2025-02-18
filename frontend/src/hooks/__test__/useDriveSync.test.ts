@@ -117,7 +117,7 @@ describe('useDriveSync', () => {
     expect(result.current.syncStatus).toBe('synced');
 
     await act(async () => {
-      await result.current.handleSync();
+      await result.current.handleSyncNow();
       await vi.runAllTimersAsync();
     });
 
@@ -134,7 +134,7 @@ describe('useDriveSync', () => {
     expect(result.current.syncStatus).toBe('synced');
 
     await act(async () => {
-      await result.current.handleSync();
+      await result.current.handleSyncNow();
       await vi.runAllTimersAsync();
     });
 
