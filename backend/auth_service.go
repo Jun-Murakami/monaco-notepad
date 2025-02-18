@@ -219,13 +219,12 @@ func (a *authService) loadToken() (*oauth2.Token, error) {
 
 // LogoutDrive はGoogle Driveからログアウトします
 func (a *authService) LogoutDrive() error {
-	a.logger.Info("Logging out from Google Drive...")
-
 	// サーバーが実行中の場合は安全に停止
 	if a.driveSync.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := a.driveSync.server.Shutdown(ctx); err != nil {
+			// 既に閉じられているコネクションのエラーは無視
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				a.logger.Info(fmt.Sprintf("Error shutting down auth server: %v", err))
 			}
@@ -236,8 +235,10 @@ func (a *authService) LogoutDrive() error {
 	// リスナーが残っている場合のみクローズ
 	if a.driveSync.listener != nil {
 		if err := a.driveSync.listener.Close(); err != nil {
+			// 既に閉じられているコネクションのエラーは無視
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				a.logger.Info(fmt.Sprintf("Error closing listener: %v", err))
+				return fmt.Errorf("failed to close listener: %v", err)
 			}
 		}
 		a.driveSync.listener = nil
@@ -266,6 +267,8 @@ func (a *authService) LogoutDrive() error {
 // HandleOfflineTransition はオフライン状態への遷移を処理します（公開メソッドに変更）
 func (a *authService) HandleOfflineTransition(err error) error {
 	if err == nil {
+		// 手動ログインの場合はそのままログアウト
+		a.handleFullOfflineTransition(nil)
 		return nil
 	}
 
@@ -388,7 +391,10 @@ func (a *authService) CancelLoginDrive() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := a.driveSync.server.Shutdown(ctx); err != nil {
-			a.logger.Error(err, fmt.Sprintf("Error shutting down auth server: %v", err))
+			// 既に閉じられているコネクションのエラーは無視
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				a.logger.Error(err, fmt.Sprintf("Error shutting down auth server: %v", err))
+			}
 		}
 		a.driveSync.server = nil
 	}
@@ -396,8 +402,11 @@ func (a *authService) CancelLoginDrive() error {
 	// リスナーを明示的に閉じる
 	if a.driveSync.listener != nil {
 		if err := a.driveSync.listener.Close(); err != nil {
-			a.logger.Info(fmt.Sprintf("Error closing listener: %v", err))
-			return a.logger.Error(err, fmt.Sprintf("Error closing listener: %v", err))
+			// 既に閉じられているコネクションのエラーは無視
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				a.logger.Info(fmt.Sprintf("Error closing listener: %v", err))
+				return a.logger.Error(err, fmt.Sprintf("Error closing listener: %v", err))
+			}
 		}
 		a.driveSync.listener = nil
 	}
