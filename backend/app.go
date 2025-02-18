@@ -375,16 +375,19 @@ func (a *App) InitializeDrive() error {
 	return a.driveService.InitializeDrive()
 }
 
-// Google Driveの認証フローを開始 ------------------------------------------------------------
-func (a *App) AuthorizeDrive() (string, error) {
+// Google Driveに手動ログイン
+func (a *App) AuthorizeDrive() error {
 	if a.driveService == nil {
-		return "", a.authService.HandleOfflineTransition(fmt.Errorf("driveService not initialized yet"))
+		return fmt.Errorf("drive service is not initialized")
 	}
-	err := a.driveService.AuthorizeDrive()
-	if err != nil {
-		return "", a.authService.HandleOfflineTransition(fmt.Errorf("error authorizing drive: %v", err))
+
+	a.logger.NotifyDriveStatus(a.ctx.ctx, "logging in")
+	a.logger.Info("Waiting for login...")
+	if err := a.driveService.AuthorizeDrive(); err != nil {
+		return a.authService.HandleOfflineTransition(err)
 	}
-	return "", nil
+	a.logger.Info("AuthorizeDrive success")
+	return nil
 }
 
 // 認証をキャンセル ------------------------------------------------------------

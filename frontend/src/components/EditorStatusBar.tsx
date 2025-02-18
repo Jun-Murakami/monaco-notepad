@@ -41,7 +41,7 @@ export const EditorStatusBar = ({ editorInstanceRef, currentNote }: EditorStatus
   const [info, setInfo] = useState<string[]>(getEditorInfo());
 
   useEffect(() => {
-    if (!editorInstanceRef?.current) return;
+    if (!editorInstanceRef?.current || !currentNote) return;
 
     setInfo(getEditorInfo());
 
@@ -66,7 +66,7 @@ export const EditorStatusBar = ({ editorInstanceRef, currentNote }: EditorStatus
         d.dispose();
       }
     };
-  }, [editorInstanceRef, getEditorInfo]);
+  }, [editorInstanceRef, currentNote, getEditorInfo]);
 
   useEffect(() => {
     wailsRuntime.EventsOn('logMessage', (message: string) => {

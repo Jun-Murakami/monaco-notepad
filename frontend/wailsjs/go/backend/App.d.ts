@@ -4,7 +4,7 @@ import {context} from '../models';
 import {time} from '../models';
 import {backend} from '../models';
 
-export function AuthorizeDrive():Promise<string>;
+export function AuthorizeDrive():Promise<void>;
 
 export function BringToFront():Promise<void>;
 
