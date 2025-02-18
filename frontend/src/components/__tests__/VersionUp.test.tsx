@@ -1,13 +1,14 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach, type Mock } from 'vitest';
+import { vi, describe, it, expect, beforeEach, type Mock, type MockInstance } from 'vitest';
 import '@testing-library/jest-dom';
 import { VersionUp } from '../VersionUp';
-import { GetAppVersion, Console } from '../../../wailsjs/go/backend/App';
+import { GetAppVersion, Console, OpenURL } from '../../../wailsjs/go/backend/App';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({
   GetAppVersion: vi.fn(),
   Console: vi.fn(),
+  OpenURL: vi.fn(),
 }));
 
 // window.openのモック
@@ -16,6 +17,9 @@ window.open = mockOpen;
 
 // fetchのモック
 global.fetch = vi.fn();
+
+// モック関数の型付け
+const mockOpenURL = (OpenURL as unknown) as MockInstance<typeof OpenURL>;
 
 describe('VersionUp', () => {
   beforeEach(() => {
@@ -59,6 +63,7 @@ describe('VersionUp', () => {
     (global.fetch as Mock).mockResolvedValue({
       json: () => Promise.resolve({ tag_name: 'v1.0.1' }),
     });
+    mockOpenURL.mockResolvedValue();
 
     render(<VersionUp />);
 
@@ -68,8 +73,8 @@ describe('VersionUp', () => {
       fireEvent.click(chip);
     });
 
-    // window.openが正しく呼ばれることを確認
-    expect(mockOpen).toHaveBeenCalledWith('https://jun-murakami.web.app/#monacoNotepad', '_blank');
+    // OpenURLが正しく呼ばれることを確認
+    expect(mockOpenURL).toHaveBeenCalledWith('https://jun-murakami.web.app/#monacoNotepad');
   });
 
   it('削除ボタンをクリックすると、チップが非表示になること', async () => {

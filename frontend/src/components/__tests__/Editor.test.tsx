@@ -18,6 +18,7 @@ vi.mock('../../lib/monaco', () => {
     setPosition: vi.fn(),
     revealPositionInCenter: vi.fn(),
     getModel: vi.fn(),
+    setModel: vi.fn(),
     onDidChangeModelContent: vi.fn((callback: () => void) => {
       changeContentCallback = callback;
       return { dispose: vi.fn() };
@@ -29,6 +30,8 @@ vi.mock('../../lib/monaco', () => {
   const mockMonaco = {
     editor: {
       setModelLanguage: vi.fn(),
+      getModel: vi.fn(),
+      createModel: vi.fn(),
     },
     KeyMod: {
       CtrlCmd: 2048,
@@ -42,6 +45,10 @@ vi.mock('../../lib/monaco', () => {
       KeyS: 48,
       KeyW: 49,
       Tab: 50,
+      Alt: 51,
+    },
+    Uri: {
+      parse: vi.fn(),
     },
   };
 
@@ -59,6 +66,7 @@ type MockEditor = {
   setPosition: Mock;
   revealPositionInCenter: Mock;
   getModel: Mock;
+  setModel: Mock;
   onDidChangeModelContent: Mock;
   addCommand: Mock;
   updateOptions: Mock;
@@ -67,6 +75,8 @@ type MockEditor = {
 type MockMonaco = {
   editor: {
     setModelLanguage: Mock;
+    getModel: Mock;
+    createModel: Mock;
   };
   KeyMod: {
     CtrlCmd: number;
@@ -80,6 +90,10 @@ type MockMonaco = {
     KeyS: number;
     KeyW: number;
     Tab: number;
+    Alt: number;
+  };
+  Uri: {
+    parse: Mock;
   };
 };
 
@@ -144,11 +158,22 @@ describe('Editor', () => {
     expect(getOrCreateEditor).toHaveBeenCalledWith(
       expect.any(HTMLDivElement),
       expect.objectContaining({
-        value: 'Test Content',
-        language: 'typescript',
+        value: '',
+        language: 'plaintext',
         theme: 'vs',
-        fontFamily: 'Test Font',
+        minimap: {
+          enabled: true,
+        },
+        renderWhitespace: 'all',
+        renderValidationDecorations: 'off',
+        unicodeHighlight: { allowedLocales: { _os: true, _vscode: true }, ambiguousCharacters: false },
+        automaticLayout: true,
+        contextmenu: true,
+        fontFamily: 'Consolas',
         fontSize: 14,
+        renderLineHighlightOnlyWhenFocus: true,
+        occurrencesHighlight: 'off',
+        wordWrap: 'off',
       })
     );
   });
@@ -178,13 +203,19 @@ describe('Editor', () => {
     expect(monaco.editor.setModelLanguage).toHaveBeenCalledWith(expect.any(Object), 'javascript');
   });
 
-  it('キーボードショートカットが正しく設定されること', () => {
-    render(<Editor {...defaultProps} />);
+  it('Windowsでのキーボードショートカットが正しく設定されること', () => {
+    render(<Editor {...defaultProps} platform="win32" />);
     const { editor, monaco } = getMockFunctions();
 
-    // 各コマンドが登録されていることを確認
+    // 基本的なショートカット
     expect(editor.addCommand).toHaveBeenCalledWith(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN,
+      expect.any(Function),
+      'editorTextFocus'
+    );
+
+    expect(editor.addCommand).toHaveBeenCalledWith(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO,
       expect.any(Function),
       'editorTextFocus'
     );
@@ -194,6 +225,71 @@ describe('Editor', () => {
       expect.any(Function),
       'editorTextFocus'
     );
+
+    expect(editor.addCommand).toHaveBeenCalledWith(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Alt | monaco.KeyCode.KeyS,
+      expect.any(Function),
+      'editorTextFocus'
+    );
+
+    // Windows固有のショートカット
+    expect(editor.addCommand).toHaveBeenCalledWith(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab,
+      expect.any(Function),
+      'editorTextFocus'
+    );
+
+    expect(editor.addCommand).toHaveBeenCalledWith(
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
+      expect.any(Function),
+      'editorTextFocus'
+    );
+  });
+
+  it('macOSでのキーボードショートカットが正しく設定されること', () => {
+    render(<Editor {...defaultProps} platform="darwin" />);
+    const { editor, monaco } = getMockFunctions();
+
+    // 基本的なショートカット
+    expect(editor.addCommand).toHaveBeenCalledWith(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN,
+      expect.any(Function),
+      'editorTextFocus'
+    );
+
+    // macOS固有のショートカット
+    expect(editor.addCommand).toHaveBeenCalledWith(
+      monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab,
+      expect.any(Function),
+      'editorTextFocus'
+    );
+
+    expect(editor.addCommand).toHaveBeenCalledWith(
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
+      expect.any(Function),
+      'editorTextFocus'
+    );
+  });
+
+  it('キーボードショートカットが正しく機能すること', async () => {
+    render(<Editor {...defaultProps} />);
+    const { editor, monaco } = getMockFunctions();
+
+    // コマンドのコールバックを取得
+    const calls = editor.addCommand.mock.calls;
+    const newCallback = calls.find(
+      call => call[0] === (monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN)
+    )?.[1];
+    const saveCallback = calls.find(
+      call => call[0] === (monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS)
+    )?.[1];
+
+    // コールバックを実行
+    newCallback?.();
+    expect(defaultProps.onNew).toHaveBeenCalled();
+
+    saveCallback?.();
+    expect(defaultProps.onSave).toHaveBeenCalled();
   });
 
   it('値の変更が親コンポーネントに通知されること', () => {
@@ -216,22 +312,85 @@ describe('Editor', () => {
 
   it('新しい値が設定されたとき、エディタの内容が更新されること', () => {
     const { rerender } = render(<Editor {...defaultProps} />);
-    const { editor } = getMockFunctions();
+    const { editor, monaco } = getMockFunctions();
+    const mockModel = {};
 
+    // 初期状態のモックを設定
     editor.getValue.mockReturnValue('Old Content');
-    editor.getPosition.mockReturnValue({ lineNumber: 1, column: 1 });
+    editor.getModel.mockReturnValue(mockModel);
+    monaco.editor.getModel.mockReturnValue(null); // 新しいモデルを作成させるためnullを返す
+    monaco.Uri.parse.mockReturnValue('mockUri');
 
     // 新しい値で再レンダリング
-    rerender(<Editor {...defaultProps} value='New Content' />);
+    const newNote = {
+      ...defaultProps.currentNote,
+      content: 'New Content',
+    };
+    rerender(<Editor {...defaultProps} currentNote={newNote} />);
 
-    expect(editor.setValue).toHaveBeenCalledWith('New Content');
-    expect(editor.setPosition).toHaveBeenCalled();
-    expect(editor.revealPositionInCenter).toHaveBeenCalled();
+    // モデルが作成されることを確認
+    expect(monaco.Uri.parse).toHaveBeenCalledWith(`inmemory://${newNote.id}`);
+    expect(monaco.editor.createModel).toHaveBeenCalledWith(
+      'New Content',
+      'typescript',
+      'mockUri'
+    );
+  });
+
+  it('既存のモデルが再利用されること', () => {
+    const { rerender } = render(<Editor {...defaultProps} />);
+    const { editor, monaco } = getMockFunctions();
+    const mockModel = {};
+    
+    // モックをリセット
+    vi.clearAllMocks();
+    
+    // 既存のモデルをモック
+    monaco.Uri.parse.mockReturnValue('mockUri');
+    monaco.editor.getModel.mockReturnValue(mockModel);
+
+    // currentNoteを変更して再レンダリング
+    const newNote = {
+      ...defaultProps.currentNote,
+      id: '2',
+      content: 'New Content',
+    };
+    rerender(<Editor {...defaultProps} currentNote={newNote} />);
+
+    // 既存のモデルが見つかった場合は新しいモデルを作成しない
+    expect(monaco.editor.createModel).not.toHaveBeenCalled();
+    expect(editor.setModel).toHaveBeenCalledWith(mockModel);
   });
 
   it('コンポーネントのアンマウント時にエディタが破棄されること', () => {
     const { unmount } = render(<Editor {...defaultProps} />);
     unmount();
     expect(disposeEditor).toHaveBeenCalled();
+  });
+
+  it('currentNoteが変更されたときにモデルが正しく設定されること', () => {
+    const { rerender } = render(<Editor {...defaultProps} />);
+    const { editor, monaco } = getMockFunctions();
+    const mockModel = {};
+    
+    monaco.editor.getModel.mockReturnValue(null);
+    monaco.editor.createModel.mockReturnValue(mockModel);
+    monaco.Uri.parse.mockReturnValue('mockUri');
+
+    // currentNoteを変更して再レンダリング
+    const newNote = {
+      ...defaultProps.currentNote,
+      id: '2',
+      content: 'New Content',
+    };
+    rerender(<Editor {...defaultProps} currentNote={newNote} />);
+
+    expect(monaco.Uri.parse).toHaveBeenCalledWith('inmemory://2');
+    expect(monaco.editor.createModel).toHaveBeenCalledWith(
+      'New Content',
+      'typescript',
+      'mockUri'
+    );
+    expect(editor.setModel).toHaveBeenCalledWith(mockModel);
   });
 });

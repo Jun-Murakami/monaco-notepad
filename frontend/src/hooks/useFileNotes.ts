@@ -95,7 +95,7 @@ export const useFileNotes = ({ notes, setCurrentNote, handleNewNote, handleSelec
       }
       return false;
     } catch (error) {
-      console.error('Failed to check file:', error);
+      console.error('Failed to check file modification:', error);
       return false;
     }
   }, [showMessage, fileNotes, notes, handleSelectNote, handleNewNote, setCurrentNote]);

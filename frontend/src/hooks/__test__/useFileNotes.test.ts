@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { useFileNotes } from '../useFileNotes';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { SaveFileNotes, CheckFileModified, OpenFile, GetModifiedTime } from '../../../wailsjs/go/backend/App';
+import { SaveFileNotes, CheckFileModified, OpenFile, GetModifiedTime, CheckFileExists } from '../../../wailsjs/go/backend/App';
 import type { FileNote, Note } from '../../types';
 import type { MockInstance } from 'vitest';
 
@@ -11,6 +11,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   CheckFileModified: vi.fn(),
   OpenFile: vi.fn(),
   GetModifiedTime: vi.fn(),
+  CheckFileExists: vi.fn(),
 }));
 
 // backend.FileNote.createFromのモック
@@ -27,6 +28,7 @@ const mockSaveFileNotes = (SaveFileNotes as unknown) as MockInstance<typeof Save
 const mockCheckFileModified = (CheckFileModified as unknown) as MockInstance<typeof CheckFileModified>;
 const mockOpenFile = (OpenFile as unknown) as MockInstance<typeof OpenFile>;
 const mockGetModifiedTime = (GetModifiedTime as unknown) as MockInstance<typeof GetModifiedTime>;
+const mockCheckFileExists = (CheckFileExists as unknown) as MockInstance<typeof CheckFileExists>;
 
 describe('useFileNotes', () => {
   const mockNote: Note = {
@@ -73,12 +75,22 @@ describe('useFileNotes', () => {
 
     it('ファイルノートの選択が正しく機能すること', async () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
+      mockCheckFileExists.mockResolvedValue(true);
 
+      // ファイルノートを選択
       await act(async () => {
-        await result.current.handleSelectFileNote(mockFileNote);
+        await result.current.handleSelectFileNote({
+          ...mockFileNote,
+          filePath: '/path/to/file.txt',
+          originalContent: 'File Content',
+        });
       });
 
-      expect(result.current.currentFileNote).toEqual(mockFileNote);
+      expect(result.current.currentFileNote).toEqual({
+        ...mockFileNote,
+        filePath: '/path/to/file.txt',
+        originalContent: 'File Content',
+      });
       expect(mockProps.setCurrentNote).toHaveBeenCalledWith(null);
     });
 
@@ -127,6 +139,7 @@ describe('useFileNotes', () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
 
       // 初期設定
+      mockCheckFileExists.mockResolvedValue(true);
       mockCheckFileModified.mockResolvedValue(false); // 最初は変更なし
 
       // ファイルノートを選択
@@ -148,14 +161,20 @@ describe('useFileNotes', () => {
         await vi.runAllTimersAsync();
       });
 
+      expect(mockCheckFileModified).toHaveBeenCalledWith(
+        mockFileNote.filePath,
+        mockFileNote.modifiedTime
+      );
+      expect(mockProps.showMessage).toHaveBeenCalled();
       expect(mockOpenFile).not.toHaveBeenCalled();
-      expect(result.current.currentFileNote).toEqual(mockFileNote);
+      expect(result.current.currentFileNote?.content).toBe(mockFileNote.content);
     });
   });
 
   describe('ファイル変更検知', () => {
     it('外部変更を検知してリロードダイアログを表示すること', async () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
+      mockCheckFileExists.mockResolvedValue(true);
       mockCheckFileModified.mockResolvedValue(true);
       const updatedContent = 'Updated from outside';
       mockOpenFile.mockResolvedValue(updatedContent);
@@ -168,6 +187,7 @@ describe('useFileNotes', () => {
       // フォーカスイベントをシミュレート
       await act(async () => {
         window.dispatchEvent(new Event('focus'));
+        await vi.runAllTimersAsync();
       });
 
       expect(mockCheckFileModified).toHaveBeenCalledWith(
@@ -183,6 +203,7 @@ describe('useFileNotes', () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
 
       // 初期設定
+      mockCheckFileExists.mockResolvedValue(true);
       mockCheckFileModified.mockResolvedValue(false); // 最初は変更なし
 
       // ファイルノートを選択
@@ -217,6 +238,7 @@ describe('useFileNotes', () => {
   describe('ファイルを閉じる機能', () => {
     it('変更がない場合、確認なしで閉じること', async () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
+      mockCheckFileExists.mockResolvedValue(true);
       mockCheckFileModified.mockResolvedValue(false);
 
       await act(async () => {
@@ -301,10 +323,15 @@ describe('useFileNotes', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
       const { result } = renderHook(() => useFileNotes(mockProps));
       const error = new Error('チェックエラー');
+      mockCheckFileExists.mockResolvedValue(true);
       mockCheckFileModified.mockRejectedValueOnce(error);
 
       await act(async () => {
-        await result.current.handleSelectFileNote(mockFileNote);
+        await result.current.handleSelectFileNote({
+          ...mockFileNote,
+          filePath: '/path/to/file.txt',
+          originalContent: 'File Content',
+        });
       });
 
       await act(async () => {
