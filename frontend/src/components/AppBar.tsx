@@ -1,23 +1,24 @@
+import { FileOpen, Logout, NoteAdd, Save, Settings } from '@mui/icons-material';
+import CloudDoneIcon from '@mui/icons-material/CloudDone';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import {
   Box,
   Button,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  IconButton,
-  Tooltip,
   CircularProgress,
+  FormControl,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
+  TextField,
+  Tooltip,
 } from '@mui/material';
-import { NoteAdd, Save, Settings, Logout, FileOpen } from '@mui/icons-material';
-import CloudDoneIcon from '@mui/icons-material/CloudDone';
-import CloudSyncIcon from '@mui/icons-material/CloudSync';
-import { GoogleDriveIcon } from './Icons';
-import type { Note, FileNote } from '../types';
-import type { LanguageInfo } from '../lib/monaco';
 import { keyframes } from '@mui/system';
 import { useDriveSync } from '../hooks/useDriveSync';
+import type { LanguageInfo } from '../lib/monaco';
+import type { FileNote, Note } from '../types';
+import { GoogleDriveIcon } from './Icons';
+import 'simplebar-react/dist/simplebar.min.css';
 
 const fadeAnimation = keyframes`
   0% { opacity: 1; }
@@ -47,7 +48,14 @@ export const AppBar: React.FC<{
   const commandKey = platform === 'darwin' ? 'Command' : 'Ctrl';
 
   return (
-    <Box sx={{ height: 56, display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+    <Box
+      sx={{
+        height: 56,
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+      }}
+    >
       <Box
         sx={{
           height: 40,
@@ -89,7 +97,15 @@ export const AppBar: React.FC<{
           </Button>
         </Tooltip>
       </Box>
-      <Box sx={{ width: '100%', height: 70, display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box
+        sx={{
+          width: '100%',
+          height: 70,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
+      >
         <TextField
           sx={{ width: '100%' }}
           label={isFileNote(currentNote) ? 'File Path' : 'Title'}
@@ -122,6 +138,13 @@ export const AppBar: React.FC<{
             value={languages.some((lang) => lang.id === currentNote?.language) ? currentNote?.language : ''}
             onChange={(e) => onLanguageChange(e.target.value)}
             label='Language'
+            MenuProps={{
+              slotProps: {
+                paper: {
+                  style: { maxHeight: 300 },
+                },
+              },
+            }}
           >
             {languages.map((lang) => (
               <MenuItem key={lang.id} value={lang.id}>
@@ -130,53 +153,59 @@ export const AppBar: React.FC<{
             ))}
           </Select>
         </FormControl>
-        <>
-          <Box sx={{ ml: 0.5, display: 'flex', alignItems: 'center' }}>
-            {syncStatus === 'synced' ? (
-              <Tooltip title='Sync now!' arrow>
-                <IconButton
-                  onClick={handleSyncNow}
-                  size='small'
-                  onMouseEnter={() => !isHoverLocked && setIsHoveringSync(true)}
-                  onMouseLeave={() => setIsHoveringSync(false)}
-                >
-                  {isHoveringSync ? (
-                    <CloudSyncIcon color='primary' sx={{ fontSize: 27, ml: -0.4 }} />
-                  ) : (
-                    <CloudDoneIcon color='primary' sx={{ fontSize: 24 }} />
-                  )}
-                </IconButton>
-              </Tooltip>
-            ) : syncStatus === 'syncing' ? (
-              <Tooltip title='Syncing...' arrow>
-                <Box sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, mt: 1, mx: 0.625 }}>
-                  <CircularProgress size={24} />
-                </Box>
-              </Tooltip>
-            ) : (
-              syncStatus === 'logging in' && <CircularProgress size={24} />
-            )}
-          </Box>
-          {syncStatus === 'offline' ? (
-            <Tooltip title='Connect to Google Drive' arrow>
-              <IconButton sx={{ fontSize: 16, width: 32, height: 32, ml: -1 }} onClick={handleGoogleAuth}>
-                <GoogleDriveIcon sx={{ fontSize: 20 }} />
+
+        <Box sx={{ ml: 0.5, display: 'flex', alignItems: 'center' }}>
+          {syncStatus === 'synced' ? (
+            <Tooltip title='Sync now!' arrow>
+              <IconButton
+                onClick={handleSyncNow}
+                size='small'
+                onMouseEnter={() => !isHoverLocked && setIsHoveringSync(true)}
+                onMouseLeave={() => setIsHoveringSync(false)}
+              >
+                {isHoveringSync ? (
+                  <CloudSyncIcon color='primary' sx={{ fontSize: 27, ml: -0.4 }} />
+                ) : (
+                  <CloudDoneIcon color='primary' sx={{ fontSize: 24 }} />
+                )}
               </IconButton>
             </Tooltip>
-          ) : (
-            <Tooltip title={syncStatus === 'logging in' ? 'Cancel' : 'Logout'} arrow>
-              <span>
-                <IconButton
-                  disabled={syncStatus === 'syncing'}
-                  onClick={handleLogout}
-                  sx={{ fontSize: 16, ml: 0.5, width: 32, height: 32 }}
-                >
-                  <Logout />
-                </IconButton>
-              </span>
+          ) : syncStatus === 'syncing' ? (
+            <Tooltip title='Syncing...' arrow>
+              <Box
+                sx={{
+                  animation: `${fadeAnimation} 1.5s ease-in-out infinite`,
+                  mt: 1,
+                  mx: 0.625,
+                }}
+              >
+                <CircularProgress size={24} />
+              </Box>
             </Tooltip>
+          ) : (
+            syncStatus === 'logging in' && <CircularProgress size={24} />
           )}
-        </>
+        </Box>
+        {syncStatus === 'offline' ? (
+          <Tooltip title='Connect to Google Drive' arrow>
+            <IconButton sx={{ fontSize: 16, width: 32, height: 32, ml: -1 }} onClick={handleGoogleAuth}>
+              <GoogleDriveIcon sx={{ fontSize: 20 }} />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Tooltip title={syncStatus === 'logging in' ? 'Cancel' : 'Logout'} arrow>
+            <span>
+              <IconButton
+                disabled={syncStatus === 'syncing'}
+                onClick={handleLogout}
+                sx={{ fontSize: 16, ml: 0.5, width: 32, height: 32 }}
+              >
+                <Logout />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+
         <Tooltip title='Settings' arrow>
           <IconButton sx={{ fontSize: 16, width: 32, height: 32 }} onClick={onSettings}>
             <Settings />

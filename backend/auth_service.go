@@ -108,18 +108,7 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 		return false, nil
 	}
 
-	// トークンの有効性チェックを追加
-	if !token.Valid() {
-		a.logger.Info("Saved token is expired")
-		// トークンが無効な場合はファイルを削除
-		tokenFile := filepath.Join(a.appDataDir, "token.json")
-		if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
-			a.logger.Info(fmt.Sprintf("Failed to remove invalid token file: %v", err))
-		}
-		return false, nil
-	}
-
-	// トークンソースを作成して接続テスト
+	// トークンソースを作成（期限切れの場合はリフレッシュトークンで自動更新）
 	tokenSource := config.TokenSource(a.ctx, token)
 	client := oauth2.NewClient(a.ctx, tokenSource)
 
@@ -133,11 +122,33 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 		return false, nil
 	}
 
-	// 実際にDriveへの接続をテスト
+	// 実際にDriveへの接続をテスト（トークンのリフレッシュもここで自動的に行われる）
 	_, err = srv.Files.List().Fields("files(id, name)").PageSize(1).Do()
 	if err != nil {
 		a.logger.Info(fmt.Sprintf("Failed to connect to Drive: %v", err))
+		// 認証エラーの場合のみトークンファイルを削除
+		errStr := err.Error()
+		if strings.Contains(errStr, "invalid_grant") ||
+			strings.Contains(errStr, "unauthorized") ||
+			strings.Contains(errStr, "revoked") {
+			tokenFile := filepath.Join(a.appDataDir, "token.json")
+			if removeErr := os.Remove(tokenFile); removeErr != nil && !os.IsNotExist(removeErr) {
+				a.logger.Info(fmt.Sprintf("Failed to remove invalid token file: %v", removeErr))
+			}
+			a.logger.Info("Removed invalid token file due to auth error")
+		}
 		return false, nil
+	}
+
+	// リフレッシュされた可能性のあるトークンを保存
+	newToken, tokenErr := tokenSource.Token()
+	if tokenErr == nil {
+		if err := a.saveToken(newToken); err != nil {
+			a.logger.Info(fmt.Sprintf("Failed to save refreshed token: %v", err))
+		} else if newToken.AccessToken != token.AccessToken {
+			a.logger.Info("Saved refreshed token")
+		}
+		token = newToken
 	}
 
 	a.logger.Info("Successfully validated saved token")
@@ -267,29 +278,39 @@ func (a *authService) LogoutDrive() error {
 // HandleOfflineTransition はオフライン状態への遷移を処理します（公開メソッドに変更）
 func (a *authService) HandleOfflineTransition(err error) error {
 	if err == nil {
-		// 手動ログインの場合はそのままログアウト
 		a.handleFullOfflineTransition(nil)
 		return nil
 	}
 
-	// エラーの種類に応じて処理を分岐
-	if strings.Contains(err.Error(), "oauth2") {
-		// 認証切れの場合は完全なオフライン遷移
-		a.handleFullOfflineTransition(err)
-	} else if strings.Contains(err.Error(), "note file") && strings.Contains(err.Error(), "not found") {
-		// ノートファイルが見つからないエラーは一時的なエラーとして扱う
+	errStr := err.Error()
+
+	// ノートファイルが見つからないエラーは一時的なエラーとして扱う
+	if strings.Contains(errStr, "note file") && strings.Contains(errStr, "not found") {
 		a.logger.Info("Note file not found")
 		return fmt.Errorf("note file not found")
-	} else if strings.Contains(err.Error(), "net/http") || strings.Contains(err.Error(), "connection") {
-		// ネットワークエラーの場合は完全なオフライン遷移
-		a.handleFullOfflineTransition(err)
-	} else {
-		// その他のエラーは警告としつつオフライン
-		a.handleFullOfflineTransition(fmt.Errorf("warning: %v", err))
-		return fmt.Errorf("warning: %v", err)
 	}
 
-	return fmt.Errorf("offline transition: %v", err)
+	// 認証エラー: リフレッシュトークン無効・取り消し等 → トークン削除＋完全オフライン
+	if strings.Contains(errStr, "invalid_grant") ||
+		strings.Contains(errStr, "unauthorized") ||
+		strings.Contains(errStr, "revoked") ||
+		strings.Contains(errStr, "401") {
+		a.handleFullOfflineTransition(err)
+		return fmt.Errorf("auth error, offline transition: %v", err)
+	}
+
+	// ネットワーク・一時的エラー → トークン保持のまま一時オフライン
+	a.handleTemporaryOffline(err)
+	return fmt.Errorf("temporary offline: %v", err)
+}
+
+// handleTemporaryOffline はトークンを保持したまま一時的にオフラインにする
+func (a *authService) handleTemporaryOffline(err error) {
+	if err != nil {
+		a.logger.Error(err, fmt.Sprintf("Temporary offline: %v", err))
+	}
+	a.driveSync.SetConnected(false)
+	a.logger.NotifyDriveStatus(a.ctx, "offline")
 }
 
 // handleFullOfflineTransition は完全なオフライン遷移を実行
@@ -312,7 +333,7 @@ func (a *authService) handleFullOfflineTransition(err error) {
 	// 認証状態をリセット
 	a.driveSync.hasCompletedInitialSync = false
 	a.driveSync.service = nil
-	a.driveSync.isConnected = false
+	a.driveSync.SetConnected(false)
 
 	// フロントエンドに通知
 	if err != nil || errMsg != "" {
@@ -342,7 +363,7 @@ func (a *authService) initializeDriveService(token *oauth2.Token) error {
 
 	a.driveSync.service = srv
 	a.driveSync.token = token
-	a.driveSync.isConnected = true
+	a.driveSync.SetConnected(true)
 
 	// 初期化完了後にステータスを同期中に設定
 	a.logger.NotifyDriveStatus(a.ctx, "syncing")
@@ -364,7 +385,7 @@ func (a *authService) NotifyFrontendReady() {
 
 // IsConnected は現在の接続状態を返します
 func (a *authService) IsConnected() bool {
-	return a.driveSync != nil && a.driveSync.isConnected
+	return a.driveSync != nil && a.driveSync.Connected()
 }
 
 // IsTestMode はテストモードかどうかを返します

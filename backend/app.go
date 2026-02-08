@@ -158,6 +158,7 @@ func (a *App) DomReady(ctx context.Context) {
 		a.logger,
 		false,
 	)
+	a.authService = authService
 
 	// DriveServiceの初期化
 	driveService := NewDriveService(
@@ -171,15 +172,18 @@ func (a *App) DomReady(ctx context.Context) {
 	)
 	a.driveService = driveService
 
-	// Google Driveの初期化。保存済みトークンがあればポーリング開始
-	if err := driveService.InitializeDrive(); err != nil {
-		a.logger.Error(err, "Error initializing drive service")
-		// 初期化エラーを通知
-		wailsRuntime.EventsEmit(ctx, "drive:status", "offline")
-		wailsRuntime.EventsEmit(ctx, "drive:error", "Google Drive is not connected")
-	}
+	// Google Driveの初期化はフロントエンド準備完了後に実行
+	// （DomReady時点ではReactのuseEffect登録が完了していない可能性があるため）
+	go func() {
+		<-authService.GetFrontendReadyChan()
+		a.logger.Info("Frontend ready - initializing Google Drive...")
+		if err := driveService.InitializeDrive(); err != nil {
+			a.logger.Error(err, "Error initializing drive service")
+			wailsRuntime.EventsEmit(ctx, "drive:status", "offline")
+			wailsRuntime.EventsEmit(ctx, "drive:error", "Google Drive is not connected")
+		}
+	}()
 
-	// 初期化完了を通知
 	a.logger.Info("Emitting backend:ready event")
 	wailsRuntime.EventsEmit(ctx, "backend:ready")
 }
@@ -345,7 +349,7 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 	fmt.Println("UpdateNoteOrder called")
 	// まずノートサービスで順序を更新
 	if err := a.noteService.UpdateNoteOrder(noteID, newIndex); err != nil {
-		return a.authService.HandleOfflineTransition(fmt.Errorf("error updating note order: %v", err))
+		return fmt.Errorf("error updating note order: %v", err)
 	}
 
 	// ドライブサービスが初期化されており、接続中の場合はアップロード

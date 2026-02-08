@@ -65,7 +65,7 @@ func main() {
 			},
 		},
 		Debug: options.Debug{
-			OpenInspectorOnStartup: true,
+			OpenInspectorOnStartup: false,
 		},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "monaco-notepad-instance-lock",

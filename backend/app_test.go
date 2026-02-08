@@ -104,7 +104,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 			Version: "1.0",
 			Notes:   []NoteMetadata{},
 		},
-		mutex: sync.Mutex{},
+		mutex: sync.RWMutex{},
 		config: &oauth2.Config{
 			ClientID:     "test-client-id",
 			ClientSecret: "test-client-secret",

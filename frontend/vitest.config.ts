@@ -1,7 +1,26 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, type Plugin } from 'vitest/config';
 import path from 'node:path';
 
+// Vite plugin to handle ?worker imports in test environment
+function workerImportPlugin(): Plugin {
+  return {
+    name: 'mock-worker-imports',
+    enforce: 'pre',
+    resolveId(id) {
+      if (id.endsWith('?worker')) {
+        return `\0mock-worker:${id}`;
+      }
+    },
+    load(id) {
+      if (id.startsWith('\0mock-worker:')) {
+        return 'export default class MockWorker { postMessage() {} terminate() {} }';
+      }
+    },
+  };
+}
+
 export default defineConfig({
+  plugins: [workerImportPlugin()],
   test: {
     environment: 'jsdom',
     globals: true,
@@ -15,13 +34,13 @@ export default defineConfig({
         'src/**/*.d.ts',
         'src/test/**/*',
         'src/types/**/*',
-        'src/lib/monaco.ts',  // Monaco Editorの設定ファイルを除外
+        'src/lib/monaco.ts',
       ],
     },
     deps: {
       optimizer: {
         web: {
-          include: ['@mui/*'],  // MUIコンポーネントの最適化を含める（文字列形式で指定）
+          include: ['@mui/*'],
         }
       },
       interopDefault: true
