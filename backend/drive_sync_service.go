@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/api/drive/v3"
@@ -30,12 +31,16 @@ type DriveSyncService interface {
 	CreateNoteList(ctx context.Context, noteList *NoteList) error
 	UpdateNoteList(ctx context.Context, noteList *NoteList, noteListID string) error
 	DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error)
+	DownloadNoteListIfChanged(ctx context.Context, noteListID string) (*NoteList, bool, error)
 	// クラウドのノートリストにないノートをリストアップ (ダウンロードオプション付き)
 	ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, files []*drive.File, arrowDownload bool) (*NoteList, error)
 	// クラウドに存在しないファイルをリストから除外して返す
 	ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error)
 	// 重複IDを持つノートを処理し、最新のものだけを保持
 	DeduplicateNotes(notes []NoteMetadata) []NoteMetadata
+
+	// キャッシュ操作 ------------------------------------------------------------
+	RefreshFileIDCache(ctx context.Context) error // notes フォルダの files.list でキャッシュ再構築
 
 	// テスト用メソッド ------------------------------------------------------------
 	SetConnected(connected bool)
@@ -54,6 +59,9 @@ type driveSyncServiceImpl struct {
 	hasCompletedInitialSync bool
 	cloudNoteList           *NoteList
 	logger                  AppLogger
+	fileIDCache             map[string]string
+	cacheMu                 sync.RWMutex
+	lastNoteListMd5         string
 }
 
 // DriveSyncServiceインスタンスを作成
@@ -68,7 +76,66 @@ func NewDriveSyncService(
 		notesFolderID: notesFolderID,
 		rootFolderID:  rootFolderID,
 		logger:        logger,
+		fileIDCache:   make(map[string]string),
 	}
+}
+
+func (d *driveSyncServiceImpl) getCachedFileID(noteID string) (string, bool) {
+	d.cacheMu.RLock()
+	defer d.cacheMu.RUnlock()
+	id, ok := d.fileIDCache[noteID]
+	return id, ok
+}
+
+func (d *driveSyncServiceImpl) setCachedFileID(noteID, driveFileID string) {
+	d.cacheMu.Lock()
+	defer d.cacheMu.Unlock()
+	d.fileIDCache[noteID] = driveFileID
+}
+
+func (d *driveSyncServiceImpl) removeCachedFileID(noteID string) {
+	d.cacheMu.Lock()
+	defer d.cacheMu.Unlock()
+	delete(d.fileIDCache, noteID)
+}
+
+func (d *driveSyncServiceImpl) resolveNoteFileID(noteID string) (string, error) {
+	if cached, ok := d.getCachedFileID(noteID); ok {
+		return cached, nil
+	}
+
+	var fileID string
+	err := d.withRetry(func() error {
+		var err error
+		fileID, err = d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
+		return err
+	}, getFileIDRetryConfig)
+
+	if err != nil {
+		return "", err
+	}
+	d.setCachedFileID(noteID, fileID)
+	return fileID, nil
+}
+
+func (d *driveSyncServiceImpl) RefreshFileIDCache(ctx context.Context) error {
+	files, err := d.driveOps.ListFiles(
+		fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
+	if err != nil {
+		return fmt.Errorf("failed to refresh file ID cache: %w", err)
+	}
+
+	d.cacheMu.Lock()
+	defer d.cacheMu.Unlock()
+	d.fileIDCache = make(map[string]string, len(files))
+	for _, f := range files {
+		if strings.HasSuffix(f.Name, ".json") {
+			noteID := strings.TrimSuffix(f.Name, ".json")
+			d.fileIDCache[noteID] = f.Id
+		}
+	}
+	d.logger.Info("File ID cache refreshed: %d entries", len(d.fileIDCache))
+	return nil
 }
 
 // リトライ設定
@@ -197,12 +264,15 @@ func (d *driveSyncServiceImpl) CreateNote(
 	}
 
 	fileName := note.ID + ".json"
-	_, err = d.driveOps.CreateFile(
+	fileID, err := d.driveOps.CreateFile(
 		fileName,
 		noteContent,
 		d.notesFolderID,
 		"application/json",
 	)
+	if err == nil && fileID != "" {
+		d.setCachedFileID(note.ID, fileID)
+	}
 
 	return err
 }
@@ -217,16 +287,8 @@ func (d *driveSyncServiceImpl) UpdateNote(
 		return fmt.Errorf("failed to marshal note content: %w", err)
 	}
 
-	var fileID string
-	// ファイルID取得をリトライ付きで実行
-	err = d.withRetry(func() error {
-		var err error
-		fileID, err = d.driveOps.GetFileID(note.ID+".json", d.notesFolderID, d.rootFolderID)
-		return err
-	}, getFileIDRetryConfig)
-
+	fileID, err := d.resolveNoteFileID(note.ID)
 	if err != nil {
-		// ファイルが見つからない場合は新規作成
 		return d.CreateNote(ctx, note)
 	}
 
@@ -275,16 +337,9 @@ func (d *driveSyncServiceImpl) DownloadNote(
 	ctx context.Context,
 	noteID string,
 ) (*Note, error) {
-	var fileID string
 	var content []byte
 
-	// ファイルID取得をリトライ付きで実行
-	err := d.withRetry(func() error {
-		var err error
-		fileID, err = d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
-		return err
-	}, getFileIDRetryConfig)
-
+	fileID, err := d.resolveNoteFileID(noteID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file ID: %w", err)
 	}
@@ -313,20 +368,11 @@ func (d *driveSyncServiceImpl) DeleteNote(
 	ctx context.Context,
 	noteID string,
 ) error {
-	var fileID string
-
-	// ファイルID取得をリトライ付きで実行
-	err := d.withRetry(func() error {
-		var err error
-		fileID, err = d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
-		return err
-	}, getFileIDRetryConfig)
-
+	fileID, err := d.resolveNoteFileID(noteID)
 	if err != nil {
 		return fmt.Errorf("failed to get file ID: %w", err)
 	}
 
-	// 削除をリトライ付きで実行
 	err = d.withRetry(func() error {
 		return d.driveOps.DeleteFile(fileID)
 	}, defaultRetryConfig)
@@ -335,6 +381,7 @@ func (d *driveSyncServiceImpl) DeleteNote(
 		return fmt.Errorf("failed to delete note from cloud: %w", err)
 	}
 
+	d.removeCachedFileID(noteID)
 	return nil
 }
 
@@ -345,7 +392,7 @@ func (d *driveSyncServiceImpl) ListFiles(ctx context.Context, folderID string) (
 
 // クラウド内のノートのIDを取得する ------------------------------------------------------------
 func (d *driveSyncServiceImpl) GetNoteID(ctx context.Context, noteID string) (string, error) {
-	return d.driveOps.GetFileID(noteID+".json", d.notesFolderID, d.rootFolderID)
+	return d.resolveNoteFileID(noteID)
 }
 
 // クラウド内の重複するノートファイルを削除する ------------------------------------------------------------
@@ -439,7 +486,6 @@ func (d *driveSyncServiceImpl) UpdateNoteList(
 		return fmt.Errorf("failed to marshal note list: %w", err)
 	}
 
-	// 更新をリトライ付きで実行
 	err = d.withRetry(func() error {
 		return d.driveOps.UpdateFile(noteListID, noteListContent)
 	}, uploadRetryConfig)
@@ -448,7 +494,35 @@ func (d *driveSyncServiceImpl) UpdateNoteList(
 		return fmt.Errorf("failed to update note list: %w", err)
 	}
 
+	d.lastNoteListMd5 = ""
 	return nil
+}
+
+func (d *driveSyncServiceImpl) DownloadNoteListIfChanged(
+	ctx context.Context,
+	noteListID string,
+) (*NoteList, bool, error) {
+	meta, err := d.driveOps.GetFileMetadata(noteListID)
+	if err != nil {
+		d.logger.Info("Metadata check failed, falling back to full download: %v", err)
+		noteList, dlErr := d.DownloadNoteList(ctx, noteListID)
+		if dlErr != nil {
+			return nil, false, dlErr
+		}
+		return noteList, true, nil
+	}
+
+	if meta.Md5Checksum != "" && meta.Md5Checksum == d.lastNoteListMd5 {
+		d.logger.Info("noteList.json unchanged (md5: %s), skipping download", meta.Md5Checksum)
+		return nil, false, nil
+	}
+
+	noteList, err := d.DownloadNoteList(ctx, noteListID)
+	if err != nil {
+		return nil, false, err
+	}
+	d.lastNoteListMd5 = meta.Md5Checksum
+	return noteList, true, nil
 }
 
 // クラウドからノートリストをダウンロードする ------------------------------------------------------------
@@ -579,7 +653,7 @@ func (d *driveSyncServiceImpl) DeduplicateNotes(notes []NoteMetadata) []NoteMeta
 	for _, noteVersions := range noteMap {
 		latest := noteVersions[0]
 		for _, note := range noteVersions[1:] {
-			if note.ModifiedTime > latest.ModifiedTime {
+			if isModifiedTimeAfter(note.ModifiedTime, latest.ModifiedTime) {
 				latest = note
 			}
 		}

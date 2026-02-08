@@ -88,13 +88,70 @@ type DriveSync struct {
 	rootFolderID            string         // アプリケーションのルートフォルダID
 	notesFolderID           string         // ノート保存用フォルダID
 	noteListID              string         // ノートリストのファイルID
-	mutex                   sync.Mutex     // 同期処理用のミューテックス
+	mutex                   sync.RWMutex   // 同期処理用のミューテックス
 	isConnected             bool           // Google Driveへの接続状態
 	hasCompletedInitialSync bool           // 初回同期が完了したかどうか
 	cloudNoteList           *NoteList      // クラウド上のノートリスト
 }
 
-// wails.jsonの設定を保持する構造体
+func (ds *DriveSync) FolderIDs() (rootFolderID, notesFolderID string) {
+	ds.mutex.RLock()
+	defer ds.mutex.RUnlock()
+	return ds.rootFolderID, ds.notesFolderID
+}
+
+func (ds *DriveSync) SetFolderIDs(rootFolderID, notesFolderID string) {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+	ds.rootFolderID = rootFolderID
+	ds.notesFolderID = notesFolderID
+}
+
+func (ds *DriveSync) NoteListID() string {
+	ds.mutex.RLock()
+	defer ds.mutex.RUnlock()
+	return ds.noteListID
+}
+
+func (ds *DriveSync) SetNoteListID(id string) {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+	ds.noteListID = id
+}
+
+func (ds *DriveSync) Connected() bool {
+	ds.mutex.RLock()
+	defer ds.mutex.RUnlock()
+	return ds.isConnected
+}
+
+func (ds *DriveSync) SetConnected(connected bool) {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+	ds.isConnected = connected
+}
+
+func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata) {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+	if ds.cloudNoteList == nil {
+		return
+	}
+	ds.cloudNoteList.LastSync = lastSync
+	notesCopy := make([]NoteMetadata, len(notes))
+	copy(notesCopy, notes)
+	ds.cloudNoteList.Notes = notesCopy
+}
+
+func isModifiedTimeAfter(a, b string) bool {
+	ta, errA := time.Parse(time.RFC3339, a)
+	tb, errB := time.Parse(time.RFC3339, b)
+	if errA != nil || errB != nil {
+		return a > b
+	}
+	return ta.After(tb)
+}
+
 type WailsConfig struct {
 	Name           string `json:"name"`
 	OutputFilename string `json:"outputfilename"`

@@ -10,24 +10,31 @@ import (
 	"google.golang.org/api/drive/v3"
 )
 
+// ChangesResult は changes.list の結果をまとめた構造体
+type ChangesResult struct {
+	Changes       []*drive.Change // 変更リスト
+	NewStartToken string          // 次回ポーリング用のトークン
+}
+
 // DriveOperations はGoogle Driveの低レベル操作を提供するインターフェース
 type DriveOperations interface {
-	// ファイル操作 (Driveネイティブ)
 	CreateFile(name string, content []byte, rootFolderID string, mimeType string) (string, error)
 	UpdateFile(fileID string, content []byte) error
 	DeleteFile(fileID string) error
 	DownloadFile(fileID string) ([]byte, error)
+	GetFileMetadata(fileID string) (*drive.File, error)
 
-	// フォルダ操作 (Driveネイティブ)
 	CreateFolder(name string, parentID string) (string, error)
 
-	// 検索 (Driveネイティブ)
 	ListFiles(query string) ([]*drive.File, error)
 
-	// ファイル管理ヘルパー
-	GetFileID(fileName string, noteFolderID string, rootFolderID string) (string, error) // ファイル名からファイルIDを取得
-	FindLatestFile(files []*drive.File) *drive.File                                      // 複数のファイルから最新のものを返す
-	CleanupDuplicates(files []*drive.File, keepLatest bool) error                        // 重複ファイルの整理
+	GetFileID(fileName string, noteFolderID string, rootFolderID string) (string, error)
+	FindLatestFile(files []*drive.File) *drive.File
+	CleanupDuplicates(files []*drive.File, keepLatest bool) error
+
+	// Changes API: 増分変更検出
+	GetStartPageToken() (string, error)
+	ListChanges(pageToken string) (*ChangesResult, error)
 }
 
 // DriveOperationsの実装
@@ -107,6 +114,17 @@ func (d *driveOperationsImpl) DownloadFile(fileID string) ([]byte, error) {
 	}
 
 	return content.Bytes(), nil
+}
+
+func (d *driveOperationsImpl) GetFileMetadata(fileID string) (*drive.File, error) {
+	d.logger.Console("[GAPI] Getting metadata: %s", fileID)
+	file, err := d.service.Files.Get(fileID).
+		Fields("id, name, modifiedTime, md5Checksum, version").
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file metadata: %w", err)
+	}
+	return file, nil
 }
 
 // フォルダを作成 (Driveネイティブ) ------------------------------------------------------------
@@ -212,6 +230,41 @@ func (d *driveOperationsImpl) FindLatestFile(files []*drive.File) *drive.File {
 		return t1.After(t2)
 	})
 	return files[0]
+}
+
+func (d *driveOperationsImpl) GetStartPageToken() (string, error) {
+	d.logger.Console("[GAPI] GetStartPageToken")
+	resp, err := d.service.Changes.GetStartPageToken().Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to get start page token: %w", err)
+	}
+	return resp.StartPageToken, nil
+}
+
+func (d *driveOperationsImpl) ListChanges(pageToken string) (*ChangesResult, error) {
+	d.logger.Console("[GAPI] ListChanges pageToken=%s", pageToken)
+	var allChanges []*drive.Change
+	nextToken := pageToken
+
+	for {
+		resp, err := d.service.Changes.List(nextToken).
+			Fields("nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,parents,mimeType,modifiedTime))").
+			PageSize(100).
+			Do()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list changes: %w", err)
+		}
+
+		allChanges = append(allChanges, resp.Changes...)
+
+		if resp.NextPageToken == "" {
+			return &ChangesResult{
+				Changes:       allChanges,
+				NewStartToken: resp.NewStartPageToken,
+			}, nil
+		}
+		nextToken = resp.NextPageToken
+	}
 }
 
 // 重複ファイルの整理 ------------------------------------------------------------

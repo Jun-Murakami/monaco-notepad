@@ -63,68 +63,64 @@ func NewDriveOperationsQueue(operations DriveOperations) *DriveOperationsQueue {
 	return q
 }
 
-// キューの処理を開始
 func (q *DriveOperationsQueue) processQueue() {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-q.ctx.Done():
 			return
-		case <-ticker.C:
-			q.processNextItem()
+		case item, ok := <-q.queue:
+			if !ok {
+				return
+			}
+			err := q.executeOperation(item)
+			item.Result <- err
+
+			q.mutex.Lock()
+			q.removeItemFromMap(item)
+			q.mutex.Unlock()
 		}
 	}
 }
 
-// 次のキューアイテムを処理
-func (q *DriveOperationsQueue) processNextItem() {
-	q.mutex.Lock()
-	defer q.mutex.Unlock()
-
-	select {
-	case item := <-q.queue:
-		var err error
-		switch item.OperationType {
-		case CreateOperation:
-			fileID, createErr := q.operations.CreateFile(item.FileName, item.Content, item.ParentID, item.MimeType)
-			if createErr != nil {
-				err = fmt.Errorf("failed to create file: %w", createErr)
-			}
-			if fileID != "" {
-				item.FileID = fileID
-			}
-		case UpdateOperation:
-			err = q.operations.UpdateFile(item.FileID, item.Content)
-		case DeleteOperation:
-			err = q.operations.DeleteFile(item.FileID)
-		case DownloadOperation:
-			content, downloadErr := q.operations.DownloadFile(item.FileID)
-			if downloadErr != nil {
-				err = fmt.Errorf("failed to download file: %w", downloadErr)
-			}
-			item.Content = content
-		case ListOperation:
-			files, listErr := q.operations.ListFiles(item.Query)
-			if listErr != nil {
-				err = fmt.Errorf("failed to list files: %w", listErr)
-			} else {
-				item.ListResult <- files
-			}
-		case GetFileOperation:
-			fileID, getErr := q.operations.GetFileID(item.FileName, item.NoteFolderID, item.RootFolderID)
-			if getErr != nil {
-				err = fmt.Errorf("failed to get file ID: %w", getErr)
-			} else {
-				item.GetFileResult <- fileID
-			}
+// executeOperation は実際のDrive I/Oを実行する（mutex外で呼ばれる）
+func (q *DriveOperationsQueue) executeOperation(item *QueueItem) error {
+	switch item.OperationType {
+	case CreateOperation:
+		fileID, err := q.operations.CreateFile(item.FileName, item.Content, item.ParentID, item.MimeType)
+		if fileID != "" {
+			item.FileID = fileID
 		}
-		item.Result <- err
-		q.removeItemFromMap(item)
-	default:
-		// キューが空の場合は何もしない
+		if err != nil {
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+	case UpdateOperation:
+		if err := q.operations.UpdateFile(item.FileID, item.Content); err != nil {
+			return err
+		}
+	case DeleteOperation:
+		if err := q.operations.DeleteFile(item.FileID); err != nil {
+			return err
+		}
+	case DownloadOperation:
+		content, err := q.operations.DownloadFile(item.FileID)
+		if err != nil {
+			return fmt.Errorf("failed to download file: %w", err)
+		}
+		item.Content = content
+	case ListOperation:
+		files, err := q.operations.ListFiles(item.Query)
+		item.ListResult <- files // エラー時もnil送信（デッドロック防止）
+		if err != nil {
+			return fmt.Errorf("failed to list files: %w", err)
+		}
+	case GetFileOperation:
+		fileID, err := q.operations.GetFileID(item.FileName, item.NoteFolderID, item.RootFolderID)
+		item.GetFileResult <- fileID // エラー時も""送信（デッドロック防止）
+		if err != nil {
+			return fmt.Errorf("failed to get file ID: %w", err)
+		}
 	}
+	return nil
 }
 
 // キューにアイテムを追加
@@ -332,7 +328,6 @@ func (q *DriveOperationsQueue) DownloadFile(fileID string) ([]byte, error) {
 	return item.Content, err
 }
 
-// ListFilesをキューで処理
 func (q *DriveOperationsQueue) ListFiles(query string) ([]*drive.File, error) {
 	result := make(chan error, 1)
 	listResult := make(chan []*drive.File, 1)
@@ -345,13 +340,13 @@ func (q *DriveOperationsQueue) ListFiles(query string) ([]*drive.File, error) {
 	}
 	q.addToQueue(item)
 	err := <-result
+	files := <-listResult
 	if err != nil {
 		return nil, err
 	}
-	return <-listResult, nil
+	return files, nil
 }
 
-// GetFileIDをキューで処理
 func (q *DriveOperationsQueue) GetFileID(fileName string, noteFolderID string, rootFolderID string) (string, error) {
 	result := make(chan error, 1)
 	getFileResult := make(chan string, 1)
@@ -366,10 +361,15 @@ func (q *DriveOperationsQueue) GetFileID(fileName string, noteFolderID string, r
 	}
 	q.addToQueue(item)
 	err := <-result
+	fileID := <-getFileResult
 	if err != nil {
 		return "", err
 	}
-	return <-getFileResult, nil
+	return fileID, nil
+}
+
+func (q *DriveOperationsQueue) GetFileMetadata(fileID string) (*drive.File, error) {
+	return q.operations.GetFileMetadata(fileID)
 }
 
 // FindLatestFileは直接委譲（ローカル処理のため）
@@ -385,4 +385,12 @@ func (q *DriveOperationsQueue) CreateFolder(name string, parentID string) (strin
 // CleanupDuplicatesは直接委譲（初期化時のみ使用）
 func (q *DriveOperationsQueue) CleanupDuplicates(files []*drive.File, keepLatest bool) error {
 	return q.operations.CleanupDuplicates(files, keepLatest)
+}
+
+func (q *DriveOperationsQueue) GetStartPageToken() (string, error) {
+	return q.operations.GetStartPageToken()
+}
+
+func (q *DriveOperationsQueue) ListChanges(pageToken string) (*ChangesResult, error) {
+	return q.operations.ListChanges(pageToken)
 }

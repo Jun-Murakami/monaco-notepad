@@ -201,6 +201,25 @@ func (s *noteService) DeleteNote(id string) error {
 	return s.saveNoteList()
 }
 
+// 同期パスから呼ばれるノート保存（LastSync/ModifiedTime を更新しない、noteList.json も書かない）
+func (s *noteService) SaveNoteFromSync(note *Note) error {
+	data, err := json.MarshalIndent(note, "", "  ")
+	if err != nil {
+		return err
+	}
+	notePath := filepath.Join(s.notesDir, note.ID+".json")
+	return os.WriteFile(notePath, data, 0644)
+}
+
+// 同期パスから呼ばれるノート削除（LastSync を更新しない、noteList.json も書かない）
+func (s *noteService) DeleteNoteFromSync(id string) error {
+	notePath := filepath.Join(s.notesDir, id+".json")
+	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // アーカイブされたノートの完全なデータを読み込む ------------------------------------------------------------
 func (s *noteService) LoadArchivedNote(id string) (*Note, error) {
 	return s.LoadNote(id)
@@ -264,7 +283,7 @@ func (s *noteService) deduplicateNoteList() {
 	noteMap := make(map[string]NoteMetadata)
 	for _, metadata := range s.noteList.Notes {
 		existing, exists := noteMap[metadata.ID]
-		if !exists || metadata.ModifiedTime > existing.ModifiedTime {
+		if !exists || isModifiedTimeAfter(metadata.ModifiedTime, existing.ModifiedTime) {
 			noteMap[metadata.ID] = metadata
 		}
 	}
@@ -279,13 +298,12 @@ func (s *noteService) deduplicateNoteList() {
 func (s *noteService) loadNoteList() error {
 	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
 
-	// ノートリストファイルが存在しない場合は新規作成
 	if _, err := os.Stat(noteListPath); os.IsNotExist(err) {
 		fmt.Println("loadNoteList: noteList.json not found, creating new one")
 		s.noteList = &NoteList{
-			Version:  "1.0",
-			Notes:    []NoteMetadata{},
-			LastSync: time.Now(),
+			Version: "1.0",
+			Notes:   []NoteMetadata{},
+			// LastSync はゼロ値のまま（クラウドに既存データがあれば cloud→local を優先させる）
 		}
 		return s.saveNoteList()
 	}
@@ -317,9 +335,8 @@ func (s *noteService) loadNoteList() error {
 		return err
 	}
 
-	// 変更があったかどうかをチェック
+	// 変更があった場合、LastSync を変えずに保存（起動時の正規化は同期方向に影響させない）
 	if !s.isNoteListEqual(originalNotes, s.noteList.Notes) {
-		s.noteList.LastSync = time.Now()
 		if err := s.saveNoteList(); err != nil {
 			return fmt.Errorf("failed to save note list after changes: %v", err)
 		}
@@ -396,7 +413,6 @@ func (s *noteService) resolveMetadataConflicts() error {
 		// メタデータの競合を解決
 		resolvedMetadata := s.resolveMetadata(listMetadata, fileMetadata)
 
-		// 解決したメタデータをノートファイルに反映
 		if resolvedMetadata.ModifiedTime != note.ModifiedTime ||
 			resolvedMetadata.Title != note.Title ||
 			resolvedMetadata.ContentHeader != note.ContentHeader ||
@@ -409,7 +425,7 @@ func (s *noteService) resolveMetadataConflicts() error {
 			note.Language = resolvedMetadata.Language
 			note.Archived = resolvedMetadata.Archived
 
-			if err := s.SaveNote(note); err != nil {
+			if err := s.SaveNoteFromSync(note); err != nil {
 				return fmt.Errorf("failed to save resolved note %s: %v", note.ID, err)
 			}
 		}
@@ -425,10 +441,9 @@ func (s *noteService) resolveMetadataConflicts() error {
 // 2つのメタデータを比較して競合を解決する ------------------------------------------------------------
 func (s *noteService) resolveMetadata(listMetadata, fileMetadata NoteMetadata) NoteMetadata {
 	// ModifiedTimeを比較して新しい方を採用
-	if listMetadata.ModifiedTime > fileMetadata.ModifiedTime {
-		// リストの方が新しい場合はリストのメタデータを採用
+	if isModifiedTimeAfter(listMetadata.ModifiedTime, fileMetadata.ModifiedTime) {
 		return listMetadata
-	} else if fileMetadata.ModifiedTime > listMetadata.ModifiedTime {
+	} else if isModifiedTimeAfter(fileMetadata.ModifiedTime, listMetadata.ModifiedTime) {
 		// ファイルの方が新しい場合はファイルのメタデータを採用（OrderとContentHashは保持）
 		fileMetadata.Order = listMetadata.Order
 		fileMetadata.ContentHash = listMetadata.ContentHash

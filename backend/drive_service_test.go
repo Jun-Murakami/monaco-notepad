@@ -47,6 +47,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -206,9 +207,9 @@ func (m *mockDriveService) GetDriveOperationsQueue() *DriveOperationsQueue {
 	return m.operationsQueue
 }
 
-// mockDriveOperations はDriveOperationsのモック実装
 type mockDriveOperations struct {
 	service *drive.Service
+	mu      sync.RWMutex
 	files   map[string][]byte
 }
 
@@ -227,14 +228,16 @@ func (m *mockDriveOperations) GetService() *drive.Service {
 }
 
 func (m *mockDriveOperations) CreateFile(name string, content []byte, rootFolderID string, mimeType string) (string, error) {
-	// テスト用のファイルIDを生成
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	fileID := fmt.Sprintf("test-file-%s", name)
-	// コンテンツをメモリに保存
 	m.files[fileID] = content
 	return fileID, nil
 }
 
 func (m *mockDriveOperations) UpdateFile(fileID string, content []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.files[fileID]; !exists {
 		return fmt.Errorf("file not found: %s", fileID)
 	}
@@ -243,6 +246,8 @@ func (m *mockDriveOperations) UpdateFile(fileID string, content []byte) error {
 }
 
 func (m *mockDriveOperations) DeleteFile(fileID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if _, exists := m.files[fileID]; !exists {
 		return fmt.Errorf("file not found: %s", fileID)
 	}
@@ -250,7 +255,23 @@ func (m *mockDriveOperations) DeleteFile(fileID string) error {
 	return nil
 }
 
+func (m *mockDriveOperations) GetFileMetadata(fileID string) (*drive.File, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if _, exists := m.files[fileID]; !exists {
+		return nil, fmt.Errorf("file not found: %s", fileID)
+	}
+	return &drive.File{
+		Id:           fileID,
+		Name:         fmt.Sprintf("test-file-%s", fileID),
+		ModifiedTime: time.Now().Format(time.RFC3339),
+		Md5Checksum:  "mock-md5",
+	}, nil
+}
+
 func (m *mockDriveOperations) GetFile(fileID string) (*drive.File, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if _, exists := m.files[fileID]; !exists {
 		return nil, fmt.Errorf("file not found: %s", fileID)
 	}
@@ -261,6 +282,8 @@ func (m *mockDriveOperations) GetFile(fileID string) (*drive.File, error) {
 }
 
 func (m *mockDriveOperations) DownloadFile(fileID string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if content, exists := m.files[fileID]; exists {
 		return content, nil
 	}
@@ -268,6 +291,8 @@ func (m *mockDriveOperations) DownloadFile(fileID string) ([]byte, error) {
 }
 
 func (m *mockDriveOperations) ListFiles(query string) ([]*drive.File, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	files := make([]*drive.File, 0, len(m.files))
 	for fileID := range m.files {
 		files = append(files, &drive.File{
@@ -283,19 +308,15 @@ func (m *mockDriveOperations) CreateFolder(name string, parentID string) (string
 }
 
 func (m *mockDriveOperations) GetFileID(fileName string, noteFolderID string, rootFolderID string) (string, error) {
-	// テスト用のファイルIDを生成
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	fileID := fmt.Sprintf("test-file-%s", fileName)
-
-	// ファイルが存在するか確認
 	if _, exists := m.files[fileID]; exists {
 		return fileID, nil
 	}
-
-	// ファイル名からIDを生成（新規作成の場合）
 	if strings.HasSuffix(fileName, ".json") {
 		return fileID, nil
 	}
-
 	return "", fmt.Errorf("file not found: %s", fileName)
 }
 
@@ -308,6 +329,17 @@ func (m *mockDriveOperations) FindLatestFile(files []*drive.File) *drive.File {
 
 func (m *mockDriveOperations) CleanupDuplicates(files []*drive.File, keepLatest bool) error {
 	return nil
+}
+
+func (m *mockDriveOperations) GetStartPageToken() (string, error) {
+	return "mock-start-token-1", nil
+}
+
+func (m *mockDriveOperations) ListChanges(pageToken string) (*ChangesResult, error) {
+	return &ChangesResult{
+		Changes:       nil,
+		NewStartToken: pageToken,
+	}, nil
 }
 
 // テストのセットアップ
@@ -744,4 +776,288 @@ func TestNoteOrderConflict(t *testing.T) {
 	assert.Equal(t, "note2", updatedNotes[0].ID)
 	assert.Equal(t, "note1", updatedNotes[1].ID)
 	assert.Equal(t, "note3", updatedNotes[2].ID)
+}
+
+func TestFileIDCache_RefreshBuildsCache(t *testing.T) {
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	noteData := []byte(`{"id":"note-a","title":"A"}`)
+	mockOps.CreateFile("note-a.json", noteData, "test-folder", "application/json")
+	mockOps.CreateFile("note-b.json", noteData, "test-folder", "application/json")
+
+	err := syncService.RefreshFileIDCache(context.Background())
+	assert.NoError(t, err)
+
+	impl := syncService.(*driveSyncServiceImpl)
+	impl.cacheMu.RLock()
+	defer impl.cacheMu.RUnlock()
+	assert.True(t, len(impl.fileIDCache) >= 2, "cache should have at least 2 entries")
+}
+
+func TestFileIDCache_HitAvoidsDriveCall(t *testing.T) {
+	countingOps := &countingDriveOps{mockDriveOperations: newMockDriveOperations()}
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	syncService := NewDriveSyncService(countingOps, "test-folder", "test-root", logger)
+
+	impl := syncService.(*driveSyncServiceImpl)
+	impl.setCachedFileID("cached-note", "drive-file-xyz")
+
+	fileID, err := syncService.GetNoteID(context.Background(), "cached-note")
+	assert.NoError(t, err)
+	assert.Equal(t, "drive-file-xyz", fileID)
+	assert.Equal(t, 0, countingOps.getFileIDCount, "GetFileID should not be called on cache hit")
+}
+
+func TestFileIDCache_MissFallsBackToDriveCall(t *testing.T) {
+	countingOps := &countingDriveOps{mockDriveOperations: newMockDriveOperations()}
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	syncService := NewDriveSyncService(countingOps, "test-folder", "test-root", logger)
+
+	fileID, err := syncService.GetNoteID(context.Background(), "uncached-note")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, fileID)
+	assert.Equal(t, 1, countingOps.getFileIDCount, "GetFileID should be called once on cache miss")
+
+	impl := syncService.(*driveSyncServiceImpl)
+	cached, ok := impl.getCachedFileID("uncached-note")
+	assert.True(t, ok, "miss result should be cached")
+	assert.Equal(t, fileID, cached)
+}
+
+func TestFileIDCache_CreateNotePopulatesCache(t *testing.T) {
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	note := &Note{ID: "new-note", Title: "New", Content: "content"}
+	err := syncService.CreateNote(context.Background(), note)
+	assert.NoError(t, err)
+
+	impl := syncService.(*driveSyncServiceImpl)
+	cached, ok := impl.getCachedFileID("new-note")
+	assert.True(t, ok)
+	assert.NotEmpty(t, cached)
+}
+
+func TestFileIDCache_DeleteNoteRemovesFromCache(t *testing.T) {
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	note := &Note{ID: "del-note", Title: "Del", Content: "content"}
+	err := syncService.CreateNote(context.Background(), note)
+	assert.NoError(t, err)
+
+	impl := syncService.(*driveSyncServiceImpl)
+	_, ok := impl.getCachedFileID("del-note")
+	assert.True(t, ok, "should be cached after create")
+
+	err = syncService.DeleteNote(context.Background(), "del-note")
+	assert.NoError(t, err)
+
+	_, ok = impl.getCachedFileID("del-note")
+	assert.False(t, ok, "should be removed from cache after delete")
+}
+
+type countingDriveOps struct {
+	*mockDriveOperations
+	getFileIDCount int
+}
+
+func (c *countingDriveOps) GetFileID(fileName string, noteFolderID string, rootFolderID string) (string, error) {
+	c.getFileIDCount++
+	return c.mockDriveOperations.GetFileID(fileName, noteFolderID, rootFolderID)
+}
+
+type changesTrackingOps struct {
+	*mockDriveOperations
+	getStartPageTokenCount int
+	listChangesCount       int
+	changesToReturn        []*drive.Change
+	nextToken              string
+}
+
+func (c *changesTrackingOps) GetStartPageToken() (string, error) {
+	c.getStartPageTokenCount++
+	return "test-page-token-1", nil
+}
+
+func (c *changesTrackingOps) ListChanges(pageToken string) (*ChangesResult, error) {
+	c.listChangesCount++
+	token := c.nextToken
+	if token == "" {
+		token = "test-page-token-2"
+	}
+	return &ChangesResult{
+		Changes:       c.changesToReturn,
+		NewStartToken: token,
+	}, nil
+}
+
+func TestChangesAPI_GetStartPageToken(t *testing.T) {
+	ops := &changesTrackingOps{mockDriveOperations: newMockDriveOperations()}
+
+	token, err := ops.GetStartPageToken()
+	assert.NoError(t, err)
+	assert.Equal(t, "test-page-token-1", token)
+	assert.Equal(t, 1, ops.getStartPageTokenCount)
+}
+
+func TestChangesAPI_ListChangesNoChanges(t *testing.T) {
+	ops := &changesTrackingOps{
+		mockDriveOperations: newMockDriveOperations(),
+		changesToReturn:     nil,
+		nextToken:           "token-after",
+	}
+
+	result, err := ops.ListChanges("token-before")
+	assert.NoError(t, err)
+	assert.Empty(t, result.Changes)
+	assert.Equal(t, "token-after", result.NewStartToken)
+}
+
+func TestChangesAPI_ListChangesWithRelevantChanges(t *testing.T) {
+	ops := &changesTrackingOps{
+		mockDriveOperations: newMockDriveOperations(),
+		changesToReturn: []*drive.Change{
+			{
+				FileId: "file-abc",
+				File: &drive.File{
+					Id:      "file-abc",
+					Name:    "noteList.json",
+					Parents: []string{"root-folder-id"},
+				},
+			},
+			{
+				FileId: "file-xyz",
+				File: &drive.File{
+					Id:      "file-xyz",
+					Name:    "note-123.json",
+					Parents: []string{"notes-folder-id"},
+				},
+			},
+		},
+		nextToken: "token-updated",
+	}
+
+	result, err := ops.ListChanges("token-initial")
+	assert.NoError(t, err)
+	assert.Len(t, result.Changes, 2)
+	assert.Equal(t, "token-updated", result.NewStartToken)
+	assert.Equal(t, "noteList.json", result.Changes[0].File.Name)
+	assert.Equal(t, "note-123.json", result.Changes[1].File.Name)
+}
+
+func TestChangesAPI_QueueDelegation(t *testing.T) {
+	ops := &changesTrackingOps{
+		mockDriveOperations: newMockDriveOperations(),
+		nextToken:           "delegated-token",
+	}
+	queue := NewDriveOperationsQueue(ops)
+	defer queue.Cleanup()
+
+	token, err := queue.GetStartPageToken()
+	assert.NoError(t, err)
+	assert.Equal(t, "test-page-token-1", token)
+	assert.Equal(t, 1, ops.getStartPageTokenCount)
+
+	result, err := queue.ListChanges("some-token")
+	assert.NoError(t, err)
+	assert.Equal(t, "delegated-token", result.NewStartToken)
+	assert.Equal(t, 1, ops.listChangesCount)
+}
+
+func TestHasRelevantChanges_NoChanges(t *testing.T) {
+	assert.False(t, hasRelevantChanges(nil, "root-id", "notes-id"))
+	assert.False(t, hasRelevantChanges([]*drive.Change{}, "root-id", "notes-id"))
+}
+
+func TestHasRelevantChanges_FileInRootFolder(t *testing.T) {
+	changes := []*drive.Change{
+		{
+			FileId: "file-1",
+			File: &drive.File{
+				Id:      "file-1",
+				Name:    "noteList.json",
+				Parents: []string{"root-id"},
+			},
+		},
+	}
+	assert.True(t, hasRelevantChanges(changes, "root-id", "notes-id"))
+}
+
+func TestHasRelevantChanges_FileInNotesFolder(t *testing.T) {
+	changes := []*drive.Change{
+		{
+			FileId: "file-2",
+			File: &drive.File{
+				Id:      "file-2",
+				Name:    "abc123.json",
+				Parents: []string{"notes-id"},
+			},
+		},
+	}
+	assert.True(t, hasRelevantChanges(changes, "root-id", "notes-id"))
+}
+
+func TestHasRelevantChanges_UnrelatedFolder(t *testing.T) {
+	changes := []*drive.Change{
+		{
+			FileId: "file-3",
+			File: &drive.File{
+				Id:      "file-3",
+				Name:    "photo.jpg",
+				Parents: []string{"some-other-folder"},
+			},
+		},
+	}
+	assert.False(t, hasRelevantChanges(changes, "root-id", "notes-id"))
+}
+
+func TestHasRelevantChanges_JSONFileOutsideOurFolders(t *testing.T) {
+	changes := []*drive.Change{
+		{
+			FileId: "file-4",
+			File: &drive.File{
+				Id:      "file-4",
+				Name:    "config.json",
+				Parents: []string{"unrelated-folder"},
+			},
+		},
+	}
+	assert.True(t, hasRelevantChanges(changes, "root-id", "notes-id"),
+		".json files are treated as potentially relevant even outside our folders")
+}
+
+func TestHasRelevantChanges_NilFile(t *testing.T) {
+	changes := []*drive.Change{
+		{FileId: "file-5", File: nil},
+	}
+	assert.False(t, hasRelevantChanges(changes, "root-id", "notes-id"))
+}
+
+func TestHasRelevantChanges_MixedChanges(t *testing.T) {
+	changes := []*drive.Change{
+		{FileId: "file-a", File: nil},
+		{
+			FileId: "file-b",
+			File: &drive.File{
+				Id:      "file-b",
+				Name:    "vacation.png",
+				Parents: []string{"photos-folder"},
+			},
+		},
+		{
+			FileId: "file-c",
+			File: &drive.File{
+				Id:      "file-c",
+				Name:    "note-xyz.json",
+				Parents: []string{"notes-id"},
+			},
+		},
+	}
+	assert.True(t, hasRelevantChanges(changes, "root-id", "notes-id"),
+		"should detect relevant change even when mixed with irrelevant ones")
 }
