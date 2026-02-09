@@ -1,5 +1,14 @@
 import { CreateNewFolder, Inventory } from '@mui/icons-material';
-import { Box, Button, CssBaseline, Divider, IconButton, ThemeProvider, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  CssBaseline,
+  Divider,
+  IconButton,
+  ThemeProvider,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import type { editor } from 'monaco-editor';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
@@ -23,9 +32,21 @@ import { useNotes } from './hooks/useNotes';
 import { darkTheme, lightTheme } from './lib/theme';
 import type { FileNote, Note } from './types';
 
+// 検索マッチの各出現箇所を表す型（ノート内の何番目のマッチか）
+type SearchMatch = {
+  note: Note | FileNote;
+  matchIndexInNote: number;
+};
+
 function App() {
   // エディタ設定
-  const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
+  const {
+    isSettingsOpen,
+    setIsSettingsOpen,
+    editorSettings,
+    setEditorSettings,
+    handleSettingsChange,
+  } = useEditorSettings();
 
   // メッセージダイアログ
   const {
@@ -94,7 +115,11 @@ function App() {
   });
 
   // ノート選択専用フック
-  const { handleSelecAnyNote, handleSelectNextAnyNote, handleSelectPreviousAnyNote } = useNoteSelecter({
+  const {
+    handleSelecAnyNote,
+    handleSelectNextAnyNote,
+    handleSelectPreviousAnyNote,
+  } = useNoteSelecter({
     handleSelectNote,
     handleSelectFileNote,
     notes,
@@ -106,7 +131,12 @@ function App() {
   });
 
   // ファイル操作
-  const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
+  const {
+    handleOpenFile,
+    handleSaveFile,
+    handleSaveAsFile,
+    handleConvertToNote,
+  } = useFileOperations(
     notes,
     setNotes,
     currentNote,
@@ -152,17 +182,70 @@ function App() {
     const q = noteSearch.toLowerCase();
     return notes.filter((note) => {
       if (note.archived) return false;
-      return note.title.toLowerCase().includes(q) || (note.content?.toLowerCase().includes(q) ?? false);
+      return (
+        note.title.toLowerCase().includes(q) ||
+        (note.content?.toLowerCase().includes(q) ?? false)
+      );
     });
   }, [notes, noteSearch]);
 
   const filteredFileNotes = useMemo(() => {
     if (!noteSearch) return fileNotes;
     const q = noteSearch.toLowerCase();
-    return fileNotes.filter((note) => note.fileName.toLowerCase().includes(q) || note.content.toLowerCase().includes(q));
+    return fileNotes.filter(
+      (note) =>
+        note.fileName.toLowerCase().includes(q) ||
+        note.content.toLowerCase().includes(q),
+    );
   }, [fileNotes, noteSearch]);
 
-  const totalSearchMatches = filteredNotes.filter((n) => !n.archived).length + filteredFileNotes.length;
+  // サイドバーの表示順に一致する検索マッチリスト（各ノート内の出現箇所ごとに展開）
+  const { globalMatches, totalSearchMatches } = useMemo(() => {
+    if (!noteSearch)
+      return { globalMatches: [] as SearchMatch[], totalSearchMatches: 0 };
+
+    const q = noteSearch.toLowerCase();
+    const countOccurrences = (text: string | null): number => {
+      if (!text) return 0;
+      const lower = text.toLowerCase();
+      let count = 0;
+      let pos = lower.indexOf(q);
+      while (pos !== -1) {
+        count++;
+        pos = lower.indexOf(q, pos + q.length);
+      }
+      return count;
+    };
+
+    const activeFiltered = filteredNotes.filter((n) => !n.archived);
+    const filteredNoteSet = new Set(activeFiltered.map((n) => n.id));
+    const filteredNoteMap = new Map(activeFiltered.map((n) => [n.id, n]));
+    const orderedNotes: (Note | FileNote)[] = [...filteredFileNotes];
+    for (const item of topLevelOrder) {
+      if (item.type === 'note') {
+        if (filteredNoteSet.has(item.id)) {
+          const note = filteredNoteMap.get(item.id);
+          if (note) orderedNotes.push(note);
+        }
+      } else if (item.type === 'folder') {
+        const folderNotes = activeFiltered.filter(
+          (n) => n.folderId === item.id,
+        );
+        orderedNotes.push(...folderNotes);
+      }
+    }
+
+    const matches: SearchMatch[] = [];
+    for (const note of orderedNotes) {
+      const content = 'filePath' in note ? note.content : note.content;
+      const matchCount = countOccurrences(content);
+      for (let i = 0; i < matchCount; i++) {
+        matches.push({ note, matchIndexInNote: i });
+      }
+    }
+
+    return { globalMatches: matches, totalSearchMatches: matches.length };
+  }, [noteSearch, filteredNotes, filteredFileNotes, topLevelOrder]);
 
   const handleSearchChange = useCallback((value: string) => {
     setNoteSearch(value);
@@ -172,19 +255,26 @@ function App() {
   const handleSearchNavigate = useCallback(
     (direction: 'next' | 'prev') => {
       if (totalSearchMatches === 0) return;
-      const allMatched = [...filteredFileNotes, ...filteredNotes.filter((n) => !n.archived)];
       let newIndex = searchMatchIndex;
       if (direction === 'next') {
-        newIndex = searchMatchIndex >= totalSearchMatches ? 1 : searchMatchIndex + 1;
+        newIndex =
+          searchMatchIndex >= totalSearchMatches ? 1 : searchMatchIndex + 1;
       } else {
-        newIndex = searchMatchIndex <= 1 ? totalSearchMatches : searchMatchIndex - 1;
+        newIndex =
+          searchMatchIndex <= 1 ? totalSearchMatches : searchMatchIndex - 1;
       }
       setSearchMatchIndex(newIndex);
-      const target = allMatched[newIndex - 1];
-      if (target) handleSelecAnyNote(target);
+      const match = globalMatches[newIndex - 1];
+      if (match) handleSelecAnyNote(match.note);
     },
-    [totalSearchMatches, searchMatchIndex, filteredFileNotes, filteredNotes, handleSelecAnyNote],
+    [totalSearchMatches, searchMatchIndex, globalMatches, handleSelecAnyNote],
   );
+
+  const searchMatchIndexInNote = useMemo(() => {
+    if (totalSearchMatches === 0 || searchMatchIndex === 0) return 0;
+    const match = globalMatches[searchMatchIndex - 1];
+    return match ? match.matchIndexInNote : 0;
+  }, [globalMatches, searchMatchIndex, totalSearchMatches]);
 
   return (
     <ThemeProvider theme={editorSettings.isDarkMode ? darkTheme : lightTheme}>
@@ -196,11 +286,14 @@ function App() {
           position: 'relative',
           // ドロップ対象エリアとして設定
           '.wails-drop-target-active': {
-            backgroundColor: (theme) => (theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'),
+            backgroundColor: (theme) =>
+              theme.palette.mode === 'dark'
+                ? 'rgba(255, 255, 255, 0.05)'
+                : 'rgba(0, 0, 0, 0.05)',
           },
           '--wails-drop-target': 'drop',
         }}
-        component='main'
+        component="main"
       >
         {platform !== 'windows' && (
           <Box
@@ -208,7 +301,9 @@ function App() {
               height: 26,
               width: '100vw',
               '--wails-draggable': 'drag',
-              backgroundColor: editorSettings.isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+              backgroundColor: editorSettings.isDarkMode
+                ? 'rgba(255, 255, 255, 0.2)'
+                : 'rgba(0, 0, 0, 0.2)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -218,9 +313,9 @@ function App() {
             }}
           >
             <Typography
-              variant='body2'
-              color='text.secondary'
-              fontWeight='bold'
+              variant="body2"
+              color="text.secondary"
+              fontWeight="bold"
               sx={{ userSelect: 'none', pointerEvents: 'none' }}
             >
               Monaco Notepad
@@ -242,7 +337,7 @@ function App() {
         />
         <Divider />
         <Box
-          aria-label='Note List'
+          aria-label="Note List"
           sx={{
             position: 'absolute',
             top: STATUS_BAR_HEIGHT,
@@ -253,9 +348,10 @@ function App() {
             height: `calc(100% - ${STATUS_BAR_HEIGHT}px)`,
             display: 'flex',
             flexDirection: 'column',
-            '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
-              backgroundColor: 'text.secondary',
-            },
+            '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before':
+              {
+                backgroundColor: 'text.secondary',
+              },
           }}
         >
           <NoteSearchBox
@@ -284,7 +380,7 @@ function App() {
                       mb: 0,
                     }}
                   >
-                    <Typography variant='body2' color='text.secondary'>
+                    <Typography variant="body2" color="text.secondary">
                       Local files
                     </Typography>
                   </Box>
@@ -320,12 +416,12 @@ function App() {
                   mb: 0,
                 }}
               >
-                <Typography variant='body2' color='text.secondary'>
+                <Typography variant="body2" color="text.secondary">
                   Notes
                 </Typography>
-                <Tooltip title='New Folder' arrow placement='bottom'>
+                <Tooltip title="New Folder" arrow placement="bottom">
                   <IconButton
-                    size='small'
+                    size="small"
                     sx={{
                       position: 'absolute',
                       right: 4,
@@ -366,7 +462,10 @@ function App() {
           </Box>
           <Button
             fullWidth
-            disabled={notes.filter((note) => note.archived).length === 0 && folders.filter((f) => f.archived).length === 0}
+            disabled={
+              notes.filter((note) => note.archived).length === 0 &&
+              folders.filter((f) => f.archived).length === 0
+            }
             sx={{
               mt: 'auto',
               borderRadius: 0,
@@ -381,7 +480,10 @@ function App() {
             onClick={() => setShowArchived(true)}
             startIcon={<Inventory />}
           >
-            Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
+            Archives{' '}
+            {notes.filter((note) => note.archived).length
+              ? `(${notes.filter((note) => note.archived).length})`
+              : ''}
           </Button>
         </Box>
 
@@ -424,12 +526,21 @@ function App() {
             <Editor
               editorInstanceRef={editorInstanceRef}
               value={currentNote?.content || currentFileNote?.content || ''}
-              onChange={currentNote ? handleNoteContentChange : handleFileNoteContentChange}
-              language={currentNote?.language || currentFileNote?.language || 'plaintext'}
+              onChange={
+                currentNote
+                  ? handleNoteContentChange
+                  : handleFileNoteContentChange
+              }
+              language={
+                currentNote?.language ||
+                currentFileNote?.language ||
+                'plaintext'
+              }
               settings={editorSettings}
               platform={platform}
               currentNote={currentNote || currentFileNote}
               searchKeyword={noteSearch}
+              searchMatchIndexInNote={searchMatchIndexInNote}
               onNew={handleNewNote}
               onOpen={handleOpenFile}
               onSave={async () => {
@@ -448,7 +559,10 @@ function App() {
               onSelectPrevious={handleSelectPreviousAnyNote}
             />
           )}
-          <EditorStatusBar currentNote={currentFileNote || currentNote} editorInstanceRef={editorInstanceRef} />
+          <EditorStatusBar
+            currentNote={currentFileNote || currentNote}
+            editorInstanceRef={editorInstanceRef}
+          />
         </Box>
       </Box>
 

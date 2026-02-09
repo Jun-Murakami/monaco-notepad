@@ -18,6 +18,7 @@ interface EditorProps {
   platform: string;
   currentNote: Note | FileNote | null;
   searchKeyword?: string;
+  searchMatchIndexInNote?: number;
   onNew?: () => void;
   onOpen?: () => void;
   onSave?: () => void;
@@ -36,6 +37,7 @@ export const Editor: React.FC<EditorProps> = ({
   platform,
   currentNote,
   searchKeyword,
+  searchMatchIndexInNote = 0,
   onNew,
   onOpen,
   onSave,
@@ -46,17 +48,14 @@ export const Editor: React.FC<EditorProps> = ({
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // エディタの初期化
+  // エディタの初期化（テーマ・フォント等は設定変更useEffectが適用するためデフォルト値で生成）
   useEffect(() => {
     if (!editorRef.current) return;
-
-    const pair = getThemePair(settings.editorTheme);
-    const themeName = settings.isDarkMode ? pair.dark : pair.light;
 
     editorInstanceRef.current = getOrCreateEditor(editorRef.current, {
       value: '',
       language: 'plaintext',
-      theme: themeName,
+      theme: 'vs',
       minimap: {
         enabled: true,
       },
@@ -78,7 +77,7 @@ export const Editor: React.FC<EditorProps> = ({
     return () => {
       disposeEditor();
     };
-  }, [editorInstanceRef]); // 初期化は一度だけ（テーマ変更では再初期化しない）
+  }, [editorInstanceRef]);
 
   // イベントリスナーの設定
   useEffect(() => {
@@ -120,20 +119,32 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.setModel(model);
   }, [currentNote, editorInstanceRef]);
 
-  // 検索キーワードをエディタ内でハイライト・選択
+  const currentNoteId = currentNote?.id ?? null;
+
+  // 検索キーワードをエディタ内でハイライト・選択（指定されたマッチインデックスを使用）
   useEffect(() => {
+    if (!currentNoteId) return;
     const editor = editorInstanceRef.current;
     if (!editor) return;
 
     const model = editor.getModel();
     if (!model || !searchKeyword) return;
 
-    const matches = model.findMatches(searchKeyword, true, false, false, null, true);
+    const matches = model.findMatches(
+      searchKeyword,
+      true,
+      false,
+      false,
+      null,
+      true,
+    );
     if (matches.length > 0) {
-      editor.setSelection(matches[0].range);
-      editor.revealRangeInCenter(matches[0].range);
+      const idx =
+        searchMatchIndexInNote < matches.length ? searchMatchIndexInNote : 0;
+      editor.setSelection(matches[idx].range);
+      editor.revealRangeInCenter(matches[idx].range);
     }
-  }, [searchKeyword, currentNote, editorInstanceRef]);
+  }, [searchKeyword, searchMatchIndexInNote, currentNoteId, editorInstanceRef]);
 
   // 言語変更時の処理
   useEffect(() => {
