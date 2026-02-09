@@ -134,7 +134,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
           <FormControl fullWidth size="small">
             <InputLabel>Editor Theme</InputLabel>
             <Select
-              value={localSettings.editorTheme || 'default'}
+              value={localSettings.editorTheme}
               label="Editor Theme"
               onChange={(e) =>
                 handleChange({ editorTheme: e.target.value as string })
