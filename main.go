@@ -59,6 +59,7 @@ func main() {
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
 				TitlebarAppearsTransparent: true,
+				HideTitle:                  true,
 			},
 			OnFileOpen: func(filePath string) {
 				app.OpenFileFromExternal(filePath)

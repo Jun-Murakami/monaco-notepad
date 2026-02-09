@@ -70,7 +70,7 @@ describe('ArchivedNoteList', () => {
 
     // 日付が正しく表示されることを確認
     for (const note of mockNotes) {
-      const formattedDate = dayjs(note.modifiedTime).format('L HH:mm:ss');
+      const formattedDate = dayjs(note.modifiedTime).format('L HH:mm');
       const dateElements = screen.getAllByText(formattedDate);
       expect(dateElements.length).toBeGreaterThan(0);
     }

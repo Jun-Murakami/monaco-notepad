@@ -1,10 +1,15 @@
 import {
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
-  type DragStartEvent,
+  type DragOverEvent,
   DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
+  closestCenter,
+  pointerWithin,
+  useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
@@ -16,7 +21,6 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowBack,
   ChevronRight,
@@ -37,7 +41,8 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { Folder, Note, TopLevelItem } from '../types';
 import dayjs from '../utils/dayjs';
 import { ArchivedNoteContentDialog } from './ArchivedNoteContentDialog';
@@ -55,26 +60,60 @@ interface ArchivedNoteListProps {
   onUnarchiveFolder: (folderId: string) => void;
   onDeleteFolder: (folderId: string) => void;
   onUpdateArchivedTopLevelOrder: (order: TopLevelItem[]) => void;
+  onMoveNoteToFolder?: (noteID: string, folderID: string) => void;
   isDarkMode: boolean;
 }
 
-const SortableItem: React.FC<{
+const DroppableZone: React.FC<{
   id: string;
   children: React.ReactNode;
 }> = ({ id, children }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <Box
       ref={setNodeRef}
-      style={{ opacity: isDragging ? 0.3 : 1, transform: CSS.Transform.toString(transform), transition }}
+      sx={{
+        bgcolor: isOver ? 'action.hover' : 'transparent',
+        transition: 'background-color 0.2s',
+        minHeight: 4,
+      }}
+    >
+      {children}
+    </Box>
+  );
+};
+
+const SortableWrapper: React.FC<{
+  id: string;
+  children: React.ReactNode;
+  dropIndicator?: 'top' | 'bottom' | null;
+  indentedIndicator?: boolean;
+  insetIndicator?: boolean;
+}> = ({ id, children, dropIndicator, indentedIndicator, insetIndicator }) => {
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id });
+  const insetPx = insetIndicator ? 8 : 0;
+  const indentPx = indentedIndicator ? 12 : 0;
+  const leftPx = insetPx + indentPx;
+
+  return (
+    <Box
+      ref={setNodeRef}
+      style={{ opacity: isDragging ? 0.3 : 1 }}
       {...attributes}
       {...listeners}
       onPointerDown={(e) => {
         e.stopPropagation();
         (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
       }}
+      sx={{ position: 'relative' }}
     >
+      {dropIndicator === 'top' && (
+        <Box sx={{ position: 'absolute', top: 0, left: leftPx, right: insetPx, height: 2, bgcolor: 'primary.main', zIndex: 1 }} />
+      )}
       {children}
+      {dropIndicator === 'bottom' && (
+        <Box sx={{ position: 'absolute', bottom: 0, left: leftPx, right: insetPx, height: 2, bgcolor: 'primary.main', zIndex: 1 }} />
+      )}
     </Box>
   );
 };
@@ -101,11 +140,23 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   onUnarchiveFolder,
   onDeleteFolder,
   onUpdateArchivedTopLevelOrder,
+  onMoveNoteToFolder,
   isDarkMode,
 }) => {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const pointerXRef = useRef<number>(0);
+  const pointerYRef = useRef<number>(0);
+  const overRectRef = useRef<{ top: number; height: number } | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [boundaryIndented, setBoundaryIndented] = useState(false);
+  const lastBoundaryIndented = useRef(false);
+  const [insertAbove, setInsertAbove] = useState(false);
+  const lastInsertAbove = useRef(false);
+  const lastOverIdRef = useRef<string | null>(null);
+  const overIdTimestampRef = useRef(0);
 
   const archivedNotes = useMemo(() => notes.filter((n) => n.archived), [notes]);
   const archivedFolders = useMemo(() => folders.filter((f) => f.archived), [folders]);
@@ -133,65 +184,20 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const flatItems = useMemo(() => {
-    const items: string[] = [];
-    for (const item of archivedTopLevelOrder) {
-      const itemId = `${item.type}:${item.id}`;
-      items.push(itemId);
-      if (item.type === 'folder' && !collapsedFolders.has(item.id) && activeDragId !== itemId) {
-        const folderNotes = folderNoteMap.get(item.id) || [];
-        for (const note of folderNotes) {
-          items.push(`folder-note:${note.id}`);
-        }
-      }
-    }
-    return items;
-  }, [archivedTopLevelOrder, collapsedFolders, activeDragId, folderNoteMap]);
+  const toTopLevelId = useCallback((item: TopLevelItem) => `${item.type}:${item.id}`, []);
 
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    setActiveDragId(event.active.id as string);
+  const parseTopLevelId = useCallback((id: string): TopLevelItem | null => {
+    const idx = id.indexOf(':');
+    if (idx === -1) return null;
+    const type = id.slice(0, idx) as 'note' | 'folder';
+    return { type, id: id.slice(idx + 1) };
   }, []);
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      setActiveDragId(null);
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-
-      const activeId = active.id as string;
-      const overId = over.id as string;
-
-      const isFolderNoteActive = activeId.startsWith('folder-note:');
-      const isFolderNoteOver = overId.startsWith('folder-note:');
-
-      if (isFolderNoteActive && isFolderNoteOver) {
-        return;
-      }
-
-      const parseId = (id: string): TopLevelItem | null => {
-        if (id.startsWith('folder-note:')) return null;
-        const idx = id.indexOf(':');
-        if (idx === -1) return null;
-        return { type: id.slice(0, idx) as 'note' | 'folder', id: id.slice(idx + 1) };
-      };
-
-      const parsedActive = parseId(activeId);
-      const parsedOver = parseId(overId);
-      if (!parsedActive || !parsedOver) return;
-
-      const oldIndex = archivedTopLevelOrder.findIndex(
-        (item) => item.type === parsedActive.type && item.id === parsedActive.id,
-      );
-      const newIndex = archivedTopLevelOrder.findIndex(
-        (item) => item.type === parsedOver.type && item.id === parsedOver.id,
-      );
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      const newOrder = arrayMove(archivedTopLevelOrder, oldIndex, newIndex);
-      onUpdateArchivedTopLevelOrder(newOrder);
-    },
-    [archivedTopLevelOrder, onUpdateArchivedTopLevelOrder],
-  );
+  const extractNoteId = useCallback((id: string): string | null => {
+    if (id.startsWith('folder-note:')) return id.slice('folder-note:'.length);
+    if (id.startsWith('note:')) return id.slice('note:'.length);
+    return null;
+  }, []);
 
   const toggleFolder = useCallback((folderId: string) => {
     setCollapsedFolders((prev) => {
@@ -205,12 +211,473 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     });
   }, []);
 
+  const precedingFolderIds = useMemo(() => {
+    const map = new Map<string, string>();
+    for (let i = 1; i < archivedTopLevelOrder.length; i++) {
+      const prev = archivedTopLevelOrder[i - 1];
+      if (prev.type === 'folder' && !collapsedFolders.has(prev.id)) {
+        if ((folderNoteMap.get(prev.id) || []).length > 0) {
+          map.set(toTopLevelId(archivedTopLevelOrder[i]), prev.id);
+        }
+      }
+    }
+    return map;
+  }, [archivedTopLevelOrder, toTopLevelId, collapsedFolders, folderNoteMap]);
+
+  const expandedFolderWithNotesIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of archivedTopLevelOrder) {
+      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
+        if ((folderNoteMap.get(item.id) || []).length > 0) {
+          set.add(toTopLevelId(item));
+        }
+      }
+    }
+    return set;
+  }, [archivedTopLevelOrder, toTopLevelId, collapsedFolders, folderNoteMap]);
+
+  const lastFolderNoteIds = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of archivedTopLevelOrder) {
+      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
+        const fNotes = folderNoteMap.get(item.id) || [];
+        if (fNotes.length > 0) {
+          map.set(`folder-note:${fNotes[fNotes.length - 1].id}`, item.id);
+        }
+      }
+    }
+    return map;
+  }, [archivedTopLevelOrder, collapsedFolders, folderNoteMap]);
+
+  const flatItems = useMemo(() => {
+    const items: string[] = [];
+    for (const item of archivedTopLevelOrder) {
+      const itemId = toTopLevelId(item);
+      items.push(itemId);
+      if (item.type === 'folder' && !collapsedFolders.has(item.id) && activeDragId !== itemId) {
+        const fNotes = folderNoteMap.get(item.id) || [];
+        for (const note of fNotes) {
+          items.push(`folder-note:${note.id}`);
+        }
+      }
+    }
+    return items;
+  }, [archivedTopLevelOrder, toTopLevelId, collapsedFolders, activeDragId, folderNoteMap]);
+
+  const folderAwareCollision: CollisionDetection = useCallback((args) => {
+    const activeId = args.active.id as string;
+    const isDraggingFolder = activeId.startsWith('folder:');
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0 && !isDraggingFolder) {
+      const preferred = pointerCollisions.find((c) => {
+        const cId = c.id as string;
+        return cId.startsWith('folder-drop:') || cId.startsWith('folder-note:') || cId === 'unfiled-bottom';
+      });
+      if (preferred) return [preferred];
+    }
+    const results = closestCenter(args);
+    if (isDraggingFolder) {
+      const filtered = results.filter((c) => !(c.id as string).startsWith('folder-drop:'));
+      if (filtered.length > 0) return filtered;
+    }
+    return results;
+  }, []);
+
+  const isBoundaryTarget = useCallback(
+    (id: string) => {
+      if (id.startsWith('folder-drop:')) return true;
+      if (lastFolderNoteIds.has(id)) return true;
+      return precedingFolderIds.has(id) || expandedFolderWithNotesIds.has(id);
+    },
+    [precedingFolderIds, expandedFolderWithNotesIds, lastFolderNoteIds],
+  );
+
+  useEffect(() => {
+    if (!activeDragId) return;
+    const style = document.createElement('style');
+    style.textContent = '* { cursor: grabbing !important; }';
+    document.head.appendChild(style);
+    return () => { style.remove(); };
+  }, [activeDragId]);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  }, []);
+
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const newOverId = event.over ? (event.over.id as string) : null;
+      const now = Date.now();
+      const prev = lastOverIdRef.current;
+      if (newOverId !== prev) {
+        if (now - overIdTimestampRef.current < 80 && prev !== null && newOverId !== null) {
+          return;
+        }
+        lastOverIdRef.current = newOverId;
+        overIdTimestampRef.current = now;
+      }
+      setOverId(newOverId);
+      if (newOverId && isBoundaryTarget(newOverId)) {
+        const listEl = listRef.current;
+        if (listEl) {
+          const rect = listEl.getBoundingClientRect();
+          const relativeX = pointerXRef.current - rect.left;
+          const indented = relativeX > 120;
+          lastBoundaryIndented.current = indented;
+          setBoundaryIndented(indented);
+        }
+      }
+      if (event.over) {
+        const overRect = event.over.rect;
+        overRectRef.current = { top: overRect.top, height: overRect.height };
+        const centerY = overRect.top + overRect.height / 2;
+        const above = pointerYRef.current < centerY;
+        lastInsertAbove.current = above;
+        setInsertAbove(above);
+      }
+    },
+    [isBoundaryTarget],
+  );
+
+  useEffect(() => {
+    if (!activeDragId) return;
+    const handlePointerMove = (e: PointerEvent) => {
+      pointerXRef.current = e.clientX;
+      pointerYRef.current = e.clientY;
+      if (overId && isBoundaryTarget(overId)) {
+        const listEl = listRef.current;
+        if (listEl) {
+          const rect = listEl.getBoundingClientRect();
+          const relativeX = e.clientX - rect.left;
+          const indented = relativeX > 120;
+          if (indented !== lastBoundaryIndented.current) {
+            lastBoundaryIndented.current = indented;
+            setBoundaryIndented(indented);
+          }
+        }
+      }
+      if (overId && overRectRef.current) {
+        const centerY = overRectRef.current.top + overRectRef.current.height / 2;
+        const above = e.clientY < centerY;
+        if (above !== lastInsertAbove.current) {
+          lastInsertAbove.current = above;
+          setInsertAbove(above);
+        }
+      }
+    };
+    document.addEventListener('pointermove', handlePointerMove);
+    return () => document.removeEventListener('pointermove', handlePointerMove);
+  }, [activeDragId, overId, isBoundaryTarget]);
+
+  const getTopLevelIndex = useCallback(
+    (id: string): number => {
+      const idx = archivedTopLevelOrder.findIndex((item) => toTopLevelId(item) === id);
+      if (idx !== -1) return idx;
+      if (id.startsWith('folder-note:')) {
+        const noteId = id.slice('folder-note:'.length);
+        const note = noteMap.get(noteId);
+        if (note?.folderId) {
+          return archivedTopLevelOrder.findIndex((item) => item.type === 'folder' && item.id === note.folderId);
+        }
+      }
+      return -1;
+    },
+    [archivedTopLevelOrder, toTopLevelId, noteMap],
+  );
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      setActiveDragId(null);
+      setOverId(null);
+      overRectRef.current = null;
+      lastOverIdRef.current = null;
+      overIdTimestampRef.current = 0;
+      const { active, over, delta } = event;
+
+      if (Math.abs(delta.x) < 5 && Math.abs(delta.y) < 5) {
+        const parsed = parseTopLevelId(active.id as string);
+        if (parsed?.type === 'folder') {
+          toggleFolder(parsed.id);
+          return;
+        }
+      }
+
+      if (!over) return;
+
+      const activeId = active.id as string;
+      const dropId = over.id as string;
+      const isFolderNoteActive = activeId.startsWith('folder-note:');
+
+      if (dropId.startsWith('folder-drop:')) {
+        const targetFolderId = dropId.slice('folder-drop:'.length);
+        const noteId = extractNoteId(activeId);
+        if (noteId) {
+          const draggedNote = noteMap.get(noteId);
+          if (!draggedNote) return;
+
+          if (!lastBoundaryIndented.current) {
+            if (draggedNote.folderId) {
+              onMoveNoteToFolder?.(noteId, '');
+            }
+            const folderSortId = `folder:${targetFolderId}`;
+            const newOrder = archivedTopLevelOrder.filter((item) => !(item.type === 'note' && item.id === noteId));
+            const folderIdx = newOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
+            newOrder.splice(folderIdx, 0, { type: 'note', id: noteId });
+            onUpdateArchivedTopLevelOrder(newOrder);
+            return;
+          }
+
+          if ((draggedNote.folderId || '') !== targetFolderId) {
+            onMoveNoteToFolder?.(noteId, targetFolderId);
+            try {
+              await UpdateNoteOrder(noteId, 0);
+            } catch (error) {
+              console.error('Failed to update note order:', error);
+            }
+          }
+          return;
+        }
+        if (parseTopLevelId(activeId)?.type === 'folder') return;
+        return;
+      }
+
+      if (dropId === 'unfiled-bottom') {
+        const noteId = extractNoteId(activeId);
+        if (noteId) {
+          const draggedNote = noteMap.get(noteId);
+          if (draggedNote?.folderId) {
+            onMoveNoteToFolder?.(noteId, '');
+          }
+        }
+        return;
+      }
+
+      if (isFolderNoteActive && dropId.startsWith('folder-note:')) {
+        const activeNoteId = activeId.slice('folder-note:'.length);
+        const overNoteId = dropId.slice('folder-note:'.length);
+        if (activeNoteId === overNoteId) return;
+
+        const activeNote = noteMap.get(activeNoteId);
+        const overNote = noteMap.get(overNoteId);
+        if (!activeNote || !overNote) return;
+
+        if (activeNote.folderId && activeNote.folderId === overNote.folderId) {
+          const boundaryFolderIdSame = lastFolderNoteIds.get(dropId);
+          if (boundaryFolderIdSame && !lastBoundaryIndented.current) {
+            onMoveNoteToFolder?.(activeNoteId, '');
+            const folderSortId = `folder:${boundaryFolderIdSame}`;
+            const newOrder = [...archivedTopLevelOrder];
+            const folderIdx = newOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
+            newOrder.splice(folderIdx + 1, 0, { type: 'note', id: activeNoteId });
+            onUpdateArchivedTopLevelOrder(newOrder);
+            return;
+          }
+
+          const fNotes = folderNoteMap.get(activeNote.folderId) || [];
+          const oldIndex = fNotes.findIndex((n) => n.id === activeNoteId);
+          const overIndex = fNotes.findIndex((n) => n.id === overNoteId);
+          const newIndex = lastInsertAbove.current && overIndex > oldIndex ? overIndex - 1
+            : !lastInsertAbove.current && overIndex < oldIndex ? overIndex + 1
+            : overIndex;
+
+          try {
+            await UpdateNoteOrder(activeNoteId, newIndex);
+          } catch (error) {
+            console.error('Failed to update note order:', error);
+          }
+        } else if (overNote.folderId && activeNote.folderId !== overNote.folderId) {
+          const targetFolderId = overNote.folderId;
+          const fNotes = folderNoteMap.get(targetFolderId) || [];
+          const overPosInFolder = fNotes.findIndex((n) => n.id === overNoteId);
+          const insertPos = lastInsertAbove.current ? overPosInFolder : overPosInFolder + 1;
+
+          onMoveNoteToFolder?.(activeNoteId, targetFolderId);
+          try {
+            await UpdateNoteOrder(activeNoteId, insertPos);
+          } catch (error) {
+            console.error('Failed to update note order:', error);
+          }
+        }
+        return;
+      }
+
+      if (dropId.startsWith('folder-note:')) {
+        const noteId = extractNoteId(activeId);
+        if (!noteId) return;
+        const overNoteId = dropId.slice('folder-note:'.length);
+        const overNote = noteMap.get(overNoteId);
+        if (!overNote?.folderId) return;
+        const draggedNote = noteMap.get(noteId);
+        if (!draggedNote || draggedNote.folderId === overNote.folderId) return;
+
+        const boundaryFolderId = lastFolderNoteIds.get(dropId);
+        if (boundaryFolderId) {
+          const folderSortId = `folder:${boundaryFolderId}`;
+          const aIdx = getTopLevelIndex(activeId);
+          const fIdx = archivedTopLevelOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
+          if (aIdx !== -1 && fIdx !== -1) {
+            if (lastBoundaryIndented.current) {
+              if ((draggedNote.folderId || '') !== boundaryFolderId) {
+                const bFolderNotes = folderNoteMap.get(boundaryFolderId) || [];
+                onMoveNoteToFolder?.(noteId, boundaryFolderId);
+                try {
+                  await UpdateNoteOrder(noteId, bFolderNotes.length);
+                } catch (error) {
+                  console.error('Failed to update note order:', error);
+                }
+              }
+            } else {
+              if (draggedNote.folderId) {
+                onMoveNoteToFolder?.(noteId, '');
+              }
+              const newOrder = archivedTopLevelOrder.filter((item) => toTopLevelId(item) !== activeId);
+              const newFolderIdx = newOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
+              newOrder.splice(newFolderIdx + 1, 0, { type: 'note', id: noteId });
+              onUpdateArchivedTopLevelOrder(newOrder);
+            }
+            return;
+          }
+        }
+
+        const targetFolderId = overNote.folderId;
+        const fNotes = folderNoteMap.get(targetFolderId) || [];
+        const overPosInFolder = fNotes.findIndex((n) => n.id === overNoteId);
+        const insertPos = lastInsertAbove.current ? overPosInFolder : overPosInFolder + 1;
+
+        onMoveNoteToFolder?.(noteId, targetFolderId);
+        try {
+          await UpdateNoteOrder(noteId, insertPos);
+        } catch (error) {
+          console.error('Failed to update note order:', error);
+        }
+        return;
+      }
+
+      if (lastBoundaryIndented.current) {
+        let targetFolderIdForBoundary: string | undefined;
+
+        const fromBelow = precedingFolderIds.get(dropId);
+        if (fromBelow) {
+          targetFolderIdForBoundary = fromBelow;
+        }
+
+        if (!targetFolderIdForBoundary && expandedFolderWithNotesIds.has(dropId)) {
+          const activeIdx = getTopLevelIndex(activeId);
+          const overIdx = archivedTopLevelOrder.findIndex((item) => toTopLevelId(item) === dropId);
+          if (activeIdx !== -1 && overIdx !== -1 && activeIdx < overIdx) {
+            targetFolderIdForBoundary = dropId.slice('folder:'.length);
+          }
+        }
+
+        if (targetFolderIdForBoundary) {
+          const noteId = extractNoteId(activeId);
+          if (noteId) {
+            const draggedNote = noteMap.get(noteId);
+            if (draggedNote && (draggedNote.folderId || '') !== targetFolderIdForBoundary) {
+              const bFolderNotes = folderNoteMap.get(targetFolderIdForBoundary) || [];
+              onMoveNoteToFolder?.(noteId, targetFolderIdForBoundary);
+              try {
+                await UpdateNoteOrder(noteId, bFolderNotes.length);
+              } catch (error) {
+                console.error('Failed to update note order:', error);
+              }
+            }
+            return;
+          }
+        }
+      }
+
+      if (isFolderNoteActive) {
+        const noteId = extractNoteId(activeId);
+        if (!noteId) return;
+        const draggedNote = noteMap.get(noteId);
+        if (!draggedNote?.folderId) return;
+
+        const parsedOver = parseTopLevelId(dropId);
+        if (!parsedOver) return;
+
+        const overIndex = archivedTopLevelOrder.findIndex((item) => toTopLevelId(item) === dropId);
+        if (overIndex === -1) return;
+
+        onMoveNoteToFolder?.(noteId, '');
+        const newItem: TopLevelItem = { type: 'note', id: noteId };
+        const newOrder = [...archivedTopLevelOrder];
+        const insertIdx = lastInsertAbove.current ? overIndex : overIndex + 1;
+        newOrder.splice(insertIdx, 0, newItem);
+        onUpdateArchivedTopLevelOrder(newOrder);
+        return;
+      }
+
+      if (activeId === dropId) return;
+
+      const parsedActive = parseTopLevelId(activeId);
+      const parsedOver = parseTopLevelId(dropId);
+      if (!parsedActive || !parsedOver) return;
+
+      const oldIndex = archivedTopLevelOrder.findIndex((item) => toTopLevelId(item) === activeId);
+      const overIndex = archivedTopLevelOrder.findIndex((item) => toTopLevelId(item) === dropId);
+      if (oldIndex === -1 || overIndex === -1) return;
+      const newIndex = lastInsertAbove.current && overIndex > oldIndex ? overIndex - 1
+        : !lastInsertAbove.current && overIndex < oldIndex ? overIndex + 1
+        : overIndex;
+
+      const newOrder = arrayMove(archivedTopLevelOrder, oldIndex, newIndex);
+      onUpdateArchivedTopLevelOrder(newOrder);
+    },
+    [
+      archivedTopLevelOrder,
+      noteMap,
+      folderNoteMap,
+      onMoveNoteToFolder,
+      onUpdateArchivedTopLevelOrder,
+      parseTopLevelId,
+      toTopLevelId,
+      extractNoteId,
+      getTopLevelIndex,
+      precedingFolderIds,
+      expandedFolderWithNotesIds,
+      lastFolderNoteIds,
+      toggleFolder,
+    ],
+  );
+
+  const isLastFolderNoteBoundary = useCallback(
+    (targetId: string): boolean => {
+      if (!activeDragId || activeDragId === targetId) return false;
+      const folderId = lastFolderNoteIds.get(targetId);
+      if (!folderId) return false;
+      const folderSortId = `folder:${folderId}`;
+      return expandedFolderWithNotesIds.has(folderSortId);
+    },
+    [activeDragId, expandedFolderWithNotesIds, lastFolderNoteIds],
+  );
+
+  const getDropIndicator = useCallback(
+    (itemId: string): 'top' | 'bottom' | null => {
+      if (!activeDragId || !overId || activeDragId === itemId) return null;
+      if (overId.startsWith('folder-drop:')) {
+        if (!boundaryIndented && extractNoteId(activeDragId)) {
+          const folderId = overId.slice('folder-drop:'.length);
+          if (itemId === `folder:${folderId}`) return 'top';
+        }
+        return null;
+      }
+      if (lastFolderNoteIds.has(overId) && isLastFolderNoteBoundary(overId)) {
+        if (itemId === overId) return 'bottom';
+        return null;
+      }
+      if (overId !== itemId) return null;
+      return insertAbove ? 'top' : 'bottom';
+    },
+    [activeDragId, overId, isLastFolderNoteBoundary, lastFolderNoteIds, boundaryIndented, extractNoteId, insertAbove],
+  );
+
   const getAllNotes = useCallback((): Note[] => {
     const allNotes: Note[] = [];
     for (const item of archivedTopLevelOrder) {
       if (item.type === 'folder') {
-        const folderNotes = folderNoteMap.get(item.id) || [];
-        allNotes.push(...folderNotes);
+        const fNotes = folderNoteMap.get(item.id) || [];
+        allNotes.push(...fNotes);
       } else {
         const note = noteMap.get(item.id);
         if (note) allNotes.push(note);
@@ -301,6 +768,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               onClick={() => onUnarchive(note.id)}
               color='primary'
               size='small'
+              onPointerDown={(e) => e.stopPropagation()}
               sx={{ ...actionButtonSx, opacity: 0, transition: 'opacity 0.2s', '&:hover': { backgroundColor: 'primary.main', color: 'primary.contrastText' } }}
             >
               <Unarchive />
@@ -312,6 +780,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               onClick={() => onDelete(note.id)}
               color='error'
               size='small'
+              onPointerDown={(e) => e.stopPropagation()}
               sx={{ ...actionButtonSx, opacity: 0, transition: 'opacity 0.2s', '&:hover': { backgroundColor: 'error.main', color: 'error.contrastText' } }}
             >
               <DeleteForever />
@@ -324,7 +793,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
 
   const renderFolderHeader = (folder: Folder) => {
     const isCollapsed = collapsedFolders.has(folder.id);
-    const folderNotes = folderNoteMap.get(folder.id) || [];
+    const fNotes = folderNoteMap.get(folder.id) || [];
     return (
       <Box
         onClick={() => toggleFolder(folder.id)}
@@ -334,13 +803,12 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           alignItems: 'center',
           px: 1.5,
           backgroundColor: 'action.disabledBackground',
+          borderRadius: isCollapsed ? '8px 8px 8px 8px' : '8px 8px 0 0',
           cursor: 'pointer',
-          borderBottom: 1,
-          borderColor: 'divider',
           '&:hover .archive-action': { opacity: 1 },
         }}
       >
-        <IconButton size='small' onClick={(e) => { e.stopPropagation(); toggleFolder(folder.id); }} sx={{ p: 0.25, mr: 0.5 }}>
+        <IconButton size='small' onClick={(e) => { e.stopPropagation(); toggleFolder(folder.id); }} onPointerDown={(e) => e.stopPropagation()} sx={{ p: 0.25, mr: 0.5 }}>
           {isCollapsed ? (
             <ChevronRight sx={{ width: 16, height: 16, color: 'text.secondary' }} />
           ) : (
@@ -356,7 +824,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           {folder.name}
         </Typography>
         <Typography variant='caption' color='text.disabled' sx={{ mx: 1, fontSize: '0.75rem' }}>
-          {folderNotes.length}
+          {fNotes.length}
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
           <Tooltip title='Restore folder' arrow>
@@ -364,6 +832,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               className='archive-action'
               size='small'
               onClick={() => onUnarchiveFolder(folder.id)}
+              onPointerDown={(e) => e.stopPropagation()}
               sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25, '&:hover': { backgroundColor: 'primary.main', color: 'primary.contrastText' } }}
             >
               <Unarchive sx={{ width: 16, height: 16 }} />
@@ -374,6 +843,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               className='archive-action'
               size='small'
               onClick={() => onDeleteFolder(folder.id)}
+              onPointerDown={(e) => e.stopPropagation()}
               sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25, '&:hover': { backgroundColor: 'error.main', color: 'error.contrastText' } }}
             >
               <DeleteForever sx={{ width: 16, height: 16 }} />
@@ -429,99 +899,130 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
       <Divider sx={{ width: '100%' }} />
       <SimpleBar style={{ maxHeight: '100%', width: '100%', overflowX: 'hidden' }}>
         <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-          <List sx={{ width: '100%', maxWidth: 640, overflow: 'auto', mb: 8, py: 0 }}>
-          <DndContext
-            sensors={sensors}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            modifiers={[restrictToVerticalAxis]}
-          >
-            <SortableContext items={flatItems} strategy={verticalListSortingStrategy}>
-              {flatItems.map((id) => {
-                if (id.startsWith('folder-note:')) {
-                  const noteId = id.slice('folder-note:'.length);
-                  const note = noteMap.get(noteId);
-                  if (!note) return null;
-                  return (
-                    <SortableItem key={id} id={id}>
-                      <Box
-                        sx={(theme) => ({
-                          borderLeft: `${theme.spacing(1.5)} solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-                          backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
-                        })}
-                      >
-                        {renderNoteItem(note, true)}
-                      </Box>
-                    </SortableItem>
-                  );
-                }
+          <List ref={listRef} sx={{ width: '100%', maxWidth: 640, overflow: 'auto', mb: 8, py: 0 }}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={folderAwareCollision}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              modifiers={[restrictToVerticalAxis]}
+            >
+              <SortableContext items={flatItems} strategy={verticalListSortingStrategy}>
+                {flatItems.map((id) => {
+                  const indicator = getDropIndicator(id);
+                  const isAtBoundary =
+                    boundaryIndented &&
+                    ((indicator === 'top' && precedingFolderIds.has(id)) ||
+                      (indicator === 'bottom' && lastFolderNoteIds.has(id)));
 
-                const idx = id.indexOf(':');
-                if (idx === -1) return null;
-                const type = id.slice(0, idx);
-                const itemId = id.slice(idx + 1);
+                  if (id.startsWith('folder-note:')) {
+                    const noteId = id.slice('folder-note:'.length);
+                    const note = noteMap.get(noteId);
+                    if (!note) return null;
+                    const isLastBoundary = indicator === 'bottom' && lastFolderNoteIds.has(id);
+                    return (
+                      <SortableWrapper key={id} id={id} dropIndicator={indicator} indentedIndicator={isLastBoundary ? boundaryIndented : true} insetIndicator>
+                        <Box
+                          sx={(theme) => ({
+                            mx: 1,
+                            borderLeft: `${theme.spacing(1.5)} solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+                            backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+                          })}
+                        >
+                          {renderNoteItem(note, true)}
+                        </Box>
+                      </SortableWrapper>
+                    );
+                  }
 
-                if (type === 'note') {
-                  const note = noteMap.get(itemId);
-                  if (!note) return null;
-                  return (
-                    <SortableItem key={id} id={id}>
-                      {renderNoteItem(note, false)}
-                    </SortableItem>
-                  );
-                }
+                  const parsed = parseTopLevelId(id);
 
-                if (type === 'folder') {
-                  const folder = folderMap.get(itemId);
-                  if (!folder) return null;
-                  return (
-                    <SortableItem key={id} id={id}>
-                      {renderFolderHeader(folder)}
-                    </SortableItem>
-                  );
-                }
+                  if (parsed?.type === 'note') {
+                    const note = noteMap.get(parsed.id);
+                    if (!note) return null;
+                    return (
+                      <SortableWrapper key={id} id={id} dropIndicator={indicator} indentedIndicator={isAtBoundary} insetIndicator>
+                        <Box sx={{ mx: 1 }}>
+                          {renderNoteItem(note, false)}
+                        </Box>
+                      </SortableWrapper>
+                    );
+                  }
 
-                return null;
-              })}
-            </SortableContext>
+                  if (parsed?.type === 'folder') {
+                    const folder = folderMap.get(parsed.id);
+                    if (!folder) return null;
+                    return (
+                      <SortableWrapper key={id} id={id} dropIndicator={indicator} indentedIndicator={isAtBoundary} insetIndicator>
+                        <Box sx={{ mx: 1 }}>
+                          <DroppableZone id={`folder-drop:${folder.id}`}>
+                            {renderFolderHeader(folder)}
+                          </DroppableZone>
+                          {overId === `folder-drop:${folder.id}` && activeDragId && extractNoteId(activeDragId) && boundaryIndented && (
+                            <Box sx={(theme) => ({ height: 2, bgcolor: 'primary.main', ml: theme.spacing(1.5) })} />
+                          )}
+                        </Box>
+                      </SortableWrapper>
+                    );
+                  }
 
-            <DragOverlay dropAnimation={null}>
-              {activeDragId
-                ? (() => {
-                    const idx = activeDragId.indexOf(':');
-                    if (idx === -1) return null;
-                    const type = activeDragId.slice(0, idx);
-                    const itemId = activeDragId.slice(idx + 1);
-                    if (type === 'note' || type === 'folder-note') {
-                      const note = noteMap.get(itemId);
-                      if (note) {
-                        const titleInfo = getNoteTitle(note);
-                        return (
-                          <Box sx={{ backgroundColor: 'background.paper', boxShadow: 3, px: 2, py: 1 }}>
-                            <Typography noWrap variant='body2' sx={{ fontStyle: titleInfo.isFallback ? 'italic' : 'normal', opacity: titleInfo.isFallback ? 0.6 : 1 }}>
-                              {titleInfo.text}
-                            </Typography>
-                          </Box>
-                        );
+                  return null;
+                })}
+              </SortableContext>
+
+              <DroppableZone id='unfiled-bottom'>
+                <Box sx={{ minHeight: 8 }} />
+              </DroppableZone>
+
+              <DragOverlay dropAnimation={null}>
+                {activeDragId
+                  ? (() => {
+                      const fnId = activeDragId.startsWith('folder-note:') ? activeDragId.slice('folder-note:'.length) : null;
+                      if (fnId) {
+                        const note = noteMap.get(fnId);
+                        if (note) {
+                          const titleInfo = getNoteTitle(note);
+                          return (
+                            <Box sx={{ backgroundColor: 'background.paper', boxShadow: 3, px: 2, py: 1, opacity: 0.7 }}>
+                              <Typography noWrap variant='body2' sx={{ fontStyle: titleInfo.isFallback ? 'italic' : 'normal', opacity: titleInfo.isFallback ? 0.6 : 1 }}>
+                                {titleInfo.text}
+                              </Typography>
+                            </Box>
+                          );
+                        }
                       }
-                    }
-                    if (type === 'folder') {
-                      const folder = folderMap.get(itemId);
-                      if (folder) {
-                        return (
-                          <Box sx={{ backgroundColor: 'action.disabledBackground', boxShadow: 3, px: 2, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <FolderIcon sx={{ width: 18, height: 18, color: 'text.secondary' }} />
-                            <Typography variant='body2' color='text.secondary'>{folder.name}</Typography>
-                          </Box>
-                        );
+                      const parsed = parseTopLevelId(activeDragId);
+                      if (parsed?.type === 'note') {
+                        const note = noteMap.get(parsed.id);
+                        if (note) {
+                          const titleInfo = getNoteTitle(note);
+                          return (
+                            <Box sx={{ backgroundColor: 'background.paper', boxShadow: 3, px: 2, py: 1, opacity: 0.7 }}>
+                              <Typography noWrap variant='body2' sx={{ fontStyle: titleInfo.isFallback ? 'italic' : 'normal', opacity: titleInfo.isFallback ? 0.6 : 1 }}>
+                                {titleInfo.text}
+                              </Typography>
+                            </Box>
+                          );
+                        }
                       }
-                    }
-                    return null;
-                  })()
-                 : null}
-            </DragOverlay>
-          </DndContext>
-        </List>
+                      if (parsed?.type === 'folder') {
+                        const folder = folderMap.get(parsed.id);
+                        if (folder) {
+                          return (
+                            <Box sx={{ backgroundColor: 'action.disabledBackground', boxShadow: 3, px: 2, py: 0.5, opacity: 0.7, display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <FolderIcon sx={{ width: 18, height: 18, color: 'text.secondary' }} />
+                              <Typography variant='body2' color='text.secondary'>{folder.name}</Typography>
+                            </Box>
+                          );
+                        }
+                      }
+                      return null;
+                    })()
+                  : null}
+              </DragOverlay>
+            </DndContext>
+          </List>
         </Box>
       </SimpleBar>
 

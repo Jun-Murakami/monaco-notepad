@@ -34,7 +34,7 @@ import {
   Save,
   SimCardDownload,
 } from '@mui/icons-material';
-import { Box, IconButton, InputBase, List, ListItemButton, Tooltip, Typography } from '@mui/material';
+import { Box, IconButton, InputBase, List, ListItemButton, Tooltip, Typography, useTheme } from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
@@ -96,6 +96,7 @@ const NoteItem: React.FC<NoteItemProps> = ({
   isFileModified,
   platform,
 }) => {
+  const theme = useTheme();
   const cmdKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
   const noteTitle = getNoteTitle(note);
 
@@ -123,7 +124,7 @@ const NoteItem: React.FC<NoteItemProps> = ({
           alignItems: 'flex-start',
           pt: 0.5,
           pb: 0.25,
-          px: 2,
+          px: 1.5,
         }}
       >
         <Typography
@@ -151,7 +152,7 @@ const NoteItem: React.FC<NoteItemProps> = ({
         <Typography
           variant='caption'
           sx={{
-            color: 'text.disabled',
+            color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.20)' : 'rgba(0, 0, 0, 0.20)',
             width: '100%',
             textAlign: 'right',
           }}
@@ -298,18 +299,21 @@ const SortableWrapper: React.FC<{
   children: React.ReactNode;
   dropIndicator?: 'top' | 'bottom' | null;
   indentedIndicator?: boolean;
+  insetIndicator?: boolean;
   staticMode?: boolean;
-}> = ({ id, children, dropIndicator, indentedIndicator, staticMode }) => {
+}> = ({ id, children, dropIndicator, indentedIndicator, insetIndicator, staticMode }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
-  const style = staticMode
-    ? { opacity: isDragging ? 0.3 : 1 }
-    : { transform: CSS.Transform.toString(transform), transition };
+  const style = staticMode ? { opacity: isDragging ? 0.3 : 1 } : { transform: CSS.Transform.toString(transform), transition };
 
   const handlePointerDown: React.PointerEventHandler = (e) => {
     e.stopPropagation();
     (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
   };
+
+  const insetPx = insetIndicator ? 8 : 0;
+  const indentPx = indentedIndicator ? 12 : 0;
+  const leftPx = insetPx + indentPx;
 
   return (
     <Box
@@ -321,11 +325,13 @@ const SortableWrapper: React.FC<{
       sx={{ position: 'relative' }}
     >
       {dropIndicator === 'top' && (
-        <Box sx={(theme) => ({ position: 'absolute', top: 0, left: indentedIndicator ? theme.spacing(1.5) : 0, right: 0, height: 2, bgcolor: 'primary.main', zIndex: 1 })} />
+        <Box sx={{ position: 'absolute', top: 0, left: leftPx, right: insetPx, height: 2, bgcolor: 'primary.main', zIndex: 1 }} />
       )}
       {children}
       {dropIndicator === 'bottom' && (
-        <Box sx={(theme) => ({ position: 'absolute', bottom: 0, left: indentedIndicator ? theme.spacing(1.5) : 0, right: 0, height: 2, bgcolor: 'primary.main', zIndex: 1 })} />
+        <Box
+          sx={{ position: 'absolute', bottom: 0, left: leftPx, right: insetPx, height: 2, bgcolor: 'primary.main', zIndex: 1 }}
+        />
       )}
     </Box>
   );
@@ -393,11 +399,20 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
         alignItems: 'center',
         px: 0.5,
         backgroundColor: 'action.disabledBackground',
+        borderRadius: isCollapsed ? '4px 4px 4px 4px' : '4px 4px 0 0',
         cursor: 'pointer',
         '&:hover .folder-action': { opacity: 1 },
       }}
     >
-            <IconButton size='small' onClick={(e) => { e.stopPropagation(); onToggle(); }} onPointerDown={(e) => e.stopPropagation()} sx={{ p: 0.25 }}>
+      <IconButton
+        size='small'
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        sx={{ p: 0.25 }}
+      >
         {isCollapsed ? (
           <ChevronRight sx={{ width: 16, height: 16, color: 'text.secondary' }} />
         ) : (
@@ -449,7 +464,10 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
             <IconButton
               className='folder-action'
               size='small'
-              onClick={(e) => { e.stopPropagation(); handleStartEdit(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleStartEdit();
+              }}
               onPointerDown={(e) => e.stopPropagation()}
               sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
             >
@@ -461,7 +479,10 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
               <IconButton
                 className='folder-action'
                 size='small'
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
                 onPointerDown={(e) => e.stopPropagation()}
                 sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
               >
@@ -473,7 +494,10 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
               <IconButton
                 className='folder-action'
                 size='small'
-                onClick={(e) => { e.stopPropagation(); onArchive(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onArchive();
+                }}
                 onPointerDown={(e) => e.stopPropagation()}
                 sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
               >
@@ -524,15 +548,22 @@ export const NoteList: React.FC<NoteListProps> = ({
   );
 
   const folderAwareCollision: CollisionDetection = useCallback((args) => {
+    const activeId = args.active.id as string;
+    const isDraggingFolder = activeId.startsWith('folder:');
     const pointerCollisions = pointerWithin(args);
-    if (pointerCollisions.length > 0) {
+    if (pointerCollisions.length > 0 && !isDraggingFolder) {
       const preferred = pointerCollisions.find((c) => {
         const id = c.id as string;
         return id.startsWith('folder-drop:') || id.startsWith('folder-note:') || id === 'unfiled-bottom';
       });
       if (preferred) return [preferred];
     }
-    return closestCenter(args);
+    const results = closestCenter(args);
+    if (isDraggingFolder) {
+      const filtered = results.filter((c) => !(c.id as string).startsWith('folder-drop:'));
+      if (filtered.length > 0) return filtered;
+    }
+    return results;
   }, []);
 
   const getNoteTitle = (note: Note | FileNote): { text: string; isFallback: boolean } => {
@@ -672,7 +703,9 @@ export const NoteList: React.FC<NoteListProps> = ({
     const style = document.createElement('style');
     style.textContent = '* { cursor: grabbing !important; }';
     document.head.appendChild(style);
-    return () => { style.remove(); };
+    return () => {
+      style.remove();
+    };
   }, [activeDragId]);
 
   const handleDragStartWithFolders = useCallback((event: DragStartEvent) => {
@@ -894,9 +927,12 @@ export const NoteList: React.FC<NoteListProps> = ({
           const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === activeNote.folderId);
           const oldIndex = folderNotes.findIndex((n) => n.id === activeNoteId);
           const overIndex = folderNotes.findIndex((n) => n.id === overNoteId);
-          const newIndex = lastInsertAbove.current && overIndex > oldIndex ? overIndex - 1
-            : !lastInsertAbove.current && overIndex < oldIndex ? overIndex + 1
-            : overIndex;
+          const newIndex =
+            lastInsertAbove.current && overIndex > oldIndex
+              ? overIndex - 1
+              : !lastInsertAbove.current && overIndex < oldIndex
+                ? overIndex + 1
+                : overIndex;
 
           const archivedNotes = (notes as Note[]).filter((note) => note.archived);
           const otherActiveNotes = (activeNotes as Note[]).filter((n) => n.folderId !== activeNote.folderId);
@@ -906,6 +942,27 @@ export const NoteList: React.FC<NoteListProps> = ({
 
           try {
             await UpdateNoteOrder(activeNoteId, newIndex);
+          } catch (error) {
+            console.error('Failed to update note order:', error);
+          }
+        } else if (overNote.folderId && activeNote.folderId !== overNote.folderId) {
+          const targetFolderId = overNote.folderId;
+          const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === targetFolderId);
+          const overPosInFolder = folderNotes.findIndex((n) => n.id === overNoteId);
+          const insertPos = lastInsertAbove.current ? overPosInFolder : overPosInFolder + 1;
+
+          const movedNote = { ...activeNote, folderId: targetFolderId } as Note;
+          const rest = (activeNotes as Note[]).filter((n) => n.id !== activeNoteId);
+          const updatedFolderNotes = rest.filter((n) => n.folderId === targetFolderId);
+          updatedFolderNotes.splice(insertPos, 0, movedNote);
+          const otherActive = rest.filter((n) => n.folderId !== targetFolderId);
+          const archivedNotes = (notes as Note[]).filter((note) => (note as Note).archived);
+          onReorder?.([...otherActive, ...updatedFolderNotes, ...archivedNotes] as Note[]);
+
+          onMoveNoteToFolder?.(activeNoteId, targetFolderId);
+
+          try {
+            await UpdateNoteOrder(activeNoteId, insertPos);
           } catch (error) {
             console.error('Failed to update note order:', error);
           }
@@ -1044,14 +1101,16 @@ export const NoteList: React.FC<NoteListProps> = ({
       const parsedActive = parseTopLevelId(activeId);
       const parsedOver = parseTopLevelId(dropId);
       if (!parsedActive || !parsedOver) return;
-      if (parsedActive.type === 'folder' && parsedOver.type === 'folder') return;
 
       const oldIndex = topLevelOrder.findIndex((item) => toTopLevelId(item) === activeId);
       const overIndex = topLevelOrder.findIndex((item) => toTopLevelId(item) === dropId);
       if (oldIndex === -1 || overIndex === -1) return;
-      const newIndex = lastInsertAbove.current && overIndex > oldIndex ? overIndex - 1
-        : !lastInsertAbove.current && overIndex < oldIndex ? overIndex + 1
-        : overIndex;
+      const newIndex =
+        lastInsertAbove.current && overIndex > oldIndex
+          ? overIndex - 1
+          : !lastInsertAbove.current && overIndex < oldIndex
+            ? overIndex + 1
+            : overIndex;
 
       const newOrder = arrayMove(topLevelOrder, oldIndex, newIndex);
       onUpdateTopLevelOrder?.(newOrder);
@@ -1127,8 +1186,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               const indicator = getDropIndicator(id);
               const isAtBoundary =
                 boundaryIndented &&
-                ((indicator === 'top' && precedingFolderIds.has(id)) ||
-                  (indicator === 'bottom' && lastFolderNoteIds.has(id)));
+                ((indicator === 'top' && precedingFolderIds.has(id)) || (indicator === 'bottom' && lastFolderNoteIds.has(id)));
 
               if (id.startsWith('folder-note:')) {
                 const noteId = id.slice('folder-note:'.length);
@@ -1136,11 +1194,19 @@ export const NoteList: React.FC<NoteListProps> = ({
                 if (!note) return null;
                 const isLastBoundary = indicator === 'bottom' && lastFolderNoteIds.has(id);
                 return (
-                  <SortableWrapper key={id} id={id} dropIndicator={indicator} indentedIndicator={isLastBoundary ? boundaryIndented : true} staticMode>
+                  <SortableWrapper
+                    key={id}
+                    id={id}
+                    dropIndicator={indicator}
+                    indentedIndicator={isLastBoundary ? boundaryIndented : true}
+                    insetIndicator
+                    staticMode
+                  >
                     <Box
                       sx={(theme) => ({
-                        borderLeft: `${theme.spacing(1.5)} solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-                        backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+                        mx: 1,
+                        borderLeft: `${theme.spacing(1.5)} solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                        backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
                       })}
                     >
                       {renderNoteItem(note)}
@@ -1155,8 +1221,15 @@ export const NoteList: React.FC<NoteListProps> = ({
                 const note = noteMap.get(parsed.id);
                 if (!note) return null;
                 return (
-                  <SortableWrapper key={id} id={id} dropIndicator={indicator} indentedIndicator={isAtBoundary} staticMode>
-                    {renderNoteItem(note)}
+                  <SortableWrapper
+                    key={id}
+                    id={id}
+                    dropIndicator={indicator}
+                    indentedIndicator={isAtBoundary}
+                    insetIndicator
+                    staticMode
+                  >
+                    <Box sx={{ mx: 1 }}>{renderNoteItem(note)}</Box>
                   </SortableWrapper>
                 );
               }
@@ -1167,24 +1240,36 @@ export const NoteList: React.FC<NoteListProps> = ({
                 const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === folder.id);
                 const isDraggingThis = activeDragId === id;
                 return (
-                  <SortableWrapper key={id} id={id} dropIndicator={indicator} indentedIndicator={isAtBoundary} staticMode>
-                    <DroppableZone id={`folder-drop:${folder.id}`}>
-                      <FolderHeader
-                        folder={folder}
-                        isCollapsed={collapsedFolders.has(folder.id) || isDraggingThis}
-                        onToggle={() => onToggleFolderCollapse?.(folder.id)}
-                        onRename={(name) => onRenameFolder?.(folder.id, name)}
-                        onDelete={() => onDeleteFolder?.(folder.id)}
-                        onArchive={() => onArchiveFolder?.(folder.id)}
-                        isEmpty={folderNotes.length === 0}
-                        noteCount={folderNotes.length}
-                        autoEdit={editingFolderId === folder.id}
-                        onAutoEditDone={onEditingFolderDone}
-                      />
-                    </DroppableZone>
-                    {overId === `folder-drop:${folder.id}` && activeDragId && extractNoteId(activeDragId) && boundaryIndented && (
-                      <Box sx={(theme) => ({ height: 2, bgcolor: 'primary.main', ml: theme.spacing(1.5) })} />
-                    )}
+                  <SortableWrapper
+                    key={id}
+                    id={id}
+                    dropIndicator={indicator}
+                    indentedIndicator={isAtBoundary}
+                    insetIndicator
+                    staticMode
+                  >
+                    <Box sx={{ mx: 1 }}>
+                      <DroppableZone id={`folder-drop:${folder.id}`}>
+                        <FolderHeader
+                          folder={folder}
+                          isCollapsed={collapsedFolders.has(folder.id) || isDraggingThis}
+                          onToggle={() => onToggleFolderCollapse?.(folder.id)}
+                          onRename={(name) => onRenameFolder?.(folder.id, name)}
+                          onDelete={() => onDeleteFolder?.(folder.id)}
+                          onArchive={() => onArchiveFolder?.(folder.id)}
+                          isEmpty={folderNotes.length === 0}
+                          noteCount={folderNotes.length}
+                          autoEdit={editingFolderId === folder.id}
+                          onAutoEditDone={onEditingFolderDone}
+                        />
+                      </DroppableZone>
+                      {overId === `folder-drop:${folder.id}` &&
+                        activeDragId &&
+                        extractNoteId(activeDragId) &&
+                        boundaryIndented && (
+                          <Box sx={(theme) => ({ height: 2, bgcolor: 'primary.main', ml: theme.spacing(1.5) })} />
+                        )}
+                    </Box>
                   </SortableWrapper>
                 );
               }

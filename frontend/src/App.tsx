@@ -4,6 +4,7 @@ import type { editor } from 'monaco-editor';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
+import { WindowToggleMaximise } from '../wailsjs/runtime';
 import { AppBar } from './components/AppBar';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { Editor } from './components/Editor';
@@ -207,9 +208,24 @@ function App() {
               height: 26,
               width: '100vw',
               '--wails-draggable': 'drag',
-              backgroundColor: editorSettings.isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'action.disabledBackground',
+              backgroundColor: editorSettings.isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
-          />
+            onDoubleClick={() => {
+              WindowToggleMaximise();
+            }}
+          >
+            <Typography
+              variant='body2'
+              color='text.secondary'
+              fontWeight='bold'
+              sx={{ userSelect: 'none', pointerEvents: 'none' }}
+            >
+              Monaco Notepad
+            </Typography>
+          </Box>
         )}
         <AppBar
           currentNote={currentFileNote || currentNote}
@@ -247,15 +263,19 @@ function App() {
                 <>
                   <Box
                     sx={{
-                      height: 26,
+                      height: 32,
                       justifyContent: 'center',
                       alignItems: 'center',
                       display: 'flex',
                       backgroundColor: 'action.disabledBackground',
-                      my: 0.5,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      m: 1,
+                      mb: 0,
                     }}
                   >
-                    <Typography variant='caption' color='text.secondary'>
+                    <Typography variant='body2' color='text.secondary'>
                       Local files
                     </Typography>
                   </Box>
@@ -273,20 +293,25 @@ function App() {
                     isFileModified={isFileModified}
                     platform={platform}
                   />
+                  <Divider />
                 </>
               )}
               <Box
                 sx={{
-                  height: 26,
+                  height: 32,
                   justifyContent: 'center',
                   alignItems: 'center',
                   display: 'flex',
                   backgroundColor: 'action.disabledBackground',
                   position: 'relative',
-                  my: 0.5,
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  m: 1,
+                  mb: 0,
                 }}
               >
-                <Typography variant='caption' color='text.secondary'>
+                <Typography variant='body2' color='text.secondary'>
                   Notes
                 </Typography>
                 <Tooltip title='New Folder' arrow placement='bottom'>
@@ -382,6 +407,7 @@ function App() {
               onUnarchiveFolder={handleUnarchiveFolder}
               onDeleteFolder={handleDeleteArchivedFolder}
               onUpdateArchivedTopLevelOrder={handleUpdateArchivedTopLevelOrder}
+              onMoveNoteToFolder={handleMoveNoteToFolder}
               isDarkMode={editorSettings.isDarkMode}
             />
           ) : (
