@@ -39,6 +39,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
 import dayjs from '../utils/dayjs';
+import { NotePreviewPopper } from './NotePreviewPopper';
 
 interface NoteListProps {
   notes: Note[] | FileNote[];
@@ -105,6 +106,7 @@ const NoteItem: React.FC<NoteItemProps> = ({
   };
 
   return (
+    <NotePreviewPopper content={'content' in note ? note.content ?? undefined : undefined} anchorX={242}>
     <Box
       sx={{
         position: 'relative',
@@ -272,6 +274,7 @@ const NoteItem: React.FC<NoteItemProps> = ({
         )
       )}
     </Box>
+    </NotePreviewPopper>
   );
 };
 
@@ -558,9 +561,12 @@ export const NoteList: React.FC<NoteListProps> = ({
       });
       if (preferred) return [preferred];
     }
-    const results = closestCenter(args);
+    const results = closestCenter(args).filter((c) => (c.id as string) !== activeId);
     if (isDraggingFolder) {
-      const filtered = results.filter((c) => !(c.id as string).startsWith('folder-drop:'));
+      const filtered = results.filter((c) => {
+        const id = c.id as string;
+        return !id.startsWith('folder-drop:') && !id.startsWith('folder-note:') && id !== 'unfiled-bottom';
+      });
       if (filtered.length > 0) return filtered;
     }
     return results;
@@ -683,6 +689,15 @@ export const NoteList: React.FC<NoteListProps> = ({
     }
     return map;
   }, [topLevelOrder, collapsedFolders, activeNotes]);
+
+  // folderId → 最後のfolder-note IDの逆引き ----
+  const lastFolderNoteByFolderId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [fnId, folderId] of lastFolderNoteIds) {
+      map.set(folderId, fnId);
+    }
+    return map;
+  }, [lastFolderNoteIds]);
 
   // DnDハンドラ: topLevelOrder対応 ----
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -1159,10 +1174,16 @@ export const NoteList: React.FC<NoteListProps> = ({
         if (itemId === overId) return 'bottom';
         return null;
       }
+      if (activeDragId.startsWith('folder:') && overId.startsWith('folder:') && !insertAbove) {
+        const lastFnId = lastFolderNoteByFolderId.get(overId.slice('folder:'.length));
+        if (lastFnId) {
+          return itemId === lastFnId ? 'bottom' : null;
+        }
+      }
       if (overId !== itemId) return null;
       return insertAbove ? 'top' : 'bottom';
     },
-    [activeDragId, overId, isLastFolderNoteBoundary, lastFolderNoteIds, boundaryIndented, extractNoteId, insertAbove],
+    [activeDragId, overId, isLastFolderNoteBoundary, lastFolderNoteIds, lastFolderNoteByFolderId, boundaryIndented, extractNoteId, insertAbove],
   );
 
   const hasFolders = !isFileMode && folders.length > 0;

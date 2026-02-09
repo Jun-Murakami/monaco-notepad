@@ -510,8 +510,8 @@ func (s *noteService) ArchiveFolder(id string) error {
 
 	s.ensureArchivedTopLevelOrder()
 	s.noteList.ArchivedTopLevelOrder = append(
-		s.noteList.ArchivedTopLevelOrder,
-		TopLevelItem{Type: "folder", ID: id},
+		[]TopLevelItem{{Type: "folder", ID: id}},
+		s.noteList.ArchivedTopLevelOrder...,
 	)
 
 	s.noteList.LastSync = time.Now()

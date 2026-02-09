@@ -50,6 +50,7 @@ import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { Folder, Note, TopLevelItem } from '../types';
 import dayjs from '../utils/dayjs';
 import { ArchivedNoteContentDialog } from './ArchivedNoteContentDialog';
+import { NotePreviewPopper } from './NotePreviewPopper';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 
@@ -285,6 +286,14 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     return map;
   }, [archivedTopLevelOrder, collapsedFolders, folderNoteMap]);
 
+  const lastFolderNoteByFolderId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [fnId, folderId] of lastFolderNoteIds) {
+      map.set(folderId, fnId);
+    }
+    return map;
+  }, [lastFolderNoteIds]);
+
   const flatItems = useMemo(() => {
     const items: string[] = [];
     for (const item of archivedTopLevelOrder) {
@@ -313,9 +322,12 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
       });
       if (preferred) return [preferred];
     }
-    const results = closestCenter(args);
+    const results = closestCenter(args).filter((c) => (c.id as string) !== activeId);
     if (isDraggingFolder) {
-      const filtered = results.filter((c) => !(c.id as string).startsWith('folder-drop:'));
+      const filtered = results.filter((c) => {
+        const id = c.id as string;
+        return !id.startsWith('folder-drop:') && !id.startsWith('folder-note:') && id !== 'unfiled-bottom';
+      });
       if (filtered.length > 0) return filtered;
     }
     return results;
@@ -704,10 +716,16 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         if (itemId === overId) return 'bottom';
         return null;
       }
+      if (activeDragId.startsWith('folder:') && overId.startsWith('folder:') && !insertAbove) {
+        const lastFnId = lastFolderNoteByFolderId.get(overId.slice('folder:'.length));
+        if (lastFnId) {
+          return itemId === lastFnId ? 'bottom' : null;
+        }
+      }
       if (overId !== itemId) return null;
       return insertAbove ? 'top' : 'bottom';
     },
-    [activeDragId, overId, isLastFolderNoteBoundary, lastFolderNoteIds, boundaryIndented, extractNoteId, insertAbove],
+    [activeDragId, overId, isLastFolderNoteBoundary, lastFolderNoteIds, lastFolderNoteByFolderId, boundaryIndented, extractNoteId, insertAbove],
   );
 
   const getAllNotes = useCallback((): Note[] => {
@@ -769,6 +787,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   const renderNoteItem = (note: Note, indented: boolean) => {
     const titleInfo = getNoteTitle(note);
     return (
+      <NotePreviewPopper content={note.content || note.contentHeader || undefined}>
       <ListItemButton
         onClick={() => setSelectedNote(note)}
         sx={{
@@ -826,6 +845,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           </Tooltip>
         </Box>
       </ListItemButton>
+      </NotePreviewPopper>
     );
   };
 
