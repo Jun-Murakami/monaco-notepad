@@ -6,6 +6,7 @@ export type TopLevelItem = {
 export type Folder = {
   id: string;
   name: string;
+  archived?: boolean;
 };
 
 export type Note = {
@@ -33,6 +34,7 @@ export type NoteList = {
   version: string;
   notes: NoteMetadata[];
   folders?: Folder[];
+  archivedTopLevelOrder?: TopLevelItem[];
   lastSync: string;
 };
 

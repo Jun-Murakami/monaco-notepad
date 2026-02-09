@@ -40,8 +40,9 @@ type TopLevelItem struct {
 
 // フォルダの基本情報
 type Folder struct {
-	ID   string `json:"id"`   // フォルダの一意識別子
-	Name string `json:"name"` // フォルダ名
+	ID       string `json:"id"`                 // フォルダの一意識別子
+	Name     string `json:"name"`               // フォルダ名
+	Archived bool   `json:"archived,omitempty"` // アーカイブ状態（true=アーカイブ済み）
 }
 
 // ノートの基本情報
@@ -72,11 +73,12 @@ type NoteMetadata struct {
 
 // ノートのリストを管理
 type NoteList struct {
-	Version       string         `json:"version"`
-	Notes         []NoteMetadata `json:"notes"`
-	Folders       []Folder       `json:"folders,omitempty"`
-	TopLevelOrder []TopLevelItem `json:"topLevelOrder,omitempty"`
-	LastSync      time.Time      `json:"lastSync"`
+	Version                string         `json:"version"`
+	Notes                  []NoteMetadata `json:"notes"`
+	Folders                []Folder       `json:"folders,omitempty"`
+	TopLevelOrder          []TopLevelItem `json:"topLevelOrder,omitempty"`
+	ArchivedTopLevelOrder  []TopLevelItem `json:"archivedTopLevelOrder,omitempty"`
+	LastSync               time.Time      `json:"lastSync"`
 }
 
 // アプリケーションの設定を管理
@@ -147,7 +149,7 @@ func (ds *DriveSync) SetConnected(connected bool) {
 	ds.isConnected = connected
 }
 
-func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata, folders []Folder, topLevelOrder []TopLevelItem) {
+func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata, folders []Folder, topLevelOrder []TopLevelItem, archivedTopLevelOrder []TopLevelItem) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 	if ds.cloudNoteList == nil {
@@ -166,6 +168,11 @@ func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadat
 		orderCopy := make([]TopLevelItem, len(topLevelOrder))
 		copy(orderCopy, topLevelOrder)
 		ds.cloudNoteList.TopLevelOrder = orderCopy
+	}
+	if archivedTopLevelOrder != nil {
+		archivedCopy := make([]TopLevelItem, len(archivedTopLevelOrder))
+		copy(archivedCopy, archivedTopLevelOrder)
+		ds.cloudNoteList.ArchivedTopLevelOrder = archivedCopy
 	}
 }
 
