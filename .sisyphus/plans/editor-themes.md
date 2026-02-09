@@ -281,7 +281,7 @@ Wave 2 (After Wave 1):
 
 ---
 
-- [ ] 2. Add `editorTheme` field to Settings types (TypeScript + Go)
+- [x] 2. Add `editorTheme` field to Settings types (TypeScript + Go)
 
   **What to do**:
 
@@ -370,7 +370,7 @@ Wave 2 (After Wave 1):
 
 ---
 
-- [ ] 3. Update `Editor.tsx` to apply themes using theme pairs
+- [x] 3. Update `Editor.tsx` to apply themes using theme pairs
 
   **What to do**:
 
@@ -472,7 +472,7 @@ Wave 2 (After Wave 1):
 
 ---
 
-- [ ] 4. Add theme selector dropdown to `SettingsDialog.tsx`
+- [x] 4. Add theme selector dropdown to `SettingsDialog.tsx`
 
   **What to do**:
 
@@ -576,7 +576,7 @@ Wave 2 (After Wave 1):
 
 ---
 
-- [ ] 5. Regenerate Wails bindings and final verification
+- [x] 5. Regenerate Wails bindings and final verification
 
   **What to do**:
 
