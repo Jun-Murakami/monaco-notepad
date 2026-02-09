@@ -205,6 +205,34 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     });
   }, []);
 
+  const getNextNote = useCallback((currentNoteId: string): Note | null => {
+    const allNotes: Note[] = [];
+    for (const item of archivedTopLevelOrder) {
+      if (item.type === 'folder') {
+        const folderNotes = folderNoteMap.get(item.id) || [];
+        allNotes.push(...folderNotes);
+      } else {
+        const note = noteMap.get(item.id);
+        if (note) allNotes.push(note);
+      }
+    }
+    const currentIndex = allNotes.findIndex(n => n.id === currentNoteId);
+    if (currentIndex === -1 || currentIndex === allNotes.length - 1) return null;
+    return allNotes[currentIndex + 1];
+  }, [archivedTopLevelOrder, folderNoteMap, noteMap]);
+
+  const handleRestoreWithNext = useCallback((noteId: string) => {
+    const nextNote = getNextNote(noteId);
+    onUnarchive(noteId);
+    setSelectedNote(nextNote);
+  }, [getNextNote, onUnarchive]);
+
+  const handleDeleteWithNext = useCallback((noteId: string) => {
+    const nextNote = getNextNote(noteId);
+    onDelete(noteId);
+    setSelectedNote(nextNote);
+  }, [getNextNote, onDelete]);
+
   const actionButtonSx = { width: 28, height: 28 };
 
   const renderNoteItem = (note: Note, indented: boolean) => {
@@ -475,8 +503,8 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         open={selectedNote !== null}
         note={selectedNote}
         onClose={() => setSelectedNote(null)}
-        onRestore={onUnarchive}
-        onDelete={onDelete}
+        onRestore={handleRestoreWithNext}
+        onDelete={handleDeleteWithNext}
         isDarkMode={isDarkMode}
       />
     </Box>
