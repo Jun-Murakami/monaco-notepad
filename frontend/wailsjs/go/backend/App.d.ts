@@ -4,6 +4,8 @@ import {backend} from '../models';
 import {context} from '../models';
 import {time} from '../models';
 
+export function ArchiveFolder(arg1:string):Promise<void>;
+
 export function AuthorizeDrive():Promise<void>;
 
 export function BringToFront():Promise<void>;
@@ -20,6 +22,8 @@ export function Console(arg1:string,arg2:Array<any>):Promise<void>;
 
 export function CreateFolder(arg1:string):Promise<backend.Folder>;
 
+export function DeleteArchivedFolder(arg1:string):Promise<void>;
+
 export function DeleteFolder(arg1:string):Promise<void>;
 
 export function DeleteNote(arg1:string):Promise<void>;
@@ -29,6 +33,8 @@ export function DestroyApp():Promise<void>;
 export function DomReady(arg1:context.Context):Promise<void>;
 
 export function GetAppVersion():Promise<string>;
+
+export function GetArchivedTopLevelOrder():Promise<Array<backend.TopLevelItem>>;
 
 export function GetModifiedTime(arg1:string):Promise<time.Time>;
 
@@ -79,6 +85,10 @@ export function SelectFile():Promise<string>;
 export function SelectSaveFileUri(arg1:string,arg2:string):Promise<string>;
 
 export function SyncNow():Promise<void>;
+
+export function UnarchiveFolder(arg1:string):Promise<void>;
+
+export function UpdateArchivedTopLevelOrder(arg1:Array<backend.TopLevelItem>):Promise<void>;
 
 export function UpdateNoteOrder(arg1:string,arg2:number):Promise<void>;
 

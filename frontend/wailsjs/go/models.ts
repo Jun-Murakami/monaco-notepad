@@ -39,6 +39,7 @@ export namespace backend {
 	export class Folder {
 	    id: string;
 	    name: string;
+	    archived?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Folder(source);
@@ -48,6 +49,7 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.archived = source["archived"];
 	    }
 	}
 	export class Note {

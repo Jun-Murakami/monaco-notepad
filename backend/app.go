@@ -416,6 +416,47 @@ func (a *App) UpdateTopLevelOrder(order []TopLevelItem) error {
 	return nil
 }
 
+// フォルダをアーカイブする ------------------------------------------------------------
+func (a *App) ArchiveFolder(id string) error {
+	if err := a.noteService.ArchiveFolder(id); err != nil {
+		return err
+	}
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// アーカイブされたフォルダを復元する ------------------------------------------------------------
+func (a *App) UnarchiveFolder(id string) error {
+	if err := a.noteService.UnarchiveFolder(id); err != nil {
+		return err
+	}
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// アーカイブされたフォルダを削除する ------------------------------------------------------------
+func (a *App) DeleteArchivedFolder(id string) error {
+	if err := a.noteService.DeleteArchivedFolder(id); err != nil {
+		return err
+	}
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// アーカイブされたアイテムの表示順序を返す ------------------------------------------------------------
+func (a *App) GetArchivedTopLevelOrder() []TopLevelItem {
+	return a.noteService.GetArchivedTopLevelOrder()
+}
+
+// アーカイブされたアイテムの表示順序を更新する ------------------------------------------------------------
+func (a *App) UpdateArchivedTopLevelOrder(order []TopLevelItem) error {
+	if err := a.noteService.UpdateArchivedTopLevelOrder(order); err != nil {
+		return err
+	}
+	a.syncNoteListToDrive()
+	return nil
+}
+
 // ノートリストをGoogle Driveに同期するヘルパー
 func (a *App) syncNoteListToDrive() {
 	if a.driveService != nil && a.driveService.IsConnected() {
