@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import dayjs from 'dayjs';
-import type { Note } from '../../types';
+import type { Folder, Note, TopLevelItem } from '../../types';
 import { ArchivedNoteList } from '../ArchivedNoteList';
 
 describe('ArchivedNoteList', () => {
@@ -20,7 +20,7 @@ describe('ArchivedNoteList', () => {
       id: '2',
       title: '',
       content: 'First line\nSecond line',
-      contentHeader: null,
+      contentHeader: 'First line\nSecond line',
       language: 'typescript',
       modifiedTime: '2024-01-02T10:00:00.000Z',
       archived: true,
@@ -36,10 +36,16 @@ describe('ArchivedNoteList', () => {
     },
   ];
 
+  const mockArchivedTopLevelOrder: TopLevelItem[] = [
+    { type: 'note', id: '1' },
+    { type: 'note', id: '2' },
+    { type: 'note', id: '3' },
+  ];
+
   const defaultProps = {
     notes: mockNotes,
-    folders: [],
-    archivedTopLevelOrder: [],
+    folders: [] as Folder[],
+    archivedTopLevelOrder: mockArchivedTopLevelOrder,
     onUnarchive: vi.fn(),
     onDelete: vi.fn(),
     onDeleteAll: vi.fn(),
@@ -51,7 +57,7 @@ describe('ArchivedNoteList', () => {
   };
 
   it('アーカイブされたノートがない場合、メッセージが表示されること', () => {
-    render(<ArchivedNoteList {...defaultProps} notes={[]} />);
+    render(<ArchivedNoteList {...defaultProps} notes={[]} archivedTopLevelOrder={[]} />);
     expect(screen.getByText('No archived notes')).toBeInTheDocument();
   });
 
@@ -59,7 +65,7 @@ describe('ArchivedNoteList', () => {
     render(<ArchivedNoteList {...defaultProps} />);
 
     expect(screen.getByText('Archived Note 1')).toBeInTheDocument();
-    expect(screen.getByText('First line')).toBeInTheDocument();
+    expect(screen.getByText('First line Second line')).toBeInTheDocument();
     expect(screen.getByText('Empty Note')).toBeInTheDocument();
 
     // 日付が正しく表示されることを確認
@@ -76,11 +82,13 @@ describe('ArchivedNoteList', () => {
         ...mockNotes[0],
         title: '   ',
         content: 'Content from content',
+        contentHeader: 'Content from content',
       },
       {
         ...mockNotes[1],
         title: '',
         content: '   \n   \n',
+        contentHeader: null,
       },
       {
         ...mockNotes[2],
@@ -89,8 +97,10 @@ describe('ArchivedNoteList', () => {
       },
     ];
 
+    const order: TopLevelItem[] = notesWithVariousTitles.map((n) => ({ type: 'note', id: n.id }));
+
     render(
-      <ArchivedNoteList {...defaultProps} notes={notesWithVariousTitles} />,
+      <ArchivedNoteList {...defaultProps} notes={notesWithVariousTitles} archivedTopLevelOrder={order} />,
     );
 
     expect(screen.getByText('Content from content')).toBeInTheDocument();
@@ -98,13 +108,13 @@ describe('ArchivedNoteList', () => {
     expect(screen.getByText('Explicit Title')).toBeInTheDocument();
   });
 
-  it('アンアーカイブボタンが正しく動作すること', () => {
+  it('Restoreボタンが正しく動作すること', () => {
     render(<ArchivedNoteList {...defaultProps} />);
 
-    const unarchiveButtons = screen.getAllByRole('button', {
-      name: 'Unarchive',
+    const restoreButtons = screen.getAllByRole('button', {
+      name: 'Restore',
     });
-    fireEvent.click(unarchiveButtons[0]);
+    fireEvent.click(restoreButtons[0]);
 
     expect(defaultProps.onUnarchive).toHaveBeenCalledWith('1');
   });
