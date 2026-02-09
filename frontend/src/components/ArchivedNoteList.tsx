@@ -205,7 +205,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     });
   }, []);
 
-  const actionButtonSx = { width: 32, height: 32 };
+  const actionButtonSx = { width: 28, height: 28 };
 
   const renderNoteItem = (note: Note, indented: boolean) => {
     const titleInfo = getNoteTitle(note);
@@ -214,10 +214,11 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         onClick={() => setSelectedNote(note)}
         sx={{
           display: 'flex',
-          alignItems: 'flex-start',
+          alignItems: 'center',
           gap: 2,
-          px: indented ? 4 : 7,
-          py: 1,
+          px: indented ? 3 : 2,
+          py: 0.75,
+          minHeight: 44,
           borderBottom: 1,
           borderColor: 'divider',
           '&:hover .archive-action': { opacity: 1 },
@@ -226,17 +227,17 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography
             noWrap
-            variant='body1'
+            variant='body2'
             sx={{
-              mb: 0.5,
+              fontSize: '0.875rem',
               fontStyle: titleInfo.isFallback ? 'italic' : 'normal',
               opacity: titleInfo.isFallback ? 0.6 : 1,
             }}
           >
             {titleInfo.text}
           </Typography>
-          <Typography variant='caption' color='text.secondary'>
-            {dayjs(note.modifiedTime).format('L HH:mm:ss')}
+          <Typography variant='caption' sx={{ fontSize: '0.75rem' }} color='text.secondary'>
+            {dayjs(note.modifiedTime).format('L HH:mm')}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
@@ -274,10 +275,10 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
       <Box
         onClick={() => toggleFolder(folder.id)}
         sx={{
-          height: 40,
+          height: 36,
           display: 'flex',
           alignItems: 'center',
-          px: 2,
+          px: 1.5,
           backgroundColor: 'action.disabledBackground',
           cursor: 'pointer',
           borderBottom: 1,
@@ -285,22 +286,22 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           '&:hover .archive-action': { opacity: 1 },
         }}
       >
-        <IconButton size='small' onClick={(e) => { e.stopPropagation(); toggleFolder(folder.id); }} sx={{ p: 0.25 }}>
+        <IconButton size='small' onClick={(e) => { e.stopPropagation(); toggleFolder(folder.id); }} sx={{ p: 0.25, mr: 0.5 }}>
           {isCollapsed ? (
-            <ChevronRight sx={{ width: 18, height: 18, color: 'text.secondary' }} />
+            <ChevronRight sx={{ width: 16, height: 16, color: 'text.secondary' }} />
           ) : (
-            <ExpandMore sx={{ width: 18, height: 18, color: 'text.secondary' }} />
+            <ExpandMore sx={{ width: 16, height: 16, color: 'text.secondary' }} />
           )}
         </IconButton>
         {isCollapsed ? (
-          <FolderIcon sx={{ width: 18, height: 18, color: 'text.secondary', mr: 1 }} />
+          <FolderIcon sx={{ width: 16, height: 16, color: 'text.secondary', mr: 0.75 }} />
         ) : (
-          <FolderOpen sx={{ width: 18, height: 18, color: 'text.secondary', mr: 1 }} />
+          <FolderOpen sx={{ width: 16, height: 16, color: 'text.secondary', mr: 0.75 }} />
         )}
-        <Typography variant='body2' color='text.secondary' noWrap sx={{ flex: 1 }}>
+        <Typography variant='body2' color='text.secondary' noWrap sx={{ flex: 1, fontSize: '0.875rem' }}>
           {folder.name}
         </Typography>
-        <Typography variant='caption' color='text.disabled' sx={{ mx: 1 }}>
+        <Typography variant='caption' color='text.disabled' sx={{ mx: 1, fontSize: '0.75rem' }}>
           {folderNotes.length}
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
@@ -309,9 +310,9 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               className='archive-action'
               size='small'
               onClick={() => onUnarchiveFolder(folder.id)}
-              sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.5, '&:hover': { backgroundColor: 'primary.main', color: 'primary.contrastText' } }}
+              sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25, '&:hover': { backgroundColor: 'primary.main', color: 'primary.contrastText' } }}
             >
-              <Unarchive sx={{ width: 18, height: 18 }} />
+              <Unarchive sx={{ width: 16, height: 16 }} />
             </IconButton>
           </Tooltip>
           <Tooltip title='Delete folder' arrow>
@@ -319,9 +320,9 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               className='archive-action'
               size='small'
               onClick={() => onDeleteFolder(folder.id)}
-              sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.5, '&:hover': { backgroundColor: 'error.main', color: 'error.contrastText' } }}
+              sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25, '&:hover': { backgroundColor: 'error.main', color: 'error.contrastText' } }}
             >
-              <DeleteForever sx={{ width: 18, height: 18 }} />
+              <DeleteForever sx={{ width: 16, height: 16 }} />
             </IconButton>
           </Tooltip>
         </Box>
@@ -344,36 +345,37 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        alignItems: 'center',
         '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
           backgroundColor: 'text.secondary',
         },
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2 }}>
+      <Box sx={{ width: '100%', maxWidth: 900, display: 'flex', alignItems: 'center', gap: 2, px: 2, py: 1.5 }}>
         <IconButton onClick={onClose} sx={{ ml: -1, width: 32, height: 32 }}>
           <ArrowBack />
         </IconButton>
-        <Typography variant='h6'>Archived notes</Typography>
+        <Typography variant='subtitle1' fontWeight={600}>Archived notes</Typography>
         <Box sx={{ flexGrow: 1 }} />
         <Tooltip title='Delete all archived notes' arrow>
           <Button
             onClick={onDeleteAll}
             color='error'
-            endIcon={<DeleteSweep sx={{ width: 28, height: 28 }} />}
+            size='small'
+            endIcon={<DeleteSweep sx={{ width: 20, height: 20 }} />}
             sx={{
-              width: 120,
-              height: 40,
+              height: 32,
               '&:hover': { backgroundColor: 'error.main', color: 'error.contrastText' },
-              mr: 3.5,
             }}
           >
             Delete all
           </Button>
         </Tooltip>
       </Box>
-      <Divider />
-      <SimpleBar style={{ maxHeight: '100%', overflowX: 'hidden' }}>
-        <List sx={{ flexGrow: 1, overflow: 'auto', mb: 8 }}>
+      <Divider sx={{ width: '100%' }} />
+      <SimpleBar style={{ maxHeight: '100%', width: '100%', overflowX: 'hidden' }}>
+        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+          <List sx={{ width: '100%', maxWidth: 900, overflow: 'auto', mb: 8, py: 0 }}>
           <DndContext
             sensors={sensors}
             onDragStart={handleDragStart}
@@ -462,10 +464,11 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                     }
                     return null;
                   })()
-                : null}
+                 : null}
             </DragOverlay>
           </DndContext>
         </List>
+        </Box>
       </SimpleBar>
 
       <ArchivedNoteContentDialog
