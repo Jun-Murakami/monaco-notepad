@@ -8,6 +8,7 @@ import {
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import {
+  GetArchivedTopLevelOrder,
   ListNotes,
   LoadArchivedNote,
   SaveNote,
@@ -212,11 +213,17 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   CheckFileExists: vi.fn().mockResolvedValue(true),
   ListFolders: vi.fn().mockResolvedValue([]),
   GetTopLevelOrder: vi.fn().mockResolvedValue([]),
+  GetArchivedTopLevelOrder: vi.fn().mockResolvedValue([]),
   UpdateTopLevelOrder: vi.fn().mockResolvedValue(undefined),
+  UpdateArchivedTopLevelOrder: vi.fn().mockResolvedValue(undefined),
+  ArchiveFolder: vi.fn().mockResolvedValue(undefined),
+  UnarchiveFolder: vi.fn().mockResolvedValue(undefined),
+  DeleteArchivedFolder: vi.fn().mockResolvedValue(undefined),
   CreateFolder: vi.fn(),
   RenameFolder: vi.fn(),
   DeleteFolder: vi.fn(),
   MoveNoteToFolder: vi.fn(),
+  DeleteNote: vi.fn(),
 }));
 
 describe('App', () => {
@@ -357,6 +364,12 @@ describe('App', () => {
       });
       expect(archiveButton).toBeInTheDocument();
       fireEvent.mouseEnter(archiveButton);
+
+      // GetArchivedTopLevelOrderがアーカイブされたノートを返すようにモック（アーカイブ前に設定）
+      (GetArchivedTopLevelOrder as Mock).mockResolvedValue([
+        { type: 'note', id: '1' },
+      ]);
+
       fireEvent.click(archiveButton);
 
       // アーカイブ時のSaveNoteの呼び出しを確認
@@ -374,7 +387,7 @@ describe('App', () => {
       fireEvent.click(archivePageButton);
 
       // アーカイブからの復元
-      const unarchiveButton = await screen.findByLabelText('Unarchive');
+      const restoreButton = await screen.findByRole('button', { name: 'Restore' });
 
       // LoadArchivedNoteのモック結果を設定
       (LoadArchivedNote as Mock).mockResolvedValue({
@@ -384,8 +397,8 @@ describe('App', () => {
         archived: true,
       });
 
-      // アンアーカイブボタンをクリック
-      fireEvent.click(unarchiveButton);
+      // Restoreボタンをクリック
+      fireEvent.click(restoreButton);
 
       // LoadArchivedNoteが呼ばれることを確認
       await waitFor(() => {
