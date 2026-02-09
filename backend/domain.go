@@ -86,6 +86,7 @@ type Settings struct {
 	FontFamily   string `json:"fontFamily"`
 	FontSize     int    `json:"fontSize"`
 	IsDarkMode   bool   `json:"isDarkMode"`
+	EditorTheme  string `json:"editorTheme"`
 	WordWrap     string `json:"wordWrap"`
 	Minimap      bool   `json:"minimap"`
 	WindowWidth  int    `json:"windowWidth"`

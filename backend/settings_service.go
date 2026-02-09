@@ -38,6 +38,7 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 			FontFamily:   "Consolas, Monaco, \"Courier New\", monospace",
 			FontSize:     14,
 			IsDarkMode:   false,
+			EditorTheme:  "default",
 			WordWrap:     "off",
 			Minimap:      true,
 			WindowWidth:  800,

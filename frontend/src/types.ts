@@ -51,25 +51,27 @@ export type FileNote = {
 
 // 設定の型
 export type Settings = {
-  fontFamily: string;
-  fontSize: number;
-  isDarkMode: boolean;
-  wordWrap: string;
-  minimap: boolean;
-  windowWidth: number;
-  windowHeight: number;
-  windowX: number;
-  windowY: number;
-  isMaximized: boolean;
-  isDebug: boolean;
+	fontFamily: string;
+	fontSize: number;
+	isDarkMode: boolean;
+	editorTheme: string;
+	wordWrap: string;
+	minimap: boolean;
+	windowWidth: number;
+	windowHeight: number;
+	windowX: number;
+	windowY: number;
+	isMaximized: boolean;
+	isDebug: boolean;
 };
 
 // デフォルトの設定
 export const DEFAULT_EDITOR_SETTINGS: Partial<Settings> = {
-  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-  fontSize: 14,
-  isDarkMode: false,
-  wordWrap: 'off',
-  minimap: true,
-  isDebug: false,
+	fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+	fontSize: 14,
+	isDarkMode: false,
+	editorTheme: 'default',
+	wordWrap: 'off',
+	minimap: true,
+	isDebug: false,
 };

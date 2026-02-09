@@ -19,6 +19,7 @@ import {
 import { useEffect, useState } from 'react';
 import { OpenAppFolder } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
+import { THEME_PAIRS } from '../lib/monaco';
 import type { Settings } from '../types';
 import { DEFAULT_EDITOR_SETTINGS } from '../types';
 import { LightDarkSwitch } from './LightDarkSwitch';
@@ -129,6 +130,23 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
               </Select>
             </FormControl>
           </Box>
+
+          <FormControl fullWidth size="small">
+            <InputLabel>Editor Theme</InputLabel>
+            <Select
+              value={localSettings.editorTheme || 'default'}
+              label="Editor Theme"
+              onChange={(e) =>
+                handleChange({ editorTheme: e.target.value as string })
+              }
+            >
+              {THEME_PAIRS.map((pair) => (
+                <MenuItem key={pair.id} value={pair.id}>
+                  {pair.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
           <Grid
             container

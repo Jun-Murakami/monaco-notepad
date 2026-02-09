@@ -33,6 +33,7 @@ describe('useEditorSettings フック', () => {
     windowY: 100,
     isMaximized: true,
     isDebug: true,
+    editorTheme: 'default',
   };
 
   beforeEach(() => {
@@ -60,6 +61,7 @@ describe('useEditorSettings フック', () => {
         windowY: 0,
         isMaximized: false,
         isDebug: false,
+        editorTheme: 'default',
       });
 
       // 非同期処理の完了を待つ
@@ -105,6 +107,7 @@ describe('useEditorSettings フック', () => {
         windowY: 0,
         isMaximized: false,
         isDebug: false,
+        editorTheme: 'default',
       });
     });
   });

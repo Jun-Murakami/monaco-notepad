@@ -56,6 +56,15 @@ vi.mock('../../lib/monaco', () => {
     getMonaco: vi.fn(() => mockMonaco),
     getOrCreateEditor: vi.fn(() => mockEditor),
     disposeEditor: vi.fn(),
+    getThemePair: vi.fn((id: string) => {
+      const pairs: Record<string, { id: string; label: string; light: string; dark: string }> = {
+        default: { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+      };
+      return pairs[id] || pairs.default;
+    }),
+    THEME_PAIRS: [
+      { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+    ],
   };
 });
 
@@ -108,19 +117,20 @@ const getMockFunctions = () => {
 };
 
 describe('Editor', () => {
-  const mockSettings: Settings = {
-    fontFamily: 'Test Font',
-    fontSize: 14,
-    isDarkMode: false,
-    wordWrap: 'off',
-    minimap: true,
-    windowWidth: 800,
-    windowHeight: 600,
-    windowX: 0,
-    windowY: 0,
-    isMaximized: false,
-    isDebug: false,
-  };
+	const mockSettings: Settings = {
+		fontFamily: 'Test Font',
+		fontSize: 14,
+		isDarkMode: false,
+		editorTheme: 'default',
+		wordWrap: 'off',
+		minimap: true,
+		windowWidth: 800,
+		windowHeight: 600,
+		windowX: 0,
+		windowY: 0,
+		isMaximized: false,
+		isDebug: false,
+	};
 
   const defaultProps = {
     editorInstanceRef: { current: null },

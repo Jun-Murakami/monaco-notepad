@@ -1,7 +1,7 @@
 import { Box } from '@mui/material';
 import type { editor } from 'monaco-editor';
 import { useEffect, useRef } from 'react';
-import { disposeEditor, getMonaco, getOrCreateEditor } from '../lib/monaco';
+import { disposeEditor, getMonaco, getOrCreateEditor, getThemePair } from '../lib/monaco';
 import type { FileNote, Note, Settings } from '../types';
 
 interface EditorProps {
@@ -125,8 +125,10 @@ export const Editor: React.FC<EditorProps> = ({
   // 設定変更時の処理
   useEffect(() => {
     if (editorInstanceRef.current) {
+      const themePair = getThemePair(settings.editorTheme || 'default');
+      const themeName = settings.isDarkMode ? themePair.dark : themePair.light;
       editorInstanceRef.current.updateOptions({
-        theme: settings.isDarkMode ? 'vs-dark' : 'vs',
+        theme: themeName,
         fontFamily: settings.fontFamily,
         fontSize: settings.fontSize,
         wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',

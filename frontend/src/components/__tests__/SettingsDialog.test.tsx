@@ -13,20 +13,21 @@ vi.mock('../../../wailsjs/runtime', () => ({
 }));
 
 describe('SettingsDialog', () => {
-  const mockSettings: Settings = {
-    ...DEFAULT_EDITOR_SETTINGS,
-    fontFamily: 'Test Font',
-    fontSize: 14,
-    isDarkMode: false,
-    wordWrap: 'off',
-    minimap: true,
-    isDebug: false,
-    windowWidth: 800,
-    windowHeight: 600,
-    windowX: 0,
-    windowY: 0,
-    isMaximized: false,
-  };
+	const mockSettings: Settings = {
+		fontFamily: 'Test Font',
+		fontSize: 14,
+		isDarkMode: false,
+		editorTheme: 'default',
+		wordWrap: 'off',
+		minimap: true,
+		isDebug: false,
+		windowWidth: 800,
+		windowHeight: 600,
+		windowX: 0,
+		windowY: 0,
+		isMaximized: false,
+		...DEFAULT_EDITOR_SETTINGS,
+	};
 
   const defaultProps = {
     open: true,

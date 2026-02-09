@@ -84,6 +84,7 @@ export namespace backend {
 	    fontFamily: string;
 	    fontSize: number;
 	    isDarkMode: boolean;
+	    editorTheme: string;
 	    wordWrap: string;
 	    minimap: boolean;
 	    windowWidth: number;
@@ -102,6 +103,7 @@ export namespace backend {
 	        this.fontFamily = source["fontFamily"];
 	        this.fontSize = source["fontSize"];
 	        this.isDarkMode = source["isDarkMode"];
+	        this.editorTheme = source["editorTheme"];
 	        this.wordWrap = source["wordWrap"];
 	        this.minimap = source["minimap"];
 	        this.windowWidth = source["windowWidth"];
