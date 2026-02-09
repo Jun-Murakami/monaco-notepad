@@ -190,26 +190,19 @@ export const getExtensionByLanguage = (language: string): string | null => {
   );
 };
 
-// エディタインスタンスのシングルトン
-let _editorInstance: monaco.editor.IStandaloneCodeEditor | null = null;
-
-export const getOrCreateEditor = (
+export const createEditor = (
   container: HTMLElement,
   options: monaco.editor.IStandaloneEditorConstructionOptions,
 ): monaco.editor.IStandaloneCodeEditor => {
   const m = getMonaco();
-  if (!_editorInstance || _editorInstance.getModel()?.isDisposed()) {
-    _editorInstance = m.editor.create(container, options);
-  } else {
-    _editorInstance.updateOptions(options);
-  }
-  return _editorInstance;
+  return m.editor.create(container, options);
 };
 
-export const disposeEditor = () => {
-  if (_editorInstance) {
-    _editorInstance.dispose();
-    _editorInstance = null;
+export const disposeEditorInstance = (
+  instance: monaco.editor.IStandaloneCodeEditor | null,
+): void => {
+  if (instance) {
+    instance.dispose();
   }
 };
 

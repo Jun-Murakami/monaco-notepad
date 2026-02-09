@@ -1,4 +1,4 @@
-import { FileOpen, Logout, NoteAdd, Save, Settings } from '@mui/icons-material';
+import { FileOpen, Flip, Logout, NoteAdd, Save, Settings } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import {
@@ -12,13 +12,46 @@ import {
   Select,
   TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
+import type { SelectProps } from '@mui/material';
 import { keyframes } from '@mui/system';
 import { useDriveSync } from '../hooks/useDriveSync';
 import type { LanguageInfo } from '../lib/monaco';
-import type { FileNote, Note } from '../types';
-import { GoogleDriveIcon } from './Icons';
-import 'simplebar-react/dist/simplebar.min.css';
+import type { EditorPane, FileNote, Note } from '../types';
+import { GoogleDriveIcon, MarkdownIcon } from './Icons';
+
+const scrollbarSx = (theme: import('@mui/material').Theme) => ({
+  '&::-webkit-scrollbar': {
+    width: 7,
+  },
+  '&::-webkit-scrollbar-track': {
+    background: 'transparent',
+  },
+  '&::-webkit-scrollbar-thumb': {
+    backgroundColor: theme.palette.mode === 'dark'
+      ? 'rgba(255,255,255,0.3)'
+      : 'rgba(0,0,0,0.3)',
+    borderRadius: 7,
+    '&:hover': {
+      backgroundColor: theme.palette.mode === 'dark'
+        ? 'rgba(255,255,255,0.5)'
+        : 'rgba(0,0,0,0.5)',
+    },
+  },
+});
+
+const languageMenuProps: SelectProps['MenuProps'] = {
+  slotProps: {
+    paper: {
+      sx: (theme) => ({
+        maxHeight: 300,
+        ...scrollbarSx(theme),
+        '& ul': scrollbarSx(theme),
+      }),
+    },
+  },
+};
 
 const fadeAnimation = keyframes`
   0% { opacity: 1; }
@@ -42,6 +75,14 @@ export const AppBar: React.FC<{
     message: string,
     isTwoButton?: boolean,
   ) => Promise<boolean>;
+  isSplit?: boolean;
+  isMarkdownPreview?: boolean;
+  onToggleSplit?: () => void;
+  onToggleMarkdownPreview?: () => void;
+  rightNote?: Note | FileNote | null;
+  onRightTitleChange?: (title: string) => void;
+  onRightLanguageChange?: (language: string) => void;
+  focusedPane?: EditorPane;
 }> = ({
   currentNote,
   languages,
@@ -54,6 +95,14 @@ export const AppBar: React.FC<{
   onSave,
   onFocusEditor,
   showMessage,
+  isSplit = false,
+  isMarkdownPreview = false,
+  onToggleSplit,
+  onToggleMarkdownPreview,
+  rightNote = null,
+  onRightTitleChange,
+  onRightLanguageChange,
+  focusedPane = 'left',
 }) => {
   const {
     syncStatus,
@@ -128,10 +177,23 @@ export const AppBar: React.FC<{
           display: 'flex',
           alignItems: 'center',
           gap: 1,
+          opacity: isSplit && focusedPane !== 'left' ? 0.5 : 1,
+          transition: 'opacity 0.2s',
+          mr: isSplit ? 2 : 0,
         }}
       >
+        {isSplit && <Typography variant="body2" sx={{ flexShrink: 0, fontWeight: 'bold', color: 'primary.main' }}>1</Typography>}
         <TextField
-          sx={{ width: '100%' }}
+          sx={{
+            width: '100%',
+            ...(isSplit && {
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': { borderColor: 'primary.main' },
+                '&:hover fieldset': { borderColor: 'primary.main' },
+              },
+              '& .MuiInputLabel-root': { color: 'primary.main' },
+            }),
+          }}
           label={isFileNote(currentNote) ? 'File Path' : 'Title'}
           variant="outlined"
           size="small"
@@ -150,7 +212,115 @@ export const AppBar: React.FC<{
             }
           }}
         />
+        <FormControl
+          sx={{
+            width: isSplit ? 140 : 200,
+            flexShrink: 0,
+            ...(isSplit && {
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': { borderColor: 'primary.main' },
+                '&:hover fieldset': { borderColor: 'primary.main' },
+              },
+              '& .MuiInputLabel-root': { color: 'primary.main' },
+            }),
+          }}
+          size="small"
+        >
+          <InputLabel size="small">Language</InputLabel>
+          <Select
+            size="small"
+            autoWidth
+            value={
+              languages.some((lang) => lang.id === currentNote?.language)
+                ? currentNote?.language
+                : ''
+            }
+            onChange={(e) => onLanguageChange(e.target.value)}
+            label="Language"
+            MenuProps={languageMenuProps}
+          >
+            {languages.map((lang) => (
+              <MenuItem key={lang.id} value={lang.id}>
+                {lang.aliases?.[0] ?? lang.id}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Box>
+      {isSplit && (
+        <Box
+          sx={{
+          height: 70,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          width: '100%',
+          opacity: focusedPane !== 'right' ? 0.5 : 1,
+          transition: 'opacity 0.2s',
+          }}
+        >
+          <Typography variant="body2" sx={{ flexShrink: 0, fontWeight: 'bold', color: 'secondary.main' }}>2</Typography>
+          <TextField
+            sx={{
+              width: '100%',
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': { borderColor: 'secondary.main' },
+                '&:hover fieldset': { borderColor: 'secondary.main' },
+              },
+              '& .MuiInputLabel-root': { color: 'secondary.main' },
+            }}
+            label={isFileNote(rightNote) ? 'File Path' : 'Title'}
+            variant="outlined"
+            size="small"
+            value={
+              isFileNote(rightNote)
+                ? rightNote.filePath
+                : (rightNote as Note | null)?.title || ''
+            }
+            onChange={(e) => onRightTitleChange?.(e.target.value)}
+            disabled={isFileNote(rightNote)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                (e.target as HTMLInputElement).blur();
+                onFocusEditor?.();
+              }
+            }}
+          />
+          <FormControl
+            sx={{
+              width: 140,
+              flexShrink: 0,
+              '& .MuiOutlinedInput-root': {
+                '& fieldset': { borderColor: 'secondary.main' },
+                '&:hover fieldset': { borderColor: 'secondary.main' },
+              },
+              '& .MuiInputLabel-root': { color: 'secondary.main' },
+            }}
+            size="small"
+          >
+            <InputLabel size="small">Language</InputLabel>
+            <Select
+              size="small"
+              autoWidth
+              value={
+                languages.some((lang) => lang.id === rightNote?.language)
+                  ? rightNote?.language
+                  : ''
+              }
+              onChange={(e) => onRightLanguageChange?.(e.target.value)}
+              label="Language"
+              MenuProps={languageMenuProps}
+            >
+              {languages.map((lang) => (
+                <MenuItem key={`right-${lang.id}`} value={lang.id}>
+                  {lang.aliases?.[0] ?? lang.id}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+      )}
       <Box
         sx={{
           height: 40,
@@ -161,37 +331,24 @@ export const AppBar: React.FC<{
           alignItems: 'center',
         }}
       >
-        <FormControl
-          sx={{
-            width: 200,
-          }}
-          size="small"
-        >
-          <InputLabel size="small">Language</InputLabel>
-          <Select
-            size="small"
-            value={
-              languages.some((lang) => lang.id === currentNote?.language)
-                ? currentNote?.language
-                : ''
-            }
-            onChange={(e) => onLanguageChange(e.target.value)}
-            label="Language"
-            MenuProps={{
-              slotProps: {
-                paper: {
-                  style: { maxHeight: 300 },
-                },
-              },
-            }}
+        <Tooltip title={isSplit ? 'Close Split' : 'Split Editor'} arrow>
+          <IconButton
+            sx={{ fontSize: 16, width: 32, height: 32 }}
+            onClick={onToggleSplit}
+            color={isSplit ? 'primary' : 'default'}
           >
-            {languages.map((lang) => (
-              <MenuItem key={lang.id} value={lang.id}>
-                {lang.aliases?.[0] ?? lang.id}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+            <Flip />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={isMarkdownPreview ? 'Close Preview' : 'Markdown Preview'} arrow>
+          <IconButton
+            sx={{ fontSize: 16, width: 32, height: 32 }}
+            onClick={onToggleMarkdownPreview}
+            color={isMarkdownPreview ? 'primary' : 'default'}
+          >
+            <MarkdownIcon />
+          </IconButton>
+        </Tooltip>
 
         <Box sx={{ ml: 0.5, display: 'flex', alignItems: 'center' }}>
           {syncStatus === 'synced' ? (

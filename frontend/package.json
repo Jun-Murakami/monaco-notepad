@@ -20,11 +20,16 @@
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
     "@wailsio/runtime": "^3.0.0-alpha.79",
+    "allotment": "^1.20.5",
     "dayjs": "^1.11.19",
     "monaco-editor": "^0.55.1",
     "monaco-themes": "^0.4.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
     "simplebar-react": "^3.3.2"
   },
   "devDependencies": {

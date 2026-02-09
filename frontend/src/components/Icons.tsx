@@ -19,6 +19,25 @@ export const EraseIcon = (props: SvgIconProps) => (
   </SvgIcon>
 );
 
+export const MarkdownIcon = (props: SvgIconProps) => (
+	<SvgIcon {...props} viewBox="0 0 24 24">
+		<title>Markdown Preview</title>
+		<rect x="1" y="4" width="22" height="16" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+		<text
+			x="12"
+			y="15.5"
+			textAnchor="middle"
+			fill="currentColor"
+			fontSize="9"
+			fontWeight="bold"
+			fontFamily="Arial, sans-serif"
+			style={{ userSelect: 'none' }}
+		>
+			MD
+		</text>
+	</SvgIcon>
+);
+
 export const GoogleDriveIcon = (props: SvgIconProps) => (
   <SvgIcon {...props} viewBox="0 0 87.3 78">
     <title>Google Drive</title>

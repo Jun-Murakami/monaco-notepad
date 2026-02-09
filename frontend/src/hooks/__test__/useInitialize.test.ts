@@ -100,6 +100,7 @@ describe('useInitialize', () => {
   const mockHandleSaveAsFile = vi.fn();
   const mockHandleSelectNextAnyNote = vi.fn();
   const mockHandleSelectPreviousAnyNote = vi.fn();
+  const mockRestorePaneNotes = vi.fn();
   const mockSetCurrentFileNote = vi.fn();
 
   beforeEach(() => {
@@ -158,6 +159,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockRestorePaneNotes,
       ),
     );
 
@@ -215,6 +217,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockRestorePaneNotes,
       ),
     );
     console.log('フックのレンダリング完了');
@@ -248,6 +251,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockRestorePaneNotes,
       ),
     );
 
@@ -322,6 +326,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockRestorePaneNotes,
       ),
     );
 
@@ -362,6 +367,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockRestorePaneNotes,
       ),
     );
 

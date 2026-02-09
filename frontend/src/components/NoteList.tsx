@@ -34,7 +34,7 @@ import {
   Save,
   SimCardDownload,
 } from '@mui/icons-material';
-import { Box, IconButton, InputBase, List, ListItemButton, Tooltip, Typography, useTheme } from '@mui/material';
+import { Box, IconButton, InputBase, List, ListItemButton, Tooltip, Typography, alpha, useTheme } from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
@@ -64,6 +64,7 @@ interface NoteListProps {
   topLevelOrder?: TopLevelItem[];
   onUpdateTopLevelOrder?: (order: TopLevelItem[]) => void;
   onArchiveFolder?: (folderId: string) => Promise<void>;
+  secondarySelectedNoteId?: string;
 }
 
 interface NoteItemProps {
@@ -81,6 +82,7 @@ interface NoteItemProps {
   onCloseFile?: (note: FileNote) => Promise<void>;
   isFileModified?: (fileId: string) => boolean;
   platform: string;
+  secondarySelectedNoteId?: string;
 }
 
 // ノートアイテム表示コンポーネント（ドラッグはSortableWrapperが担当） ----
@@ -96,6 +98,7 @@ const NoteItem: React.FC<NoteItemProps> = ({
   onCloseFile,
   isFileModified,
   platform,
+  secondarySelectedNoteId,
 }) => {
   const theme = useTheme();
   const cmdKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
@@ -106,174 +109,181 @@ const NoteItem: React.FC<NoteItemProps> = ({
   };
 
   return (
-    <NotePreviewPopper content={'content' in note ? note.content ?? undefined : undefined} anchorX={242}>
-    <Box
-      sx={{
-        position: 'relative',
-        '&:hover .action-button': { opacity: 1 },
-      }}
-    >
-      <ListItemButton
-        selected={currentNote?.id === note.id}
-        onClick={async () => {
-          if (currentNote?.id !== note.id) {
-            await onNoteSelect(note);
-          }
-        }}
+    <NotePreviewPopper content={'content' in note ? (note.content ?? undefined) : undefined} anchorX={242}>
+      <Box
         sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-start',
-          pt: 0.5,
-          pb: 0.25,
-          px: 1.5,
+          position: 'relative',
+          '&:hover .action-button': { opacity: 1 },
         }}
       >
-        <Typography
-          noWrap
-          variant='body2'
+        <ListItemButton
+          selected={currentNote?.id === note.id}
+          onClick={async () => {
+            if (currentNote?.id !== note.id) {
+              await onNoteSelect(note);
+            }
+          }}
           sx={{
-            width: '100%',
-            fontStyle: isFileModified?.(note.id) || noteTitle.isFallback ? 'italic' : 'normal',
-            opacity: noteTitle.isFallback ? 0.6 : 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            pt: 0.5,
+            pb: 0.25,
+            px: 1.5,
+            ...(currentNote?.id !== note.id &&
+              note.id === secondarySelectedNoteId && {
+                backgroundColor: alpha(theme.palette.secondary.main, theme.palette.mode === 'dark' ? 0.16 : 0.12),
+                '&:hover': {
+                  backgroundColor: alpha(theme.palette.secondary.main, theme.palette.mode === 'dark' ? 0.24 : 0.18),
+                },
+              }),
           }}
         >
-          {isFileModified?.(note.id) && (
-            <DriveFileRenameOutline
-              sx={{
-                mb: -0.5,
-                mr: 0.5,
-                width: 18,
-                height: 18,
-                color: 'text.secondary',
-              }}
-            />
-          )}
-          {noteTitle.text}
-        </Typography>
-        <Typography
-          variant='caption'
-          sx={{
-            color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.20)' : 'rgba(0, 0, 0, 0.20)',
-            width: '100%',
-            textAlign: 'right',
-          }}
-        >
-          {dayjs(note.modifiedTime).format('L _ HH:mm:ss')}
-        </Typography>
-      </ListItemButton>
-      {isFileMode ? (
-        <>
-          <Tooltip title={`Save (${cmdKey} + S)`} arrow placement='bottom'>
-            <span style={{ position: 'absolute', right: 72, top: 8 }}>
-              <IconButton
-                className='action-button'
-                disabled={!isFileModified?.(note.id) || (isFileNote(note) && note.filePath === '')}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (isFileNote(note) && isFileModified?.(note.id) && onSaveFile) {
-                    await onSaveFile(note);
-                  }
-                }}
+          <Typography
+            noWrap
+            variant='body2'
+            sx={{
+              width: '100%',
+              fontStyle: isFileModified?.(note.id) || noteTitle.isFallback ? 'italic' : 'normal',
+              opacity: noteTitle.isFallback ? 0.6 : 1,
+            }}
+          >
+            {isFileModified?.(note.id) && (
+              <DriveFileRenameOutline
                 sx={{
-                  opacity: 0,
-                  transition: 'opacity 0.2s',
-                  width: 26,
-                  height: 26,
-                  backgroundColor: 'background.default',
-                  '&:hover': {
-                    backgroundColor: 'primary.main',
-                  },
+                  mb: -0.5,
+                  mr: 0.5,
+                  width: 18,
+                  height: 18,
+                  color: 'text.secondary',
                 }}
-              >
-                <Save sx={{ width: 18, height: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title='Convert to Note' arrow placement='bottom'>
-            <span style={{ position: 'absolute', right: 40, top: 8 }}>
-              <IconButton
-                className='action-button'
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (isFileNote(note) && onConvertToNote) {
-                    await onConvertToNote(note);
-                  }
-                }}
-                sx={{
-                  opacity: 0,
-                  transition: 'opacity 0.2s',
-                  width: 26,
-                  height: 26,
-                  backgroundColor: 'background.default',
-                  '&:hover': {
-                    backgroundColor: 'primary.main',
-                  },
-                }}
-              >
-                <SimCardDownload sx={{ width: 18, height: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={`Close (${cmdKey} + W)`} arrow placement='bottom'>
-            <span style={{ position: 'absolute', right: 8, top: 8 }}>
-              <IconButton
-                className='action-button'
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (isFileNote(note) && onCloseFile) {
-                    await onCloseFile(note);
-                  }
-                }}
-                sx={{
-                  opacity: 0,
-                  transition: 'opacity 0.2s',
-                  width: 26,
-                  height: 26,
-                  backgroundColor: 'background.default',
-                  '&:hover': {
-                    backgroundColor: 'primary.main',
-                  },
-                }}
-              >
-                <Close sx={{ width: 18, height: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </>
-      ) : (
-        onArchive && (
-          <Tooltip title={`Archive (${cmdKey} + W)`} arrow placement='bottom'>
-            <span style={{ position: 'absolute', right: 8, top: 8 }}>
-              <IconButton
-                className='action-button'
-                aria-label={`Archive (${cmdKey} + W)`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  await onArchive(note.id);
-                }}
-                sx={{
-                  opacity: 0,
-                  transition: 'opacity 0.2s',
-                  width: 26,
-                  height: 26,
-                  backgroundColor: 'background.default',
-                  '&:hover': {
-                    backgroundColor: 'primary.main',
-                  },
-                }}
-              >
-                <Archive sx={{ width: 18, height: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-        )
-      )}
-    </Box>
+              />
+            )}
+            {noteTitle.text}
+          </Typography>
+          <Typography
+            variant='caption'
+            sx={{
+              color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.20)' : 'rgba(0, 0, 0, 0.20)',
+              width: '100%',
+              textAlign: 'right',
+            }}
+          >
+            {dayjs(note.modifiedTime).format('L _ HH:mm:ss')}
+          </Typography>
+        </ListItemButton>
+        {isFileMode ? (
+          <>
+            <Tooltip title={`Save (${cmdKey} + S)`} arrow placement='bottom'>
+              <span style={{ position: 'absolute', right: 72, top: 8 }}>
+                <IconButton
+                  className='action-button'
+                  disabled={!isFileModified?.(note.id) || (isFileNote(note) && note.filePath === '')}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (isFileNote(note) && isFileModified?.(note.id) && onSaveFile) {
+                      await onSaveFile(note);
+                    }
+                  }}
+                  sx={{
+                    opacity: 0,
+                    transition: 'opacity 0.2s',
+                    width: 26,
+                    height: 26,
+                    backgroundColor: 'background.default',
+                    '&:hover': {
+                      backgroundColor: 'primary.main',
+                    },
+                  }}
+                >
+                  <Save sx={{ width: 18, height: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title='Convert to Note' arrow placement='bottom'>
+              <span style={{ position: 'absolute', right: 40, top: 8 }}>
+                <IconButton
+                  className='action-button'
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (isFileNote(note) && onConvertToNote) {
+                      await onConvertToNote(note);
+                    }
+                  }}
+                  sx={{
+                    opacity: 0,
+                    transition: 'opacity 0.2s',
+                    width: 26,
+                    height: 26,
+                    backgroundColor: 'background.default',
+                    '&:hover': {
+                      backgroundColor: 'primary.main',
+                    },
+                  }}
+                >
+                  <SimCardDownload sx={{ width: 18, height: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={`Close (${cmdKey} + W)`} arrow placement='bottom'>
+              <span style={{ position: 'absolute', right: 8, top: 8 }}>
+                <IconButton
+                  className='action-button'
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (isFileNote(note) && onCloseFile) {
+                      await onCloseFile(note);
+                    }
+                  }}
+                  sx={{
+                    opacity: 0,
+                    transition: 'opacity 0.2s',
+                    width: 26,
+                    height: 26,
+                    backgroundColor: 'background.default',
+                    '&:hover': {
+                      backgroundColor: 'primary.main',
+                    },
+                  }}
+                >
+                  <Close sx={{ width: 18, height: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </>
+        ) : (
+          onArchive && (
+            <Tooltip title={`Archive (${cmdKey} + W)`} arrow placement='bottom'>
+              <span style={{ position: 'absolute', right: 8, top: 8 }}>
+                <IconButton
+                  className='action-button'
+                  aria-label={`Archive (${cmdKey} + W)`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await onArchive(note.id);
+                  }}
+                  sx={{
+                    opacity: 0,
+                    transition: 'opacity 0.2s',
+                    width: 26,
+                    height: 26,
+                    backgroundColor: 'background.default',
+                    '&:hover': {
+                      backgroundColor: 'primary.main',
+                    },
+                  }}
+                >
+                  <Archive sx={{ width: 18, height: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )
+        )}
+      </Box>
     </NotePreviewPopper>
   );
 };
@@ -472,9 +482,9 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
                 handleStartEdit();
               }}
               onPointerDown={(e) => e.stopPropagation()}
-              sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
+              sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25, mx: 1 }}
             >
-              <DriveFileRenameOutline sx={{ width: 14, height: 14, color: 'text.secondary' }} />
+              <DriveFileRenameOutline sx={{ fontSize: 18, color: 'text.secondary' }} />
             </IconButton>
           </Tooltip>
           {isEmpty ? (
@@ -489,7 +499,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
                 onPointerDown={(e) => e.stopPropagation()}
                 sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
               >
-                <Delete sx={{ width: 14, height: 14, color: 'text.secondary' }} />
+                <Delete sx={{ fontSize: 18, color: 'text.secondary' }} />
               </IconButton>
             </Tooltip>
           ) : (
@@ -504,7 +514,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
                 onPointerDown={(e) => e.stopPropagation()}
                 sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
               >
-                <Archive sx={{ width: 14, height: 14, color: 'text.secondary' }} />
+                <Archive sx={{ fontSize: 18, color: 'text.secondary' }} />
               </IconButton>
             </Tooltip>
           )}
@@ -537,6 +547,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   topLevelOrder = [],
   onUpdateTopLevelOrder,
   onArchiveFolder,
+  secondarySelectedNoteId,
 }) => {
   const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived);
   const sensors = useSensors(
@@ -613,6 +624,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       onCloseFile={onCloseFile}
       isFileModified={isFileModified}
       platform={platform}
+      secondarySelectedNoteId={secondarySelectedNoteId}
     />
   );
 
@@ -1183,7 +1195,16 @@ export const NoteList: React.FC<NoteListProps> = ({
       if (overId !== itemId) return null;
       return insertAbove ? 'top' : 'bottom';
     },
-    [activeDragId, overId, isLastFolderNoteBoundary, lastFolderNoteIds, lastFolderNoteByFolderId, boundaryIndented, extractNoteId, insertAbove],
+    [
+      activeDragId,
+      overId,
+      isLastFolderNoteBoundary,
+      lastFolderNoteIds,
+      lastFolderNoteByFolderId,
+      boundaryIndented,
+      extractNoteId,
+      insertAbove,
+    ],
   );
 
   const hasFolders = !isFileMode && folders.length > 0;

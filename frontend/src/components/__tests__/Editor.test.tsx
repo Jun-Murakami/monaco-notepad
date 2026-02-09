@@ -2,7 +2,7 @@ import { render } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { disposeEditor, getMonaco, getOrCreateEditor } from '../../lib/monaco';
+import { createEditor, disposeEditorInstance, getMonaco } from '../../lib/monaco';
 import type { Settings } from '../../types';
 import { Editor } from '../Editor';
 
@@ -23,8 +23,10 @@ vi.mock('../../lib/monaco', () => {
       changeContentCallback = callback;
       return { dispose: vi.fn() };
     }),
+    onDidFocusEditorText: vi.fn(() => ({ dispose: vi.fn() })),
     addCommand: vi.fn(),
     updateOptions: vi.fn(),
+    dispose: vi.fn(),
   };
 
   const mockMonaco = {
@@ -55,8 +57,8 @@ vi.mock('../../lib/monaco', () => {
 
   return {
     getMonaco: vi.fn(() => mockMonaco),
-    getOrCreateEditor: vi.fn(() => mockEditor),
-    disposeEditor: vi.fn(),
+    createEditor: vi.fn(() => mockEditor),
+    disposeEditorInstance: vi.fn(),
     getThemePair: vi.fn((id: string) => {
       const pairs: Record<string, { id: string; label: string; light: string; dark: string }> = {
         default: { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
@@ -78,8 +80,10 @@ type MockEditor = {
   getModel: Mock;
   setModel: Mock;
   onDidChangeModelContent: Mock;
+  onDidFocusEditorText: Mock;
   addCommand: Mock;
   updateOptions: Mock;
+  dispose: Mock;
 };
 
 type MockMonaco = {
@@ -110,7 +114,7 @@ type MockMonaco = {
 
 // モック関数への参照を取得
 const getMockFunctions = () => {
-  const mockEditor = (getOrCreateEditor as unknown as Mock<() => MockEditor>)();
+  const mockEditor = (createEditor as unknown as Mock<() => MockEditor>)();
   const mockMonaco = (getMonaco as unknown as Mock<() => MockMonaco>)();
   return {
     editor: mockEditor,
@@ -167,7 +171,7 @@ describe('Editor', () => {
   it('エディタが正しく初期化されること', () => {
     render(<Editor {...defaultProps} />);
 
-    expect(getOrCreateEditor).toHaveBeenCalledWith(
+    expect(createEditor).toHaveBeenCalledWith(
       expect.any(HTMLDivElement),
       expect.objectContaining({
         value: '',
@@ -385,7 +389,7 @@ describe('Editor', () => {
   it('コンポーネントのアンマウント時にエディタが破棄されること', () => {
     const { unmount } = render(<Editor {...defaultProps} />);
     unmount();
-    expect(disposeEditor).toHaveBeenCalled();
+    expect(disposeEditorInstance).toHaveBeenCalled();
   });
 
   it('currentNoteが変更されたときにモデルが正しく設定されること', () => {

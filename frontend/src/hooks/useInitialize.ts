@@ -28,6 +28,7 @@ export const useInitialize = (
   handleSaveAsFile: () => Promise<void>,
   handleSelectNextAnyNote: () => Promise<void>,
   handleSelectPreviousAnyNote: () => Promise<void>,
+  restorePaneNotes: (notes: Note[], fileNotes: FileNote[]) => void,
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
@@ -79,7 +80,8 @@ export const useInitialize = (
     } else {
       handleNewNote();
     }
-	}, [handleNewNote, handleSelecAnyNote, setFileNotes, setFolders, setTopLevelOrder, setNotes]);
+    restorePaneNotes(parsedNotes, loadedFileNotes);
+	}, [handleNewNote, handleSelecAnyNote, setFileNotes, setFolders, setTopLevelOrder, setNotes, restorePaneNotes]);
 
   useEffect(() => {
     if (isInitialized) return;

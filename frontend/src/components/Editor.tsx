@@ -2,9 +2,9 @@ import { Box } from '@mui/material';
 import type { editor } from 'monaco-editor';
 import { useEffect, useRef } from 'react';
 import {
-  disposeEditor,
+  createEditor,
+  disposeEditorInstance,
   getMonaco,
-  getOrCreateEditor,
   getThemePair,
 } from '../lib/monaco';
 import type { FileNote, Note, Settings } from '../types';
@@ -19,6 +19,7 @@ interface EditorProps {
   currentNote: Note | FileNote | null;
   searchKeyword?: string;
   searchMatchIndexInNote?: number;
+  onFocus?: () => void;
   onNew?: () => void;
   onOpen?: () => void;
   onSave?: () => void;
@@ -38,6 +39,7 @@ export const Editor: React.FC<EditorProps> = ({
   currentNote,
   searchKeyword,
   searchMatchIndexInNote = 0,
+  onFocus,
   onNew,
   onOpen,
   onSave,
@@ -47,12 +49,13 @@ export const Editor: React.FC<EditorProps> = ({
   onSelectPrevious,
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
+  const onFocusRef = useRef(onFocus);
+  onFocusRef.current = onFocus;
 
-  // エディタの初期化（テーマ・フォント等は設定変更useEffectが適用するためデフォルト値で生成）
   useEffect(() => {
     if (!editorRef.current) return;
 
-    editorInstanceRef.current = getOrCreateEditor(editorRef.current, {
+    const instance = createEditor(editorRef.current, {
       value: '',
       language: 'plaintext',
       theme: 'vs',
@@ -73,9 +76,16 @@ export const Editor: React.FC<EditorProps> = ({
       occurrencesHighlight: 'off',
       wordWrap: 'off',
     });
+    editorInstanceRef.current = instance;
+
+    const focusDisposable = instance.onDidFocusEditorText(() => {
+      onFocusRef.current?.();
+    });
 
     return () => {
-      disposeEditor();
+      focusDisposable.dispose();
+      disposeEditorInstance(instance);
+      editorInstanceRef.current = null;
     };
   }, [editorInstanceRef]);
 

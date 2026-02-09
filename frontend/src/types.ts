@@ -65,6 +65,13 @@ export type Settings = {
 	isDebug: boolean;
 };
 
+export type EditorPane = 'left' | 'right';
+
+export type PaneState = {
+	note: Note | null;
+	fileNote: FileNote | null;
+};
+
 // デフォルトの設定
 export const DEFAULT_EDITOR_SETTINGS: Partial<Settings> = {
 	fontFamily: 'Consolas, Monaco, "Courier New", monospace',
