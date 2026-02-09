@@ -76,7 +76,7 @@ export const Editor: React.FC<EditorProps> = ({
     return () => {
       disposeEditor();
     };
-  }, [editorInstanceRef, settings.editorTheme, settings.isDarkMode]); // 初期化は一度だけ
+  }, [editorInstanceRef]); // 初期化は一度だけ（テーマ変更では再初期化しない）
 
   // イベントリスナーの設定
   useEffect(() => {
