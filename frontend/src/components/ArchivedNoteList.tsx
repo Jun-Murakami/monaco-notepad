@@ -351,7 +351,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         },
       }}
     >
-      <Box sx={{ width: '100%', maxWidth: 900, display: 'flex', alignItems: 'center', gap: 2, px: 2, py: 1.5 }}>
+      <Box sx={{ width: '100%', maxWidth: 640, display: 'flex', alignItems: 'center', gap: 2, px: 2, py: 1.5 }}>
         <IconButton onClick={onClose} sx={{ ml: -1, width: 32, height: 32 }}>
           <ArrowBack />
         </IconButton>
@@ -375,7 +375,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
       <Divider sx={{ width: '100%' }} />
       <SimpleBar style={{ maxHeight: '100%', width: '100%', overflowX: 'hidden' }}>
         <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-          <List sx={{ width: '100%', maxWidth: 900, overflow: 'auto', mb: 8, py: 0 }}>
+          <List sx={{ width: '100%', maxWidth: 640, overflow: 'auto', mb: 8, py: 0 }}>
           <DndContext
             sensors={sensors}
             onDragStart={handleDragStart}
