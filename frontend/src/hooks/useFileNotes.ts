@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CheckFileExists,
   CheckFileModified,
@@ -32,6 +32,8 @@ export const useFileNotes = ({
 }: UseFileNotesProps) => {
   const [fileNotes, setFileNotes] = useState<FileNote[]>([]);
   const [currentFileNote, setCurrentFileNote] = useState<FileNote | null>(null);
+  const currentFileNoteRef = useRef(currentFileNote);
+  currentFileNoteRef.current = currentFileNote;
 
   // ファイルの変更チェックとリロードの共通処理 ------------------------------------------------------------
   const checkAndReloadFile = useCallback(
@@ -239,6 +241,10 @@ export const useFileNotes = ({
       await SaveFileNotes(
         newFileNotes.map((note) => backend.FileNote.createFrom(note)),
       );
+      // 閉じたファイルが現在表示中のファイルでない場合は選択を変更しない
+      if (currentFileNoteRef.current?.id !== fileNote.id) {
+        return;
+      }
       // ファイルが残っている場合は、最初のファイルを選択
       if (newFileNotes.length > 0) {
         setCurrentFileNote(newFileNotes[0]);

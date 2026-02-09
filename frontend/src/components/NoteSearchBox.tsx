@@ -49,7 +49,7 @@ export const NoteSearchBox = ({
   return (
     <Box
       sx={{
-        borderTop: 1,
+        borderBottom: 1,
         borderColor: 'divider',
         px: 0.5,
         py: 0.25,

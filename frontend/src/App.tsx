@@ -237,6 +237,7 @@ function App() {
           onNew={handleNewNote}
           onOpen={handleOpenFile}
           onSave={handleSaveAsFile}
+          onFocusEditor={() => editorInstanceRef.current?.focus()}
           showMessage={showMessage}
         />
         <Divider />
@@ -257,6 +258,14 @@ function App() {
             },
           }}
         >
+          <NoteSearchBox
+            value={noteSearch}
+            onChange={handleSearchChange}
+            onNext={() => handleSearchNavigate('next')}
+            onPrevious={() => handleSearchNavigate('prev')}
+            matchIndex={searchMatchIndex}
+            matchCount={totalSearchMatches}
+          />
           <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
             <SimpleBar style={{ height: '100%' }}>
               {filteredFileNotes.length > 0 && (
@@ -355,14 +364,6 @@ function App() {
               />
             </SimpleBar>
           </Box>
-          <NoteSearchBox
-            value={noteSearch}
-            onChange={handleSearchChange}
-            onNext={() => handleSearchNavigate('next')}
-            onPrevious={() => handleSearchNavigate('prev')}
-            matchIndex={searchMatchIndex}
-            matchCount={totalSearchMatches}
-          />
           <Button
             fullWidth
             disabled={notes.filter((note) => note.archived).length === 0 && folders.filter((f) => f.archived).length === 0}
@@ -402,7 +403,16 @@ function App() {
               archivedTopLevelOrder={archivedTopLevelOrder}
               onUnarchive={handleUnarchiveNote}
               onDelete={handleDeleteNote}
-              onDeleteAll={handleDeleteAllArchivedNotes}
+              onDeleteAll={async () => {
+                const confirmed = await showMessage(
+                  'Delete all',
+                  'Delete all archived notes? This cannot be undone.',
+                  true,
+                  'Delete',
+                  'Cancel',
+                );
+                if (confirmed) handleDeleteAllArchivedNotes();
+              }}
               onClose={() => setShowArchived(false)}
               onUnarchiveFolder={handleUnarchiveFolder}
               onDeleteFolder={handleDeleteArchivedFolder}

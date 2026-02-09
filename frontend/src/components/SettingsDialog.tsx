@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useEffect, useState } from 'react';
+import { OpenAppFolder } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import type { Settings } from '../types';
 import { DEFAULT_EDITOR_SETTINGS } from '../types';
@@ -214,7 +215,19 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 label="Debug Mode"
               />
               <Typography variant="caption" color="textSecondary">
-                Debug mode will output logs to app folder.
+                Debug mode will output logs to{' '}
+                <Box
+                  component="span"
+                  onClick={() => OpenAppFolder()}
+                  sx={{
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    '&:hover': { color: 'primary.main' },
+                  }}
+                >
+                  app folder
+                </Box>
+                .
               </Typography>
             </Box>
           </Grid>

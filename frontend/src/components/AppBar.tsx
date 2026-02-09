@@ -36,6 +36,7 @@ export const AppBar: React.FC<{
   onNew: () => Promise<void>;
   onOpen: () => Promise<void>;
   onSave: () => Promise<void>;
+  onFocusEditor?: () => void;
   showMessage: (
     title: string,
     message: string,
@@ -51,6 +52,7 @@ export const AppBar: React.FC<{
   onNew,
   onOpen,
   onSave,
+  onFocusEditor,
   showMessage,
 }) => {
   const {
@@ -140,6 +142,13 @@ export const AppBar: React.FC<{
           }
           onChange={(e) => onTitleChange(e.target.value)}
           disabled={isFileNote(currentNote)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+              onFocusEditor?.();
+            }
+          }}
         />
       </Box>
       <Box

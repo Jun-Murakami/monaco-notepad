@@ -3,6 +3,8 @@ package backend
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -116,4 +118,15 @@ func (s *fileService) CheckFileModified(filePath string, lastModifiedTime string
 func (s *fileService) CheckFileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+func (s *fileService) OpenFolder(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Start()
+	case "windows":
+		return exec.Command("explorer", path).Start()
+	default:
+		return exec.Command("xdg-open", path).Start()
+	}
 }

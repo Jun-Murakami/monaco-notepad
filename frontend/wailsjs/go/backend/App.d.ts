@@ -60,6 +60,8 @@ export function MoveNoteToFolder(arg1:string,arg2:string):Promise<void>;
 
 export function NotifyFrontendReady():Promise<void>;
 
+export function OpenAppFolder():Promise<void>;
+
 export function OpenFile(arg1:string):Promise<string>;
 
 export function OpenFileFromExternal(arg1:string):Promise<void>;

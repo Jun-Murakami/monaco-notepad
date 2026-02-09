@@ -256,27 +256,42 @@ export const useNotes = () => {
       );
       await SaveNote(backend.Note.createFrom(archivedNote), 'update');
 
-      const rawArchivedOrder = await GetArchivedTopLevelOrder();
-      setArchivedTopLevelOrder(
-        (rawArchivedOrder ?? []).map((item) => ({
-          type: item.type as 'note' | 'folder',
-          id: item.id,
-        })),
-      );
+      const newArchivedOrder = [
+        { type: 'note' as const, id: noteId },
+        ...archivedTopLevelOrder.filter((item) => !(item.type === 'note' && item.id === noteId)),
+      ];
+      setArchivedTopLevelOrder(newArchivedOrder);
+      await UpdateArchivedTopLevelOrder(newArchivedOrder);
 
-      // アーカイブされたノートを選択している場合は、アクティブなノートに切り替える
+      // アーカイブされたノートを選択している場合は、リスト先頭のノートに切り替える
       if (currentNote?.id === noteId) {
-        const activeNotes = notes.filter(
-          (note) => !note.archived && note.id !== noteId,
+        const activeNoteMap = new Map(
+          notes.filter((n) => !n.archived && n.id !== noteId).map((n) => [n.id, n]),
         );
-        if (activeNotes.length > 0) {
-          setCurrentNote(activeNotes[0]);
+        let nextNote: Note | undefined;
+        for (const item of topLevelOrder) {
+          if (item.type === 'note' && activeNoteMap.has(item.id)) {
+            nextNote = activeNoteMap.get(item.id);
+            break;
+          }
+          if (item.type === 'folder') {
+            const folderNote = notes.find(
+              (n) => n.folderId === item.id && !n.archived && n.id !== noteId,
+            );
+            if (folderNote) {
+              nextNote = folderNote;
+              break;
+            }
+          }
+        }
+        if (nextNote) {
+          setCurrentNote(nextNote);
         } else {
           await handleNewNote();
         }
       }
     },
-    [currentNote, handleNewNote, notes],
+    [currentNote, handleNewNote, notes, topLevelOrder, archivedTopLevelOrder],
   );
 
   // ノートを選択する ------------------------------------------------------------
@@ -448,7 +463,7 @@ export const useNotes = () => {
   const handleCreateFolder = useCallback(async (name: string) => {
     const folder = await CreateFolder(name);
     setFolders((prev) => [...prev, folder]);
-    setTopLevelOrder((prev) => [...prev, { type: 'folder', id: folder.id }]);
+    setTopLevelOrder((prev) => [{ type: 'folder', id: folder.id }, ...prev]);
     return folder;
   }, []);
 

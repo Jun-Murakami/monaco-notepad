@@ -1,12 +1,4 @@
-import {
-  Box,
-  Divider,
-  List,
-  ListItem,
-  Popover,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import { Box, Divider, List, ListItem, Popover, Tooltip, Typography } from '@mui/material';
 import type { editor, IDisposable } from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
@@ -35,10 +27,7 @@ interface EditorStatusBarProps {
   currentNote: Note | FileNote | null;
 }
 
-export const EditorStatusBar = ({
-  editorInstanceRef,
-  currentNote,
-}: EditorStatusBarProps) => {
+export const EditorStatusBar = ({ editorInstanceRef, currentNote }: EditorStatusBarProps) => {
   const [logMessage, setLogMessage] = useState<string>('');
   const [opacity, setOpacity] = useState<number>(1);
   const logTimeoutRef = useRef<number | null>(null);
@@ -72,9 +61,7 @@ export const EditorStatusBar = ({
       const end = `${selection.endLineNumber}.${selection.endColumn}`;
       info.push(`Select: [ ${start} -> ${end} ]`);
     } else if (position) {
-      info.push(
-        `Cursor Position: [ Line ${position.lineNumber}, Col ${position.column} ]`,
-      );
+      info.push(`Cursor Position: [ Line ${position.lineNumber}, Col ${position.column} ]`);
     }
 
     return info;
@@ -155,7 +142,8 @@ export const EditorStatusBar = ({
         borderTop: 1,
         borderColor: 'divider',
         px: 2,
-        height: 39.5,
+        height: 37,
+        minHeight: 37,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'flex-start',
@@ -164,25 +152,20 @@ export const EditorStatusBar = ({
       }}
     >
       <Box sx={{ display: 'flex', width: 220, textAlign: 'left' }}>
-        <Typography variant="caption" component="div" sx={{ mx: 2 }} noWrap>
+        <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
           {info[0]}
         </Typography>
-        <Typography variant="caption" component="div" sx={{ mx: 2 }} noWrap>
+        <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
           {info[1]}
         </Typography>
       </Box>
 
       <Box sx={{ display: 'flex', textAlign: 'left', width: 280 }}>
-        <Divider orientation="vertical" flexItem />
-        <Typography
-          variant="caption"
-          component="div"
-          sx={{ mx: 4, width: '100%' }}
-          noWrap
-        >
+        <Divider orientation='vertical' flexItem />
+        <Typography variant='caption' component='div' sx={{ mx: 4, width: '100%' }} noWrap>
           {info[2]}
         </Typography>
-        <Divider orientation="vertical" flexItem sx={{ right: 0 }} />
+        <Divider orientation='vertical' flexItem sx={{ right: 0 }} />
       </Box>
 
       <Box
@@ -195,15 +178,7 @@ export const EditorStatusBar = ({
         }}
       >
         <VersionUp />
-        <Tooltip
-          title={
-            messageHistoryRef.current.length > 0
-              ? 'Open Notification History'
-              : ''
-          }
-          arrow
-          placement="top"
-        >
+        <Tooltip title={messageHistoryRef.current.length > 0 ? 'Open Notification History' : ''} arrow placement='top'>
           <Box
             onClick={(e) => {
               if (messageHistoryRef.current.length > 0) {
@@ -212,8 +187,7 @@ export const EditorStatusBar = ({
               }
             }}
             sx={{
-              cursor:
-                messageHistoryRef.current.length > 0 ? 'pointer' : 'default',
+              cursor: messageHistoryRef.current.length > 0 ? 'pointer' : 'default',
               flexGrow: 1,
               minWidth: 0,
               py: 0.5,
@@ -227,7 +201,7 @@ export const EditorStatusBar = ({
             }}
           >
             <Typography
-              variant="caption"
+              variant='caption'
               sx={{
                 mx: 4,
                 color: 'text.secondary',
@@ -256,18 +230,15 @@ export const EditorStatusBar = ({
               width: historyWidth,
               maxWidth: 'none',
               overflow: 'hidden',
-              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before':
-                {
-                  backgroundColor: 'text.secondary',
-                },
+              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
+                backgroundColor: 'text.secondary',
+              },
             },
           },
         }}
       >
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="subtitle2">
-            Notification History ({messageHistoryRef.current.length})
-          </Typography>
+          <Typography variant='subtitle2'>Notification History ({messageHistoryRef.current.length})</Typography>
         </Box>
         <SimpleBar
           style={{
@@ -286,7 +257,7 @@ export const EditorStatusBar = ({
                 }}
               >
                 <Typography
-                  variant="caption"
+                  variant='caption'
                   sx={{
                     color: 'text.disabled',
                     mr: 1.5,
@@ -296,10 +267,7 @@ export const EditorStatusBar = ({
                 >
                   {formatTime(entry.timestamp)}
                 </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ color: 'text.secondary', wordBreak: 'break-word' }}
-                >
+                <Typography variant='caption' sx={{ color: 'text.secondary', wordBreak: 'break-word' }}>
                   {entry.message}
                 </Typography>
               </ListItem>

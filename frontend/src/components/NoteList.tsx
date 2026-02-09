@@ -1328,9 +1328,11 @@ export const NoteList: React.FC<NoteListProps> = ({
       <DndContext sensors={sensors} onDragEnd={handleDragEndFlat} modifiers={[restrictToVerticalAxis]}>
         <SortableContext items={activeNotes.map((note) => note.id)} strategy={verticalListSortingStrategy}>
           {activeNotes.map((note) => (
-            <SortableWrapper key={note.id} id={note.id}>
-              {renderNoteItem(note)}
-            </SortableWrapper>
+            <Box sx={{ mx: 1 }}>
+              <SortableWrapper key={note.id} id={note.id}>
+                {renderNoteItem(note)}
+              </SortableWrapper>
+            </Box>
           ))}
         </SortableContext>
       </DndContext>

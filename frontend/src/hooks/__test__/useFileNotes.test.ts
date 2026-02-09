@@ -292,6 +292,9 @@ describe('useFileNotes', () => {
 
       await act(async () => {
         await result.current.handleSelectFileNote(mockFileNote);
+      });
+
+      await act(async () => {
         await result.current.handleCloseFile(mockFileNote);
       });
 
@@ -307,6 +310,9 @@ describe('useFileNotes', () => {
 
       await act(async () => {
         await result.current.handleSelectFileNote(mockFileNote);
+      });
+
+      await act(async () => {
         await result.current.handleCloseFile(mockFileNote);
       });
 

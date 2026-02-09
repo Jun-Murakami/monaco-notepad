@@ -335,6 +335,10 @@ describe('useNotes', () => {
           activeNote2,
         ]);
         result.current.setNotes([activeNote1, activeNote2]);
+        result.current.setTopLevelOrder([
+          { type: 'note', id: '1' },
+          { type: 'note', id: '2' },
+        ]);
         await result.current.handleSelectNote(activeNote1);
       });
 

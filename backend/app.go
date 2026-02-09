@@ -640,6 +640,11 @@ func (a *App) OpenURL(url string) error {
 	return nil
 }
 
+// OpenAppFolder はアプリケーションデータフォルダをOSのファイルマネージャーで開きます
+func (a *App) OpenAppFolder() error {
+	return a.fileService.OpenFolder(a.appDataDir)
+}
+
 // CheckFileExists は指定されたパスのファイルが存在するかチェックします
 func (a *App) CheckFileExists(path string) bool {
 	return a.fileService.CheckFileExists(path)

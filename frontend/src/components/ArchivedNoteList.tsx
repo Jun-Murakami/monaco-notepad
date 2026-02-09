@@ -24,11 +24,13 @@ import {
 import {
   ArrowBack,
   ChevronRight,
+  Close,
   DeleteForever,
   DeleteSweep,
   ExpandMore,
   Folder as FolderIcon,
   FolderOpen,
+  Search,
   Unarchive,
 } from '@mui/icons-material';
 import {
@@ -36,6 +38,8 @@ import {
   Button,
   Divider,
   IconButton,
+  InputAdornment,
+  InputBase,
   List,
   ListItemButton,
   Tooltip,
@@ -157,9 +161,40 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   const lastInsertAbove = useRef(false);
   const lastOverIdRef = useRef<string | null>(null);
   const overIdTimestampRef = useRef(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const archivedNotes = useMemo(() => notes.filter((n) => n.archived), [notes]);
-  const archivedFolders = useMemo(() => folders.filter((f) => f.archived), [folders]);
+  const allArchivedNotes = useMemo(() => notes.filter((n) => n.archived), [notes]);
+  const allArchivedFolders = useMemo(() => folders.filter((f) => f.archived), [folders]);
+
+  const matchingNoteIds = useMemo(() => {
+    if (!searchQuery) return null;
+    const q = searchQuery.toLowerCase();
+    const ids = new Set<string>();
+    for (const note of allArchivedNotes) {
+      if (
+        note.title.toLowerCase().includes(q) ||
+        (note.contentHeader?.toLowerCase().includes(q) ?? false) ||
+        (note.content?.toLowerCase().includes(q) ?? false)
+      ) {
+        ids.add(note.id);
+      }
+    }
+    return ids;
+  }, [allArchivedNotes, searchQuery]);
+
+  const archivedNotes = useMemo(() => {
+    if (!matchingNoteIds) return allArchivedNotes;
+    return allArchivedNotes.filter((n) => matchingNoteIds.has(n.id));
+  }, [allArchivedNotes, matchingNoteIds]);
+
+  const archivedFolders = useMemo(() => {
+    if (!matchingNoteIds) return allArchivedFolders;
+    const folderIdsWithMatch = new Set(
+      archivedNotes.filter((n) => n.folderId).map((n) => n.folderId),
+    );
+    return allArchivedFolders.filter((f) => folderIdsWithMatch.has(f.id));
+  }, [allArchivedFolders, matchingNoteIds, archivedNotes]);
   const archivedFolderIds = useMemo(() => new Set(archivedFolders.map((f) => f.id)), [archivedFolders]);
 
   const noteMap = useMemo(() => new Map(archivedNotes.map((n) => [n.id, n])), [archivedNotes]);
@@ -177,7 +212,8 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     return map;
   }, [archivedNotes, archivedFolderIds]);
 
-  const hasArchivedItems = archivedNotes.length > 0 || archivedFolders.length > 0;
+  const hasArchivedItems = allArchivedNotes.length > 0 || allArchivedFolders.length > 0;
+  const hasSearchResults = archivedNotes.length > 0 || archivedFolders.length > 0;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -252,6 +288,8 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   const flatItems = useMemo(() => {
     const items: string[] = [];
     for (const item of archivedTopLevelOrder) {
+      if (item.type === 'note' && !noteMap.has(item.id)) continue;
+      if (item.type === 'folder' && !folderMap.has(item.id)) continue;
       const itemId = toTopLevelId(item);
       items.push(itemId);
       if (item.type === 'folder' && !collapsedFolders.has(item.id) && activeDragId !== itemId) {
@@ -262,7 +300,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
       }
     }
     return items;
-  }, [archivedTopLevelOrder, toTopLevelId, collapsedFolders, activeDragId, folderNoteMap]);
+  }, [archivedTopLevelOrder, toTopLevelId, collapsedFolders, activeDragId, folderNoteMap, noteMap, folderMap]);
 
   const folderAwareCollision: CollisionDetection = useCallback((args) => {
     const activeId = args.active.id as string;
@@ -881,6 +919,41 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         </IconButton>
         <Typography variant='subtitle1' fontWeight={600}>Archived notes</Typography>
         <Box sx={{ flexGrow: 1 }} />
+        <InputBase
+          inputRef={searchInputRef}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setSearchQuery('');
+              searchInputRef.current?.blur();
+            }
+          }}
+          placeholder='Search...'
+          size='small'
+          sx={{
+            maxWidth: 200,
+            fontSize: '0.8rem',
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 1,
+            '& .MuiInputBase-input': { py: 0.5, px: 0.5 },
+          }}
+          startAdornment={
+            <InputAdornment position='start' sx={{ ml: 0.5, mr: 0 }}>
+              <Search sx={{ fontSize: 16, color: 'text.secondary' }} />
+            </InputAdornment>
+          }
+          endAdornment={
+            searchQuery ? (
+              <InputAdornment position='end' sx={{ mr: 0.25 }}>
+                <IconButton size='small' onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }} sx={{ p: 0.25 }}>
+                  <Close sx={{ fontSize: 14 }} />
+                </IconButton>
+              </InputAdornment>
+            ) : null
+          }
+        />
         <Tooltip title='Delete all archived notes' arrow>
           <Button
             onClick={onDeleteAll}
@@ -897,6 +970,11 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         </Tooltip>
       </Box>
       <Divider sx={{ width: '100%' }} />
+      {searchQuery && !hasSearchResults ? (
+        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', py: 6, color: 'text.secondary' }}>
+          <Typography variant='body2'>No results for "{searchQuery}"</Typography>
+        </Box>
+      ) : (
       <SimpleBar style={{ maxHeight: '100%', width: '100%', overflowX: 'hidden' }}>
         <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
           <List ref={listRef} sx={{ width: '100%', maxWidth: 640, overflow: 'auto', mb: 8, py: 0 }}>
@@ -1025,6 +1103,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           </List>
         </Box>
       </SimpleBar>
+      )}
 
       <ArchivedNoteContentDialog
         open={selectedNote !== null}

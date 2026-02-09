@@ -114,6 +114,10 @@ export function NotifyFrontendReady() {
   return window['go']['backend']['App']['NotifyFrontendReady']();
 }
 
+export function OpenAppFolder() {
+  return window['go']['backend']['App']['OpenAppFolder']();
+}
+
 export function OpenFile(arg1) {
   return window['go']['backend']['App']['OpenFile'](arg1);
 }
