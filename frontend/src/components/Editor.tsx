@@ -17,6 +17,7 @@ interface EditorProps {
   settings: Settings;
   platform: string;
   currentNote: Note | FileNote | null;
+  searchKeyword?: string;
   onNew?: () => void;
   onOpen?: () => void;
   onSave?: () => void;
@@ -34,6 +35,7 @@ export const Editor: React.FC<EditorProps> = ({
   settings,
   platform,
   currentNote,
+  searchKeyword,
   onNew,
   onOpen,
   onSave,
@@ -117,6 +119,21 @@ export const Editor: React.FC<EditorProps> = ({
     }
     editorInstanceRef.current.setModel(model);
   }, [currentNote, editorInstanceRef]);
+
+  // 検索キーワードをエディタ内でハイライト・選択
+  useEffect(() => {
+    const editor = editorInstanceRef.current;
+    if (!editor) return;
+
+    const model = editor.getModel();
+    if (!model || !searchKeyword) return;
+
+    const matches = model.findMatches(searchKeyword, true, false, false, null, true);
+    if (matches.length > 0) {
+      editor.setSelection(matches[0].range);
+      editor.revealRangeInCenter(matches[0].range);
+    }
+  }, [searchKeyword, currentNote, editorInstanceRef]);
 
   // 言語変更時の処理
   useEffect(() => {

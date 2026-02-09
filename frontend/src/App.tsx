@@ -429,6 +429,7 @@ function App() {
               settings={editorSettings}
               platform={platform}
               currentNote={currentNote || currentFileNote}
+              searchKeyword={noteSearch}
               onNew={handleNewNote}
               onOpen={handleOpenFile}
               onSave={async () => {
