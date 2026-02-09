@@ -4,19 +4,19 @@ import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-import cloudsTheme from 'monaco-themes/themes/Clouds.json';
-import cloudsMidnightTheme from 'monaco-themes/themes/Clouds Midnight.json';
-import draculaTheme from 'monaco-themes/themes/Dracula.json';
-import githubDarkTheme from 'monaco-themes/themes/GitHub Dark.json';
-// Theme imports from monaco-themes
-import githubLightTheme from 'monaco-themes/themes/GitHub Light.json';
-import monokaiTheme from 'monaco-themes/themes/Monokai.json';
-import nightOwlTheme from 'monaco-themes/themes/Night Owl.json';
-import nordTheme from 'monaco-themes/themes/Nord.json';
-import solarizedDarkTheme from 'monaco-themes/themes/Solarized-dark.json';
-import solarizedLightTheme from 'monaco-themes/themes/Solarized-light.json';
-import tomorrowTheme from 'monaco-themes/themes/Tomorrow.json';
-import tomorrowNightTheme from 'monaco-themes/themes/Tomorrow-Night.json';
+// Theme imports from local themes directory (copied from monaco-themes package)
+import cloudsTheme from '../themes/Clouds.json';
+import cloudsMidnightTheme from '../themes/Clouds Midnight.json';
+import draculaTheme from '../themes/Dracula.json';
+import githubDarkTheme from '../themes/GitHub Dark.json';
+import githubLightTheme from '../themes/GitHub Light.json';
+import monokaiTheme from '../themes/Monokai.json';
+import nightOwlTheme from '../themes/Night Owl.json';
+import nordTheme from '../themes/Nord.json';
+import solarizedDarkTheme from '../themes/Solarized-dark.json';
+import solarizedLightTheme from '../themes/Solarized-light.json';
+import tomorrowTheme from '../themes/Tomorrow.json';
+import tomorrowNightTheme from '../themes/Tomorrow-Night.json';
 
 // Theme pair type definition
 export type ThemePair = {
