@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +29,11 @@ type NoteService interface {
 	DeleteFolder(id string) error                      // フォルダを削除する（空の場合のみ）
 	MoveNoteToFolder(noteID string, folderID string) error // ノートをフォルダに移動する
 	ListFolders() []Folder                             // フォルダのリストを返す
+	ArchiveFolder(id string) error                     // フォルダをアーカイブする（中のノートも全てアーカイブ）
+	UnarchiveFolder(id string) error                   // アーカイブされたフォルダを復元する
+	DeleteArchivedFolder(id string) error              // アーカイブされたフォルダを削除する（中のノートも全て削除）
+	GetArchivedTopLevelOrder() []TopLevelItem          // アーカイブされたアイテムの表示順序を返す
+	UpdateArchivedTopLevelOrder(order []TopLevelItem) error // アーカイブされたアイテムの表示順序を更新する
 }
 
 // NoteServiceの実装
@@ -467,6 +473,222 @@ func (s *noteService) buildTopLevelOrder() []TopLevelItem {
 	return order
 }
 
+// フォルダをアーカイブする（中のノートも全てアーカイブ） ------------------------------------------------------------
+func (s *noteService) ArchiveFolder(id string) error {
+	folderIdx := -1
+	for i, folder := range s.noteList.Folders {
+		if folder.ID == id {
+			folderIdx = i
+			break
+		}
+	}
+	if folderIdx == -1 {
+		return fmt.Errorf("folder not found: %s", id)
+	}
+
+	s.noteList.Folders[folderIdx].Archived = true
+
+	for i, metadata := range s.noteList.Notes {
+		if metadata.FolderID != id {
+			continue
+		}
+		note, err := s.LoadNote(metadata.ID)
+		if err != nil {
+			continue
+		}
+		note.Archived = true
+		note.ContentHeader = generateContentHeader(note.Content)
+		s.noteList.Notes[i].Archived = true
+		s.noteList.Notes[i].ContentHeader = note.ContentHeader
+		if err := s.SaveNoteFromSync(note); err != nil {
+			return fmt.Errorf("failed to save note %s: %v", note.ID, err)
+		}
+	}
+
+	s.ensureTopLevelOrder()
+	s.removeFromTopLevelOrder(id)
+
+	s.ensureArchivedTopLevelOrder()
+	s.noteList.ArchivedTopLevelOrder = append(
+		s.noteList.ArchivedTopLevelOrder,
+		TopLevelItem{Type: "folder", ID: id},
+	)
+
+	s.noteList.LastSync = time.Now()
+	return s.saveNoteList()
+}
+
+// アーカイブされたフォルダを復元する（中のノートも全て復元） ------------------------------------------------------------
+func (s *noteService) UnarchiveFolder(id string) error {
+	folderIdx := -1
+	for i, folder := range s.noteList.Folders {
+		if folder.ID == id {
+			folderIdx = i
+			break
+		}
+	}
+	if folderIdx == -1 {
+		return fmt.Errorf("folder not found: %s", id)
+	}
+	if !s.noteList.Folders[folderIdx].Archived {
+		return fmt.Errorf("folder is not archived: %s", id)
+	}
+
+	s.noteList.Folders[folderIdx].Archived = false
+
+	for i, metadata := range s.noteList.Notes {
+		if metadata.FolderID != id || !metadata.Archived {
+			continue
+		}
+		note, err := s.LoadNote(metadata.ID)
+		if err != nil {
+			continue
+		}
+		note.Archived = false
+		s.noteList.Notes[i].Archived = false
+		if err := s.SaveNoteFromSync(note); err != nil {
+			return fmt.Errorf("failed to save note %s: %v", note.ID, err)
+		}
+	}
+
+	s.removeFromArchivedTopLevelOrder(id)
+
+	s.ensureTopLevelOrder()
+	s.noteList.TopLevelOrder = append(
+		s.noteList.TopLevelOrder,
+		TopLevelItem{Type: "folder", ID: id},
+	)
+
+	s.noteList.LastSync = time.Now()
+	return s.saveNoteList()
+}
+
+// アーカイブされたフォルダを削除する（中のノートファイルも全て削除） ------------------------------------------------------------
+func (s *noteService) DeleteArchivedFolder(id string) error {
+	found := false
+	for _, folder := range s.noteList.Folders {
+		if folder.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("folder not found: %s", id)
+	}
+
+	var remainingNotes []NoteMetadata
+	for _, metadata := range s.noteList.Notes {
+		if metadata.FolderID == id {
+			notePath := filepath.Join(s.notesDir, metadata.ID+".json")
+			os.Remove(notePath)
+		} else {
+			remainingNotes = append(remainingNotes, metadata)
+		}
+	}
+	s.noteList.Notes = remainingNotes
+
+	var remainingFolders []Folder
+	for _, folder := range s.noteList.Folders {
+		if folder.ID != id {
+			remainingFolders = append(remainingFolders, folder)
+		}
+	}
+	s.noteList.Folders = remainingFolders
+
+	s.removeFromArchivedTopLevelOrder(id)
+	s.removeFromTopLevelOrder(id)
+
+	s.noteList.LastSync = time.Now()
+	return s.saveNoteList()
+}
+
+// アーカイブされたアイテムの表示順序を返す ------------------------------------------------------------
+func (s *noteService) GetArchivedTopLevelOrder() []TopLevelItem {
+	if s.noteList.ArchivedTopLevelOrder != nil {
+		return s.noteList.ArchivedTopLevelOrder
+	}
+	return s.buildArchivedTopLevelOrder()
+}
+
+// アーカイブされたアイテムの表示順序を更新する ------------------------------------------------------------
+func (s *noteService) UpdateArchivedTopLevelOrder(order []TopLevelItem) error {
+	s.noteList.ArchivedTopLevelOrder = order
+	s.noteList.LastSync = time.Now()
+	return s.saveNoteList()
+}
+
+func (s *noteService) ensureArchivedTopLevelOrder() {
+	if s.noteList.ArchivedTopLevelOrder == nil {
+		s.noteList.ArchivedTopLevelOrder = s.buildArchivedTopLevelOrder()
+	}
+}
+
+func (s *noteService) buildArchivedTopLevelOrder() []TopLevelItem {
+	archivedFolderIDs := make(map[string]bool)
+	for _, folder := range s.noteList.Folders {
+		if folder.Archived {
+			archivedFolderIDs[folder.ID] = true
+		}
+	}
+
+	var order []TopLevelItem
+	for _, folder := range s.noteList.Folders {
+		if folder.Archived {
+			order = append(order, TopLevelItem{Type: "folder", ID: folder.ID})
+		}
+	}
+	for _, note := range s.noteList.Notes {
+		if note.Archived && !archivedFolderIDs[note.FolderID] {
+			order = append(order, TopLevelItem{Type: "note", ID: note.ID})
+		}
+	}
+	return order
+}
+
+func (s *noteService) removeFromArchivedTopLevelOrder(id string) {
+	var updated []TopLevelItem
+	for _, item := range s.noteList.ArchivedTopLevelOrder {
+		if item.ID != id {
+			updated = append(updated, item)
+		}
+	}
+	s.noteList.ArchivedTopLevelOrder = updated
+}
+
+func (s *noteService) deduplicateArchivedTopLevelOrder() {
+	if s.noteList.ArchivedTopLevelOrder == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	var deduped []TopLevelItem
+	for _, item := range s.noteList.ArchivedTopLevelOrder {
+		key := item.Type + ":" + item.ID
+		if !seen[key] {
+			seen[key] = true
+			deduped = append(deduped, item)
+		}
+	}
+	s.noteList.ArchivedTopLevelOrder = deduped
+}
+
+func generateContentHeader(content string) string {
+	lines := strings.Split(content, "\n")
+	var nonEmpty []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			nonEmpty = append(nonEmpty, line)
+			if len(nonEmpty) >= 3 {
+				break
+			}
+		}
+	}
+	header := strings.Join(nonEmpty, "\n")
+	if len(header) > 200 {
+		header = header[:200]
+	}
+	return header
+}
+
 // ------------------------------------------------------------
 // 内部ヘルパー
 // ------------------------------------------------------------
@@ -661,6 +883,7 @@ func (s *noteService) resolveMetadata(listMetadata, fileMetadata NoteMetadata) N
 // ノートリストをJSONファイルとして保存 ------------------------------------------------------------
 func (s *noteService) saveNoteList() error {
 	s.deduplicateTopLevelOrder()
+	s.deduplicateArchivedTopLevelOrder()
 
 	data, err := json.MarshalIndent(s.noteList, "", "  ")
 	if err != nil {
