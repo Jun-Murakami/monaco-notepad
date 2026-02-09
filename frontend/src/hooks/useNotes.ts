@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+	ArchiveFolder,
 	CreateFolder,
+	DeleteArchivedFolder,
 	DeleteFolder,
 	DeleteNote,
 	DestroyApp,
+	GetArchivedTopLevelOrder,
 	GetTopLevelOrder,
 	ListFolders,
 	ListNotes,
@@ -11,6 +14,8 @@ import {
 	MoveNoteToFolder,
 	RenameFolder,
 	SaveNote,
+	UnarchiveFolder,
+	UpdateArchivedTopLevelOrder,
 	UpdateTopLevelOrder,
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
@@ -23,6 +28,7 @@ export const useNotes = () => {
   const [showArchived, setShowArchived] = useState(false);
 	const [folders, setFolders] = useState<Folder[]>([]);
 	const [topLevelOrder, setTopLevelOrder] = useState<TopLevelItem[]>([]);
+	const [archivedTopLevelOrder, setArchivedTopLevelOrder] = useState<TopLevelItem[]>([]);
 	const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('collapsedFolders');
@@ -72,10 +78,11 @@ export const useNotes = () => {
   useEffect(() => {
     // notes:reloadイベントのハンドラを登録
 		runtime.EventsOn('notes:reload', async () => {
-			const [newNotes, newFolders, rawOrder] = await Promise.all([
+			const [newNotes, newFolders, rawOrder, rawArchivedOrder] = await Promise.all([
 				ListNotes(),
 				ListFolders(),
 				GetTopLevelOrder(),
+				GetArchivedTopLevelOrder(),
 			]);
 
 			if (isNoteListChanged(notes, newNotes)) {
@@ -84,6 +91,12 @@ export const useNotes = () => {
 			setFolders(newFolders);
 			setTopLevelOrder(
 				(rawOrder ?? []).map((item) => ({
+					type: item.type as 'note' | 'folder',
+					id: item.id,
+				})),
+			);
+			setArchivedTopLevelOrder(
+				(rawArchivedOrder ?? []).map((item) => ({
 					type: item.type as 'note' | 'folder',
 					id: item.id,
 				})),
@@ -107,10 +120,11 @@ export const useNotes = () => {
 
     // 個別のノート更新イベントのハンドラを登録
 		runtime.EventsOn('note:updated', async (noteId: string) => {
-			const [newNotes, newFolders, rawOrder] = await Promise.all([
+			const [newNotes, newFolders, rawOrder, rawArchivedOrder] = await Promise.all([
 				ListNotes(),
 				ListFolders(),
 				GetTopLevelOrder(),
+				GetArchivedTopLevelOrder(),
 			]);
 
 			if (isNoteListChanged(notes, newNotes)) {
@@ -119,6 +133,12 @@ export const useNotes = () => {
 			setFolders(newFolders);
 			setTopLevelOrder(
 				(rawOrder ?? []).map((item) => ({
+					type: item.type as 'note' | 'folder',
+					id: item.id,
+				})),
+			);
+			setArchivedTopLevelOrder(
+				(rawArchivedOrder ?? []).map((item) => ({
 					type: item.type as 'note' | 'folder',
 					id: item.id,
 				})),
@@ -236,6 +256,14 @@ export const useNotes = () => {
       );
       await SaveNote(backend.Note.createFrom(archivedNote), 'update');
 
+      const rawArchivedOrder = await GetArchivedTopLevelOrder();
+      setArchivedTopLevelOrder(
+        (rawArchivedOrder ?? []).map((item) => ({
+          type: item.type as 'note' | 'folder',
+          id: item.id,
+        })),
+      );
+
       // アーカイブされたノートを選択している場合は、アクティブなノートに切り替える
       if (currentNote?.id === noteId) {
         const activeNotes = notes.filter(
@@ -288,6 +316,14 @@ export const useNotes = () => {
         setCurrentNote(unarchivedNote);
         setShowArchived(false);
         await SaveNote(backend.Note.createFrom(unarchivedNote), 'update');
+
+        const rawArchivedOrder = await GetArchivedTopLevelOrder();
+        setArchivedTopLevelOrder(
+          (rawArchivedOrder ?? []).map((item) => ({
+            type: item.type as 'note' | 'folder',
+            id: item.id,
+          })),
+        );
       }
     },
     [notes],
@@ -304,11 +340,12 @@ export const useNotes = () => {
       const hasOnlyOneActiveNote = activeNotes.length === 1;
       const hasNoActiveNotes = activeNotes.length === 0;
 
-      // ノートの削除処理
       await DeleteNote(noteId);
-      // ノートリストを更新
       setNotes((prev) => prev.filter((note) => note.id !== noteId));
       setTopLevelOrder((prev) =>
+        prev.filter((item) => !(item.type === 'note' && item.id === noteId)),
+      );
+      setArchivedTopLevelOrder((prev) =>
         prev.filter((item) => !(item.type === 'note' && item.id === noteId)),
       );
 
@@ -334,20 +371,25 @@ export const useNotes = () => {
   // ノートをすべて削除する ------------------------------------------------------------
   const handleDeleteAllArchivedNotes = useCallback(async () => {
     const archivedNotes = notes.filter((note) => note.archived);
+    const archivedFolderIds = new Set(
+      folders.filter((f) => f.archived).map((f) => f.id),
+    );
 
-    // すべてのアーカイブされたノートを削除
     for (const note of archivedNotes) {
       await DeleteNote(note.id);
     }
-    // ノートリストを更新
-    setNotes((prev) => prev.filter((note) => !note.archived));
+    for (const folderId of archivedFolderIds) {
+      await DeleteArchivedFolder(folderId);
+    }
 
-    // アクティブなノートがある場合はそのノートに遷移
+    setNotes((prev) => prev.filter((note) => !note.archived));
+    setFolders((prev) => prev.filter((f) => !f.archived));
+    setArchivedTopLevelOrder([]);
+
     const activeNotes = notes.filter((note) => !note.archived);
     if (activeNotes.length > 0) {
       setCurrentNote(activeNotes[0]);
     } else {
-      // アクティブなノートがない場合は新規ノートを作成
       await createNewNote();
     }
     setShowArchived(false);
@@ -481,6 +523,94 @@ export const useNotes = () => {
 		[],
 	);
 
+	const reloadAllState = useCallback(async () => {
+		const [newNotes, newFolders, rawOrder, rawArchivedOrder] = await Promise.all([
+			ListNotes(),
+			ListFolders(),
+			GetTopLevelOrder(),
+			GetArchivedTopLevelOrder(),
+		]);
+		setNotes(newNotes);
+		setFolders(newFolders);
+		setTopLevelOrder(
+			(rawOrder ?? []).map((item) => ({
+				type: item.type as 'note' | 'folder',
+				id: item.id,
+			})),
+		);
+		setArchivedTopLevelOrder(
+			(rawArchivedOrder ?? []).map((item) => ({
+				type: item.type as 'note' | 'folder',
+				id: item.id,
+			})),
+		);
+		return newNotes;
+	}, []);
+
+	const handleArchiveFolder = useCallback(
+		async (folderId: string) => {
+			await ArchiveFolder(folderId);
+			const newNotes = await reloadAllState();
+
+			if (currentNote?.folderId === folderId) {
+				const activeNotes = newNotes.filter((n) => !n.archived);
+				if (activeNotes.length > 0) {
+					setCurrentNote(activeNotes[0]);
+				} else {
+					await handleNewNote();
+				}
+			}
+		},
+		[currentNote, handleNewNote, reloadAllState],
+	);
+
+	const handleUnarchiveFolder = useCallback(
+		async (folderId: string) => {
+			await UnarchiveFolder(folderId);
+			const newNotes = await reloadAllState();
+			setShowArchived(false);
+
+			const restoredNotes = newNotes.filter((n) => n.folderId === folderId && !n.archived);
+			if (restoredNotes.length > 0) {
+				setCurrentNote(restoredNotes[0]);
+			}
+		},
+		[reloadAllState],
+	);
+
+	const handleDeleteArchivedFolder = useCallback(
+		async (folderId: string) => {
+			await DeleteArchivedFolder(folderId);
+			const newNotes = await reloadAllState();
+
+			const hasArchived = newNotes.some((n) => n.archived);
+			if (!hasArchived) {
+				const activeNotes = newNotes.filter((n) => !n.archived);
+				if (activeNotes.length > 0) {
+					setCurrentNote(activeNotes[0]);
+				} else {
+					await handleNewNote();
+				}
+				setShowArchived(false);
+			}
+		},
+		[handleNewNote, reloadAllState],
+	);
+
+	const handleUpdateArchivedTopLevelOrder = useCallback(
+		async (order: TopLevelItem[]) => {
+			setArchivedTopLevelOrder(order);
+			try {
+				await UpdateArchivedTopLevelOrder(
+					order.map((item) => backend.TopLevelItem.createFrom(item)),
+				);
+			} catch (error) {
+				console.error('Failed to update archived top level order:', error);
+			}
+		},
+		[],
+	);
+
 	return {
 		notes,
 		setNotes,
@@ -503,11 +633,17 @@ export const useNotes = () => {
 		collapsedFolders,
 		topLevelOrder,
 		setTopLevelOrder,
+		archivedTopLevelOrder,
+		setArchivedTopLevelOrder,
 		handleCreateFolder,
 		handleRenameFolder,
 		handleDeleteFolder,
 		handleMoveNoteToFolder,
 		handleUpdateTopLevelOrder,
+		handleArchiveFolder,
+		handleUnarchiveFolder,
+		handleDeleteArchivedFolder,
+		handleUpdateArchivedTopLevelOrder,
 		toggleFolderCollapse,
 	};
 };
