@@ -88,6 +88,15 @@ vi.mock('../../lib/monaco', () => {
     getSupportedLanguages: () => [],
     getLanguageByExtension: () => null,
     getExtensionByLanguage: () => null,
+    getThemePair: (id: string) => {
+      const pairs: Record<string, { id: string; label: string; light: string; dark: string }> = {
+        default: { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+      };
+      return pairs[id] || pairs.default;
+    },
+    THEME_PAIRS: [
+      { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+    ],
     monaco: mockMonaco,
   };
 });

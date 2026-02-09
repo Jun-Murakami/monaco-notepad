@@ -30,6 +30,7 @@ vi.mock('../../lib/monaco', () => {
   const mockMonaco = {
     editor: {
       setModelLanguage: vi.fn(),
+      setTheme: vi.fn(),
       getModel: vi.fn(),
       createModel: vi.fn(),
     },
@@ -84,6 +85,7 @@ type MockEditor = {
 type MockMonaco = {
   editor: {
     setModelLanguage: Mock;
+    setTheme: Mock;
     getModel: Mock;
     createModel: Mock;
   };
@@ -193,7 +195,7 @@ describe('Editor', () => {
 
   it('設定変更が反映されること', () => {
     const { rerender } = render(<Editor {...defaultProps} />);
-    const { editor } = getMockFunctions();
+    const { editor, monaco } = getMockFunctions();
 
     // ダークモードに変更
     rerender(
@@ -203,11 +205,8 @@ describe('Editor', () => {
       />,
     );
 
-    expect(editor.updateOptions).toHaveBeenCalledWith(
-      expect.objectContaining({
-        theme: 'vs-dark',
-      }),
-    );
+    expect(monaco.editor.setTheme).toHaveBeenCalledWith('vs-dark');
+    expect(editor.updateOptions).toHaveBeenCalled();
   });
 
   it('言語変更が反映されること', () => {
