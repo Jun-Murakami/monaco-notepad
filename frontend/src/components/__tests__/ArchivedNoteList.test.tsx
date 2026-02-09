@@ -38,10 +38,16 @@ describe('ArchivedNoteList', () => {
 
   const defaultProps = {
     notes: mockNotes,
+    folders: [],
+    archivedTopLevelOrder: [],
     onUnarchive: vi.fn(),
     onDelete: vi.fn(),
     onDeleteAll: vi.fn(),
     onClose: vi.fn(),
+    onUnarchiveFolder: vi.fn(),
+    onDeleteFolder: vi.fn(),
+    onUpdateArchivedTopLevelOrder: vi.fn(),
+    isDarkMode: false,
   };
 
   it('アーカイブされたノートがない場合、メッセージが表示されること', () => {

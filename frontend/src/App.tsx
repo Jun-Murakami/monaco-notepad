@@ -66,6 +66,11 @@ function App() {
     topLevelOrder,
     setTopLevelOrder,
     toggleFolderCollapse,
+    archivedTopLevelOrder,
+    handleArchiveFolder,
+    handleUnarchiveFolder,
+    handleDeleteArchivedFolder,
+    handleUpdateArchivedTopLevelOrder,
   } = useNotes();
 
   // ファイルノート
@@ -317,6 +322,7 @@ function App() {
                 onMoveNoteToFolder={handleMoveNoteToFolder}
                 onRenameFolder={handleRenameFolder}
                 onDeleteFolder={handleDeleteFolder}
+                onArchiveFolder={handleArchiveFolder}
                 editingFolderId={editingFolderId}
                 onEditingFolderDone={() => setEditingFolderId(null)}
                 topLevelOrder={topLevelOrder}
@@ -334,7 +340,7 @@ function App() {
           />
           <Button
             fullWidth
-            disabled={notes.filter((note) => note.archived).length === 0}
+            disabled={notes.filter((note) => note.archived).length === 0 && folders.filter((f) => f.archived).length === 0}
             sx={{
               mt: 'auto',
               borderRadius: 0,
@@ -367,10 +373,16 @@ function App() {
           {showArchived ? (
             <ArchivedNoteList
               notes={notes}
+              folders={folders}
+              archivedTopLevelOrder={archivedTopLevelOrder}
               onUnarchive={handleUnarchiveNote}
               onDelete={handleDeleteNote}
               onDeleteAll={handleDeleteAllArchivedNotes}
               onClose={() => setShowArchived(false)}
+              onUnarchiveFolder={handleUnarchiveFolder}
+              onDeleteFolder={handleDeleteArchivedFolder}
+              onUpdateArchivedTopLevelOrder={handleUpdateArchivedTopLevelOrder}
+              isDarkMode={editorSettings.isDarkMode}
             />
           ) : (
             <Editor
