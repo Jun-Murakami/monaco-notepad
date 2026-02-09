@@ -84,7 +84,7 @@ func (s *driveService) InitializeDrive() error {
 	if success, err := s.auth.InitializeWithSavedToken(); err != nil {
 		return s.auth.HandleOfflineTransition(err)
 	} else if success {
-		s.logger.Info("InitializeDrive success")
+		s.logger.Console("InitializeDrive success")
 		return s.onConnected(false)
 	}
 	return nil
@@ -93,11 +93,11 @@ func (s *driveService) InitializeDrive() error {
 // Google Driveに手動ログイン
 func (s *driveService) AuthorizeDrive() error {
 	s.logger.NotifyDriveStatus(s.ctx, "logging in")
-	s.logger.Info("Waiting for login...")
+	s.logger.Console("Waiting for login...")
 	if err := s.auth.StartManualAuth(); err != nil {
 		return s.auth.HandleOfflineTransition(err)
 	}
-	s.logger.Info("AuthorizeDrive success")
+	s.logger.Console("AuthorizeDrive success")
 	return s.onConnected(true)
 
 }
@@ -107,17 +107,17 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
-	s.logger.Info("Starting Drive connection process...")
+	s.logger.Console("Starting Drive connection process...")
 
 	// DriveOps生成
-	s.logger.Info("Initializing DriveOperations...")
+	s.logger.Console("Initializing DriveOperations...")
 	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service, s.logger)
 	if s.driveOps == nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create DriveOperations"))
 	}
 
 	// キューシステムの初期化
-	s.logger.Info("Initializing operations queue...")
+	s.logger.Console("Initializing operations queue...")
 	s.operationsQueue = NewDriveOperationsQueue(s.driveOps)
 	if s.operationsQueue == nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create operations queue"))
@@ -125,14 +125,14 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 	s.driveOps = s.operationsQueue // キューシステムで元のdriveOpsをラップ
 
 	// フォルダの確保
-	s.logger.Info("Ensuring Drive folders...")
+	s.logger.Console("Ensuring Drive folders...")
 	if err := s.ensureDriveFolders(); err != nil {
 		s.logger.Error(err, "Failed to ensure Drive folders")
 		return s.auth.HandleOfflineTransition(err)
 	}
 
 	// driveSync生成
-	s.logger.Info("Initializing Drive sync service...")
+	s.logger.Console("Initializing Drive sync service...")
 	rootID, notesID := s.auth.GetDriveSync().FolderIDs()
 	s.driveSync = NewDriveSyncService(
 		s.driveOps,
@@ -145,7 +145,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 	}
 
 	// ノートリストの確保
-	s.logger.Info("Ensuring note list...")
+	s.logger.Console("Ensuring note list...")
 	if err := s.ensureNoteList(); err != nil {
 		s.logger.Error(err, "Failed to ensure note list")
 		return s.auth.HandleOfflineTransition(err)
@@ -153,7 +153,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 
 	// 必要な場合(手動ログインで呼ばれた場合)は初回マージを実行
 	if performInitialSync {
-		s.logger.Info("Performing initial sync...")
+		s.logger.Console("Performing initial sync...")
 		if err := s.performInitialSync(); err != nil {
 			s.logger.Error(err, "Failed to perform initial sync")
 			return s.auth.HandleOfflineTransition(err)
@@ -169,7 +169,7 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 
 // Google Driveからログアウト
 func (s *driveService) LogoutDrive() error {
-	s.logger.Info("Logging out of Google Drive...")
+	s.logger.Console("Logging out of Google Drive...")
 	s.pollingService.StopPolling()
 	if s.operationsQueue != nil {
 		s.operationsQueue.Cleanup()
@@ -184,7 +184,7 @@ func (s *driveService) CancelLoginDrive() error {
 
 // フロントエンドへ準備完了を通知
 func (s *driveService) NotifyFrontendReady() {
-	s.logger.Info("DriveService.NotifyFrontendReady called")
+	s.logger.Console("DriveService.NotifyFrontendReady called")
 	s.auth.NotifyFrontendReady()
 }
 
@@ -306,7 +306,7 @@ func (s *driveService) updateNoteListInternal() error {
 
 	s.auth.GetDriveSync().UpdateCloudNoteList(lastSync, s.noteService.noteList.Notes)
 
-	s.logger.Info("Note list updated")
+	s.logger.Console("Note list updated")
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
@@ -415,7 +415,7 @@ func (s *driveService) performInitialSync() error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 
-	s.logger.Info("Starting initial sync...")
+	s.logger.Console("Starting initial sync...")
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 
 	// 1. クラウドのノートリストを確実に取得（存在しなければアップロード後再取得）
@@ -430,11 +430,10 @@ func (s *driveService) performInitialSync() error {
 		return err
 	}
 
-	s.logger.Info(fmt.Sprintf(
-		"Preparing to merge notes: %d local, %d from cloud (after merging unknown notes)",
+	s.logger.Console("Preparing to merge notes: %d local, %d from cloud (after merging unknown notes)",
 		len(s.noteService.noteList.Notes),
 		len(mergedCloudNotes),
-	))
+	)
 
 	// 3. ノートのマージ処理 (ローカル vs クラウド)
 	mergedNotes, downloadedNotes, err := s.mergeNotes(s.ctx, s.noteService.noteList.Notes, mergedCloudNotes)
@@ -454,7 +453,7 @@ func (s *driveService) performInitialSync() error {
 	}
 
 	// 6. 完了通知
-	s.logger.Info("Initial sync completed")
+	s.logger.Console("Initial sync completed")
 	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	return nil
@@ -468,7 +467,7 @@ func (s *driveService) performInitialSync() error {
 // キュー内に処理が残っている場合は同期をスキップ
 func (s *driveService) skipSyncIfQueuePending() error {
 	if s.operationsQueue != nil && s.operationsQueue.HasItems() {
-		s.logger.Info("Skipping sync because queue has items pending")
+		s.logger.Console("Skipping sync because queue has items pending")
 		return nil
 	}
 	return nil
@@ -477,7 +476,7 @@ func (s *driveService) skipSyncIfQueuePending() error {
 // 同期開始が可能かどうかを検証
 func (s *driveService) ensureSyncIsPossible() error {
 	if !s.IsConnected() {
-		s.logger.Info("Not connected to Google Drive")
+		s.logger.Console("Not connected to Google Drive")
 		if !s.IsTestMode() {
 			return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 		}
@@ -695,7 +694,7 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 		return err
 	}
 	for _, note := range unknownNotes.Notes {
-		s.logger.Info("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
+		s.logger.Console("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
 		if err := s.driveSync.DeleteNote(s.ctx, note.ID); err != nil {
 			return err
 		}
@@ -765,7 +764,7 @@ func (s *driveService) prepareCloudNotesForMerge(ctx context.Context, cloudNoteL
 // ノートリストの内容が異なるかどうかをチェック
 func (s *driveService) isNoteListChanged(cloudList, localList []NoteMetadata) bool {
 	if len(cloudList) != len(localList) {
-		s.logger.Info("Note list length differs")
+		s.logger.Console("Note list length differs")
 		return true
 	}
 
@@ -782,15 +781,15 @@ func (s *driveService) isNoteListChanged(cloudList, localList []NoteMetadata) bo
 	for id, cloudNote := range cloudMap {
 		localNote, exists := localMap[id]
 		if !exists {
-			s.logger.Info("Note %s exists in cloud but not in local", id)
+			s.logger.Console("Note %s exists in cloud but not in local", id)
 			return true
 		}
 		if cloudNote.ContentHash != localNote.ContentHash {
-			s.logger.Info("Note %s has different content hash", id)
+			s.logger.Console("Note %s has different content hash", id)
 			return true
 		}
 		if cloudNote.Order != localNote.Order {
-			s.logger.Info("Note %s has different order", id)
+			s.logger.Console("Note %s has different order", id)
 			return true
 		}
 	}

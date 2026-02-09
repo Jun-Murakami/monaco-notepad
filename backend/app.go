@@ -176,7 +176,7 @@ func (a *App) DomReady(ctx context.Context) {
 	// （DomReady時点ではReactのuseEffect登録が完了していない可能性があるため）
 	go func() {
 		<-authService.GetFrontendReadyChan()
-		a.logger.Info("Frontend ready - initializing Google Drive...")
+		a.logger.Console("Frontend ready - initializing Google Drive...")
 		if err := driveService.InitializeDrive(); err != nil {
 			a.logger.Error(err, "Error initializing drive service")
 			wailsRuntime.EventsEmit(ctx, "drive:status", "offline")
@@ -184,7 +184,7 @@ func (a *App) DomReady(ctx context.Context) {
 		}
 	}()
 
-	a.logger.Info("Emitting backend:ready event")
+	a.logger.Console("Emitting backend:ready event")
 	wailsRuntime.EventsEmit(ctx, "backend:ready")
 }
 
@@ -386,11 +386,11 @@ func (a *App) AuthorizeDrive() error {
 	}
 
 	a.logger.NotifyDriveStatus(a.ctx.ctx, "logging in")
-	a.logger.Info("Waiting for login...")
+	a.logger.Console("Waiting for login...")
 	if err := a.driveService.AuthorizeDrive(); err != nil {
 		return a.authService.HandleOfflineTransition(err)
 	}
-	a.logger.Info("AuthorizeDrive success")
+	a.logger.Console("AuthorizeDrive success")
 	return nil
 }
 
@@ -501,7 +501,8 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 func (a *App) LoadSettings() (*Settings, error) {
 	settings, err := a.settingsService.LoadSettings()
 	if err != nil {
-		return nil, a.logger.Error(err, "failed to load settings")
+		a.logger.Console("failed to load settings: %v", err)
+		return nil, err
 	}
 
 	// デバッグモードを設定

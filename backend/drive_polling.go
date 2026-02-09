@@ -28,16 +28,16 @@ func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePolling
 }
 
 func (p *DrivePollingService) WaitForFrontendAndStartSync() {
-	p.logger.Info("Waiting for frontend ready signal...")
+	p.logger.Console("Waiting for frontend ready signal...")
 	<-p.driveService.auth.GetFrontendReadyChan()
-	p.logger.Info("Frontend ready signal received - starting sync...")
+	p.logger.Console("Frontend ready signal received - starting sync...")
 
 	if !p.driveService.IsTestMode() {
 		p.logger.NotifyDriveStatus(p.ctx, "synced")
 	}
 
 	time.Sleep(1 * time.Second)
-	p.logger.Info("Starting polling service...")
+	p.logger.Console("Starting polling service...")
 	p.StartPolling()
 }
 
@@ -81,7 +81,7 @@ func (p *DrivePollingService) StartPolling() {
 		p.logger.Error(err, "Failed to list unknown notes")
 	}
 	for _, note := range unknownNotes.Notes {
-		p.logger.Info("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
+		p.logger.Console("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
 		if err := p.driveService.driveSync.DeleteNote(p.ctx, note.ID); err != nil {
 			p.logger.Error(err, "Failed to delete unknown note")
 		}
@@ -153,7 +153,7 @@ func (p *DrivePollingService) initChangeToken() {
 		return
 	}
 	p.changePageToken = token
-	p.logger.Info("Changes API initialized with token: %s", token)
+	p.logger.Console("Changes API initialized with token: %s", token)
 }
 
 func (p *DrivePollingService) checkForChanges() (bool, error) {

@@ -134,7 +134,7 @@ func (d *driveSyncServiceImpl) RefreshFileIDCache(ctx context.Context) error {
 			d.fileIDCache[noteID] = f.Id
 		}
 	}
-	d.logger.Info("File ID cache refreshed: %d entries", len(d.fileIDCache))
+	d.logger.Console("File ID cache refreshed: %d entries", len(d.fileIDCache))
 	return nil
 }
 
@@ -504,7 +504,7 @@ func (d *driveSyncServiceImpl) DownloadNoteListIfChanged(
 ) (*NoteList, bool, error) {
 	meta, err := d.driveOps.GetFileMetadata(noteListID)
 	if err != nil {
-		d.logger.Info("Metadata check failed, falling back to full download: %v", err)
+		d.logger.Console("Metadata check failed, falling back to full download: %v", err)
 		noteList, dlErr := d.DownloadNoteList(ctx, noteListID)
 		if dlErr != nil {
 			return nil, false, dlErr
@@ -513,7 +513,7 @@ func (d *driveSyncServiceImpl) DownloadNoteListIfChanged(
 	}
 
 	if meta.Md5Checksum != "" && meta.Md5Checksum == d.lastNoteListMd5 {
-		d.logger.Info("noteList.json unchanged (md5: %s), skipping download", meta.Md5Checksum)
+		d.logger.Console("noteList.json unchanged (md5: %s), skipping download", meta.Md5Checksum)
 		return nil, false, nil
 	}
 
@@ -565,7 +565,7 @@ func (d *driveSyncServiceImpl) ListUnknownNotes(ctx context.Context, cloudNoteLi
 			if arrowDownload {
 				err := d.withRetry(func() error {
 					var err error
-					d.logger.Info("Downloading note %s from cloud because it doesn't exist in local", noteID)
+					d.logger.Console("Downloading note %s from cloud because it doesn't exist in local", noteID)
 					note, err = d.driveOps.DownloadFile(file.Id)
 					return err
 				}, downloadRetryConfig)
