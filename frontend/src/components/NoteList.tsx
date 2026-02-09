@@ -62,6 +62,7 @@ interface NoteListProps {
   onEditingFolderDone?: () => void;
   topLevelOrder?: TopLevelItem[];
   onUpdateTopLevelOrder?: (order: TopLevelItem[]) => void;
+  onArchiveFolder?: (folderId: string) => Promise<void>;
 }
 
 interface NoteItemProps {
@@ -336,6 +337,7 @@ interface FolderHeaderProps {
   onToggle: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
+  onArchive: () => void;
   isEmpty: boolean;
   noteCount: number;
   autoEdit?: boolean;
@@ -348,6 +350,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
   onToggle,
   onRename,
   onDelete,
+  onArchive,
   isEmpty,
   noteCount,
   autoEdit,
@@ -453,16 +456,28 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
               <DriveFileRenameOutline sx={{ width: 14, height: 14, color: 'text.secondary' }} />
             </IconButton>
           </Tooltip>
-          {isEmpty && (
+          {isEmpty ? (
             <Tooltip title='Delete' arrow>
               <IconButton
                 className='folder-action'
                 size='small'
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              onPointerDown={(e) => e.stopPropagation()}
-              sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
-            >
-              <Delete sx={{ width: 14, height: 14, color: 'text.secondary' }} />
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                onPointerDown={(e) => e.stopPropagation()}
+                sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
+              >
+                <Delete sx={{ width: 14, height: 14, color: 'text.secondary' }} />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Tooltip title='Archive' arrow>
+              <IconButton
+                className='folder-action'
+                size='small'
+                onClick={(e) => { e.stopPropagation(); onArchive(); }}
+                onPointerDown={(e) => e.stopPropagation()}
+                sx={{ opacity: 0, transition: 'opacity 0.2s', p: 0.25 }}
+              >
+                <Archive sx={{ width: 14, height: 14, color: 'text.secondary' }} />
               </IconButton>
             </Tooltip>
           )}
@@ -494,6 +509,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   onEditingFolderDone,
   topLevelOrder = [],
   onUpdateTopLevelOrder,
+  onArchiveFolder,
 }) => {
   const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived);
   const sensors = useSensors(
@@ -1159,6 +1175,7 @@ export const NoteList: React.FC<NoteListProps> = ({
                         onToggle={() => onToggleFolderCollapse?.(folder.id)}
                         onRename={(name) => onRenameFolder?.(folder.id, name)}
                         onDelete={() => onDeleteFolder?.(folder.id)}
+                        onArchive={() => onArchiveFolder?.(folder.id)}
                         isEmpty={folderNotes.length === 0}
                         noteCount={folderNotes.length}
                         autoEdit={editingFolderId === folder.id}
@@ -1205,6 +1222,7 @@ export const NoteList: React.FC<NoteListProps> = ({
                           onToggle={() => {}}
                           onRename={() => {}}
                           onDelete={() => {}}
+                          onArchive={() => {}}
                           isEmpty={fNotes.length === 0}
                           noteCount={fNotes.length}
                         />
