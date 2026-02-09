@@ -1,4 +1,4 @@
-import { Close, DeleteForever, Unarchive } from '@mui/icons-material';
+import { ArrowBack, ArrowForward, Close, DeleteForever, Unarchive } from '@mui/icons-material';
 import {
   Box,
   Button,
@@ -23,6 +23,10 @@ interface ArchivedNoteContentDialogProps {
   onRestore: (noteId: string) => void;
   onDelete: (noteId: string) => void;
   isDarkMode: boolean;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
 }
 
 export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps> = ({
@@ -32,6 +36,10 @@ export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps>
   onRestore,
   onDelete,
   isDarkMode,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -114,6 +122,14 @@ export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps>
       disableRestoreFocus
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 0.5, mr: 1 }}>
+          <IconButton onClick={onPrevious} disabled={!hasPrevious} size='small'>
+            <ArrowBack />
+          </IconButton>
+          <IconButton onClick={onNext} disabled={!hasNext} size='small'>
+            <ArrowForward />
+          </IconButton>
+        </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography
             variant='h6'

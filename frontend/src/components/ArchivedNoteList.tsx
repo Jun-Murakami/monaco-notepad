@@ -205,7 +205,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     });
   }, []);
 
-  const getNextNote = useCallback((currentNoteId: string): Note | null => {
+  const getAllNotes = useCallback((): Note[] => {
     const allNotes: Note[] = [];
     for (const item of archivedTopLevelOrder) {
       if (item.type === 'folder') {
@@ -216,10 +216,36 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         if (note) allNotes.push(note);
       }
     }
+    return allNotes;
+  }, [archivedTopLevelOrder, folderNoteMap, noteMap]);
+
+  const getNextNote = useCallback((currentNoteId: string): Note | null => {
+    const allNotes = getAllNotes();
     const currentIndex = allNotes.findIndex(n => n.id === currentNoteId);
     if (currentIndex === -1 || currentIndex === allNotes.length - 1) return null;
     return allNotes[currentIndex + 1];
-  }, [archivedTopLevelOrder, folderNoteMap, noteMap]);
+  }, [getAllNotes]);
+
+  const getPreviousNote = useCallback((currentNoteId: string): Note | null => {
+    const allNotes = getAllNotes();
+    const currentIndex = allNotes.findIndex(n => n.id === currentNoteId);
+    if (currentIndex === -1 || currentIndex === 0) return null;
+    return allNotes[currentIndex - 1];
+  }, [getAllNotes]);
+
+  const handlePrevious = useCallback(() => {
+    if (selectedNote) {
+      const prevNote = getPreviousNote(selectedNote.id);
+      if (prevNote) setSelectedNote(prevNote);
+    }
+  }, [selectedNote, getPreviousNote]);
+
+  const handleNext = useCallback(() => {
+    if (selectedNote) {
+      const nextNote = getNextNote(selectedNote.id);
+      if (nextNote) setSelectedNote(nextNote);
+    }
+  }, [selectedNote, getNextNote]);
 
   const handleRestoreWithNext = useCallback((noteId: string) => {
     const nextNote = getNextNote(noteId);
@@ -506,6 +532,10 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         onRestore={handleRestoreWithNext}
         onDelete={handleDeleteWithNext}
         isDarkMode={isDarkMode}
+        onPrevious={handlePrevious}
+        onNext={handleNext}
+        hasPrevious={selectedNote ? getPreviousNote(selectedNote.id) !== null : false}
+        hasNext={selectedNote ? getNextNote(selectedNote.id) !== null : false}
       />
     </Box>
   );
