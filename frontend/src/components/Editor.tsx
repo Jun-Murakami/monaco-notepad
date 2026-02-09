@@ -1,7 +1,12 @@
 import { Box } from '@mui/material';
 import type { editor } from 'monaco-editor';
 import { useEffect, useRef } from 'react';
-import { disposeEditor, getMonaco, getOrCreateEditor, getThemePair } from '../lib/monaco';
+import {
+  disposeEditor,
+  getMonaco,
+  getOrCreateEditor,
+  getThemePair,
+} from '../lib/monaco';
 import type { FileNote, Note, Settings } from '../types';
 
 interface EditorProps {
@@ -43,10 +48,13 @@ export const Editor: React.FC<EditorProps> = ({
   useEffect(() => {
     if (!editorRef.current) return;
 
+    const pair = getThemePair(settings.editorTheme);
+    const themeName = settings.isDarkMode ? pair.dark : pair.light;
+
     editorInstanceRef.current = getOrCreateEditor(editorRef.current, {
       value: '',
       language: 'plaintext',
-      theme: 'vs',
+      theme: themeName,
       minimap: {
         enabled: true,
       },
@@ -68,7 +76,7 @@ export const Editor: React.FC<EditorProps> = ({
     return () => {
       disposeEditor();
     };
-  }, [editorInstanceRef]); // 初期化は一度だけ
+  }, [editorInstanceRef, settings.editorTheme, settings.isDarkMode]); // 初期化は一度だけ
 
   // イベントリスナーの設定
   useEffect(() => {
@@ -125,10 +133,11 @@ export const Editor: React.FC<EditorProps> = ({
   // 設定変更時の処理
   useEffect(() => {
     if (editorInstanceRef.current) {
-      const themePair = getThemePair(settings.editorTheme || 'default');
-      const themeName = settings.isDarkMode ? themePair.dark : themePair.light;
+      const monaco = getMonaco();
+      const pair = getThemePair(settings.editorTheme);
+      const themeName = settings.isDarkMode ? pair.dark : pair.light;
+      monaco.editor.setTheme(themeName);
       editorInstanceRef.current.updateOptions({
-        theme: themeName,
         fontFamily: settings.fontFamily,
         fontSize: settings.fontSize,
         wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
