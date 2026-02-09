@@ -4,10 +4,76 @@ import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+import cloudsTheme from 'monaco-themes/themes/Clouds.json';
+import cloudsMidnightTheme from 'monaco-themes/themes/Clouds Midnight.json';
+import draculaTheme from 'monaco-themes/themes/Dracula.json';
+import githubDarkTheme from 'monaco-themes/themes/GitHub Dark.json';
+// Theme imports from monaco-themes
+import githubLightTheme from 'monaco-themes/themes/GitHub Light.json';
+import monokaiTheme from 'monaco-themes/themes/Monokai.json';
+import nightOwlTheme from 'monaco-themes/themes/Night Owl.json';
+import nordTheme from 'monaco-themes/themes/Nord.json';
+import solarizedDarkTheme from 'monaco-themes/themes/Solarized-dark.json';
+import solarizedLightTheme from 'monaco-themes/themes/Solarized-light.json';
+import tomorrowTheme from 'monaco-themes/themes/Tomorrow.json';
+import tomorrowNightTheme from 'monaco-themes/themes/Tomorrow-Night.json';
+
+// Theme pair type definition
+export type ThemePair = {
+  id: string;
+  label: string;
+  light: string;
+  dark: string;
+};
+
+// Available theme pairs
+export const THEME_PAIRS: ThemePair[] = [
+  { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+  { id: 'github', label: 'GitHub', light: 'github-light', dark: 'github-dark' },
+  {
+    id: 'solarized',
+    label: 'Solarized',
+    light: 'solarized-light',
+    dark: 'solarized-dark',
+  },
+  {
+    id: 'tomorrow',
+    label: 'Tomorrow',
+    light: 'tomorrow',
+    dark: 'tomorrow-night',
+  },
+  { id: 'clouds', label: 'Clouds', light: 'clouds', dark: 'clouds-midnight' },
+  { id: 'monokai', label: 'Monokai', light: 'vs', dark: 'monokai' },
+  { id: 'dracula', label: 'Dracula', light: 'vs', dark: 'dracula' },
+  { id: 'nord', label: 'Nord', light: 'vs', dark: 'nord' },
+  { id: 'night-owl', label: 'Night Owl', light: 'vs', dark: 'night-owl' },
+];
+
+// Get theme pair by id
+export const getThemePair = (id: string): ThemePair => {
+  return THEME_PAIRS.find((pair) => pair.id === id) || THEME_PAIRS[0];
+};
 
 // シングルトンとしてのモジュール初期化
 let _isInitialized = false;
 let _monaco: typeof monaco | null = null;
+
+// Register custom themes
+const registerThemes = () => {
+  if (!_monaco) return;
+  _monaco.editor.defineTheme('github-light', githubLightTheme as any);
+  _monaco.editor.defineTheme('github-dark', githubDarkTheme as any);
+  _monaco.editor.defineTheme('solarized-light', solarizedLightTheme as any);
+  _monaco.editor.defineTheme('solarized-dark', solarizedDarkTheme as any);
+  _monaco.editor.defineTheme('tomorrow', tomorrowTheme as any);
+  _monaco.editor.defineTheme('tomorrow-night', tomorrowNightTheme as any);
+  _monaco.editor.defineTheme('clouds', cloudsTheme as any);
+  _monaco.editor.defineTheme('clouds-midnight', cloudsMidnightTheme as any);
+  _monaco.editor.defineTheme('monokai', monokaiTheme as any);
+  _monaco.editor.defineTheme('dracula', draculaTheme as any);
+  _monaco.editor.defineTheme('nord', nordTheme as any);
+  _monaco.editor.defineTheme('night-owl', nightOwlTheme as any);
+};
 
 // Monaco Editorの初期化
 const initializeMonaco = () => {
@@ -66,8 +132,10 @@ const initializeMonaco = () => {
 
   // ログ出力を抑制
   _monaco = monaco;
-  _monaco.editor.setTheme = () => Promise.resolve();
   _monaco.editor.onDidCreateEditor = () => ({ dispose: () => {} });
+
+  // Register custom themes
+  registerThemes();
 
   _isInitialized = true;
 };
