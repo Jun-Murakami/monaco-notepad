@@ -1,123 +1,123 @@
 import {
-	Close,
-	KeyboardArrowDown,
-	KeyboardArrowUp,
-	Search,
+  Close,
+  KeyboardArrowDown,
+  KeyboardArrowUp,
+  Search,
 } from '@mui/icons-material';
 import { Box, IconButton, InputAdornment, InputBase } from '@mui/material';
 import { useCallback, useRef } from 'react';
 
 interface NoteSearchBoxProps {
-	value: string;
-	onChange: (value: string) => void;
-	onNext: () => void;
-	onPrevious: () => void;
-	matchIndex: number;
-	matchCount: number;
+  value: string;
+  onChange: (value: string) => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  matchIndex: number;
+  matchCount: number;
 }
 
 export const NoteSearchBox = ({
-	value,
-	onChange,
-	onNext,
-	onPrevious,
-	matchIndex,
-	matchCount,
+  value,
+  onChange,
+  onNext,
+  onPrevious,
+  matchIndex,
+  matchCount,
 }: NoteSearchBoxProps) => {
-	const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-	const handleClear = useCallback(() => {
-		onChange('');
-		inputRef.current?.focus();
-	}, [onChange]);
+  const handleClear = useCallback(() => {
+    onChange('');
+    inputRef.current?.focus();
+  }, [onChange]);
 
-	const handleKeyDown = useCallback(
-		(e: React.KeyboardEvent) => {
-			if (e.key === 'Enter') {
-				e.preventDefault();
-				e.shiftKey ? onPrevious() : onNext();
-			}
-			if (e.key === 'Escape') {
-				handleClear();
-			}
-		},
-		[onNext, onPrevious, handleClear],
-	);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.shiftKey ? onPrevious() : onNext();
+      }
+      if (e.key === 'Escape') {
+        handleClear();
+      }
+    },
+    [onNext, onPrevious, handleClear],
+  );
 
-	const hasQuery = value.length > 0;
+  const hasQuery = value.length > 0;
 
-	return (
-		<Box
-			sx={{
-				borderTop: 1,
-				borderColor: 'divider',
-				px: 0.5,
-				py: 0.25,
-				display: 'flex',
-				alignItems: 'center',
-				backgroundColor: 'background.paper',
-			}}
-		>
-			<InputBase
-				inputRef={inputRef}
-				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				onKeyDown={handleKeyDown}
-				placeholder="Search..."
-				size="small"
-				sx={{
-					flex: 1,
-					fontSize: '0.8rem',
-					'& .MuiInputBase-input': {
-						py: 0.25,
-						px: 0.5,
-					},
-				}}
-				startAdornment={
-					<InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
-						<Search sx={{ fontSize: 16, color: 'text.secondary' }} />
-					</InputAdornment>
-				}
-				endAdornment={
-					hasQuery ? (
-						<InputAdornment position="end" sx={{ mr: 0 }}>
-							<Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-								<Box
-									component="span"
-									sx={{
-										fontSize: '0.7rem',
-										color: 'text.secondary',
-										whiteSpace: 'nowrap',
-										minWidth: 28,
-										textAlign: 'center',
-									}}
-								>
-									{matchCount > 0 ? `${matchIndex}/${matchCount}` : '0/0'}
-								</Box>
-								<IconButton
-									size="small"
-									onClick={onPrevious}
-									disabled={matchCount === 0}
-									sx={{ p: 0.25 }}
-								>
-									<KeyboardArrowUp sx={{ fontSize: 16 }} />
-								</IconButton>
-								<IconButton
-									size="small"
-									onClick={onNext}
-									disabled={matchCount === 0}
-									sx={{ p: 0.25 }}
-								>
-									<KeyboardArrowDown sx={{ fontSize: 16 }} />
-								</IconButton>
-								<IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
-									<Close sx={{ fontSize: 14 }} />
-								</IconButton>
-							</Box>
-						</InputAdornment>
-					) : null
-				}
-			/>
-		</Box>
-	);
+  return (
+    <Box
+      sx={{
+        borderTop: 1,
+        borderColor: 'divider',
+        px: 0.5,
+        py: 0.25,
+        display: 'flex',
+        alignItems: 'center',
+        backgroundColor: 'background.paper',
+      }}
+    >
+      <InputBase
+        inputRef={inputRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Search..."
+        size="small"
+        sx={{
+          flex: 1,
+          fontSize: '0.8rem',
+          '& .MuiInputBase-input': {
+            py: 0.25,
+            px: 0.5,
+          },
+        }}
+        startAdornment={
+          <InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
+            <Search sx={{ fontSize: 16, color: 'text.secondary' }} />
+          </InputAdornment>
+        }
+        endAdornment={
+          hasQuery ? (
+            <InputAdornment position="end" sx={{ mr: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: '0.7rem',
+                    color: 'text.secondary',
+                    whiteSpace: 'nowrap',
+                    minWidth: 28,
+                    textAlign: 'center',
+                  }}
+                >
+                  {matchCount > 0 ? `${matchIndex}/${matchCount}` : '0/0'}
+                </Box>
+                <IconButton
+                  size="small"
+                  onClick={onPrevious}
+                  disabled={matchCount === 0}
+                  sx={{ p: 0.25 }}
+                >
+                  <KeyboardArrowUp sx={{ fontSize: 16 }} />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  onClick={onNext}
+                  disabled={matchCount === 0}
+                  sx={{ p: 0.25 }}
+                >
+                  <KeyboardArrowDown sx={{ fontSize: 16 }} />
+                </IconButton>
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
+                  <Close sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Box>
+            </InputAdornment>
+          ) : null
+        }
+      />
+    </Box>
+  );
 };

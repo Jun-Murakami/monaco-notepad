@@ -30,6 +30,14 @@ export function Console(arg1, arg2) {
   return window['go']['backend']['App']['Console'](arg1, arg2);
 }
 
+export function CreateFolder(arg1) {
+  return window['go']['backend']['App']['CreateFolder'](arg1);
+}
+
+export function DeleteFolder(arg1) {
+  return window['go']['backend']['App']['DeleteFolder'](arg1);
+}
+
 export function DeleteNote(arg1) {
   return window['go']['backend']['App']['DeleteNote'](arg1);
 }
@@ -50,8 +58,16 @@ export function GetModifiedTime(arg1) {
   return window['go']['backend']['App']['GetModifiedTime'](arg1);
 }
 
+export function GetTopLevelOrder() {
+  return window['go']['backend']['App']['GetTopLevelOrder']();
+}
+
 export function InitializeDrive() {
   return window['go']['backend']['App']['InitializeDrive']();
+}
+
+export function ListFolders() {
+  return window['go']['backend']['App']['ListFolders']();
 }
 
 export function ListNotes() {
@@ -78,6 +94,10 @@ export function LogoutDrive() {
   return window['go']['backend']['App']['LogoutDrive']();
 }
 
+export function MoveNoteToFolder(arg1, arg2) {
+  return window['go']['backend']['App']['MoveNoteToFolder'](arg1, arg2);
+}
+
 export function NotifyFrontendReady() {
   return window['go']['backend']['App']['NotifyFrontendReady']();
 }
@@ -92,6 +112,10 @@ export function OpenFileFromExternal(arg1) {
 
 export function OpenURL(arg1) {
   return window['go']['backend']['App']['OpenURL'](arg1);
+}
+
+export function RenameFolder(arg1, arg2) {
+  return window['go']['backend']['App']['RenameFolder'](arg1, arg2);
 }
 
 export function SaveFile(arg1, arg2) {
@@ -132,4 +156,8 @@ export function SyncNow() {
 
 export function UpdateNoteOrder(arg1, arg2) {
   return window['go']['backend']['App']['UpdateNoteOrder'](arg1, arg2);
+}
+
+export function UpdateTopLevelOrder(arg1) {
+  return window['go']['backend']['App']['UpdateTopLevelOrder'](arg1);
 }

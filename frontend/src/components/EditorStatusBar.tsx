@@ -270,7 +270,10 @@ export const EditorStatusBar = ({
           </Typography>
         </Box>
         <SimpleBar
-          style={{ maxHeight: 'calc(min(600px, 90vh) - 42px)', overflowX: 'hidden' }}
+          style={{
+            maxHeight: 'calc(min(600px, 90vh) - 42px)',
+            overflowX: 'hidden',
+          }}
         >
           <List dense sx={{ py: 0 }}>
             {messageHistoryRef.current.map((entry, index) => (

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // 既存のimportの下に追加
@@ -21,6 +23,11 @@ type NoteService interface {
 	DeleteNote(id string) error                        // 指定されたIDのノートを削除する
 	LoadArchivedNote(id string) (*Note, error)         // アーカイブされたノートの完全なデータを読み込む
 	UpdateNoteOrder(noteID string, newIndex int) error // ノートの順序を更新する
+	CreateFolder(name string) (*Folder, error)         // フォルダを作成する
+	RenameFolder(id string, name string) error         // フォルダ名を変更する
+	DeleteFolder(id string) error                      // フォルダを削除する（空の場合のみ）
+	MoveNoteToFolder(noteID string, folderID string) error // ノートをフォルダに移動する
+	ListFolders() []Folder                             // フォルダのリストを返す
 }
 
 // NoteServiceの実装
@@ -66,6 +73,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 				ModifiedTime:  metadata.ModifiedTime,
 				Order:         metadata.Order,
 				Archived:      true,
+				FolderID:      metadata.FolderID,
 			})
 		} else {
 			// アクティブなノートはコンテンツを読み込む
@@ -75,6 +83,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			}
 			notes = append(notes, *note)
 			notes[len(notes)-1].Order = metadata.Order
+			notes[len(notes)-1].FolderID = metadata.FolderID
 		}
 	}
 
@@ -104,10 +113,13 @@ func (s *noteService) LoadNote(id string) (*Note, error) {
 
 // ノートを保存する ------------------------------------------------------------
 func (s *noteService) SaveNote(note *Note) error {
-	// 現在時刻を ISO 8601 形式で設定
 	note.ModifiedTime = time.Now().Format(time.RFC3339)
 
+	// FolderIDはnoteList.jsonのみで管理するため、ノートファイルには書き込まない
+	savedFolderID := note.FolderID
+	note.FolderID = ""
 	data, err := json.MarshalIndent(note, "", "  ")
+	note.FolderID = savedFolderID
 	if err != nil {
 		return err
 	}
@@ -130,7 +142,7 @@ func (s *noteService) SaveNote(note *Note) error {
 	for i, metadata := range s.noteList.Notes {
 		if metadata.ID == note.ID {
 			order = metadata.Order
-			// 既存のメタデータを更新
+			// 既存のメタデータを更新（FolderIDは既存の値を保持）
 			s.noteList.Notes[i] = NoteMetadata{
 				ID:            note.ID,
 				Title:         note.Title,
@@ -140,6 +152,7 @@ func (s *noteService) SaveNote(note *Note) error {
 				Archived:      note.Archived,
 				ContentHash:   contentHash,
 				Order:         order,
+				FolderID:      metadata.FolderID,
 			}
 			found = true
 			break
@@ -159,7 +172,8 @@ func (s *noteService) SaveNote(note *Note) error {
 			order = minOrder - 1
 		}
 
-		// 新規ノートをリストに追加
+		s.ensureTopLevelOrder()
+
 		s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
 			ID:            note.ID,
 			Title:         note.Title,
@@ -170,6 +184,10 @@ func (s *noteService) SaveNote(note *Note) error {
 			ContentHash:   contentHash,
 			Order:         order,
 		})
+
+		if note.FolderID == "" && !note.Archived {
+			s.noteList.TopLevelOrder = append([]TopLevelItem{{Type: "note", ID: note.ID}}, s.noteList.TopLevelOrder...)
+		}
 	}
 
 	// 保存前にローカルノートリストの重複削除を実施
@@ -195,6 +213,8 @@ func (s *noteService) DeleteNote(id string) error {
 		}
 	}
 	s.noteList.Notes = updatedNotes
+	s.ensureTopLevelOrder()
+	s.removeFromTopLevelOrder(id)
 
 	s.noteList.LastSync = time.Now()
 
@@ -274,22 +294,200 @@ func (s *noteService) UpdateNoteOrder(noteID string, newIndex int) error {
 	return s.saveNoteList()
 }
 
+// フォルダを作成する ------------------------------------------------------------
+func (s *noteService) CreateFolder(name string) (*Folder, error) {
+	if name == "" {
+		return nil, fmt.Errorf("folder name is empty")
+	}
+
+	folder := &Folder{
+		ID:   uuid.New().String(),
+		Name: name,
+	}
+
+	s.ensureTopLevelOrder()
+	s.noteList.Folders = append(s.noteList.Folders, *folder)
+	s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "folder", ID: folder.ID})
+	s.noteList.LastSync = time.Now()
+
+	if err := s.saveNoteList(); err != nil {
+		return nil, err
+	}
+	return folder, nil
+}
+
+// フォルダ名を変更する ------------------------------------------------------------
+func (s *noteService) RenameFolder(id string, name string) error {
+	if name == "" {
+		return fmt.Errorf("folder name is empty")
+	}
+
+	for i, folder := range s.noteList.Folders {
+		if folder.ID == id {
+			s.noteList.Folders[i].Name = name
+			s.noteList.LastSync = time.Now()
+			return s.saveNoteList()
+		}
+	}
+	return fmt.Errorf("folder not found: %s", id)
+}
+
+// フォルダを削除する（空の場合のみ） ------------------------------------------------------------
+func (s *noteService) DeleteFolder(id string) error {
+	for _, note := range s.noteList.Notes {
+		if note.FolderID == id {
+			return fmt.Errorf("folder is not empty")
+		}
+	}
+
+	var updatedFolders []Folder
+	found := false
+	for _, folder := range s.noteList.Folders {
+		if folder.ID == id {
+			found = true
+			continue
+		}
+		updatedFolders = append(updatedFolders, folder)
+	}
+
+	if !found {
+		return fmt.Errorf("folder not found: %s", id)
+	}
+
+	s.noteList.Folders = updatedFolders
+	s.ensureTopLevelOrder()
+	s.removeFromTopLevelOrder(id)
+	s.noteList.LastSync = time.Now()
+	return s.saveNoteList()
+}
+
+// ノートをフォルダに移動する（folderIDが空文字の場合は未分類に戻す） ------------------------------------------------------------
+func (s *noteService) MoveNoteToFolder(noteID string, folderID string) error {
+	if folderID != "" {
+		folderFound := false
+		for _, folder := range s.noteList.Folders {
+			if folder.ID == folderID {
+				folderFound = true
+				break
+			}
+		}
+		if !folderFound {
+			return fmt.Errorf("folder not found: %s", folderID)
+		}
+	}
+
+	for i, note := range s.noteList.Notes {
+		if note.ID == noteID {
+			oldFolderID := note.FolderID
+			s.ensureTopLevelOrder()
+			s.noteList.Notes[i].FolderID = folderID
+
+			if folderID != "" && oldFolderID == "" {
+				s.removeFromTopLevelOrder(noteID)
+			} else if folderID == "" && oldFolderID != "" {
+				s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "note", ID: noteID})
+			}
+
+			s.noteList.LastSync = time.Now()
+			return s.saveNoteList()
+		}
+	}
+	return fmt.Errorf("note not found: %s", noteID)
+}
+
+// フォルダのリストを返す ------------------------------------------------------------
+func (s *noteService) ListFolders() []Folder {
+	if s.noteList.Folders == nil {
+		return []Folder{}
+	}
+	return s.noteList.Folders
+}
+
+// トップレベルの表示順序を返す（後方互換: nilの場合は自動生成） ------------------------------------------------------------
+func (s *noteService) GetTopLevelOrder() []TopLevelItem {
+	if s.noteList.TopLevelOrder != nil {
+		return s.noteList.TopLevelOrder
+	}
+	return s.buildTopLevelOrder()
+}
+
+// トップレベルの表示順序を更新する ------------------------------------------------------------
+func (s *noteService) UpdateTopLevelOrder(order []TopLevelItem) error {
+	s.noteList.TopLevelOrder = order
+	s.noteList.LastSync = time.Now()
+	return s.saveNoteList()
+}
+
+// TopLevelOrderがnilの場合、既存データから自動生成して初期化する ------------------------------------------------------------
+func (s *noteService) ensureTopLevelOrder() {
+	if s.noteList.TopLevelOrder == nil {
+		s.noteList.TopLevelOrder = s.buildTopLevelOrder()
+	}
+}
+
+// TopLevelOrder内の重複エントリを除去する ------------------------------------------------------------
+func (s *noteService) deduplicateTopLevelOrder() {
+	if s.noteList.TopLevelOrder == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	var deduped []TopLevelItem
+	for _, item := range s.noteList.TopLevelOrder {
+		key := item.Type + ":" + item.ID
+		if !seen[key] {
+			seen[key] = true
+			deduped = append(deduped, item)
+		}
+	}
+	s.noteList.TopLevelOrder = deduped
+}
+
+// TopLevelOrderから指定IDを除去する ------------------------------------------------------------
+func (s *noteService) removeFromTopLevelOrder(id string) {
+	var updated []TopLevelItem
+	for _, item := range s.noteList.TopLevelOrder {
+		if item.ID != id {
+			updated = append(updated, item)
+		}
+	}
+	s.noteList.TopLevelOrder = updated
+}
+
+// 後方互換用: 未分類ノート+フォルダからTopLevelOrderを生成する ------------------------------------------------------------
+func (s *noteService) buildTopLevelOrder() []TopLevelItem {
+	var order []TopLevelItem
+	for _, note := range s.noteList.Notes {
+		if note.FolderID == "" && !note.Archived {
+			order = append(order, TopLevelItem{Type: "note", ID: note.ID})
+		}
+	}
+	for _, folder := range s.noteList.Folders {
+		order = append(order, TopLevelItem{Type: "folder", ID: folder.ID})
+	}
+	return order
+}
+
 // ------------------------------------------------------------
 // 内部ヘルパー
 // ------------------------------------------------------------
 
+func generateUUID() string {
+	return uuid.New().String()
+}
+
 // noteList内の重複するノートを削除し、最新のものだけを保持 ------------------------------------------------------------
 func (s *noteService) deduplicateNoteList() {
-	noteMap := make(map[string]NoteMetadata)
+	seen := make(map[string]int)
+	deduped := make([]NoteMetadata, 0, len(s.noteList.Notes))
 	for _, metadata := range s.noteList.Notes {
-		existing, exists := noteMap[metadata.ID]
-		if !exists || isModifiedTimeAfter(metadata.ModifiedTime, existing.ModifiedTime) {
-			noteMap[metadata.ID] = metadata
+		if idx, exists := seen[metadata.ID]; exists {
+			if isModifiedTimeAfter(metadata.ModifiedTime, deduped[idx].ModifiedTime) {
+				deduped[idx] = metadata
+			}
+		} else {
+			seen[metadata.ID] = len(deduped)
+			deduped = append(deduped, metadata)
 		}
-	}
-	deduped := make([]NoteMetadata, 0, len(noteMap))
-	for _, m := range noteMap {
-		deduped = append(deduped, m)
 	}
 	s.noteList.Notes = deduped
 }
@@ -317,6 +515,8 @@ func (s *noteService) loadNoteList() error {
 	if err := json.Unmarshal(data, &s.noteList); err != nil {
 		return err
 	}
+
+	s.deduplicateTopLevelOrder()
 
 	// 処理前のノートリストをコピー
 	originalNotes := make([]NoteMetadata, len(s.noteList.Notes))
@@ -373,7 +573,8 @@ func (s *noteService) isNoteListEqual(a, b []NoteMetadata) bool {
 			sortedA[i].ModifiedTime != sortedB[i].ModifiedTime ||
 			sortedA[i].Archived != sortedB[i].Archived ||
 			sortedA[i].ContentHash != sortedB[i].ContentHash ||
-			sortedA[i].Order != sortedB[i].Order {
+			sortedA[i].Order != sortedB[i].Order ||
+			sortedA[i].FolderID != sortedB[i].FolderID {
 			return false
 		}
 	}
@@ -405,9 +606,10 @@ func (s *noteService) resolveMetadataConflicts() error {
 			Language:      note.Language,
 			ModifiedTime:  note.ModifiedTime,
 			Archived:      note.Archived,
-			// ContentHashとOrderはノートリストの値を保持
+			// ContentHash, Order, FolderIDはノートリストの値を保持
 			ContentHash: listMetadata.ContentHash,
 			Order:       listMetadata.Order,
+			FolderID:    listMetadata.FolderID,
 		}
 
 		// メタデータの競合を解決
@@ -458,6 +660,8 @@ func (s *noteService) resolveMetadata(listMetadata, fileMetadata NoteMetadata) N
 
 // ノートリストをJSONファイルとして保存 ------------------------------------------------------------
 func (s *noteService) saveNoteList() error {
+	s.deduplicateTopLevelOrder()
+
 	data, err := json.MarshalIndent(s.noteList, "", "  ")
 	if err != nil {
 		return err

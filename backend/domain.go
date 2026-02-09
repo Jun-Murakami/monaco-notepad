@@ -32,16 +32,29 @@ type Context struct {
 	skipBeforeClose bool // アプリケーション終了前の保存処理をスキップするかどうか
 }
 
+// トップレベルの表示順序を管理するアイテム
+type TopLevelItem struct {
+	Type string `json:"type"` // "note" or "folder"
+	ID   string `json:"id"`
+}
+
+// フォルダの基本情報
+type Folder struct {
+	ID   string `json:"id"`   // フォルダの一意識別子
+	Name string `json:"name"` // フォルダ名
+}
+
 // ノートの基本情報
 type Note struct {
-	ID            string `json:"id"`            // ノートの一意識別子
-	Title         string `json:"title"`         // ノートのタイトル
-	Content       string `json:"content"`       // ノートの本文内容
-	ContentHeader string `json:"contentHeader"` // アーカイブ時に表示される内容のプレビュー
-	Language      string `json:"language"`      // ノートで使用されているプログラミング言語
-	ModifiedTime  string `json:"modifiedTime"`  // 最終更新日時
-	Archived      bool   `json:"archived"`      // アーカイブ状態（true=アーカイブ済み）
-	Order         int    `json:"order"`         // ノートの表示順序
+	ID            string `json:"id"`                        // ノートの一意識別子
+	Title         string `json:"title"`                     // ノートのタイトル
+	Content       string `json:"content"`                   // ノートの本文内容
+	ContentHeader string `json:"contentHeader"`             // アーカイブ時に表示される内容のプレビュー
+	Language      string `json:"language"`                  // ノートで使用されているプログラミング言語
+	ModifiedTime  string `json:"modifiedTime"`              // 最終更新日時
+	Archived      bool   `json:"archived"`                  // アーカイブ状態（true=アーカイブ済み）
+	Order         int    `json:"order"`                     // ノートの表示順序
+	FolderID      string `json:"folderId,omitempty"`        // 所属フォルダID（空文字=未分類）
 }
 
 // ノートのメタデータのみを保持
@@ -54,13 +67,16 @@ type NoteMetadata struct {
 	Archived      bool   `json:"archived"`
 	ContentHash   string `json:"contentHash"`
 	Order         int    `json:"order"`
+	FolderID      string `json:"folderId,omitempty"`
 }
 
 // ノートのリストを管理
 type NoteList struct {
-	Version  string         `json:"version"`
-	Notes    []NoteMetadata `json:"notes"`
-	LastSync time.Time      `json:"lastSync"`
+	Version       string         `json:"version"`
+	Notes         []NoteMetadata `json:"notes"`
+	Folders       []Folder       `json:"folders,omitempty"`
+	TopLevelOrder []TopLevelItem `json:"topLevelOrder,omitempty"`
+	LastSync      time.Time      `json:"lastSync"`
 }
 
 // アプリケーションの設定を管理
@@ -131,7 +147,7 @@ func (ds *DriveSync) SetConnected(connected bool) {
 	ds.isConnected = connected
 }
 
-func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata) {
+func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata, folders []Folder, topLevelOrder []TopLevelItem) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 	if ds.cloudNoteList == nil {
@@ -141,6 +157,16 @@ func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadat
 	notesCopy := make([]NoteMetadata, len(notes))
 	copy(notesCopy, notes)
 	ds.cloudNoteList.Notes = notesCopy
+	if folders != nil {
+		foldersCopy := make([]Folder, len(folders))
+		copy(foldersCopy, folders)
+		ds.cloudNoteList.Folders = foldersCopy
+	}
+	if topLevelOrder != nil {
+		orderCopy := make([]TopLevelItem, len(topLevelOrder))
+		copy(orderCopy, topLevelOrder)
+		ds.cloudNoteList.TopLevelOrder = orderCopy
+	}
 }
 
 func isModifiedTimeAfter(a, b string) bool {

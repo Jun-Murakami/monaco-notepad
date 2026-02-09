@@ -36,6 +36,20 @@ export namespace backend {
 	        this.modifiedTime = source["modifiedTime"];
 	    }
 	}
+	export class Folder {
+	    id: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Folder(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
 	export class Note {
 	    id: string;
 	    title: string;
@@ -45,6 +59,7 @@ export namespace backend {
 	    modifiedTime: string;
 	    archived: boolean;
 	    order: number;
+	    folderId?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Note(source);
@@ -60,6 +75,7 @@ export namespace backend {
 	        this.modifiedTime = source["modifiedTime"];
 	        this.archived = source["archived"];
 	        this.order = source["order"];
+	        this.folderId = source["folderId"];
 	    }
 	}
 	export class Settings {
@@ -92,6 +108,20 @@ export namespace backend {
 	        this.windowY = source["windowY"];
 	        this.isMaximized = source["isMaximized"];
 	        this.isDebug = source["isDebug"];
+	    }
+	}
+	export class TopLevelItem {
+	    type: string;
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TopLevelItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.id = source["id"];
 	    }
 	}
 

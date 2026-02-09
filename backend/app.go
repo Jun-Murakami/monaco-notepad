@@ -347,24 +347,86 @@ func (a *App) LoadArchivedNote(id string) (*Note, error) {
 // ノートの順序を更新する ------------------------------------------------------------
 func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 	fmt.Println("UpdateNoteOrder called")
-	// まずノートサービスで順序を更新
 	if err := a.noteService.UpdateNoteOrder(noteID, newIndex); err != nil {
 		return fmt.Errorf("error updating note order: %v", err)
 	}
 
-	// ドライブサービスが初期化されており、接続中の場合はアップロード
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// フォルダのリストを返す ------------------------------------------------------------
+func (a *App) ListFolders() []Folder {
+	return a.noteService.ListFolders()
+}
+
+// フォルダを作成する ------------------------------------------------------------
+func (a *App) CreateFolder(name string) (*Folder, error) {
+	folder, err := a.noteService.CreateFolder(name)
+	if err != nil {
+		return nil, err
+	}
+
+	a.syncNoteListToDrive()
+	return folder, nil
+}
+
+// フォルダ名を変更する ------------------------------------------------------------
+func (a *App) RenameFolder(id string, name string) error {
+	if err := a.noteService.RenameFolder(id, name); err != nil {
+		return err
+	}
+
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// フォルダを削除する ------------------------------------------------------------
+func (a *App) DeleteFolder(id string) error {
+	if err := a.noteService.DeleteFolder(id); err != nil {
+		return err
+	}
+
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// ノートをフォルダに移動する ------------------------------------------------------------
+func (a *App) MoveNoteToFolder(noteID string, folderID string) error {
+	if err := a.noteService.MoveNoteToFolder(noteID, folderID); err != nil {
+		return err
+	}
+
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// トップレベルの表示順序を返す ------------------------------------------------------------
+func (a *App) GetTopLevelOrder() []TopLevelItem {
+	return a.noteService.GetTopLevelOrder()
+}
+
+// トップレベルの表示順序を更新する ------------------------------------------------------------
+func (a *App) UpdateTopLevelOrder(order []TopLevelItem) error {
+	if err := a.noteService.UpdateTopLevelOrder(order); err != nil {
+		return err
+	}
+
+	a.syncNoteListToDrive()
+	return nil
+}
+
+// ノートリストをGoogle Driveに同期するヘルパー
+func (a *App) syncNoteListToDrive() {
 	if a.driveService != nil && a.driveService.IsConnected() {
 		go func() {
-			// ノートリストをアップロード
 			if err := a.driveService.UpdateNoteList(); err != nil {
 				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
 				return
 			}
-
 			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 		}()
 	}
-	return nil
 }
 
 // ------------------------------------------------------------

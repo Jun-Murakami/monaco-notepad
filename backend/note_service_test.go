@@ -236,7 +236,356 @@ func TestUpdateNoteOrder(t *testing.T) {
 	assert.True(t, archivedFound)
 }
 
-// TestNoteListSync は物理ファイルとnoteListの同期をテストします
+// TestCreateFolder はフォルダの作成をテストします
+func TestCreateFolder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("My Folder")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, folder.ID)
+	assert.Equal(t, "My Folder", folder.Name)
+	assert.Equal(t, 1, len(helper.noteService.noteList.Folders))
+	assert.Equal(t, folder.ID, helper.noteService.noteList.Folders[0].ID)
+
+	// 空の名前ではエラー
+	_, err = helper.noteService.CreateFolder("")
+	assert.Error(t, err)
+}
+
+// TestRenameFolder はフォルダ名の変更をテストします
+func TestRenameFolder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("Original")
+	assert.NoError(t, err)
+
+	err = helper.noteService.RenameFolder(folder.ID, "Renamed")
+	assert.NoError(t, err)
+	assert.Equal(t, "Renamed", helper.noteService.noteList.Folders[0].Name)
+
+	// 存在しないフォルダではエラー
+	err = helper.noteService.RenameFolder("nonexistent", "Name")
+	assert.Error(t, err)
+
+	// 空の名前ではエラー
+	err = helper.noteService.RenameFolder(folder.ID, "")
+	assert.Error(t, err)
+}
+
+// TestDeleteFolder はフォルダの削除をテストします
+func TestDeleteFolder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("ToDelete")
+	assert.NoError(t, err)
+
+	// 空のフォルダは削除できる
+	err = helper.noteService.DeleteFolder(folder.ID)
+	assert.NoError(t, err)
+	assert.Empty(t, helper.noteService.noteList.Folders)
+
+	// ノートが含まれるフォルダは削除できない
+	folder2, err := helper.noteService.CreateFolder("WithNotes")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "note-in-folder", Title: "In Folder"}
+	err = helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+	err = helper.noteService.MoveNoteToFolder("note-in-folder", folder2.ID)
+	assert.NoError(t, err)
+
+	err = helper.noteService.DeleteFolder(folder2.ID)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not empty")
+
+	// 存在しないフォルダではエラー
+	err = helper.noteService.DeleteFolder("nonexistent")
+	assert.Error(t, err)
+}
+
+// TestMoveNoteToFolder はノートのフォルダ移動をテストします
+func TestMoveNoteToFolder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("Target Folder")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "movable-note", Title: "Movable"}
+	err = helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	// フォルダに移動
+	err = helper.noteService.MoveNoteToFolder("movable-note", folder.ID)
+	assert.NoError(t, err)
+
+	for _, m := range helper.noteService.noteList.Notes {
+		if m.ID == "movable-note" {
+			assert.Equal(t, folder.ID, m.FolderID)
+		}
+	}
+
+	// 未分類に戻す
+	err = helper.noteService.MoveNoteToFolder("movable-note", "")
+	assert.NoError(t, err)
+
+	for _, m := range helper.noteService.noteList.Notes {
+		if m.ID == "movable-note" {
+			assert.Empty(t, m.FolderID)
+		}
+	}
+
+	// 存在しないノートではエラー
+	err = helper.noteService.MoveNoteToFolder("nonexistent", folder.ID)
+	assert.Error(t, err)
+
+	// 存在しないフォルダではエラー
+	err = helper.noteService.MoveNoteToFolder("movable-note", "nonexistent-folder")
+	assert.Error(t, err)
+}
+
+// TestFolderIDPreservedOnSave はノート保存時にFolderIDが保持されることをテストします
+func TestFolderIDPreservedOnSave(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("Persistent")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "persistent-note", Title: "Original Title", Content: "Original Content"}
+	err = helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	err = helper.noteService.MoveNoteToFolder("persistent-note", folder.ID)
+	assert.NoError(t, err)
+
+	// ノートの内容を更新して保存（FolderIDは変わらないはず）
+	note.Title = "Updated Title"
+	note.Content = "Updated Content"
+	err = helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	for _, m := range helper.noteService.noteList.Notes {
+		if m.ID == "persistent-note" {
+			assert.Equal(t, folder.ID, m.FolderID)
+			assert.Equal(t, "Updated Title", m.Title)
+		}
+	}
+}
+
+// TestListNotesWithFolderID はListNotesがFolderIDを返すことをテストします
+func TestListNotesWithFolderID(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("ListTest")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "list-note", Title: "List Note", Content: "Content"}
+	err = helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	err = helper.noteService.MoveNoteToFolder("list-note", folder.ID)
+	assert.NoError(t, err)
+
+	notes, err := helper.noteService.ListNotes()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(notes))
+	assert.Equal(t, folder.ID, notes[0].FolderID)
+}
+
+// TestBackwardCompatNoteListWithoutFolders は古い形式のnoteList.jsonとの互換性をテストします
+func TestBackwardCompatNoteListWithoutFolders(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	// 古い形式のnoteList.json（foldersフィールドなし）を直接書き込む
+	oldNoteList := `{
+		"version": "1.0",
+		"notes": [{"id": "old-note", "title": "Old Note", "language": "plaintext", "modifiedTime": "2024-01-01T00:00:00Z"}],
+		"lastSync": "2024-01-01T00:00:00Z"
+	}`
+	noteListPath := filepath.Join(helper.tempDir, "noteList.json")
+	err := os.WriteFile(noteListPath, []byte(oldNoteList), 0644)
+	assert.NoError(t, err)
+
+	// ノートファイルも作成
+	noteData := `{"id": "old-note", "title": "Old Note", "content": "Old Content", "language": "plaintext", "modifiedTime": "2024-01-01T00:00:00Z"}`
+	err = os.WriteFile(filepath.Join(helper.notesDir, "old-note.json"), []byte(noteData), 0644)
+	assert.NoError(t, err)
+
+	// NoteServiceを再初期化
+	service, err := NewNoteService(helper.notesDir)
+	assert.NoError(t, err)
+	assert.NotNil(t, service)
+
+	// Foldersがnilまたは空であること
+	assert.Empty(t, service.noteList.Folders)
+
+	// ノートが正しく読み込まれること
+	assert.Equal(t, 1, len(service.noteList.Notes))
+	assert.Empty(t, service.noteList.Notes[0].FolderID)
+}
+
+func TestGetTopLevelOrder_BackwardCompat(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note1 := &Note{ID: "n1", Title: "Note1", Content: "c1"}
+	note2 := &Note{ID: "n2", Title: "Note2", Content: "c2"}
+	assert.NoError(t, helper.noteService.SaveNote(note1))
+	assert.NoError(t, helper.noteService.SaveNote(note2))
+
+	folder, err := helper.noteService.CreateFolder("F1")
+	assert.NoError(t, err)
+
+	// TopLevelOrderをnilにリセット（後方互換テスト）
+	helper.noteService.noteList.TopLevelOrder = nil
+
+	order := helper.noteService.GetTopLevelOrder()
+	assert.Equal(t, 3, len(order))
+	// 未分類ノートが先、フォルダが後
+	assert.Equal(t, TopLevelItem{Type: "note", ID: "n1"}, order[0])
+	assert.Equal(t, TopLevelItem{Type: "note", ID: "n2"}, order[1])
+	assert.Equal(t, TopLevelItem{Type: "folder", ID: folder.ID}, order[2])
+}
+
+func TestUpdateTopLevelOrder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	order := []TopLevelItem{
+		{Type: "folder", ID: "f1"},
+		{Type: "note", ID: "n1"},
+	}
+
+	err := helper.noteService.UpdateTopLevelOrder(order)
+	assert.NoError(t, err)
+	assert.Equal(t, order, helper.noteService.noteList.TopLevelOrder)
+
+	// 永続化されていることを確認
+	service, err := NewNoteService(helper.notesDir)
+	assert.NoError(t, err)
+	assert.Equal(t, order, service.noteList.TopLevelOrder)
+}
+
+func TestCreateFolder_AddsToTopLevelOrder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	folder, err := helper.noteService.CreateFolder("F1")
+	assert.NoError(t, err)
+
+	order := helper.noteService.noteList.TopLevelOrder
+	found := false
+	for _, item := range order {
+		if item.Type == "folder" && item.ID == folder.ID {
+			found = true
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestDeleteFolder_RemovesFromTopLevelOrder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("F1")
+	assert.NoError(t, err)
+	assert.True(t, len(helper.noteService.noteList.TopLevelOrder) > 0)
+
+	err = helper.noteService.DeleteFolder(folder.ID)
+	assert.NoError(t, err)
+
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		assert.NotEqual(t, folder.ID, item.ID)
+	}
+}
+
+func TestMoveNoteToFolder_UpdatesTopLevelOrder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	folder, err := helper.noteService.CreateFolder("F1")
+	assert.NoError(t, err)
+
+	// 初期状態: ノートはTopLevelOrderにいる
+	hasNote := false
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		if item.Type == "note" && item.ID == "n1" {
+			hasNote = true
+		}
+	}
+	assert.True(t, hasNote)
+
+	// フォルダに移動 → TopLevelOrderから消える
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", folder.ID))
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		assert.False(t, item.Type == "note" && item.ID == "n1")
+	}
+
+	// 未分類に戻す → TopLevelOrderに復帰
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", ""))
+	hasNote = false
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		if item.Type == "note" && item.ID == "n1" {
+			hasNote = true
+		}
+	}
+	assert.True(t, hasNote)
+}
+
+func TestCreateFolder_NoDuplicateWhenTopLevelOrderNil(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	helper.noteService.noteList.TopLevelOrder = nil
+
+	folder, err := helper.noteService.CreateFolder("F1")
+	assert.NoError(t, err)
+
+	count := 0
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		if item.Type == "folder" && item.ID == folder.ID {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count)
+}
+
+func TestMoveNoteToFolder_NoDuplicateWhenTopLevelOrderNil(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	folder, err := helper.noteService.CreateFolder("F1")
+	assert.NoError(t, err)
+
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", folder.ID))
+
+	helper.noteService.noteList.TopLevelOrder = nil
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", ""))
+
+	count := 0
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		if item.Type == "note" && item.ID == "n1" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count)
+}
+
 func TestNoteListSync(t *testing.T) {
 	helper := setupNoteTest(t)
 	defer helper.cleanup()

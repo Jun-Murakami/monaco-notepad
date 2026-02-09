@@ -304,7 +304,7 @@ func (s *driveService) updateNoteListInternal() error {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note list"))
 	}
 
-	s.auth.GetDriveSync().UpdateCloudNoteList(lastSync, s.noteService.noteList.Notes)
+	s.auth.GetDriveSync().UpdateCloudNoteList(lastSync, s.noteService.noteList.Notes, s.noteService.noteList.Folders, s.noteService.noteList.TopLevelOrder)
 
 	s.logger.Console("Note list updated")
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
