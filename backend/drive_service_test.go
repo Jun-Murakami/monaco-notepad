@@ -1966,6 +1966,338 @@ func TestOfflineRecovery_MergesNoteListStructure(t *testing.T) {
 	assert.Len(t, helper.noteService.noteList.TopLevelOrder, 2, "クラウドとローカル両方のTopLevelOrderが保持されるべき")
 }
 
+// --- M-2: 構造フィールドマージ検出テスト ---
+
+func TestIsNoteListChanged_ArchiveChange_Detected(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	note := &Note{ID: "n1", Title: "Note", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	localHash := helper.noteService.noteList.Notes[0].ContentHash
+
+	archivedNote := &Note{ID: "n1", Title: "Note", Content: "c", Language: "plaintext", Archived: true}
+	archivedHash := computeContentHash(archivedNote)
+	assert.NotEqual(t, localHash, archivedHash, "Archived変更でContentHashが変わるべき")
+
+	localList := []NoteMetadata{{ID: "n1", ContentHash: localHash, Order: 0}}
+	cloudList := []NoteMetadata{{ID: "n1", ContentHash: archivedHash, Order: 0}}
+
+	assert.True(t, ds.isNoteListChanged(cloudList, localList),
+		"Archived変更がisNoteListChangedで検出されるべき")
+}
+
+func TestIsNoteListChanged_FolderIdChange_Detected(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	note := &Note{ID: "n1", Title: "Note", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	localHash := helper.noteService.noteList.Notes[0].ContentHash
+
+	movedNote := &Note{ID: "n1", Title: "Note", Content: "c", Language: "plaintext", FolderID: "folder-x"}
+	movedHash := computeContentHash(movedNote)
+	assert.NotEqual(t, localHash, movedHash, "FolderID変更でContentHashが変わるべき")
+
+	localList := []NoteMetadata{{ID: "n1", ContentHash: localHash, Order: 0}}
+	cloudList := []NoteMetadata{{ID: "n1", ContentHash: movedHash, Order: 0}}
+
+	assert.True(t, ds.isNoteListChanged(cloudList, localList),
+		"FolderID変更がisNoteListChangedで検出されるべき")
+}
+
+func TestMergeNotes_ArchiveChange_TriggersConflictOrDownload(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	note := &Note{ID: "n1", Title: "Note", Content: "same", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	localHash := helper.noteService.noteList.Notes[0].ContentHash
+
+	cloudNote := &Note{ID: "n1", Title: "Note", Content: "same", Language: "plaintext", Archived: true}
+	cloudHash := computeContentHash(cloudNote)
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps.CreateFile("n1.json", cloudData, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	localNotes := []NoteMetadata{{ID: "n1", ContentHash: localHash}}
+	cloudNotes := []NoteMetadata{{ID: "n1", ContentHash: cloudHash}}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err)
+	assert.True(t, len(mergedNotes) >= 2, "Archived変更でコンフリクトコピーが作成されるべき")
+}
+
+func TestMergeNotes_FolderIdChange_TriggersConflictOrDownload(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	note := &Note{ID: "n1", Title: "Note", Content: "same", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	localHash := helper.noteService.noteList.Notes[0].ContentHash
+
+	cloudNote := &Note{ID: "n1", Title: "Note", Content: "same", Language: "plaintext", FolderID: "folder-y"}
+	cloudHash := computeContentHash(cloudNote)
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps.CreateFile("n1.json", cloudData, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	localNotes := []NoteMetadata{{ID: "n1", ContentHash: localHash}}
+	cloudNotes := []NoteMetadata{{ID: "n1", ContentHash: cloudHash}}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err)
+	assert.True(t, len(mergedNotes) >= 2, "FolderID変更でコンフリクトコピーが作成されるべき")
+}
+
+// --- M-7: ValidateIntegrity後のクラウド同期テスト ---
+
+func TestNotifySyncComplete_IntegrityChanged_TriggersUpload(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+	mockOps := newMockDriveOperations()
+	queue := NewDriveOperationsQueue(mockOps)
+	defer queue.Cleanup()
+	ds.operationsQueue = queue
+
+	note := &Note{ID: "real-note", Title: "Real", Content: "exists"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	helper.noteService.noteList.Notes = append(helper.noteService.noteList.Notes, NoteMetadata{
+		ID:    "ghost-note",
+		Title: "Ghost",
+	})
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed, "ゴーストノートがあるのでchanged=trueであるべき")
+
+	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
+	assert.Equal(t, "real-note", helper.noteService.noteList.Notes[0].ID)
+}
+
+func TestNotifySyncComplete_IntegrityNoChange_NoUpload(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+	mockOps := newMockDriveOperations()
+	queue := NewDriveOperationsQueue(mockOps)
+	defer queue.Cleanup()
+	ds.operationsQueue = queue
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.False(t, changed, "整合性に問題なければchanged=falseであるべき")
+
+	ds.notifySyncComplete()
+}
+
+// --- M-6: 同期サマリー通知テスト ---
+
+func TestSyncResult_NoChanges_EmptySummary(t *testing.T) {
+	r := &SyncResult{}
+	assert.False(t, r.HasChanges())
+	assert.Empty(t, r.Summary())
+}
+
+func TestSyncResult_WithChanges_Summary(t *testing.T) {
+	r := &SyncResult{Uploaded: 3, Downloaded: 1}
+	assert.True(t, r.HasChanges())
+	summary := r.Summary()
+	assert.Contains(t, summary, "↑3")
+	assert.Contains(t, summary, "↓1")
+}
+
+func TestSyncResult_WithConflicts_Summary(t *testing.T) {
+	r := &SyncResult{Uploaded: 1, ConflictCopies: 2}
+	summary := r.Summary()
+	assert.Contains(t, summary, "⚡2件の競合コピー")
+}
+
+func TestSyncResult_WithErrors_Summary(t *testing.T) {
+	r := &SyncResult{Downloaded: 1, Errors: 3}
+	summary := r.Summary()
+	assert.Contains(t, summary, "⚠3件失敗")
+}
+
+// --- M-5: Syncedステータスの信頼性向上テスト ---
+
+func TestNotifySyncComplete_QueueEmpty_EmitsSynced(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	queue := NewDriveOperationsQueue(mockOps)
+	defer queue.Cleanup()
+
+	ds := newTestDriveService(helper)
+	ds.operationsQueue = queue
+
+	assert.False(t, queue.HasItems(), "キューは空であるべき")
+	ds.notifySyncComplete()
+}
+
+func TestNotifySyncComplete_QueueNotEmpty_KeepsSyncing(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	queue := NewDriveOperationsQueue(mockOps)
+	defer queue.Cleanup()
+
+	ds := newTestDriveService(helper)
+	ds.operationsQueue = queue
+
+	queue.mutex.Lock()
+	queue.items["dummy-key"] = []*QueueItem{{OperationType: CreateOperation, FileName: "dummy.json"}}
+	queue.mutex.Unlock()
+
+	assert.True(t, queue.HasItems(), "キューにアイテムがあるべき")
+	ds.notifySyncComplete()
+}
+
+// --- M-4: ノート単位のエラー分離テスト ---
+
+type failingCreateDriveOps struct {
+	*mockDriveOperations
+	failFileNames map[string]bool
+}
+
+func (f *failingCreateDriveOps) CreateFile(name string, content []byte, rootFolderID string, mimeType string) (string, error) {
+	if f.failFileNames[name] {
+		return "", fmt.Errorf("simulated upload failure for %s", name)
+	}
+	return f.mockDriveOperations.CreateFile(name, content, rootFolderID, mimeType)
+}
+
+func TestMergeNotes_OneNoteFails_OthersContinue(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	failOps := &failingCreateDriveOps{
+		mockDriveOperations: newMockDriveOperations(),
+		failFileNames:       map[string]bool{"fail-note.json": true},
+	}
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(failOps, "test-folder", "test-root", logger)
+
+	goodNote := &Note{ID: "good-note", Title: "Good", Content: "good", Language: "plaintext"}
+	failNote := &Note{ID: "fail-note", Title: "Fail", Content: "fail", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(goodNote))
+	assert.NoError(t, helper.noteService.SaveNote(failNote))
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    failOps,
+		driveSync:   syncService,
+	}
+
+	localNotes := helper.noteService.noteList.Notes
+	cloudNotes := []NoteMetadata{}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err, "1ノートのアップロード失敗で全体がエラーにならないべき")
+	assert.Len(t, mergedNotes, 2, "失敗ノートもメタデータはmerged listに含まれるべき")
+}
+
+func TestLocalSync_UploadError_ContinuesWithOthers(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	failOps := &failingCreateDriveOps{
+		mockDriveOperations: newMockDriveOperations(),
+		failFileNames:       map[string]bool{"fail-note.json": true},
+	}
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(failOps, "test-folder", "test-root", logger)
+
+	goodNote := &Note{ID: "good-note", Title: "Good", Content: "good", Language: "plaintext"}
+	failNote := &Note{ID: "fail-note", Title: "Fail", Content: "fail", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(goodNote))
+	assert.NoError(t, helper.noteService.SaveNote(failNote))
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    failOps,
+		driveSync:   syncService,
+	}
+
+	localNoteList := &NoteList{Notes: helper.noteService.noteList.Notes}
+	cloudNoteList := &NoteList{Notes: []NoteMetadata{}}
+
+	err := ds.handleLocalSync(localNoteList, cloudNoteList)
+	assert.NoError(t, err, "1ノートのアップロード失敗でhandleLocalSyncが止まらないべき")
+
+	failOps.mu.RLock()
+	goodUploaded := false
+	for _, data := range failOps.files {
+		var n Note
+		if json.Unmarshal(data, &n) == nil && n.ID == "good-note" {
+			goodUploaded = true
+		}
+	}
+	failOps.mu.RUnlock()
+	assert.True(t, goodUploaded, "失敗ノート以外は正常にアップロードされるべき")
+}
+
 // --- C-2: drive_sync_serviceのUPDATEキャンセルテスト ---
 
 type cancellingDriveOps struct {
@@ -1992,4 +2324,168 @@ func TestSyncService_CancelledUpdate_DoesNotCreate(t *testing.T) {
 	fileCount := len(ops.files)
 	ops.mu.RUnlock()
 	assert.Equal(t, 0, fileCount, "CreateNoteが呼ばれてファイルが作成されてはならない")
+}
+
+// --- M-3: 同期ジャーナルによるクラッシュリカバリテスト ---
+
+func newTestDriveServiceWithAppDataDir(helper *testHelper) *driveService {
+	ds := newTestDriveService(helper)
+	ds.appDataDir = helper.tempDir
+	return ds
+}
+
+func TestSyncJournal_CreatedOnSyncStart(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveServiceWithAppDataDir(helper)
+
+	localNotes := []NoteMetadata{
+		{ID: "local-only", Title: "Local", ContentHash: "hash-a"},
+	}
+	cloudNotes := []NoteMetadata{
+		{ID: "cloud-only", Title: "Cloud", ContentHash: "hash-b"},
+	}
+
+	journal := ds.buildSyncJournal(localNotes, cloudNotes)
+	assert.NotNil(t, journal)
+	assert.Len(t, journal.Actions, 2)
+
+	err := ds.writeSyncJournal(journal)
+	assert.NoError(t, err)
+
+	_, statErr := os.Stat(ds.journalPath())
+	assert.NoError(t, statErr, "ジャーナルファイルが作成されるべき")
+
+	read, readErr := ds.readSyncJournal()
+	assert.NoError(t, readErr)
+	assert.Len(t, read.Actions, 2)
+}
+
+func TestSyncJournal_DeletedOnSyncComplete(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveServiceWithAppDataDir(helper)
+
+	journal := &SyncJournal{
+		StartedAt: time.Now(),
+		Actions: []SyncJournalAction{
+			{Type: "download", NoteID: "note-1", Completed: true},
+		},
+	}
+	err := ds.writeSyncJournal(journal)
+	assert.NoError(t, err)
+
+	_, statErr := os.Stat(ds.journalPath())
+	assert.NoError(t, statErr, "ジャーナルファイルが存在するべき")
+
+	ds.deleteSyncJournal()
+
+	_, statErr = os.Stat(ds.journalPath())
+	assert.True(t, os.IsNotExist(statErr), "同期完了後にジャーナルファイルが削除されるべき")
+}
+
+func TestSyncJournal_RecoveryOnStartup(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	cloudNote := &Note{ID: "recover-note", Title: "Recovered", Content: "cloud content", Language: "plaintext"}
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps.CreateFile("recover-note.json", cloudData, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		appDataDir:  helper.tempDir,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	journal := &SyncJournal{
+		StartedAt: time.Now().Add(-5 * time.Minute),
+		Actions: []SyncJournalAction{
+			{Type: "download", NoteID: "recover-note", Completed: false},
+		},
+	}
+	err := ds.writeSyncJournal(journal)
+	assert.NoError(t, err)
+
+	ds.recoverFromJournal()
+
+	_, statErr := os.Stat(ds.journalPath())
+	assert.True(t, os.IsNotExist(statErr), "復旧後にジャーナルファイルが削除されるべき")
+
+	recovered, loadErr := helper.noteService.LoadNote("recover-note")
+	assert.NoError(t, loadErr, "復旧によりノートがダウンロードされるべき")
+	assert.Equal(t, "Recovered", recovered.Title)
+	assert.Equal(t, "cloud content", recovered.Content)
+}
+
+func TestSyncJournal_PartialDownload_Recovery(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	note2 := &Note{ID: "note-2", Title: "Note2", Content: "content2", Language: "plaintext"}
+	note2Data, _ := json.Marshal(note2)
+	mockOps.CreateFile("note-2.json", note2Data, "test-folder", "application/json")
+
+	note3 := &Note{ID: "note-3", Title: "Note3", Content: "content3", Language: "plaintext"}
+	note3Data, _ := json.Marshal(note3)
+	mockOps.CreateFile("note-3.json", note3Data, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		appDataDir:  helper.tempDir,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	journal := &SyncJournal{
+		StartedAt: time.Now().Add(-5 * time.Minute),
+		Actions: []SyncJournalAction{
+			{Type: "download", NoteID: "note-1", Completed: true},
+			{Type: "download", NoteID: "note-2", Completed: false},
+			{Type: "download", NoteID: "note-3", Completed: false},
+		},
+	}
+	err := ds.writeSyncJournal(journal)
+	assert.NoError(t, err)
+
+	ds.recoverFromJournal()
+
+	_, statErr := os.Stat(ds.journalPath())
+	assert.True(t, os.IsNotExist(statErr), "復旧後にジャーナルが削除されるべき")
+
+	_, err1 := helper.noteService.LoadNote("note-1")
+	assert.Error(t, err1, "note-1はCompletedなので再ダウンロードされないべき")
+
+	loaded2, err2 := helper.noteService.LoadNote("note-2")
+	assert.NoError(t, err2, "note-2は未完了なので復旧ダウンロードされるべき")
+	assert.Equal(t, "Note2", loaded2.Title)
+
+	loaded3, err3 := helper.noteService.LoadNote("note-3")
+	assert.NoError(t, err3, "note-3は未完了なので復旧ダウンロードされるべき")
+	assert.Equal(t, "Note3", loaded3.Title)
 }

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -267,6 +268,77 @@ func TestQueue_CreateDoesNotBlockPolling(t *testing.T) {
 	}
 
 	assert.False(t, q.HasItems(), "CREATE完了後にポーリング再開可能な状態であるべき")
+}
+
+// --- M-9: DELETEのキャンセル範囲拡大テスト ---
+
+func TestQueue_Delete_CancelsPendingCreate(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	createResult := make(chan error, 1)
+	go func() {
+		_, err := q.CreateFile("note1.json", []byte(`{"id":"note1"}`), "folder-id", "application/json")
+		createResult <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	deleteResult := make(chan error, 1)
+	go func() {
+		deleteResult <- q.DeleteFileWithName("some-drive-file-id", "note1.json")
+	}()
+
+	select {
+	case err := <-createResult:
+		if err != nil {
+			assert.True(t, errors.Is(err, ErrOperationCancelled),
+				"CREATEはキャンセルされるべき: got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("CREATE結果がタイムアウト")
+	}
+
+	select {
+	case <-deleteResult:
+	case <-time.After(5 * time.Second):
+		t.Fatal("DELETE結果がタイムアウト")
+	}
+}
+
+func TestQueue_Delete_ThenCreate_WorksCorrectly(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["existing-file-id"] = []byte(`{"id":"note1"}`)
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	done := make(chan struct{})
+	go func() {
+		err := q.DeleteFile("existing-file-id")
+		assert.NoError(t, err)
+
+		_, err = q.CreateFile("note1.json", []byte(`{"id":"note1","title":"recreated"}`), "folder-id", "application/json")
+		assert.NoError(t, err)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("DELETE→CREATE操作がタイムアウト")
+	}
+
+	ops.mu.RLock()
+	found := false
+	for _, data := range ops.files {
+		var n Note
+		if json.Unmarshal(data, &n) == nil && n.Title == "recreated" {
+			found = true
+		}
+	}
+	ops.mu.RUnlock()
+	assert.True(t, found, "DELETE後のCREATEで新しいファイルが作成されるべき")
 }
 
 // --- C-2: UPDATEキャンセル時のErrOperationCancelledテスト ---

@@ -378,7 +378,11 @@ func (d *driveSyncServiceImpl) DeleteNote(
 		return fmt.Errorf("failed to get file ID: %w", err)
 	}
 
+	fileName := noteID + ".json"
 	err = d.withRetry(func() error {
+		if queue, ok := d.driveOps.(*DriveOperationsQueue); ok {
+			return queue.DeleteFileWithName(fileID, fileName)
+		}
 		return d.driveOps.DeleteFile(fileID)
 	}, defaultRetryConfig)
 

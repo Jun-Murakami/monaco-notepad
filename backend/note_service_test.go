@@ -674,3 +674,181 @@ func TestValidateIntegrity_NoChangeWhenConsistent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, changed)
 }
+
+// --- M-8: アーカイブ操作のModifiedTime更新テスト ---
+
+func TestArchiveFolder_UpdatesNoteModifiedTime(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("TestFolder")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", folder.ID))
+
+	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
+	helper.noteService.noteList.Notes[0].ModifiedTime = pastTime
+
+	assert.NoError(t, helper.noteService.ArchiveFolder(folder.ID))
+
+	newModTime := helper.noteService.noteList.Notes[0].ModifiedTime
+	assert.NotEqual(t, pastTime, newModTime, "ArchiveFolderでノートのModifiedTimeが更新されるべき")
+	assert.True(t, helper.noteService.noteList.Notes[0].Archived)
+}
+
+func TestUnarchiveFolder_UpdatesNoteModifiedTime(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("TestFolder")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", folder.ID))
+	assert.NoError(t, helper.noteService.ArchiveFolder(folder.ID))
+
+	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
+	helper.noteService.noteList.Notes[0].ModifiedTime = pastTime
+
+	assert.NoError(t, helper.noteService.UnarchiveFolder(folder.ID))
+
+	newModTime := helper.noteService.noteList.Notes[0].ModifiedTime
+	assert.NotEqual(t, pastTime, newModTime, "UnarchiveFolderでノートのModifiedTimeが更新されるべき")
+	assert.False(t, helper.noteService.noteList.Notes[0].Archived)
+}
+
+func TestArchiveFolder_UpdatesContentHash(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("TestFolder")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", folder.ID))
+
+	oldHash := helper.noteService.noteList.Notes[0].ContentHash
+
+	assert.NoError(t, helper.noteService.ArchiveFolder(folder.ID))
+
+	newHash := helper.noteService.noteList.Notes[0].ContentHash
+	assert.NotEqual(t, oldHash, newHash, "ArchiveFolderでContentHashが更新されるべき")
+}
+
+func TestUnarchiveFolder_UpdatesContentHash(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("TestFolder")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("n1", folder.ID))
+	assert.NoError(t, helper.noteService.ArchiveFolder(folder.ID))
+
+	archivedHash := helper.noteService.noteList.Notes[0].ContentHash
+
+	assert.NoError(t, helper.noteService.UnarchiveFolder(folder.ID))
+
+	unarchivedHash := helper.noteService.noteList.Notes[0].ContentHash
+	assert.NotEqual(t, archivedHash, unarchivedHash, "UnarchiveFolderでContentHashが更新されるべき")
+}
+
+// --- M-1: ContentHash テスト ---
+
+func TestContentHash_ExcludesModifiedTime(t *testing.T) {
+	note1 := &Note{
+		ID:           "note-1",
+		Title:        "Same Title",
+		Content:      "Same Content",
+		Language:     "plaintext",
+		Archived:     false,
+		FolderID:     "folder-1",
+		ModifiedTime: time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+	}
+	note2 := &Note{
+		ID:           "note-1",
+		Title:        "Same Title",
+		Content:      "Same Content",
+		Language:     "plaintext",
+		Archived:     false,
+		FolderID:     "folder-1",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+
+	hash1 := computeContentHash(note1)
+	hash2 := computeContentHash(note2)
+	assert.Equal(t, hash1, hash2, "同一コンテンツ + 異なる ModifiedTime → 同一ハッシュであるべき")
+}
+
+func TestContentHash_IncludesContent(t *testing.T) {
+	base := &Note{
+		ID:           "note-1",
+		Title:        "Title",
+		Content:      "Original content",
+		Language:     "plaintext",
+		Archived:     false,
+		FolderID:     "",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	modified := &Note{
+		ID:           "note-1",
+		Title:        "Title",
+		Content:      "Modified content",
+		Language:     "plaintext",
+		Archived:     false,
+		FolderID:     "",
+		ModifiedTime: base.ModifiedTime,
+	}
+
+	hashBase := computeContentHash(base)
+	hashModified := computeContentHash(modified)
+	assert.NotEqual(t, hashBase, hashModified, "同一タイムスタンプ + 異なる Content → 異なるハッシュであるべき")
+}
+
+func TestContentHash_IncludesAllStableFields(t *testing.T) {
+	base := &Note{
+		ID:           "note-1",
+		Title:        "Title",
+		Content:      "Content",
+		Language:     "plaintext",
+		Archived:     false,
+		FolderID:     "",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+
+	// Title 変更
+	titleChanged := *base
+	titleChanged.Title = "Different Title"
+	assert.NotEqual(t, computeContentHash(base), computeContentHash(&titleChanged),
+		"Title 変更でハッシュが変わるべき")
+
+	// Language 変更
+	langChanged := *base
+	langChanged.Language = "javascript"
+	assert.NotEqual(t, computeContentHash(base), computeContentHash(&langChanged),
+		"Language 変更でハッシュが変わるべき")
+
+	// Archived 変更
+	archivedChanged := *base
+	archivedChanged.Archived = true
+	assert.NotEqual(t, computeContentHash(base), computeContentHash(&archivedChanged),
+		"Archived 変更でハッシュが変わるべき")
+
+	// FolderID 変更
+	folderChanged := *base
+	folderChanged.FolderID = "new-folder"
+	assert.NotEqual(t, computeContentHash(base), computeContentHash(&folderChanged),
+		"FolderID 変更でハッシュが変わるべき")
+
+	// Content 変更
+	contentChanged := *base
+	contentChanged.Content = "Different Content"
+	assert.NotEqual(t, computeContentHash(base), computeContentHash(&contentChanged),
+		"Content 変更でハッシュが変わるべき")
+}

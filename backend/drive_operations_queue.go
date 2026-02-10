@@ -265,6 +265,30 @@ func (q *DriveOperationsQueue) removeExistingItems(mapKey string) {
 	}
 }
 
+func (q *DriveOperationsQueue) removeCreateItemsByFileName(fileName string) {
+	for key, items := range q.items {
+		var remaining []*QueueItem
+		for _, item := range items {
+			if item.OperationType == CreateOperation && item.FileName == fileName {
+				item.Result <- ErrOperationCancelled
+			} else {
+				remaining = append(remaining, item)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(q.items, key)
+		} else if len(remaining) != len(items) {
+			q.items[key] = remaining
+		}
+	}
+}
+
+func (q *DriveOperationsQueue) CancelPendingCreates(fileName string) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+	q.removeCreateItemsByFileName(fileName)
+}
+
 func (q *DriveOperationsQueue) removeItemFromMap(item *QueueItem) {
 	items := q.items[item.mapKey]
 	var newItems []*QueueItem
@@ -353,10 +377,18 @@ func (q *DriveOperationsQueue) UpdateFile(fileID string, content []byte) error {
 }
 
 func (q *DriveOperationsQueue) DeleteFile(fileID string) error {
+	return q.DeleteFileWithName(fileID, "")
+}
+
+func (q *DriveOperationsQueue) DeleteFileWithName(fileID string, fileName string) error {
+	if fileName != "" {
+		q.CancelPendingCreates(fileName)
+	}
 	result := make(chan error, 1)
 	item := &QueueItem{
 		OperationType: DeleteOperation,
 		FileID:        fileID,
+		FileName:      fileName,
 		CreatedAt:     time.Now(),
 		Result:        result,
 	}

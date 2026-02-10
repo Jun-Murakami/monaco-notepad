@@ -96,7 +96,6 @@ func (l *appLoggerImpl) NotifyDriveStatus(ctx context.Context, status string) {
 func (l *appLoggerImpl) NotifyFrontendSyncedAndReload(ctx context.Context) {
 	if !l.isTestMode {
 		wailsRuntime.EventsEmit(l.ctx, "notes:updated")
-		wailsRuntime.EventsEmit(l.ctx, "drive:status", "synced")
 		wailsRuntime.EventsEmit(l.ctx, "notes:reload")
 	}
 }

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -97,6 +98,41 @@ type Settings struct {
 	IsDebug      bool   `json:"isDebug"`
 }
 
+type SyncResult struct {
+	Uploaded       int
+	Downloaded     int
+	Deleted        int
+	ConflictCopies int
+	Errors         int
+}
+
+func (r *SyncResult) HasChanges() bool {
+	return r.Uploaded > 0 || r.Downloaded > 0 || r.Deleted > 0 || r.ConflictCopies > 0 || r.Errors > 0
+}
+
+func (r *SyncResult) Summary() string {
+	if !r.HasChanges() {
+		return ""
+	}
+	s := "同期完了:"
+	if r.Uploaded > 0 {
+		s += fmt.Sprintf(" ↑%d", r.Uploaded)
+	}
+	if r.Downloaded > 0 {
+		s += fmt.Sprintf(" ↓%d", r.Downloaded)
+	}
+	if r.Deleted > 0 {
+		s += fmt.Sprintf(" 🗑%d", r.Deleted)
+	}
+	if r.ConflictCopies > 0 {
+		s += fmt.Sprintf(" ⚡%d件の競合コピー", r.ConflictCopies)
+	}
+	if r.Errors > 0 {
+		s += fmt.Sprintf(" ⚠%d件失敗", r.Errors)
+	}
+	return s
+}
+
 // Google Driveとの同期機能を管理
 type DriveSync struct {
 	service                 *drive.Service // Google Driveサービスのインスタンス
@@ -184,6 +220,19 @@ func isModifiedTimeAfter(a, b string) bool {
 		return a > b
 	}
 	return ta.After(tb)
+}
+
+// SyncJournalAction は同期ジャーナル内の個別アクション
+type SyncJournalAction struct {
+	Type      string `json:"type"`      // "download", "upload", "delete"
+	NoteID    string `json:"noteId"`    // 対象ノートID
+	Completed bool   `json:"completed"` // 完了フラグ
+}
+
+// SyncJournal は同期処理の中断からの復旧に使用するジャーナル
+type SyncJournal struct {
+	StartedAt time.Time            `json:"startedAt"` // 同期開始時刻
+	Actions   []SyncJournalAction  `json:"actions"`   // アクションリスト
 }
 
 type WailsConfig struct {

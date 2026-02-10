@@ -13,8 +13,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// 既存のimportの下に追加
 const CurrentVersion = "1.0"
+
+// computeContentHash はノートの安定フィールドのみからハッシュを計算する
+// ModifiedTime, Order, ContentHeader は除外（タイムスタンプ更新のみでの不要同期を防止）
+func computeContentHash(note *Note) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%v\n%s",
+		note.ID, note.Title, note.Content, note.Language, note.Archived, note.FolderID)
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
 
 // ノート関連のローカル操作を提供するインターフェース
 type NoteService interface {
@@ -130,17 +138,13 @@ func (s *noteService) SaveNote(note *Note) error {
 		return err
 	}
 
-	// コンテンツのハッシュ値を計算
-	h := sha256.New()
-	h.Write(data)
-	contentHash := fmt.Sprintf("%x", h.Sum(nil))
+	contentHash := computeContentHash(note)
 
 	notePath := filepath.Join(s.notesDir, note.ID+".json")
 	if err := os.WriteFile(notePath, data, 0644); err != nil {
 		return err
 	}
 
-	// Update note list
 	found := false
 	var order int
 
@@ -268,9 +272,7 @@ func (s *noteService) CreateConflictCopy(originalNote *Note) (*Note, error) {
 		return nil, fmt.Errorf("failed to marshal conflict copy: %w", err)
 	}
 
-	h := sha256.New()
-	h.Write(data)
-	contentHash := fmt.Sprintf("%x", h.Sum(nil))
+	contentHash := computeContentHash(copyNote)
 
 	notePath := filepath.Join(s.notesDir, newID+".json")
 	if err := os.WriteFile(notePath, data, 0644); err != nil {
@@ -550,6 +552,7 @@ func (s *noteService) ArchiveFolder(id string) error {
 
 	s.noteList.Folders[folderIdx].Archived = true
 
+	now := time.Now().Format(time.RFC3339)
 	for i, metadata := range s.noteList.Notes {
 		if metadata.FolderID != id {
 			continue
@@ -559,8 +562,11 @@ func (s *noteService) ArchiveFolder(id string) error {
 			continue
 		}
 		note.Archived = true
+		note.ModifiedTime = now
 		note.ContentHeader = generateContentHeader(note.Content)
 		s.noteList.Notes[i].Archived = true
+		s.noteList.Notes[i].ModifiedTime = now
+		s.noteList.Notes[i].ContentHash = computeContentHash(note)
 		s.noteList.Notes[i].ContentHeader = note.ContentHeader
 		if err := s.SaveNoteFromSync(note); err != nil {
 			return fmt.Errorf("failed to save note %s: %v", note.ID, err)
@@ -598,6 +604,7 @@ func (s *noteService) UnarchiveFolder(id string) error {
 
 	s.noteList.Folders[folderIdx].Archived = false
 
+	now := time.Now().Format(time.RFC3339)
 	for i, metadata := range s.noteList.Notes {
 		if metadata.FolderID != id || !metadata.Archived {
 			continue
@@ -607,7 +614,10 @@ func (s *noteService) UnarchiveFolder(id string) error {
 			continue
 		}
 		note.Archived = false
+		note.ModifiedTime = now
 		s.noteList.Notes[i].Archived = false
+		s.noteList.Notes[i].ModifiedTime = now
+		s.noteList.Notes[i].ContentHash = computeContentHash(note)
 		if err := s.SaveNoteFromSync(note); err != nil {
 			return fmt.Errorf("failed to save note %s: %v", note.ID, err)
 		}

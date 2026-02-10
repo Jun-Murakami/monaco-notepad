@@ -2,12 +2,13 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Google Drive関連の操作を提供するインターフェース
@@ -45,8 +46,9 @@ type driveService struct {
 	driveSync       DriveSyncService
 	pollingService  *DrivePollingService
 	operationsQueue *DriveOperationsQueue
-	syncMu          sync.Mutex // SyncNotes/UpdateNoteList の排他制御
-	forceNextSync   bool       // Changes API検出時にMD5キャッシュをバイパス
+	syncMu          sync.Mutex  // SyncNotes/UpdateNoteList の排他制御
+	forceNextSync   bool        // Changes API検出時にMD5キャッシュをバイパス
+	lastSyncResult  *SyncResult // 直近の同期結果サマリー
 }
 
 // NewDriveService は新しいDriveServiceインスタンスを作成します
@@ -151,6 +153,9 @@ func (s *driveService) onConnected(performInitialSync bool) error {
 		s.logger.Error(err, "Failed to ensure note list")
 		return s.auth.HandleOfflineTransition(err)
 	}
+
+	// ジャーナルが残っていればクラッシュリカバリ実行
+	s.recoverFromJournal()
 
 	// 必要な場合(手動ログインで呼ばれた場合)は初回マージを実行
 	if performInitialSync {
@@ -314,6 +319,133 @@ func (s *driveService) updateNoteListInternal() error {
 }
 
 // ------------------------------------------------------------
+// 同期ジャーナル: クラッシュリカバリ用
+// ------------------------------------------------------------
+
+func (s *driveService) journalPath() string {
+	return filepath.Join(s.appDataDir, "sync_journal.json")
+}
+
+func (s *driveService) writeSyncJournal(journal *SyncJournal) error {
+	data, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.journalPath(), data, 0644)
+}
+
+func (s *driveService) readSyncJournal() (*SyncJournal, error) {
+	data, err := os.ReadFile(s.journalPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var journal SyncJournal
+	if err := json.Unmarshal(data, &journal); err != nil {
+		os.Remove(s.journalPath())
+		return nil, nil
+	}
+	return &journal, nil
+}
+
+func (s *driveService) deleteSyncJournal() {
+	os.Remove(s.journalPath())
+}
+
+func (s *driveService) markJournalActionCompleted(journal *SyncJournal, noteID string) {
+	for i := range journal.Actions {
+		if journal.Actions[i].NoteID == noteID {
+			journal.Actions[i].Completed = true
+			break
+		}
+	}
+	s.writeSyncJournal(journal)
+}
+
+func (s *driveService) buildSyncJournal(localNotes, cloudNotes []NoteMetadata) *SyncJournal {
+	journal := &SyncJournal{
+		StartedAt: time.Now(),
+		Actions:   []SyncJournalAction{},
+	}
+
+	localMap := make(map[string]NoteMetadata)
+	cloudMap := make(map[string]NoteMetadata)
+	for _, n := range localNotes {
+		localMap[n.ID] = n
+	}
+	for _, n := range cloudNotes {
+		cloudMap[n.ID] = n
+	}
+
+	for id, localNote := range localMap {
+		if cloudNote, exists := cloudMap[id]; exists {
+			if localNote.ContentHash != cloudNote.ContentHash {
+				journal.Actions = append(journal.Actions, SyncJournalAction{Type: "download", NoteID: id})
+			}
+		} else {
+			journal.Actions = append(journal.Actions, SyncJournalAction{Type: "upload", NoteID: id})
+		}
+	}
+	for id := range cloudMap {
+		if _, exists := localMap[id]; !exists {
+			journal.Actions = append(journal.Actions, SyncJournalAction{Type: "download", NoteID: id})
+		}
+	}
+
+	return journal
+}
+
+func (s *driveService) recoverFromJournal() {
+	journal, err := s.readSyncJournal()
+	if err != nil || journal == nil {
+		return
+	}
+
+	s.logger.Info("前回の同期が中断されていたため、修復を開始します")
+
+	recovered := 0
+	for _, action := range journal.Actions {
+		if action.Completed {
+			continue
+		}
+		switch action.Type {
+		case "download":
+			note, dlErr := s.driveSync.DownloadNote(s.ctx, action.NoteID)
+			if dlErr != nil {
+				s.logger.Error(dlErr, "ジャーナル復旧: ノート %s のダウンロードに失敗", action.NoteID)
+				continue
+			}
+			if saveErr := s.noteService.SaveNoteFromSync(note); saveErr != nil {
+				s.logger.Error(saveErr, "ジャーナル復旧: ノート %s の保存に失敗", action.NoteID)
+				continue
+			}
+			recovered++
+		case "upload":
+			note, loadErr := s.noteService.LoadNote(action.NoteID)
+			if loadErr != nil {
+				s.logger.Error(loadErr, "ジャーナル復旧: ノート %s の読み込みに失敗", action.NoteID)
+				continue
+			}
+			if createErr := s.driveSync.CreateNote(s.ctx, note); createErr != nil {
+				s.logger.Error(createErr, "ジャーナル復旧: ノート %s のアップロードに失敗", action.NoteID)
+				continue
+			}
+			recovered++
+		}
+	}
+
+	s.deleteSyncJournal()
+
+	if recovered > 0 {
+		s.logger.Info("前回の同期が中断されていたため、%d件のノートを修復しました", recovered)
+	} else {
+		s.logger.Info("前回の同期が中断されていましたが、修復済みでした")
+	}
+}
+
+// ------------------------------------------------------------
 // ノート同期: SyncNotes (今すぐ同期)
 // ------------------------------------------------------------
 func (s *driveService) SyncNotes() error {
@@ -322,6 +454,7 @@ func (s *driveService) SyncNotes() error {
 
 	forceSync := s.forceNextSync
 	s.forceNextSync = false
+	s.lastSyncResult = &SyncResult{}
 
 	// 1. キューが空かどうかを確認（空でなければ一旦同期をスキップする）
 	if s.skipSyncIfQueuePending() {
@@ -434,6 +567,11 @@ func (s *driveService) performInitialSync() error {
 	)
 
 	// 3. ノートのマージ処理 (ローカル vs クラウド)
+	journal := s.buildSyncJournal(s.noteService.noteList.Notes, mergedCloudNotes)
+	if len(journal.Actions) > 0 {
+		s.writeSyncJournal(journal)
+	}
+
 	mergedNotes, downloadedNotes, err := s.mergeNotes(s.ctx, s.noteService.noteList.Notes, mergedCloudNotes)
 	if err != nil {
 		return fmt.Errorf("failed to merge notes: %w", err)
@@ -443,7 +581,9 @@ func (s *driveService) performInitialSync() error {
 		if err := s.noteService.SaveNoteFromSync(note); err != nil {
 			return fmt.Errorf("failed to save downloaded note: %w", err)
 		}
+		s.markJournalActionCompleted(journal, note.ID)
 	}
+	s.deleteSyncJournal()
 
 	// 5. マージ完了後のノートリストを保存してクラウドを更新
 	if err := s.saveAndUpdateNoteList(cloudNoteList, mergedNotes); err != nil {
@@ -488,11 +628,24 @@ func (s *driveService) notifySyncComplete() {
 	if changed, err := s.noteService.ValidateIntegrity(); err != nil {
 		s.logger.Error(err, "Failed to validate note list integrity after sync")
 	} else if changed {
-		s.logger.Info("Note list integrity fixed after sync")
+		s.logger.Info("Note list integrity fixed after sync, uploading corrected noteList")
+		if s.IsConnected() {
+			if uploadErr := s.updateNoteListInternal(); uploadErr != nil {
+				s.logger.Error(uploadErr, "Failed to upload corrected noteList after integrity fix")
+			}
+		}
+	}
+	if s.lastSyncResult != nil && s.lastSyncResult.HasChanges() {
+		s.logger.Info(s.lastSyncResult.Summary())
 	}
 	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
-	s.logger.Info("Sync status is up to date")
-	wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")
+	if s.operationsQueue != nil && s.operationsQueue.HasItems() {
+		s.logger.Info("Queue still has items, keeping syncing status")
+		s.logger.NotifyDriveStatus(s.ctx, "syncing")
+	} else {
+		s.logger.Info("Sync status is up to date")
+		s.logger.NotifyDriveStatus(s.ctx, "synced")
+	}
 }
 
 // 同期の前後のステータスログ
@@ -503,6 +656,11 @@ func (s *driveService) logSyncStatus(cloudNoteList, localNoteList *NoteList) {
 
 // 「同じタイムスタンプだが内容が違う」場合のマージ実行
 func (s *driveService) mergeNoteListsAndDownload(cloudNoteList *NoteList) error {
+	journal := s.buildSyncJournal(s.noteService.noteList.Notes, cloudNoteList.Notes)
+	if len(journal.Actions) > 0 {
+		s.writeSyncJournal(journal)
+	}
+
 	mergedNotes, downloadedNotes, err := s.mergeNotes(s.ctx, s.noteService.noteList.Notes, cloudNoteList.Notes)
 	if err != nil {
 		return err
@@ -511,11 +669,14 @@ func (s *driveService) mergeNoteListsAndDownload(cloudNoteList *NoteList) error 
 		if err := s.noteService.SaveNoteFromSync(note); err != nil {
 			return fmt.Errorf("failed to save downloaded note: %w", err)
 		}
+		s.markJournalActionCompleted(journal, note.ID)
 	}
 	s.noteService.noteList.Notes = mergedNotes
 	if err := s.noteService.saveNoteList(); err != nil {
 		return fmt.Errorf("failed to save merged note list: %w", err)
 	}
+
+	s.deleteSyncJournal()
 	return s.updateNoteListInternal()
 }
 
@@ -568,6 +729,9 @@ func (s *driveService) mergeNotes(
 					s.logger.Error(copyErr, "Failed to create conflict copy for note %s", id)
 				} else {
 					s.logger.Info("「%s」の競合コピーを作成しました", localNote.Title)
+					if s.lastSyncResult != nil {
+						s.lastSyncResult.ConflictCopies++
+					}
 					conflictMeta := findNoteMetadata(s.noteService.noteList.Notes, conflictCopy.ID)
 					if conflictMeta != nil {
 						mergedNotes = append(mergedNotes, *conflictMeta)
@@ -578,8 +742,14 @@ func (s *driveService) mergeNotes(
 			note, dlErr := s.driveSync.DownloadNote(ctx, id)
 			if dlErr != nil {
 				s.logger.Error(dlErr, "ノート %s の同期をスキップしました（データ破損）", id)
+				if s.lastSyncResult != nil {
+					s.lastSyncResult.Errors++
+				}
 			} else {
 				downloadedNotes = append(downloadedNotes, note)
+				if s.lastSyncResult != nil {
+					s.lastSyncResult.Downloaded++
+				}
 			}
 			delete(cloudNotesMap, id)
 		} else {
@@ -589,7 +759,12 @@ func (s *driveService) mergeNotes(
 			if err == nil {
 				s.logger.Info("Uploading note %s to cloud because it doesn't exist in cloud", id)
 				if createErr := s.driveSync.CreateNote(ctx, note); createErr != nil {
-					return nil, nil, fmt.Errorf("failed to upload note %s: %w", id, createErr)
+					s.logger.Error(createErr, "ノート %s のアップロードに失敗しました（スキップ）", id)
+					if s.lastSyncResult != nil {
+						s.lastSyncResult.Errors++
+					}
+				} else if s.lastSyncResult != nil {
+					s.lastSyncResult.Uploaded++
 				}
 			}
 		}
@@ -602,9 +777,15 @@ func (s *driveService) mergeNotes(
 		note, err := s.driveSync.DownloadNote(ctx, id)
 		if err != nil {
 			s.logger.Error(err, "ノート %s の同期をスキップしました（ダウンロード失敗）", id)
+			if s.lastSyncResult != nil {
+				s.lastSyncResult.Errors++
+			}
 			continue
 		}
 		downloadedNotes = append(downloadedNotes, note)
+		if s.lastSyncResult != nil {
+			s.lastSyncResult.Downloaded++
+		}
 	}
 
 	return mergedNotes, downloadedNotes, nil
@@ -647,6 +828,9 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 			} else {
 				s.logger.Info("Deleting local-only note: %s (not modified after last sync)", localNote.Title)
 				s.noteService.DeleteNoteFromSync(localNote.ID)
+				if s.lastSyncResult != nil {
+					s.lastSyncResult.Deleted++
+				}
 			}
 		}
 	}
@@ -761,10 +945,12 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 		}
 		localNoteFile, err := s.noteService.LoadNote(localNote.ID)
 		if err != nil {
-			return err
+			s.logger.Error(err, "ノート %s の読み込みに失敗しました（スキップ）", localNote.ID)
+			continue
 		}
 		if err := s.syncNoteLocalToCloud(localNoteFile); err != nil {
-			return err
+			s.logger.Error(err, "ノート %s のクラウド同期に失敗しました（スキップ）", localNote.ID)
+			continue
 		}
 	}
 
