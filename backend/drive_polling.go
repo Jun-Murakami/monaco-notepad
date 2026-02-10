@@ -81,10 +81,7 @@ func (p *DrivePollingService) StartPolling() {
 		p.logger.Error(err, "Failed to list unknown notes")
 	}
 	for _, note := range unknownNotes.Notes {
-		p.logger.Console("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
-		if err := p.driveService.driveSync.DeleteNote(p.ctx, note.ID); err != nil {
-			p.logger.Error(err, "Failed to delete unknown note")
-		}
+		p.logger.Console("Found unknown cloud note: %s (not in noteList, skipping delete)", note.ID)
 	}
 
 	if err := p.driveService.SyncNotes(); err != nil {

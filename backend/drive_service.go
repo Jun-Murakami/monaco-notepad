@@ -621,7 +621,8 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 		}
 	}
 
-	// ローカルにしかないノートを削除
+	// ローカルにしかないノートを処理 (C-4: 削除 vs 編集の衝突保護)
+	lastSync := s.noteService.noteList.LastSync
 	for _, localNote := range currentNotes {
 		exists := false
 		for _, cloudNote := range cloudNoteList.Notes {
@@ -631,8 +632,21 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 			}
 		}
 		if !exists {
-			s.logger.Info("Deleting local-only note: %s", localNote.Title)
-			s.noteService.DeleteNoteFromSync(localNote.ID)
+			if isModifiedTimeAfter(localNote.ModifiedTime, lastSync.Format(time.RFC3339)) {
+				// 前回同期後にローカル編集があった → 削除せず保持してアップロード
+				s.logger.Info("Preserving locally-edited note: %s (modified after last sync)", localNote.Title)
+				note, err := s.noteService.LoadNote(localNote.ID)
+				if err == nil {
+					if createErr := s.driveSync.CreateNote(s.ctx, note); createErr != nil {
+						s.logger.Error(createErr, "Failed to upload preserved note: %s", localNote.ID)
+					}
+				}
+				cloudNoteList.Notes = append(cloudNoteList.Notes, localNote)
+			} else {
+				// 前回同期時点で既にあったものがクラウドで削除された → 削除OK
+				s.logger.Info("Deleting local-only note: %s (not modified after last sync)", localNote.Title)
+				s.noteService.DeleteNoteFromSync(localNote.ID)
+			}
 		}
 	}
 	return nil
@@ -693,16 +707,13 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 		return err
 	}
 
-	// クラウドのノートリストにないノートをリストアップして削除 (ダウンロードはしない)
+	// クラウドのノートリストにないノートをログのみ出力（削除しない: C-3）
 	unknownNotes, err := s.driveSync.ListUnknownNotes(s.ctx, cloudNoteList, files, false)
 	if err != nil {
 		return err
 	}
 	for _, note := range unknownNotes.Notes {
-		s.logger.Console("Deleting unknown note: %s because it doesn't exist in cloud noteList", note.ID)
-		if err := s.driveSync.DeleteNote(s.ctx, note.ID); err != nil {
-			return err
-		}
+		s.logger.Console("Found unknown cloud note: %s (not in noteList, skipping delete)", note.ID)
 	}
 	return nil
 }

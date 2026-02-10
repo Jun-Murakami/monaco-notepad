@@ -1061,3 +1061,287 @@ func TestHasRelevantChanges_MixedChanges(t *testing.T) {
 	assert.True(t, hasRelevantChanges(changes, "root-id", "notes-id"),
 		"should detect relevant change even when mixed with irrelevant ones")
 }
+
+// --- C-3: 不明クラウドノートの自動削除停止テスト ---
+
+func TestLocalSync_UnknownCloudNotes_NotDeleted(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+
+	localNote := &Note{
+		ID:           "local-note",
+		Title:        "ローカルノート",
+		Content:      "ローカルの内容",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	noteData, _ := json.Marshal(localNote)
+	mockOps.CreateFile(localNote.ID+".json", noteData, "test-folder", "application/json")
+
+	unknownNoteData, _ := json.Marshal(&Note{
+		ID:      "unknown-cloud-note",
+		Title:   "不明クラウドノート",
+		Content: "別デバイスで作成",
+	})
+	mockOps.CreateFile("unknown-cloud-note.json", unknownNoteData, "test-folder", "application/json")
+
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	files, _ := mockOps.ListFiles("")
+
+	// mockのListFilesが返すファイル名は "test-file-{name}" 形式
+	// cloudNoteListにはmockのファイル名から.jsonを除いたIDで登録
+	cloudNoteList := &NoteList{
+		Notes: []NoteMetadata{},
+	}
+	for _, f := range files {
+		name := f.Name
+		if strings.HasSuffix(name, ".json") {
+			continue
+		}
+	}
+	// ローカルノートのファイル名でnoteListに登録
+	for _, f := range files {
+		noteID := strings.TrimSuffix(f.Name, ".json")
+		if noteID == fmt.Sprintf("test-file-%s", localNote.ID+".json") {
+			cloudNoteList.Notes = append(cloudNoteList.Notes, NoteMetadata{
+				ID: noteID, Title: localNote.Title, ModifiedTime: localNote.ModifiedTime,
+			})
+		}
+	}
+
+	unknownNotes, err := syncService.ListUnknownNotes(context.Background(), cloudNoteList, files, false)
+	assert.NoError(t, err)
+	assert.True(t, len(unknownNotes.Notes) >= 1, "不明ノートがリストアップされるべき")
+
+	mockOps.mu.RLock()
+	_, stillExists := mockOps.files["test-file-unknown-cloud-note.json"]
+	mockOps.mu.RUnlock()
+	assert.True(t, stillExists, "不明クラウドノートが削除されてはならない")
+}
+
+// --- C-4: 削除 vs 編集の衝突保護テスト ---
+
+func TestCloudSync_DeletedOnCloud_EditedLocally_Preserved(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+
+	lastSyncTime := time.Now().Add(-1 * time.Hour)
+
+	localNote := &Note{
+		ID:           "edited-note",
+		Title:        "ローカル編集済み",
+		Content:      "同期後に編集された内容",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	helper.noteService.noteList.LastSync = lastSyncTime
+
+	noteData, _ := json.Marshal(localNote)
+	mockOps.CreateFile(localNote.ID+".json", noteData, "test-folder", "application/json")
+
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	driveSync.SetNoteListID("test-notelist-id")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	cloudNoteList := &NoteList{
+		Notes: []NoteMetadata{},
+	}
+
+	err = ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+
+	_, loadErr := helper.noteService.LoadNote("edited-note")
+	assert.NoError(t, loadErr, "ローカル編集済みノートが保持されるべき")
+}
+
+func TestCloudSync_DeletedOnCloud_NotEditedLocally_Deleted(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+
+	oldModTime := time.Now().Add(-2 * time.Hour)
+	lastSyncTime := time.Now().Add(-1 * time.Hour)
+
+	localNote := &Note{
+		ID:       "stale-note",
+		Title:    "未編集ノート",
+		Content:  "同期前から変更なし",
+		Language: "plaintext",
+	}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	// SaveNoteがModifiedTimeをNow()に設定するため、手動で古い時刻に上書き
+	for i, n := range helper.noteService.noteList.Notes {
+		if n.ID == "stale-note" {
+			helper.noteService.noteList.Notes[i].ModifiedTime = oldModTime.Format(time.RFC3339)
+		}
+	}
+	helper.noteService.noteList.LastSync = lastSyncTime
+
+	noteData, _ := json.Marshal(localNote)
+	mockOps.CreateFile(localNote.ID+".json", noteData, "test-folder", "application/json")
+
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	driveSync.SetNoteListID("test-notelist-id")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	cloudNoteList := &NoteList{
+		Notes: []NoteMetadata{},
+	}
+
+	err = ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+
+	_, loadErr := helper.noteService.LoadNote("stale-note")
+	assert.Error(t, loadErr, "未編集ノートはクラウド削除が反映されるべき")
+}
+
+func TestCloudSync_MultipleNotes_MixedDeleteAndEdit(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+
+	lastSyncTime := time.Now().Add(-1 * time.Hour)
+	staleModTime := time.Now().Add(-2 * time.Hour)
+
+	editedNote := &Note{
+		ID:       "edited",
+		Title:    "編集済み",
+		Content:  "同期後に編集",
+		Language: "plaintext",
+	}
+	staleNote := &Note{
+		ID:       "stale",
+		Title:    "未編集",
+		Content:  "古い内容",
+		Language: "plaintext",
+	}
+	cloudNote := &Note{
+		ID:       "cloud-existing",
+		Title:    "クラウドに存在",
+		Content:  "クラウドの内容",
+		Language: "plaintext",
+	}
+
+	for _, note := range []*Note{editedNote, staleNote, cloudNote} {
+		err := helper.noteService.SaveNote(note)
+		assert.NoError(t, err)
+		noteData, _ := json.Marshal(note)
+		mockOps.CreateFile(note.ID+".json", noteData, "test-folder", "application/json")
+	}
+
+	// staleノートのModifiedTimeを古い時刻に上書き（SaveNoteがNow()を設定するため）
+	for i, n := range helper.noteService.noteList.Notes {
+		if n.ID == "stale" {
+			helper.noteService.noteList.Notes[i].ModifiedTime = staleModTime.Format(time.RFC3339)
+		}
+	}
+	helper.noteService.noteList.LastSync = lastSyncTime
+
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	driveSync.SetNoteListID("test-notelist-id")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	cloudNoteList := &NoteList{
+		Notes: []NoteMetadata{
+			{ID: "cloud-existing", Title: cloudNote.Title, ModifiedTime: cloudNote.ModifiedTime},
+		},
+	}
+
+	err := ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+
+	_, editedErr := helper.noteService.LoadNote("edited")
+	assert.NoError(t, editedErr, "編集済みノートは保持されるべき")
+
+	_, staleErr := helper.noteService.LoadNote("stale")
+	assert.Error(t, staleErr, "未編集ノートは削除されるべき")
+
+	_, cloudErr := helper.noteService.LoadNote("cloud-existing")
+	assert.NoError(t, cloudErr, "クラウドに存在するノートは保持されるべき")
+}
+
+// --- C-2: drive_sync_serviceのUPDATEキャンセルテスト ---
+
+type cancellingDriveOps struct {
+	*mockDriveOperations
+}
+
+func (c *cancellingDriveOps) UpdateFile(fileID string, content []byte) error {
+	return ErrOperationCancelled
+}
+
+func TestSyncService_CancelledUpdate_DoesNotCreate(t *testing.T) {
+	ops := &cancellingDriveOps{mockDriveOperations: newMockDriveOperations()}
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	syncService := NewDriveSyncService(ops, "test-folder", "test-root", logger)
+
+	impl := syncService.(*driveSyncServiceImpl)
+	impl.setCachedFileID("test-note", "existing-drive-file")
+
+	note := &Note{ID: "test-note", Title: "Test", Content: "content"}
+	err := syncService.UpdateNote(context.Background(), note)
+	assert.NoError(t, err, "キャンセルされたUPDATEはnilを返すべき（CreateNoteにフォールバックしない）")
+
+	ops.mu.RLock()
+	fileCount := len(ops.files)
+	ops.mu.RUnlock()
+	assert.Equal(t, 0, fileCount, "CreateNoteが呼ばれてファイルが作成されてはならない")
+}

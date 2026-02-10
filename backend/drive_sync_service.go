@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -298,7 +299,10 @@ func (d *driveSyncServiceImpl) UpdateNote(
 	}, uploadRetryConfig)
 
 	if err != nil {
-		// 更新失敗の場合は新規作成を試みる
+		// キャンセルされた場合は新規作成にフォールバックしない (C-2: 重複CREATE防止)
+		if errors.Is(err, ErrOperationCancelled) {
+			return nil
+		}
 		return d.CreateNote(ctx, note)
 	}
 

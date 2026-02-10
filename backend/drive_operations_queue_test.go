@@ -1,7 +1,9 @@
 package backend
 
 import (
+	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -166,4 +168,257 @@ func TestQueue_GetFileID_Error_ReturnsPromptly(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("GetFileID がエラー時にタイムアウト — チャネルデッドロックの可能性")
 	}
+}
+
+// --- C-1: CREATE操作後のマップ不整合修正テスト ---
+
+func TestQueue_CreateOperation_ClearsFromMap(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	done := make(chan struct{})
+	go func() {
+		_, err := q.CreateFile("note1.json", []byte(`{"id":"note1"}`), "folder-id", "application/json")
+		assert.NoError(t, err)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CREATE操作がタイムアウト")
+	}
+
+	assert.False(t, q.HasItems(), "CREATE完了後にHasItems()はfalseを返すべき")
+}
+
+func TestQueue_CreateThenDelete_MapConsistent(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	done := make(chan struct{})
+	go func() {
+		_, err := q.CreateFile("note1.json", []byte(`{"id":"note1"}`), "folder-id", "application/json")
+		assert.NoError(t, err)
+
+		err = q.DeleteFile("test-file-note1.json")
+		assert.NoError(t, err)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CREATE+DELETE操作がタイムアウト")
+	}
+
+	assert.False(t, q.HasItems(), "CREATE→DELETE完了後にHasItems()はfalseを返すべき")
+}
+
+func TestQueue_MultipleCreates_AllClearFromMap(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			name := fmt.Sprintf("note-%d.json", idx)
+			_, err := q.CreateFile(name, []byte(`{}`), "folder-id", "application/json")
+			assert.NoError(t, err)
+		}(i)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("複数CREATE操作がタイムアウト")
+	}
+
+	assert.False(t, q.HasItems(), "全CREATE完了後にHasItems()はfalseを返すべき")
+}
+
+func TestQueue_CreateDoesNotBlockPolling(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	done := make(chan struct{})
+	go func() {
+		_, err := q.CreateFile("test.json", []byte(`{}`), "folder", "application/json")
+		assert.NoError(t, err)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CREATE操作がタイムアウト")
+	}
+
+	assert.False(t, q.HasItems(), "CREATE完了後にポーリング再開可能な状態であるべき")
+}
+
+// --- C-2: UPDATEキャンセル時のErrOperationCancelledテスト ---
+
+func TestQueue_CancelledUpdate_ReturnsSpecificError(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["file-1"] = []byte("existing")
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	result1 := make(chan error, 1)
+	go func() {
+		result1 <- q.UpdateFile("file-1", []byte("v1"))
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	result2 := make(chan error, 1)
+	go func() {
+		result2 <- q.UpdateFile("file-1", []byte("v2"))
+	}()
+
+	var err1 error
+	select {
+	case err1 = <-result1:
+	case <-time.After(10 * time.Second):
+		t.Fatal("最初のUPDATE結果がタイムアウト")
+	}
+
+	assert.True(t, errors.Is(err1, ErrOperationCancelled),
+		"古いUPDATEはErrOperationCancelledを返すべき: got %v", err1)
+
+	select {
+	case err := <-result2:
+		assert.NoError(t, err, "新しいUPDATEは成功すべき")
+	case <-time.After(10 * time.Second):
+		t.Fatal("新しいUPDATE結果がタイムアウト")
+	}
+}
+
+func TestQueue_CancelledUpdate_FinalStateCorrect(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["file-x"] = []byte("original")
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	results := make([]chan error, 3)
+	for i := 0; i < 3; i++ {
+		results[i] = make(chan error, 1)
+		go func(idx int) {
+			content := fmt.Sprintf("version-%d", idx)
+			results[idx] <- q.UpdateFile("file-x", []byte(content))
+		}(i)
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	for i, ch := range results {
+		select {
+		case err := <-ch:
+			if i < 2 {
+				assert.True(t, errors.Is(err, ErrOperationCancelled) || err == nil,
+					"古いUPDATE[%d]はキャンセルまたは成功であるべき", i)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("UPDATE[%d]結果がタイムアウト", i)
+		}
+	}
+
+	ops.mu.RLock()
+	content := ops.files["file-x"]
+	ops.mu.RUnlock()
+	assert.Equal(t, "version-2", string(content), "最終コンテンツは最新のバージョンであるべき")
+}
+
+// --- C-5: Cleanupパニック修正テスト ---
+
+func TestQueue_Cleanup_DuringDebouncedUpdate_NoPanic(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["file-1"] = []byte("data")
+	q := NewDriveOperationsQueue(ops)
+
+	result := make(chan error, 1)
+	go func() {
+		result <- q.UpdateFile("file-1", []byte("updated"))
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	assert.NotPanics(t, func() {
+		q.Cleanup()
+	}, "デバウンス中のCleanup()でパニックしてはならない")
+
+	select {
+	case err := <-result:
+		assert.True(t, errors.Is(err, ErrOperationCancelled) || err == nil,
+			"結果はErrOperationCancelledまたはnilであるべき: got %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("UPDATE結果がタイムアウト")
+	}
+}
+
+func TestQueue_Cleanup_MultipleInFlightOps_NoPanic(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["file-a"] = []byte("a")
+	ops.files["file-b"] = []byte("b")
+	ops.files["file-c"] = []byte("c")
+	q := NewDriveOperationsQueue(ops)
+
+	results := make([]chan error, 3)
+	fileIDs := []string{"file-a", "file-b", "file-c"}
+	for i, fid := range fileIDs {
+		results[i] = make(chan error, 1)
+		go func(idx int, id string) {
+			results[idx] <- q.UpdateFile(id, []byte("new"))
+		}(i, fid)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	assert.NotPanics(t, func() {
+		q.Cleanup()
+	}, "複数インフライト操作中のCleanup()でパニックしてはならない")
+
+	for i, ch := range results {
+		select {
+		case err := <-ch:
+			assert.True(t, errors.Is(err, ErrOperationCancelled) || err == nil,
+				"結果[%d]はErrOperationCancelledまたはnilであるべき: got %v", i, err)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("結果[%d]がタイムアウト", i)
+		}
+	}
+}
+
+func TestQueue_Cleanup_ThenNewEnqueue_Rejected(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	q.Cleanup()
+
+	time.Sleep(200 * time.Millisecond)
+
+	assert.NotPanics(t, func() {
+		result := make(chan error, 1)
+		item := &QueueItem{
+			OperationType: CreateOperation,
+			FileName:      "post-cleanup.json",
+			Content:       []byte(`{}`),
+			ParentID:      "folder",
+			MimeType:      "application/json",
+			CreatedAt:     time.Now(),
+			Result:        result,
+		}
+		q.addToQueue(item)
+	}, "Cleanup後のenqueueでパニックしてはならない")
 }

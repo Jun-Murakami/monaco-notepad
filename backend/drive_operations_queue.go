@@ -2,12 +2,16 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"google.golang.org/api/drive/v3"
 )
+
+// ErrOperationCancelled はキュー操作がキャンセルされた場合のセンチネルエラー
+var ErrOperationCancelled = errors.New("operation cancelled")
 
 // キューアイテムの種類を定義
 type QueueOperationType string
@@ -31,6 +35,7 @@ type QueueItem struct {
 	MimeType      string
 	CreatedAt     time.Time
 	Result        chan error
+	mapKey        string             // マップ操作用の安定キー（enqueue時に確定）
 	// 追加のフィールド
 	Query         string             // ListFiles用
 	NoteFolderID  string             // GetFileID用
@@ -43,10 +48,11 @@ type QueueItem struct {
 type DriveOperationsQueue struct {
 	operations DriveOperations
 	queue      chan *QueueItem
-	items      map[string][]*QueueItem // FileIDごとのキューアイテム
+	items      map[string][]*QueueItem // mapKeyごとのキューアイテム
 	mutex      sync.RWMutex
 	ctx        context.Context
 	cancel     context.CancelFunc
+	closed     bool
 }
 
 // NewDriveOperationsQueueはキューシステムを作成
@@ -123,65 +129,95 @@ func (q *DriveOperationsQueue) executeOperation(item *QueueItem) error {
 	return nil
 }
 
+// computeMapKey はenqueue時にマップキーを確定させる
+// CREATE操作はFileIDが空のため fileName+parentID を使用し、それ以外はFileIDを使用する
+func computeMapKey(item *QueueItem) string {
+	if item.OperationType == CreateOperation {
+		return "create:" + item.FileName + ":" + item.ParentID
+	}
+	return item.FileID
+}
+
 // キューにアイテムを追加
 func (q *DriveOperationsQueue) addToQueue(item *QueueItem) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
-	// Deleteの場合は同じFileIDの既存のキューをすべて破棄
-	if item.OperationType == DeleteOperation {
-		q.removeExistingItems(item.FileID)
+	if q.closed {
+		item.Result <- ErrOperationCancelled
+		return
 	}
 
-	// Updateの場合は同じFileIDの古いUpdateキューを破棄
+	// mapKeyをenqueue時に確定させる
+	item.mapKey = computeMapKey(item)
+
+	// Deleteの場合は同じmapKeyの既存のキューをすべて破棄
+	if item.OperationType == DeleteOperation {
+		q.removeExistingItems(item.mapKey)
+	}
+
+	// Updateの場合は同じmapKeyの古いUpdateキューを破棄
 	if item.OperationType == UpdateOperation {
-		// 既存のUpdateキューがある場合は、そのキューをキャンセルして新しいキューに置き換える
-		if q.hasUpdateQueueForFile(item.FileID) {
-			q.removeOldUpdateItems(item.FileID)
-			// 3秒待ってからキューに追加
-			go func() {
-				time.Sleep(3 * time.Second)
-				q.mutex.Lock()
-				defer q.mutex.Unlock()
-				// 再度チェック（この間に新しいUpdateが来ている可能性がある）
-				if !q.hasNewerUpdateQueueForFile(item.FileID, item.CreatedAt) {
-					q.queue <- item
-				} else {
-					item.Result <- fmt.Errorf("operation cancelled due to newer update operation")
-					q.removeItemFromMap(item)
-				}
-			}()
-			// キューマップには即座に追加
-			q.items[item.FileID] = append(q.items[item.FileID], item)
+		if q.hasUpdateQueueForFile(item.mapKey) {
+			q.removeOldUpdateItems(item.mapKey)
+			go q.delayedEnqueue(item)
+			q.items[item.mapKey] = append(q.items[item.mapKey], item)
 			return
 		}
 	}
 
 	// キューマップに追加
-	q.items[item.FileID] = append(q.items[item.FileID], item)
+	q.items[item.mapKey] = append(q.items[item.mapKey], item)
 
 	// Updateの場合は3秒待ってからキューに追加
 	if item.OperationType == UpdateOperation {
-		go func() {
-			time.Sleep(3 * time.Second)
-			q.mutex.Lock()
-			defer q.mutex.Unlock()
-			// 再度チェック（この間に新しいUpdateが来ている可能性がある）
-			if !q.hasNewerUpdateQueueForFile(item.FileID, item.CreatedAt) {
-				q.queue <- item
-			} else {
-				item.Result <- fmt.Errorf("operation cancelled due to newer update operation")
-				q.removeItemFromMap(item)
-			}
-		}()
+		go q.delayedEnqueue(item)
 	} else {
-		q.queue <- item
+		select {
+		case <-q.ctx.Done():
+			item.Result <- ErrOperationCancelled
+			q.removeItemFromMap(item)
+		case q.queue <- item:
+		}
 	}
 }
 
-// 指定されたファイルIDに対するUpdateキューが存在するかチェック
-func (q *DriveOperationsQueue) hasUpdateQueueForFile(fileID string) bool {
-	items, exists := q.items[fileID]
+// delayedEnqueue はデバウンス遅延後にアイテムをキューに送信する
+func (q *DriveOperationsQueue) delayedEnqueue(item *QueueItem) {
+	time.Sleep(3 * time.Second)
+
+	// ctx.Done()をチェックしてCleanup後のpanicを防止 (C-5)
+	select {
+	case <-q.ctx.Done():
+		item.Result <- ErrOperationCancelled
+		return
+	default:
+	}
+
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
+	if q.closed {
+		item.Result <- ErrOperationCancelled
+		q.removeItemFromMap(item)
+		return
+	}
+
+	if !q.hasNewerUpdateQueueForFile(item.mapKey, item.CreatedAt) {
+		select {
+		case q.queue <- item:
+		case <-q.ctx.Done():
+			item.Result <- ErrOperationCancelled
+			q.removeItemFromMap(item)
+		}
+	} else {
+		item.Result <- ErrOperationCancelled
+		q.removeItemFromMap(item)
+	}
+}
+
+func (q *DriveOperationsQueue) hasUpdateQueueForFile(mapKey string) bool {
+	items, exists := q.items[mapKey]
 	if !exists {
 		return false
 	}
@@ -193,9 +229,8 @@ func (q *DriveOperationsQueue) hasUpdateQueueForFile(fileID string) bool {
 	return false
 }
 
-// 指定されたファイルIDに対して、より新しいUpdateキューが存在するかチェック
-func (q *DriveOperationsQueue) hasNewerUpdateQueueForFile(fileID string, createdAt time.Time) bool {
-	items, exists := q.items[fileID]
+func (q *DriveOperationsQueue) hasNewerUpdateQueueForFile(mapKey string, createdAt time.Time) bool {
+	items, exists := q.items[mapKey]
 	if !exists {
 		return false
 	}
@@ -207,34 +242,31 @@ func (q *DriveOperationsQueue) hasNewerUpdateQueueForFile(fileID string, created
 	return false
 }
 
-// 古いUpdateキューを削除
-func (q *DriveOperationsQueue) removeOldUpdateItems(fileID string) {
-	if items, exists := q.items[fileID]; exists {
+func (q *DriveOperationsQueue) removeOldUpdateItems(mapKey string) {
+	if items, exists := q.items[mapKey]; exists {
 		var newItems []*QueueItem
 		for _, item := range items {
 			if item.OperationType == UpdateOperation {
-				item.Result <- fmt.Errorf("operation cancelled due to new update operation")
+				item.Result <- ErrOperationCancelled
 			} else {
 				newItems = append(newItems, item)
 			}
 		}
-		q.items[fileID] = newItems
+		q.items[mapKey] = newItems
 	}
 }
 
-// 既存のキューアイテムを削除
-func (q *DriveOperationsQueue) removeExistingItems(fileID string) {
-	if items, exists := q.items[fileID]; exists {
+func (q *DriveOperationsQueue) removeExistingItems(mapKey string) {
+	if items, exists := q.items[mapKey]; exists {
 		for _, item := range items {
-			item.Result <- fmt.Errorf("operation cancelled due to delete operation")
+			item.Result <- ErrOperationCancelled
 		}
-		delete(q.items, fileID)
+		delete(q.items, mapKey)
 	}
 }
 
-// キューマップからアイテムを削除
 func (q *DriveOperationsQueue) removeItemFromMap(item *QueueItem) {
-	items := q.items[item.FileID]
+	items := q.items[item.mapKey]
 	var newItems []*QueueItem
 	for _, i := range items {
 		if i != item {
@@ -242,9 +274,9 @@ func (q *DriveOperationsQueue) removeItemFromMap(item *QueueItem) {
 		}
 	}
 	if len(newItems) == 0 {
-		delete(q.items, item.FileID)
+		delete(q.items, item.mapKey)
 	} else {
-		q.items[item.FileID] = newItems
+		q.items[item.mapKey] = newItems
 	}
 }
 
@@ -267,9 +299,26 @@ func (q *DriveOperationsQueue) WaitForEmpty(timeout time.Duration) bool {
 	return false
 }
 
-// キューをクリーンアップ
 func (q *DriveOperationsQueue) Cleanup() {
+	q.mutex.Lock()
+	q.closed = true
+	q.mutex.Unlock()
+
 	q.cancel()
+	// 遅延goroutineがctx.Done()を検知して停止するのを待つ
+	time.Sleep(100 * time.Millisecond)
+	// 残留アイテムを排出してからチャネルを閉じる
+	q.mutex.Lock()
+	for key, items := range q.items {
+		for _, item := range items {
+			select {
+			case item.Result <- ErrOperationCancelled:
+			default:
+			}
+		}
+		delete(q.items, key)
+	}
+	q.mutex.Unlock()
 	close(q.queue)
 }
 
