@@ -2382,6 +2382,10 @@ func TestSyncJournal_CreatedOnSyncStart(t *testing.T) {
 	defer helper.cleanup()
 	ds := newTestDriveServiceWithAppDataDir(helper)
 
+	// ローカル専用ノートの物理ファイルを作成
+	localNote := &Note{ID: "local-only", Title: "Local", Content: "content"}
+	assert.NoError(t, helper.noteService.SaveNote(localNote))
+
 	localNotes := []NoteMetadata{
 		{ID: "local-only", Title: "Local", ContentHash: "hash-a"},
 	}

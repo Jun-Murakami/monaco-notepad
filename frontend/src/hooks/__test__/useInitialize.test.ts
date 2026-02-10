@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  GetArchivedTopLevelOrder,
   GetTopLevelOrder,
   ListFolders,
   ListNotes,
@@ -38,6 +39,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   LoadFileNotes: vi.fn(),
   ListFolders: vi.fn(),
   GetTopLevelOrder: vi.fn(),
+  GetArchivedTopLevelOrder: vi.fn(),
 }));
 
 vi.mock('../../../wailsjs/runtime', () => ({
@@ -90,6 +92,7 @@ describe('useInitialize', () => {
   const mockSetFileNotes = vi.fn();
   const mockSetFolders = vi.fn();
   const mockSetTopLevelOrder = vi.fn();
+  const mockSetArchivedTopLevelOrder = vi.fn();
   const mockHandleNewNote = vi.fn();
   const mockHandleSelecAnyNote = vi.fn();
   const mockHandleSaveFile = vi.fn();
@@ -117,6 +120,7 @@ describe('useInitialize', () => {
     (ListNotes as unknown as MockFunction).mockResolvedValue([mockNote]);
     (ListFolders as unknown as MockFunction).mockResolvedValue([]);
     (GetTopLevelOrder as unknown as MockFunction).mockResolvedValue([]);
+    (GetArchivedTopLevelOrder as unknown as MockFunction).mockResolvedValue([]);
     (LoadFileNotes as unknown as MockFunction).mockResolvedValue([
       mockFileNote,
     ]);
@@ -146,6 +150,7 @@ describe('useInitialize', () => {
         mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
+        mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
         null,
@@ -204,6 +209,7 @@ describe('useInitialize', () => {
         mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
+        mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
         null,
@@ -238,6 +244,7 @@ describe('useInitialize', () => {
         mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
+        mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
         null,
@@ -313,6 +320,7 @@ describe('useInitialize', () => {
         mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
+        mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
         null,
@@ -354,6 +362,7 @@ describe('useInitialize', () => {
         mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
+        mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
         null,

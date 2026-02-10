@@ -423,6 +423,11 @@ func (s *driveService) buildSyncJournal(localNotes, cloudNotes []NoteMetadata) *
 				journal.Actions = append(journal.Actions, SyncJournalAction{Type: "download", NoteID: id})
 			}
 		} else {
+			// ローカル専用ノートはアップロード対象だが、物理ファイルが存在しない場合はスキップ
+			if _, loadErr := s.noteService.LoadNote(id); loadErr != nil {
+				s.logger.Console("buildSyncJournal: skipping upload for note %s (file not found)", id)
+				continue
+			}
 			journal.Actions = append(journal.Actions, SyncJournalAction{Type: "upload", NoteID: id})
 		}
 	}

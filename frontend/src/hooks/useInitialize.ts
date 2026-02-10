@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+	GetArchivedTopLevelOrder,
 	GetTopLevelOrder,
 	ListFolders,
 	ListNotes,
@@ -15,6 +16,7 @@ export const useInitialize = (
 	setFileNotes: (files: FileNote[]) => void,
 	setFolders: (folders: Folder[]) => void,
 	setTopLevelOrder: (order: TopLevelItem[]) => void,
+	setArchivedTopLevelOrder: (order: TopLevelItem[]) => void,
   handleNewNote: () => void,
   handleSelecAnyNote: (note: Note | FileNote) => Promise<void>,
   currentFileNote: FileNote | null,
@@ -50,14 +52,21 @@ export const useInitialize = (
       setFileNotes(loadedFileNotes);
     }
 
-		const [notes, folders, rawOrder] = await Promise.all([
+		const [notes, folders, rawOrder, rawArchivedOrder] = await Promise.all([
 			ListNotes(),
 			ListFolders(),
 			GetTopLevelOrder(),
+			GetArchivedTopLevelOrder(),
 		]);
 		setFolders(folders ?? []);
 		setTopLevelOrder(
 			(rawOrder ?? []).map((item) => ({
+				type: item.type as 'note' | 'folder',
+				id: item.id,
+			})),
+		);
+		setArchivedTopLevelOrder(
+			(rawArchivedOrder ?? []).map((item) => ({
 				type: item.type as 'note' | 'folder',
 				id: item.id,
 			})),
@@ -81,7 +90,7 @@ export const useInitialize = (
       handleNewNote();
     }
     restorePaneNotes(parsedNotes, loadedFileNotes);
-	}, [handleNewNote, handleSelecAnyNote, setFileNotes, setFolders, setTopLevelOrder, setNotes, restorePaneNotes]);
+	}, [handleNewNote, handleSelecAnyNote, setFileNotes, setFolders, setTopLevelOrder, setArchivedTopLevelOrder, setNotes, restorePaneNotes]);
 
   useEffect(() => {
     if (isInitialized) return;
