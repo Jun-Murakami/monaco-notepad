@@ -1,76 +1,110 @@
 # Monaco Notepad
 
-A cloud-synchronized notepad application built for programmers, featuring the Monaco Editor (VS Code's editor component) and Google Drive integration.
+A programmer's notepad powered by Monaco Editor — the same engine behind VS Code — with Google Drive sync, split editing, and markdown preview.
 
-<img width="1440" alt="スクリーンショット 2025-02-06 23 09 01" src="https://github.com/user-attachments/assets/6d69d9be-55ee-46a2-a566-4b99d2d8e2b5" />
+<img width="1440" alt="Monaco Notepad Screenshot" src="https://github.com/user-attachments/assets/6d69d9be-55ee-46a2-a566-4b99d2d8e2b5" />
 
-## Overview
+## Features
 
-Monaco Notepad is a specialized note-taking application designed for programmers who need a temporary, cloud-synchronized workspace for code snippets and technical notes. It offers both cloud-based note management and direct file editing capabilities, providing flexibility in how you work with your code and notes.
+### Editor
 
-## Key Features
+- **Monaco Editor** with syntax highlighting for 50+ languages
+- Auto-save with 3-second debounce
+- Customizable font family, font size, and editor themes
+- Word wrap and minimap toggles
+- Dark / Light mode with smooth theme switching
 
-- **Monaco Editor Integration**: Powered by the same editor component used in VS Code
-- **Dual Operation Modes**:
-  - **Cloud Note Mode**: Manage notes in a dedicated cloud-synchronized environment
-  - **File Mode**: Direct file editing
-- **Google Drive Sync**: Automatic cloud synchronization for your notes with Google Drive
-- **Language Support**: Syntax highlighting for multiple programming languages
-- **Flexible Workflow**:
-  - Work directly with local files
-  - Create and manage cloud-synchronized notes
-  - Import/Export between files and notes
-- **Non-Invasive Design**: Never modifies your local files directly
+### Split Editor
 
-## Use Cases
+- Side-by-side split view for editing two notes simultaneously
+- Right-click context menu: **Open in Left Pane** / **Open in Right Pane**
+- Automatic split mode activation from context menu
+- Duplicate detection — if the same file would appear in both panes, the other pane loads the next available item
+- Split state persisted across app restarts
+- Color-coded pane indicators
 
-- **Code Snippet Management**: Store and organize frequently used code snippets
-- **Temporary Workspace**: Quick notes during debugging or development
-- **Cross-Device Access**: Access your programming notes from any device
-- **Collaborative Sharing**: Share notes through Google Drive when needed
+### Markdown Preview
+
+- Live preview with GitHub Flavored Markdown (GFM) support
+- Syntax-highlighted code blocks
+- Configurable position: left or right side (via Settings)
+
+### Note Management
+
+- Create, edit, archive, and delete notes
+- Folder organization with drag-and-drop reordering
+- Archive system with restore capability
+- Full-text search across all notes and file contents with match navigation
+
+### Local File Editing
+
+- Open and edit local files directly
+- Save / Save As
+- Unsaved changes indicator
+- Convert local files to cloud notes
+- Drag & drop to open files
+
+### Google Drive Sync
+
+- OAuth2 authentication
+- Automatic background sync via Changes API
+- Content-hash based change detection
+- Async operation queue for uploads and downloads
+- Visual sync status in the status bar
+
+### Status Bar
+
+- Character count, line count, cursor position
+- Notification area with history (up to 1,000 entries)
+- Quick-access buttons: Split Editor, Markdown Preview, Google Drive, Settings
+- Version update notification
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl/Cmd + N` | New note |
+| `Ctrl/Cmd + O` | Open file |
+| `Ctrl/Cmd + S` | Save file |
+| `Ctrl/Cmd + Alt + S` | Save As |
+| `Ctrl/Cmd + W` | Close file / Archive note |
+| `Ctrl/Cmd + Tab` | Next note |
+| `Ctrl/Cmd + Shift + Tab` | Previous note |
 
 ## Getting Started
 
-1. **Installation**
+1. Download the latest release for your platform (macOS / Windows)
+2. Launch the app — no additional setup required
+3. Optionally connect your Google account for cloud sync
 
-   - Download the latest release for your platform
-   - No additional setup required
+## Tech Stack
 
-2. **Google Drive Integration**
+| Layer | Technology |
+|---|---|
+| Backend | Go + [Wails v2](https://wails.io/) |
+| Frontend | React 19 + TypeScript + Vite |
+| Editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
+| UI | Material UI (MUI) v7 |
+| Sync | Google Drive API v3 |
 
-   - Sign in with your Google account on first launch
-   - Notes are automatically synchronized
+## Building from Source
 
-3. **Basic Usage**
-   - Create new notes with the "New" button
-   - Open and edit local files directly
-   - Import existing files to create new notes
-   - Export notes to files when needed
-   - Select programming language for proper syntax highlighting
+### Development
 
-## Technical Details
+```bash
+wails dev
+```
 
-- Built with Go and React
-- Uses Wails for desktop application framework
-- Implements Monaco Editor for code editing
-- Integrates with Google Drive API for cloud synchronization
+### Production
 
-## Design Philosophy
+```bash
+# macOS
+./build_mac.sh
 
-Monaco Notepad is designed to be a "programmer's Evernote" with a focus on:
-
-- Flexible editing modes (cloud notes and direct files)
-- Cloud-first approach
-- Clean workspace management
-- Programming-specific features
-- Seamless file system interaction
-
-## Requirements
-
-- Windows/macOS
-- Google account for cloud synchronization
-- Internet connection for sync features
+# Windows (PowerShell)
+./build.ps1
+```
 
 ## License
 
-[MIT] - See LICENSE file for details
+[MIT](LICENSE)
