@@ -2,7 +2,7 @@
 
 A programmer's notepad powered by Monaco Editor — the same engine behind VS Code — with Google Drive sync, split editing, and markdown preview.
 
-<img width="1440" alt="Monaco Notepad Screenshot" src="https://github.com/user-attachments/assets/6d69d9be-55ee-46a2-a566-4b99d2d8e2b5" />
+<img width="2700" height="1684" alt="スクリーンショット 2026-02-10 23 19 52" src="https://github.com/user-attachments/assets/7609b7c5-2037-4801-bf5d-c70cb2d61e79" />
 
 ## Features
 
