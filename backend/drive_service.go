@@ -20,11 +20,12 @@ type DriveService interface {
 	CancelLoginDrive() error // 認証キャンセル
 
 	// ---- ノート同期系 ----
-	CreateNote(note *Note) error         // ノート作成
-	UpdateNote(note *Note) error         // ノート更新
-	DeleteNoteDrive(noteID string) error // ノート削除
-	SyncNotes() error                    // ノートをただちに同期
-	UpdateNoteList() error               // ノートリスト更新
+	CreateNote(note *Note) error                           // ノート作成
+	UpdateNote(note *Note) error                           // ノート更新
+	DeleteNoteDrive(noteID string) error                   // ノート削除
+	SyncNotes() error                                      // ノートをただちに同期
+	UpdateNoteList() error                                 // ノートリスト更新
+	SaveNoteAndUpdateList(note *Note, isCreate bool) error // ノート保存+リスト更新をアトミックに実行
 
 	// ---- ユーティリティ ----
 	NotifyFrontendReady()                           // フロントエンド準備完了通知
@@ -291,7 +292,44 @@ func (s *driveService) UpdateNoteList() error {
 	return s.updateNoteListInternal()
 }
 
-// syncMu を保持した状態で呼ばれる内部実装
+// SaveNoteAndUpdateList はノートのアップロードとノートリスト更新を syncMu 配下でアトミックに実行する。
+// SaveNote の非同期ゴルーチンから呼ばれ、SyncNotes とのレース条件を防止する。
+func (s *driveService) SaveNoteAndUpdateList(note *Note, isCreate bool) error {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
+
+	if !s.IsConnected() {
+		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
+	}
+
+	if isCreate {
+		s.logger.Info("Creating note (atomic): %s", note.ID)
+		err := s.driveSync.CreateNote(s.ctx, note)
+		if err != nil {
+			if strings.Contains(err.Error(), "operation cancelled") {
+				return nil
+			}
+			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note: %v", err))
+		}
+	} else {
+		s.logger.Info("Updating note (atomic): %s", note.ID)
+		err := s.driveSync.UpdateNote(s.ctx, note)
+		if err != nil {
+			if strings.Contains(err.Error(), "operation cancelled") {
+				return nil
+			}
+			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note: %v", err))
+		}
+	}
+
+	if err := s.updateNoteListInternal(); err != nil {
+		return err
+	}
+
+	s.resetPollingInterval()
+	return nil
+}
+
 func (s *driveService) updateNoteListInternal() error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
@@ -511,24 +549,20 @@ func (s *driveService) SyncNotes() error {
 	// 6. 同期対象のログ出力
 	s.logSyncStatus(cloudNoteList, s.noteService.noteList)
 
-	// 7. タイムスタンプが同じ場合は内容の差分チェック
-	if cloudNoteList.LastSync.Equal(s.noteService.noteList.LastSync) {
-		if s.isNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
-			// 同じタイムスタンプだが内容が違う場合はマージ
-			s.logger.Info("Note lists have same timestamp but different content, merging notes...")
-			if err := s.mergeNoteListsAndDownload(cloudNoteList); err != nil {
-				return s.auth.HandleOfflineTransition(err)
-			}
-			s.notifySyncComplete()
-			return nil
+	// 7. コンテンツベースの差分チェック（タイムスタンプではなくハッシュで判定）
+	if !s.isNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
+		s.logger.Info("Note content is identical, syncing structure only")
+		s.mergeNoteListStructure(cloudNoteList)
+		s.noteService.noteList.LastSync = cloudNoteList.LastSync
+		if err := s.noteService.saveNoteList(); err != nil {
+			s.logger.Error(err, "Failed to save note list after structure merge")
 		}
-		// 同じタイムスタンプかつ内容も同じなら「最新」
 		s.notifySyncComplete()
 		return nil
 	}
 
-	// 8. タイムスタンプが異なる場合はマージベースで同期（オフライン復帰対応）
-	s.logger.Info("Syncing changes made while offline...")
+	// 8. ノートの内容が異なる場合はマージ
+	s.logger.Info("Note content differs between local and cloud, merging...")
 	if err := s.mergeNoteListsAndDownload(cloudNoteList); err != nil {
 		return s.auth.HandleOfflineTransition(err)
 	}
@@ -724,17 +758,27 @@ func (s *driveService) mergeNotes(
 			if loadErr != nil {
 				s.logger.Error(loadErr, "Failed to load local note %s for conflict copy", id)
 			} else {
-				conflictCopy, copyErr := s.noteService.CreateConflictCopy(localNote)
-				if copyErr != nil {
-					s.logger.Error(copyErr, "Failed to create conflict copy for note %s", id)
+				// 既にコンフリクトコピーであるノートは再度コンフリクトコピーを作成しない
+				// （コンフリクトコピーの連鎖増殖を防止）
+				if strings.Contains(localNote.Title, "(conflict copy ") {
+					s.logger.Info("Skipping conflict copy for already-conflicted note: %s", localNote.Title)
 				} else {
-					s.logger.Info("Created conflict copy of \"%s\"", localNote.Title)
-					if s.lastSyncResult != nil {
-						s.lastSyncResult.ConflictCopies++
-					}
-					conflictMeta := findNoteMetadata(s.noteService.noteList.Notes, conflictCopy.ID)
-					if conflictMeta != nil {
-						mergedNotes = append(mergedNotes, *conflictMeta)
+					conflictCopy, copyErr := s.noteService.CreateConflictCopy(localNote)
+					if copyErr != nil {
+						s.logger.Error(copyErr, "Failed to create conflict copy for note %s", id)
+					} else {
+						s.logger.Info("Created conflict copy of \"%s\"", localNote.Title)
+						if s.lastSyncResult != nil {
+							s.lastSyncResult.ConflictCopies++
+						}
+						// コンフリクトコピーをDriveにアップロード（他デバイスからも参照可能にする）
+						if createErr := s.driveSync.CreateNote(ctx, conflictCopy); createErr != nil {
+							s.logger.Error(createErr, "Failed to upload conflict copy %s to Drive", conflictCopy.ID)
+						}
+						conflictMeta := findNoteMetadata(s.noteService.noteList.Notes, conflictCopy.ID)
+						if conflictMeta != nil {
+							mergedNotes = append(mergedNotes, *conflictMeta)
+						}
 					}
 				}
 			}

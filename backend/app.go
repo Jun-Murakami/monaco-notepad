@@ -256,32 +256,14 @@ func (a *App) SaveNote(note *Note, action string) error {
 
 	// ドライブサービスが初期化されており、接続中の場合はアップロード
 	if a.driveService != nil && a.driveService.IsConnected() {
-		// ノートのコピーを作成して非同期処理に渡す
 		noteCopy := *note
+		isCreate := action == "create"
 		go func() {
-			// テストモード時はイベント通知をスキップ
 			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
-
-			// ノートをアップロード
-			if action == "create" {
-				if err := a.driveService.CreateNote(&noteCopy); err != nil {
-					a.authService.HandleOfflineTransition(fmt.Errorf("error creating note to Drive: %v", err))
-					return
-				}
-			} else {
-				if err := a.driveService.UpdateNote(&noteCopy); err != nil {
-					a.authService.HandleOfflineTransition(fmt.Errorf("error updating note to Drive: %v", err))
-					return
-				}
-			}
-
-			// ノートリストをアップロード
-			if err := a.driveService.UpdateNoteList(); err != nil {
-				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
+			if err := a.driveService.SaveNoteAndUpdateList(&noteCopy, isCreate); err != nil {
+				a.authService.HandleOfflineTransition(err)
 				return
 			}
-
-			// 同期完了を通知
 			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 		}()
 	}

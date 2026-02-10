@@ -191,6 +191,13 @@ func (m *mockDriveService) UpdateNoteList() error {
 	return nil
 }
 
+func (m *mockDriveService) SaveNoteAndUpdateList(note *Note, isCreate bool) error {
+	if isCreate {
+		return m.CreateNote(note)
+	}
+	return m.UpdateNote(note)
+}
+
 func (m *mockDriveService) NotifyFrontendReady() {
 	// テストでは何もしない
 }

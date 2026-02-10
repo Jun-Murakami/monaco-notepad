@@ -180,9 +180,10 @@ export const EditorStatusBar = ({
         justifyContent: 'flex-start',
         bgcolor: (theme) => theme.palette.background.paper,
         overflow: 'hidden',
+        position: 'relative',
       }}
     >
-      <Box sx={{ display: 'flex', width: 220, textAlign: 'left' }}>
+      <Box sx={{ display: 'flex', width: 220, minWidth: 0, flexShrink: 1, textAlign: 'left' }}>
         <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
           {info[0]}
         </Typography>
@@ -191,7 +192,7 @@ export const EditorStatusBar = ({
         </Typography>
       </Box>
 
-      <Box sx={{ display: 'flex', textAlign: 'left', width: 280 }}>
+      <Box sx={{ display: 'flex', textAlign: 'left', width: 280, minWidth: 0, flexShrink: 1 }}>
         <Divider orientation='vertical' flexItem />
         <Typography variant='caption' component='div' sx={{ mx: 4, width: '100%' }} noWrap>
           {info[2]}
@@ -239,8 +240,8 @@ export const EditorStatusBar = ({
                 opacity: opacity,
                 transition: 'opacity 2s',
                 whiteSpace: 'nowrap',
-                overflowX: 'visible',
-                textOverflow: 'unset',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
               }}
             >
               {logMessage}
@@ -248,7 +249,21 @@ export const EditorStatusBar = ({
           </Box>
         </Tooltip>
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto', flexShrink: 0, mr: -1 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          pl: 2,
+          pr: 1,
+          bgcolor: (theme) => theme.palette.background.paper,
+          zIndex: 1,
+        }}
+      >
         <Tooltip title={isSplit ? 'Close Split' : 'Split Editor'} arrow placement='top'>
           <span>
             <IconButton

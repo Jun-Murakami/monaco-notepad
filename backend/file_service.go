@@ -125,7 +125,7 @@ func (s *fileService) OpenFolder(path string) error {
 	case "darwin":
 		return exec.Command("open", path).Start()
 	case "windows":
-		return exec.Command("explorer", path).Start()
+		return exec.Command("cmd", "/c", "start", "", path).Start()
 	default:
 		return exec.Command("xdg-open", path).Start()
 	}
