@@ -26,21 +26,21 @@ func computeContentHash(note *Note) string {
 
 // ノート関連のローカル操作を提供するインターフェース
 type NoteService interface {
-	ListNotes() ([]Note, error)                        // 全てのノートのリストを返す
-	LoadNote(id string) (*Note, error)                 // 指定されたIDのノートを読み込む
-	SaveNote(note *Note) error                         // ノートを保存する
-	DeleteNote(id string) error                        // 指定されたIDのノートを削除する
-	LoadArchivedNote(id string) (*Note, error)         // アーカイブされたノートの完全なデータを読み込む
-	UpdateNoteOrder(noteID string, newIndex int) error // ノートの順序を更新する
-	CreateFolder(name string) (*Folder, error)         // フォルダを作成する
-	RenameFolder(id string, name string) error         // フォルダ名を変更する
-	DeleteFolder(id string) error                      // フォルダを削除する（空の場合のみ）
-	MoveNoteToFolder(noteID string, folderID string) error // ノートをフォルダに移動する
-	ListFolders() []Folder                             // フォルダのリストを返す
-	ArchiveFolder(id string) error                     // フォルダをアーカイブする（中のノートも全てアーカイブ）
-	UnarchiveFolder(id string) error                   // アーカイブされたフォルダを復元する
-	DeleteArchivedFolder(id string) error              // アーカイブされたフォルダを削除する（中のノートも全て削除）
-	GetArchivedTopLevelOrder() []TopLevelItem          // アーカイブされたアイテムの表示順序を返す
+	ListNotes() ([]Note, error)                             // 全てのノートのリストを返す
+	LoadNote(id string) (*Note, error)                      // 指定されたIDのノートを読み込む
+	SaveNote(note *Note) error                              // ノートを保存する
+	DeleteNote(id string) error                             // 指定されたIDのノートを削除する
+	LoadArchivedNote(id string) (*Note, error)              // アーカイブされたノートの完全なデータを読み込む
+	UpdateNoteOrder(noteID string, newIndex int) error      // ノートの順序を更新する
+	CreateFolder(name string) (*Folder, error)              // フォルダを作成する
+	RenameFolder(id string, name string) error              // フォルダ名を変更する
+	DeleteFolder(id string) error                           // フォルダを削除する（空の場合のみ）
+	MoveNoteToFolder(noteID string, folderID string) error  // ノートをフォルダに移動する
+	ListFolders() []Folder                                  // フォルダのリストを返す
+	ArchiveFolder(id string) error                          // フォルダをアーカイブする（中のノートも全てアーカイブ）
+	UnarchiveFolder(id string) error                        // アーカイブされたフォルダを復元する
+	DeleteArchivedFolder(id string) error                   // アーカイブされたフォルダを削除する（中のノートも全て削除）
+	GetArchivedTopLevelOrder() []TopLevelItem               // アーカイブされたアイテムの表示順序を返す
 	UpdateArchivedTopLevelOrder(order []TopLevelItem) error // アーカイブされたアイテムの表示順序を更新する
 }
 
@@ -48,16 +48,18 @@ type NoteService interface {
 type noteService struct {
 	notesDir string
 	noteList *NoteList
+	logger   AppLogger
 }
 
 // 新しいnoteServiceインスタンスを作成
-func NewNoteService(notesDir string) (*noteService, error) {
+func NewNoteService(notesDir string, logger AppLogger) (*noteService, error) {
 	service := &noteService{
 		notesDir: notesDir,
 		noteList: &NoteList{
 			Version: "1.0",
 			Notes:   []NoteMetadata{},
 		},
+		logger: logger,
 	}
 
 	// ノートリストの読み込み ※内部で物理ファイルとの不整合解決を行う
@@ -93,6 +95,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			// アクティブなノートはコンテンツを読み込む
 			note, err := s.LoadNote(metadata.ID)
 			if err != nil {
+				s.logConsole("ノート %s の読み込みをスキップしました: %v", metadata.ID, err)
 				continue
 			}
 			notes = append(notes, *note)
@@ -559,6 +562,7 @@ func (s *noteService) ArchiveFolder(id string) error {
 		}
 		note, err := s.LoadNote(metadata.ID)
 		if err != nil {
+			s.logConsole("ノート %s の読み込みに失敗したためアーカイブをスキップ: %v", metadata.ID, err)
 			continue
 		}
 		note.Archived = true
@@ -611,6 +615,7 @@ func (s *noteService) UnarchiveFolder(id string) error {
 		}
 		note, err := s.LoadNote(metadata.ID)
 		if err != nil {
+			s.logConsole("ノート %s の読み込みに失敗したため復元をスキップ: %v", metadata.ID, err)
 			continue
 		}
 		note.Archived = false
@@ -649,13 +654,22 @@ func (s *noteService) DeleteArchivedFolder(id string) error {
 	}
 
 	var remainingNotes []NoteMetadata
+	deletedCount := 0
 	for _, metadata := range s.noteList.Notes {
 		if metadata.FolderID == id {
 			notePath := filepath.Join(s.notesDir, metadata.ID+".json")
-			os.Remove(notePath)
+			if err := os.Remove(notePath); err == nil {
+				deletedCount++
+				s.logConsole("アーカイブノート「%s」を削除しました", metadata.Title)
+			} else if !os.IsNotExist(err) {
+				s.logConsole("アーカイブノート「%s」の削除に失敗しました: %v", metadata.Title, err)
+			}
 		} else {
 			remainingNotes = append(remainingNotes, metadata)
 		}
+	}
+	if deletedCount > 0 {
+		s.logInfo("アーカイブフォルダ内の%d件のノートを削除しました", deletedCount)
 	}
 	s.noteList.Notes = remainingNotes
 
@@ -773,8 +787,10 @@ func generateUUID() string {
 func (s *noteService) deduplicateNoteList() {
 	seen := make(map[string]int)
 	deduped := make([]NoteMetadata, 0, len(s.noteList.Notes))
+	duplicateCount := 0
 	for _, metadata := range s.noteList.Notes {
 		if idx, exists := seen[metadata.ID]; exists {
+			duplicateCount++
 			if isModifiedTimeAfter(metadata.ModifiedTime, deduped[idx].ModifiedTime) {
 				deduped[idx] = metadata
 			}
@@ -782,6 +798,9 @@ func (s *noteService) deduplicateNoteList() {
 			seen[metadata.ID] = len(deduped)
 			deduped = append(deduped, metadata)
 		}
+	}
+	if duplicateCount > 0 {
+		s.logInfo("ノートリストから%d件の重複エントリを除去しました", duplicateCount)
 	}
 	s.noteList.Notes = deduped
 }
@@ -791,7 +810,7 @@ func (s *noteService) loadNoteList() error {
 	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
 
 	if _, err := os.Stat(noteListPath); os.IsNotExist(err) {
-		fmt.Println("loadNoteList: noteList.json not found, creating new one")
+		s.logInfo("ノートリストが見つからないため、新規作成します")
 		s.noteList = &NoteList{
 			Version: "1.0",
 			Notes:   []NoteMetadata{},
@@ -831,6 +850,7 @@ func (s *noteService) loadNoteList() error {
 
 	// resolveMetadataConflicts で変更があった場合、LastSync を変えずに保存（起動時の正規化は同期方向に影響させない）
 	if !s.isNoteListEqual(originalNotes, s.noteList.Notes) {
+		s.logConsole("ノートリストの正規化処理により変更が発生したため保存します")
 		if err := s.saveNoteList(); err != nil {
 			return fmt.Errorf("failed to save note list after changes: %v", err)
 		}
@@ -879,6 +899,8 @@ func (s *noteService) isNoteListEqual(a, b []NoteMetadata) bool {
 // メタデータの競合を解決する ------------------------------------------------------------
 func (s *noteService) resolveMetadataConflicts() error {
 	resolvedNotes := make([]NoteMetadata, 0)
+	resolvedCount := 0
+	skippedCount := 0
 
 	// ノートリストの各メタデータについて処理
 	for _, listMetadata := range s.noteList.Notes {
@@ -886,7 +908,8 @@ func (s *noteService) resolveMetadataConflicts() error {
 		note, err := s.LoadNote(listMetadata.ID)
 		if err != nil {
 			if os.IsNotExist(err) {
-				// ノートファイルが存在しない場合はスキップ
+				skippedCount++
+				s.logConsole("メタデータ競合解決: ノート %s のファイルが存在しないためスキップ", listMetadata.ID)
 				continue
 			}
 			return fmt.Errorf("failed to load note %s: %v", listMetadata.ID, err)
@@ -924,9 +947,17 @@ func (s *noteService) resolveMetadataConflicts() error {
 			if err := s.SaveNoteFromSync(note); err != nil {
 				return fmt.Errorf("failed to save resolved note %s: %v", note.ID, err)
 			}
+			resolvedCount++
 		}
 
 		resolvedNotes = append(resolvedNotes, resolvedMetadata)
+	}
+
+	if resolvedCount > 0 {
+		s.logInfo("メタデータの競合を%d件解決しました", resolvedCount)
+	}
+	if skippedCount > 0 {
+		s.logConsole("メタデータ競合解決: %d件のファイルが存在しないためスキップ", skippedCount)
 	}
 
 	// 解決したメタデータでノートリストを更新
@@ -966,6 +997,20 @@ func (s *noteService) saveNoteList() error {
 	return os.WriteFile(noteListPath, data, 0644)
 }
 
+// logInfo はloggerが設定されている場合にInfo出力する
+func (s *noteService) logInfo(format string, args ...interface{}) {
+	if s.logger != nil {
+		s.logger.Info(format, args...)
+	}
+}
+
+// logConsole はloggerが設定されている場合にConsole出力する
+func (s *noteService) logConsole(format string, args ...interface{}) {
+	if s.logger != nil {
+		s.logger.Console(format, args...)
+	}
+}
+
 // 物理ファイルとノートリストの整合性を検証・修復する ------------------------------------------------------------
 // 起動時および同期完了後に呼ばれ、以下を行う:
 // 1. リストに無い孤立物理ファイル → noteListに復活
@@ -994,6 +1039,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		if !noteIDSet[noteID] {
 			note, loadErr := s.LoadNote(noteID)
 			if loadErr != nil {
+				s.logInfo("整合性チェック: 孤立ファイル %s の読み込みに失敗しました（スキップ）", noteID)
 				continue
 			}
 			s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
@@ -1004,6 +1050,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 				ModifiedTime:  note.ModifiedTime,
 				Archived:      note.Archived,
 			})
+			s.logInfo("整合性チェック: ノート「%s」を復元しました", note.Title)
 			changed = true
 		}
 	}
@@ -1014,6 +1061,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		if physicalNotes[metadata.ID] {
 			validNotes = append(validNotes, metadata)
 		} else {
+			s.logInfo("整合性チェック: 物理ファイルのないノート「%s」をリストから除去しました", metadata.Title)
 			changed = true
 		}
 	}
@@ -1130,6 +1178,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	}
 
 	if changed {
+		s.logInfo("整合性チェック: 表示順序を修復しました")
 		if saveErr := s.saveNoteList(); saveErr != nil {
 			return changed, saveErr
 		}

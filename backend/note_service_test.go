@@ -33,6 +33,7 @@ NoteServiceのテストスイート
 package backend
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -65,7 +66,8 @@ func setupNoteTest(t *testing.T) *noteServiceTestHelper {
 	}
 
 	// NoteServiceの初期化
-	noteService, err := NewNoteService(notesDir)
+	logger := NewAppLogger(context.Background(), true, tempDir)
+	noteService, err := NewNoteService(notesDir, logger)
 	if err != nil {
 		t.Fatalf("NoteServiceの作成に失敗: %v", err)
 	}
@@ -419,7 +421,8 @@ func TestBackwardCompatNoteListWithoutFolders(t *testing.T) {
 	assert.NoError(t, err)
 
 	// NoteServiceを再初期化
-	service, err := NewNoteService(helper.notesDir)
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	service, err := NewNoteService(helper.notesDir, logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, service)
 
@@ -475,7 +478,8 @@ func TestUpdateTopLevelOrder(t *testing.T) {
 	assert.Equal(t, order, helper.noteService.noteList.TopLevelOrder)
 
 	// 永続化されていることを確認
-	service, err := NewNoteService(helper.notesDir)
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	service, err := NewNoteService(helper.notesDir, logger)
 	assert.NoError(t, err)
 	assert.Equal(t, order, service.noteList.TopLevelOrder)
 }
