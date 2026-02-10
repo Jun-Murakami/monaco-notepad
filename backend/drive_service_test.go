@@ -356,18 +356,18 @@ func setupTest(t *testing.T) *testHelper {
 		t.Fatalf("ノートディレクトリの作成に失敗: %v", err)
 	}
 
-	// noteServiceの初期化
-	noteService, err := NewNoteService(notesDir)
-	if err != nil {
-		t.Fatalf("Failed to create note service: %v", err)
-	}
-
 	ctx := context.Background()
 
 	// driveOpsの初期化
 	driveOps := newMockDriveOperations()
 
 	logger := NewAppLogger(ctx, true, tempDir)
+
+	// noteServiceの初期化
+	noteService, err := NewNoteService(notesDir, logger)
+	if err != nil {
+		t.Fatalf("Failed to create note service: %v", err)
+	}
 
 	// driveServiceの初期化（テストモード）
 	ds := &mockDriveService{

@@ -208,7 +208,7 @@ func (d *driveOperationsImpl) GetFileID(fileName string, noteFolderID string, ro
 		}
 		fixedFileId = files[0].Id
 	}
-	fmt.Println("GetFileID done: ", fileName, "id: ", fixedFileId)
+	d.logger.Console("GetFileID done: %s id: %s", fileName, fixedFileId)
 	return fixedFileId, nil
 }
 
@@ -284,6 +284,7 @@ func (d *driveOperationsImpl) CleanupDuplicates(
 	}
 
 	for _, file := range targetFiles {
+		d.logger.Console("[GAPI] CleanupDuplicates: deleting %s", file.Name)
 		if err := d.DeleteFile(file.Id); err != nil {
 			return fmt.Errorf("failed to delete file %s: %w", file.Name, err)
 		}
