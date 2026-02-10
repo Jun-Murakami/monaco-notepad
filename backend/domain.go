@@ -103,12 +103,12 @@ type SyncResult struct {
 	Uploaded       int
 	Downloaded     int
 	Deleted        int
-	ConflictCopies int
+	ConflictMerges int
 	Errors         int
 }
 
 func (r *SyncResult) HasChanges() bool {
-	return r.Uploaded > 0 || r.Downloaded > 0 || r.Deleted > 0 || r.ConflictCopies > 0 || r.Errors > 0
+	return r.Uploaded > 0 || r.Downloaded > 0 || r.Deleted > 0 || r.ConflictMerges > 0 || r.Errors > 0
 }
 
 func (r *SyncResult) Summary() string {
@@ -125,8 +125,8 @@ func (r *SyncResult) Summary() string {
 	if r.Deleted > 0 {
 		s += fmt.Sprintf(" 🗑%d", r.Deleted)
 	}
-	if r.ConflictCopies > 0 {
-		s += fmt.Sprintf(" ⚡%d conflict copies", r.ConflictCopies)
+	if r.ConflictMerges > 0 {
+		s += fmt.Sprintf(" ⚡%d conflicts merged", r.ConflictMerges)
 	}
 	if r.Errors > 0 {
 		s += fmt.Sprintf(" ⚠%d errors", r.Errors)

@@ -746,53 +746,62 @@ func (s *driveService) mergeNotes(
 	// 双方存在するノートのマージ
 	for id, localNote := range localNotesMap {
 		if cloudNote, exists := cloudNotesMap[id]; exists {
-			// ハッシュが一致すればそのまま
-			if localNote.ContentHash != "" && cloudNote.ContentHash != "" &&
-				localNote.ContentHash == cloudNote.ContentHash {
+			localHash := localNote.ContentHash
+			cloudHash := cloudNote.ContentHash
+
+			if localHash == "" || cloudHash == "" {
+				if note, err := s.noteService.LoadNote(id); err == nil {
+					recomputed := computeContentHash(note)
+					if localHash == "" {
+						localHash = recomputed
+					}
+					if cloudHash == "" {
+						cloudHash = recomputed
+					}
+				}
+			}
+
+			if localHash == cloudHash {
 				mergedNotes = append(mergedNotes, localNote)
 				delete(cloudNotesMap, id)
 				continue
 			}
-			// ハッシュが異なる → コンフリクトコピーを作成して両バージョン保持
-			localNote, loadErr := s.noteService.LoadNote(id)
-			if loadErr != nil {
-				s.logger.Error(loadErr, "Failed to load local note %s for conflict copy", id)
+
+			localMeta := localNotesMap[id]
+			cloudMeta := cloudNote
+
+			if s.isOneSidedChange(localMeta, cloudMeta) {
+				s.logger.Info("Local file already matches cloud for note %s, updating metadata only", id)
+				mergedNotes = append(mergedNotes, cloudMeta)
 			} else {
-				// 既にコンフリクトコピーであるノートは再度コンフリクトコピーを作成しない
-				// （コンフリクトコピーの連鎖増殖を防止）
-				if strings.Contains(localNote.Title, "(conflict copy ") {
-					s.logger.Info("Skipping conflict copy for already-conflicted note: %s", localNote.Title)
+				// 真のコンフリクト: ノート内マージ（Git風コンフリクトマーカー）
+				localNote, loadErr := s.noteService.LoadNote(id)
+				if loadErr != nil {
+					s.logger.Error(loadErr, "Failed to load local note %s for conflict merge", id)
 				} else {
-					conflictCopy, copyErr := s.noteService.CreateConflictCopy(localNote)
-					if copyErr != nil {
-						s.logger.Error(copyErr, "Failed to create conflict copy for note %s", id)
-					} else {
-						s.logger.Info("Created conflict copy of \"%s\"", localNote.Title)
-						if s.lastSyncResult != nil {
-							s.lastSyncResult.ConflictCopies++
-						}
-						// コンフリクトコピーをDriveにアップロード（他デバイスからも参照可能にする）
-						if createErr := s.driveSync.CreateNote(ctx, conflictCopy); createErr != nil {
-							s.logger.Error(createErr, "Failed to upload conflict copy %s to Drive", conflictCopy.ID)
-						}
-						conflictMeta := findNoteMetadata(s.noteService.noteList.Notes, conflictCopy.ID)
-						if conflictMeta != nil {
-							mergedNotes = append(mergedNotes, *conflictMeta)
-						}
+					s.logger.Info("Merging conflict for \"%s\" (in-note merge)", localNote.Title)
+					if s.lastSyncResult != nil {
+						s.lastSyncResult.ConflictMerges++
 					}
 				}
-			}
-			mergedNotes = append(mergedNotes, cloudNote)
-			note, dlErr := s.driveSync.DownloadNote(ctx, id)
-			if dlErr != nil {
-				s.logger.Error(dlErr, "Skipped syncing note %s (data corruption)", id)
-				if s.lastSyncResult != nil {
-					s.lastSyncResult.Errors++
-				}
-			} else {
-				downloadedNotes = append(downloadedNotes, note)
-				if s.lastSyncResult != nil {
-					s.lastSyncResult.Downloaded++
+				mergedNotes = append(mergedNotes, cloudMeta)
+				cloudNote, dlErr := s.driveSync.DownloadNote(ctx, id)
+				if dlErr != nil {
+					s.logger.Error(dlErr, "Skipped syncing note %s (data corruption)", id)
+					if s.lastSyncResult != nil {
+						s.lastSyncResult.Errors++
+					}
+				} else {
+					if localNote != nil {
+						cloudNote.Content = MergeConflictContent(
+							cloudNote.Content, localNote.Content,
+							cloudMeta.ModifiedTime, localMeta.ModifiedTime,
+						)
+					}
+					downloadedNotes = append(downloadedNotes, cloudNote)
+					if s.lastSyncResult != nil {
+						s.lastSyncResult.Downloaded++
+					}
 				}
 			}
 			delete(cloudNotesMap, id)
@@ -921,6 +930,23 @@ func (s *driveService) uploadAllNotesWithContent(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// isOneSidedChange はローカルの実ファイルのハッシュがクラウド側と一致するかを確認する。
+// 一致する場合、ローカルファイルは既にクラウドと同じ内容であり、メタデータだけが古い状態。
+// この場合はコンフリクトコピーを作成せず、メタデータの更新のみで済む。
+func (s *driveService) isOneSidedChange(localMeta, cloudMeta NoteMetadata) bool {
+	localNote, err := s.noteService.LoadNote(localMeta.ID)
+	if err != nil {
+		return false
+	}
+	actualLocalHash := computeContentHash(localNote)
+
+	if actualLocalHash == cloudMeta.ContentHash {
+		return true
+	}
+
+	return false
 }
 
 func findNoteMetadata(notes []NoteMetadata, id string) *NoteMetadata {

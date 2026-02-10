@@ -253,9 +253,18 @@ func (s *noteService) DeleteNoteFromSync(id string) error {
 	return nil
 }
 
+// MergeConflictContent はコンフリクト発生時に、クラウド版とローカル版の内容を
+// Git風のコンフリクトマーカーで結合した文字列を返す。
+// 新しいノートは作成せず、既存ノートの内容を上書きする方式。
+func MergeConflictContent(cloudContent, localContent, cloudTime, localTime string) string {
+	return fmt.Sprintf("<<<<<<< Cloud (%s)\n%s\n=======\n%s\n>>>>>>> Local (%s)",
+		cloudTime, cloudContent, localContent, localTime)
+}
+
 // CreateConflictCopy はローカルノートのコンフリクトコピーを作成する。
 // 新しいIDを生成し、タイトルに "(競合コピー YYYY-MM-DD HH:MM)" を付与。
 // TopLevelOrderでは元ノートの直後に配置する。
+// Deprecated: MergeConflictContent によるノート内マージ方式に移行済み。
 func (s *noteService) CreateConflictCopy(originalNote *Note) (*Note, error) {
 	newID := uuid.New().String()
 	timestamp := time.Now().Format("2006-01-02 15:04")
