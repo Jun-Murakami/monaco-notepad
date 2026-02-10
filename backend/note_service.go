@@ -1019,22 +1019,40 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	}
 	s.noteList.Notes = validNotes
 
-	// 有効なノートID・フォルダIDのセットを構築
-	validNoteIDs := make(map[string]bool)
+	// 有効なノートID・フォルダIDのセットを構築（archived状態別）
+	activeNoteIDs := make(map[string]bool)
+	archivedNoteIDs := make(map[string]bool)
 	for _, m := range s.noteList.Notes {
-		validNoteIDs[m.ID] = true
+		if m.Archived {
+			archivedNoteIDs[m.ID] = true
+		} else {
+			activeNoteIDs[m.ID] = true
+		}
 	}
-	validFolderIDs := make(map[string]bool)
+	activeFolderIDs := make(map[string]bool)
+	archivedFolderIDs := make(map[string]bool)
 	for _, f := range s.noteList.Folders {
-		validFolderIDs[f.ID] = true
+		if f.Archived {
+			archivedFolderIDs[f.ID] = true
+		} else {
+			activeFolderIDs[f.ID] = true
+		}
 	}
 
-	// 3. TopLevelOrder の無効参照を除去
-	if s.noteList.TopLevelOrder != nil {
+	// 3. TopLevelOrder: アクティブなノート/フォルダのみ保持
+	topLevelSeen := make(map[string]bool)
+	{
 		var cleaned []TopLevelItem
 		for _, item := range s.noteList.TopLevelOrder {
-			if (item.Type == "note" && validNoteIDs[item.ID]) ||
-				(item.Type == "folder" && validFolderIDs[item.ID]) {
+			key := item.Type + ":" + item.ID
+			if topLevelSeen[key] {
+				changed = true
+				continue
+			}
+			isValid := (item.Type == "note" && activeNoteIDs[item.ID]) ||
+				(item.Type == "folder" && activeFolderIDs[item.ID])
+			if isValid {
+				topLevelSeen[key] = true
 				cleaned = append(cleaned, item)
 			} else {
 				changed = true
@@ -1043,18 +1061,72 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		s.noteList.TopLevelOrder = cleaned
 	}
 
-	// 4. ArchivedTopLevelOrder の無効参照を除去
-	if s.noteList.ArchivedTopLevelOrder != nil {
+	// 4. ArchivedTopLevelOrder: アーカイブ済みノート/フォルダのみ保持
+	archivedSeen := make(map[string]bool)
+	{
 		var cleaned []TopLevelItem
 		for _, item := range s.noteList.ArchivedTopLevelOrder {
-			if (item.Type == "note" && validNoteIDs[item.ID]) ||
-				(item.Type == "folder" && validFolderIDs[item.ID]) {
+			key := item.Type + ":" + item.ID
+			if archivedSeen[key] {
+				changed = true
+				continue
+			}
+			isValid := (item.Type == "note" && archivedNoteIDs[item.ID]) ||
+				(item.Type == "folder" && archivedFolderIDs[item.ID])
+			if isValid {
+				archivedSeen[key] = true
 				cleaned = append(cleaned, item)
 			} else {
 				changed = true
 			}
 		}
 		s.noteList.ArchivedTopLevelOrder = cleaned
+	}
+
+	// 5. アクティブノート/フォルダがTopLevelOrderに存在しなければ追加
+	for id := range activeNoteIDs {
+		if !topLevelSeen["note:"+id] {
+			inFolder := false
+			for _, m := range s.noteList.Notes {
+				if m.ID == id && m.FolderID != "" {
+					inFolder = true
+					break
+				}
+			}
+			if !inFolder {
+				s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "note", ID: id})
+				changed = true
+			}
+		}
+	}
+	for id := range activeFolderIDs {
+		if !topLevelSeen["folder:"+id] {
+			s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "folder", ID: id})
+			changed = true
+		}
+	}
+
+	// 6. アーカイブノート/フォルダがArchivedTopLevelOrderに存在しなければ追加
+	for id := range archivedNoteIDs {
+		if !archivedSeen["note:"+id] {
+			inArchivedFolder := false
+			for _, m := range s.noteList.Notes {
+				if m.ID == id && m.FolderID != "" && archivedFolderIDs[m.FolderID] {
+					inArchivedFolder = true
+					break
+				}
+			}
+			if !inArchivedFolder {
+				s.noteList.ArchivedTopLevelOrder = append(s.noteList.ArchivedTopLevelOrder, TopLevelItem{Type: "note", ID: id})
+				changed = true
+			}
+		}
+	}
+	for id := range archivedFolderIDs {
+		if !archivedSeen["folder:"+id] {
+			s.noteList.ArchivedTopLevelOrder = append(s.noteList.ArchivedTopLevelOrder, TopLevelItem{Type: "folder", ID: id})
+			changed = true
+		}
 	}
 
 	if changed {

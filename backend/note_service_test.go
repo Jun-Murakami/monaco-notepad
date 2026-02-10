@@ -34,6 +34,7 @@ package backend
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -673,6 +674,178 @@ func TestValidateIntegrity_NoChangeWhenConsistent(t *testing.T) {
 	changed, err := helper.noteService.ValidateIntegrity()
 	assert.NoError(t, err)
 	assert.False(t, changed)
+}
+
+func TestValidateIntegrity_MovesArchivedNotesFromTopLevelToArchived(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	activeNote := &Note{ID: "active", Title: "Active", Content: "c", Archived: false}
+	archivedNote := &Note{ID: "archived", Title: "Archived", Content: "c", Archived: true}
+	assert.NoError(t, helper.noteService.SaveNote(activeNote))
+	assert.NoError(t, helper.noteService.SaveNote(archivedNote))
+
+	for i := range helper.noteService.noteList.Notes {
+		if helper.noteService.noteList.Notes[i].ID == "archived" {
+			helper.noteService.noteList.Notes[i].Archived = true
+		}
+	}
+
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "active"},
+		{Type: "note", ID: "archived"},
+	}
+	helper.noteService.noteList.ArchivedTopLevelOrder = []TopLevelItem{}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		assert.NotEqual(t, "archived", item.ID, "アーカイブノートがTopLevelOrderに残ってはならない")
+	}
+
+	foundInArchived := false
+	for _, item := range helper.noteService.noteList.ArchivedTopLevelOrder {
+		if item.ID == "archived" {
+			foundInArchived = true
+		}
+	}
+	assert.True(t, foundInArchived, "アーカイブノートがArchivedTopLevelOrderに追加されるべき")
+}
+
+func TestValidateIntegrity_MovesActiveNoteFromArchivedToTopLevel(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "n1", Title: "Note", Content: "c", Archived: false}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{}
+	helper.noteService.noteList.ArchivedTopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "n1"},
+	}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+
+	assert.Empty(t, helper.noteService.noteList.ArchivedTopLevelOrder,
+		"非アーカイブノートがArchivedTopLevelOrderに残ってはならない")
+
+	foundInTop := false
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		if item.ID == "n1" {
+			foundInTop = true
+		}
+	}
+	assert.True(t, foundInTop, "非アーカイブノートがTopLevelOrderに復元されるべき")
+}
+
+func TestValidateIntegrity_AddsArchivedFolderToArchivedOrder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	helper.noteService.noteList.Folders = []Folder{
+		{ID: "f-active", Name: "Active"},
+		{ID: "f-archived", Name: "Archived", Archived: true},
+	}
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
+		{Type: "folder", ID: "f-active"},
+		{Type: "folder", ID: "f-archived"},
+	}
+	helper.noteService.noteList.ArchivedTopLevelOrder = nil
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		assert.NotEqual(t, "f-archived", item.ID, "アーカイブフォルダがTopLevelOrderに残ってはならない")
+	}
+
+	foundInArchived := false
+	for _, item := range helper.noteService.noteList.ArchivedTopLevelOrder {
+		if item.ID == "f-archived" && item.Type == "folder" {
+			foundInArchived = true
+		}
+	}
+	assert.True(t, foundInArchived, "アーカイブフォルダがArchivedTopLevelOrderに追加されるべき")
+}
+
+func TestValidateIntegrity_ReproducesUserBug_ArchivedNotesNotShown(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	for i := 0; i < 5; i++ {
+		note := &Note{
+			ID:       fmt.Sprintf("active-%d", i),
+			Title:    fmt.Sprintf("Active %d", i),
+			Content:  "c",
+			Archived: false,
+		}
+		assert.NoError(t, helper.noteService.SaveNote(note))
+	}
+	for i := 0; i < 10; i++ {
+		note := &Note{
+			ID:       fmt.Sprintf("archived-%d", i),
+			Title:    fmt.Sprintf("Archived %d", i),
+			Content:  "c",
+			Archived: true,
+		}
+		assert.NoError(t, helper.noteService.SaveNote(note))
+		for j := range helper.noteService.noteList.Notes {
+			if helper.noteService.noteList.Notes[j].ID == fmt.Sprintf("archived-%d", i) {
+				helper.noteService.noteList.Notes[j].Archived = true
+			}
+		}
+	}
+
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "active-0"},
+		{Type: "note", ID: "archived-0"},
+		{Type: "note", ID: "archived-1"},
+		{Type: "note", ID: "active-1"},
+	}
+	helper.noteService.noteList.ArchivedTopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "active-2"},
+	}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		if item.Type == "note" {
+			isArchived := false
+			for _, m := range helper.noteService.noteList.Notes {
+				if m.ID == item.ID && m.Archived {
+					isArchived = true
+				}
+			}
+			assert.False(t, isArchived, "TopLevelOrderにアーカイブノート %s が残ってはならない", item.ID)
+		}
+	}
+
+	archivedInOrder := make(map[string]bool)
+	for _, item := range helper.noteService.noteList.ArchivedTopLevelOrder {
+		archivedInOrder[item.ID] = true
+	}
+	for _, item := range helper.noteService.noteList.ArchivedTopLevelOrder {
+		if item.Type == "note" {
+			isActive := false
+			for _, m := range helper.noteService.noteList.Notes {
+				if m.ID == item.ID && !m.Archived {
+					isActive = true
+				}
+			}
+			assert.False(t, isActive, "ArchivedTopLevelOrderに非アーカイブノート %s が残ってはならない", item.ID)
+		}
+	}
+	for i := 0; i < 10; i++ {
+		id := fmt.Sprintf("archived-%d", i)
+		assert.True(t, archivedInOrder[id], "アーカイブノート %s がArchivedTopLevelOrderに存在すべき", id)
+	}
 }
 
 // --- M-8: アーカイブ操作のModifiedTime更新テスト ---
