@@ -419,6 +419,7 @@ func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context, fil
 	}
 
 	// 各noteIDごとに複数ファイルが存在すれば最新1つ以外を削除
+	cleanupCount := 0
 	for _, files := range duplicateMap {
 		if len(files) > 1 {
 			// 重複ファイルの削除をリトライ付きで実行
@@ -429,7 +430,13 @@ func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context, fil
 			if err != nil {
 				return fmt.Errorf("failed to cleanup duplicates: %w", err)
 			}
+			cleanupCount++
+			noteID := strings.TrimSuffix(files[0].Name, ".json")
+			d.logger.Console("重複ファイル「%s.json」を整理しました", noteID)
 		}
+	}
+	if cleanupCount > 0 {
+		d.logger.Info("クラウド上の重複ノートファイルを%d件整理しました", cleanupCount)
 	}
 
 	return nil
