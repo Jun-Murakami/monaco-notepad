@@ -118,13 +118,14 @@ func (a *App) Startup(ctx context.Context) {
 	a.appDataDir = filepath.Join(appData, "monaco-notepad")
 	a.notesDir = filepath.Join(a.appDataDir, "notes")
 
-	a.logger.Console("appDataDir: %s", a.appDataDir)
-
 	// ディレクトリの作成
 	os.MkdirAll(a.notesDir, 0755)
 
 	// AppLoggerの初期化
 	a.logger = NewAppLogger(ctx, false, a.appDataDir)
+
+	// ロガー初期化後に出力して初期化前アクセスを避ける
+	a.logger.Console("appDataDir: %s", a.appDataDir)
 
 	// FileServiceの初期化
 	a.fileService = NewFileService(a.ctx)
