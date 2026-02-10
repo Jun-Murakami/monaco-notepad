@@ -17,8 +17,20 @@ vi.mock('../VersionUp', () => ({
   VersionUp: () => <div data-testid="version-up">Version Up Component</div>,
 }));
 
+// useDriveSyncのモック
+vi.mock('../../hooks/useDriveSync', () => ({
+  useDriveSync: vi.fn().mockReturnValue({
+    syncStatus: 'offline',
+    isHoveringSync: false,
+    setIsHoveringSync: vi.fn(),
+    isHoverLocked: false,
+    handleGoogleAuth: vi.fn(),
+    handleLogout: vi.fn(),
+    handleSyncNow: vi.fn(),
+  }),
+}));
+
 describe('EditorStatusBar', () => {
-  // モックエディタの作成
   const createMockEditor = () => {
     const model = {
       getValueLength: vi.fn().mockReturnValue(100),
@@ -53,6 +65,15 @@ describe('EditorStatusBar', () => {
     archived: false,
   };
 
+  const statusBarProps = {
+    isSplit: false,
+    isMarkdownPreview: false,
+    onToggleSplit: vi.fn(),
+    onToggleMarkdownPreview: vi.fn(),
+    onSettings: vi.fn(),
+    showMessage: vi.fn(),
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -66,7 +87,7 @@ describe('EditorStatusBar', () => {
     const mockEditor = createMockEditor();
     const editorRef = { current: mockEditor };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />,
+      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
     );
 
     expect(screen.getByText('Length: 100')).toBeInTheDocument();
@@ -88,7 +109,7 @@ describe('EditorStatusBar', () => {
     });
 
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />,
+      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
     );
     expect(screen.getByText('Select: [ 1.1 -> 2.5 ]')).toBeInTheDocument();
   });
@@ -96,7 +117,7 @@ describe('EditorStatusBar', () => {
   it('エディタがnullの場合、情報が表示されないこと', () => {
     const editorRef = { current: null };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />,
+      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
     );
 
     expect(screen.queryByText(/Length:/)).not.toBeInTheDocument();
@@ -107,7 +128,7 @@ describe('EditorStatusBar', () => {
   it('ログメッセージが正しく表示され、フェードアウトすること', async () => {
     const editorRef = { current: null };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />,
+      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
     );
 
     // ログメッセージイベントをシミュレート
@@ -133,7 +154,7 @@ describe('EditorStatusBar', () => {
   it('コンポーネントのアンマウント時にイベントリスナーが解除されること', () => {
     const editorRef = { current: null };
     const { unmount } = render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />,
+      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
     );
     unmount();
 
@@ -143,7 +164,7 @@ describe('EditorStatusBar', () => {
   it('バージョンアップコンポーネントが表示されること', () => {
     const editorRef = { current: null };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} />,
+      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
     );
     expect(screen.getByTestId('version-up')).toBeInTheDocument();
   });
@@ -168,6 +189,7 @@ describe('EditorStatusBar', () => {
         <EditorStatusBar
           currentNote={mockNote}
           editorInstanceRef={editorRef}
+          {...statusBarProps}
         />,
       );
 
@@ -188,6 +210,7 @@ describe('EditorStatusBar', () => {
         <EditorStatusBar
           currentNote={mockNote}
           editorInstanceRef={editorRef}
+          {...statusBarProps}
         />,
       );
 
@@ -204,6 +227,7 @@ describe('EditorStatusBar', () => {
         <EditorStatusBar
           currentNote={mockNote}
           editorInstanceRef={editorRef}
+          {...statusBarProps}
         />,
       );
 
@@ -223,13 +247,13 @@ describe('EditorStatusBar', () => {
 
     it('各メッセージにタイムスタンプが表示されること', () => {
       const editorRef = { current: null };
-      // 固定日時を設定
       vi.setSystemTime(new Date('2025-02-09T10:30:45'));
 
       render(
         <EditorStatusBar
           currentNote={mockNote}
           editorInstanceRef={editorRef}
+          {...statusBarProps}
         />,
       );
 
@@ -254,6 +278,7 @@ describe('EditorStatusBar', () => {
         <EditorStatusBar
           currentNote={mockNote}
           editorInstanceRef={editorRef}
+          {...statusBarProps}
         />,
       );
 
@@ -282,6 +307,7 @@ describe('EditorStatusBar', () => {
         <EditorStatusBar
           currentNote={mockNote}
           editorInstanceRef={editorRef}
+          {...statusBarProps}
         />,
       );
 

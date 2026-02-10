@@ -487,6 +487,11 @@ func (s *driveService) ensureSyncIsPossible() error {
 
 // 同期が完了したらフロントエンドへ通知
 func (s *driveService) notifySyncComplete() {
+	if changed, err := s.noteService.ValidateIntegrity(); err != nil {
+		s.logger.Error(err, "Failed to validate note list integrity after sync")
+	} else if changed {
+		s.logger.Info("Note list integrity fixed after sync")
+	}
 	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 	s.logger.Info("Sync status is up to date")
 	wailsRuntime.EventsEmit(s.ctx, "drive:status", "synced")

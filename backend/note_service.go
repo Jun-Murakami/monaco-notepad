@@ -752,12 +752,12 @@ func (s *noteService) loadNoteList() error {
 		return fmt.Errorf("failed to resolve metadata conflicts: %v", err)
 	}
 
-	// ノートリストと物理ファイルの同期を行って返す
-	if err := s.syncNoteList(); err != nil {
+	// ノートリストと物理ファイルの整合性を検証・修復
+	if _, err := s.ValidateIntegrity(); err != nil {
 		return err
 	}
 
-	// 変更があった場合、LastSync を変えずに保存（起動時の正規化は同期方向に影響させない）
+	// resolveMetadataConflicts で変更があった場合、LastSync を変えずに保存（起動時の正規化は同期方向に影響させない）
 	if !s.isNoteListEqual(originalNotes, s.noteList.Notes) {
 		if err := s.saveNoteList(); err != nil {
 			return fmt.Errorf("failed to save note list after changes: %v", err)
@@ -894,15 +894,23 @@ func (s *noteService) saveNoteList() error {
 	return os.WriteFile(noteListPath, data, 0644)
 }
 
-// 物理ファイルとノートリストの同期 ------------------------------------------------------------
-func (s *noteService) syncNoteList() error {
-	// 物理ファイルの一覧を取得
+// 物理ファイルとノートリストの整合性を検証・修復する ------------------------------------------------------------
+// 起動時および同期完了後に呼ばれ、以下を行う:
+// 1. リストに無い孤立物理ファイル → noteListに復活
+// 2. 物理ファイルが無いリストエントリ → noteListから除去
+// 3. TopLevelOrder / ArchivedTopLevelOrder の無効参照を除去
+func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	files, err := os.ReadDir(s.notesDir)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	// 物理ファイルのマップを作成
+	noteIDSet := make(map[string]bool)
+	for _, metadata := range s.noteList.Notes {
+		noteIDSet[metadata.ID] = true
+	}
+
+	// 1. 孤立物理ファイルをnoteListに復活
 	physicalNotes := make(map[string]bool)
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != ".json" {
@@ -911,19 +919,9 @@ func (s *noteService) syncNoteList() error {
 		noteID := file.Name()[:len(file.Name())-5]
 		physicalNotes[noteID] = true
 
-		// リストに存在しないノートを追加
-		found := false
-		for _, metadata := range s.noteList.Notes {
-			if metadata.ID == noteID {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			// 物理ファイルからメタデータを読み込む
-			note, err := s.LoadNote(noteID)
-			if err != nil {
+		if !noteIDSet[noteID] {
+			note, loadErr := s.LoadNote(noteID)
+			if loadErr != nil {
 				continue
 			}
 			s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
@@ -934,17 +932,64 @@ func (s *noteService) syncNoteList() error {
 				ModifiedTime:  note.ModifiedTime,
 				Archived:      note.Archived,
 			})
+			changed = true
 		}
 	}
 
-	// リストから存在しないノートを削除
+	// 2. 物理ファイルが無いリストエントリを除去
 	var validNotes []NoteMetadata
 	for _, metadata := range s.noteList.Notes {
 		if physicalNotes[metadata.ID] {
 			validNotes = append(validNotes, metadata)
+		} else {
+			changed = true
 		}
 	}
 	s.noteList.Notes = validNotes
 
-	return s.saveNoteList()
+	// 有効なノートID・フォルダIDのセットを構築
+	validNoteIDs := make(map[string]bool)
+	for _, m := range s.noteList.Notes {
+		validNoteIDs[m.ID] = true
+	}
+	validFolderIDs := make(map[string]bool)
+	for _, f := range s.noteList.Folders {
+		validFolderIDs[f.ID] = true
+	}
+
+	// 3. TopLevelOrder の無効参照を除去
+	if s.noteList.TopLevelOrder != nil {
+		var cleaned []TopLevelItem
+		for _, item := range s.noteList.TopLevelOrder {
+			if (item.Type == "note" && validNoteIDs[item.ID]) ||
+				(item.Type == "folder" && validFolderIDs[item.ID]) {
+				cleaned = append(cleaned, item)
+			} else {
+				changed = true
+			}
+		}
+		s.noteList.TopLevelOrder = cleaned
+	}
+
+	// 4. ArchivedTopLevelOrder の無効参照を除去
+	if s.noteList.ArchivedTopLevelOrder != nil {
+		var cleaned []TopLevelItem
+		for _, item := range s.noteList.ArchivedTopLevelOrder {
+			if (item.Type == "note" && validNoteIDs[item.ID]) ||
+				(item.Type == "folder" && validFolderIDs[item.ID]) {
+				cleaned = append(cleaned, item)
+			} else {
+				changed = true
+			}
+		}
+		s.noteList.ArchivedTopLevelOrder = cleaned
+	}
+
+	if changed {
+		if saveErr := s.saveNoteList(); saveErr != nil {
+			return changed, saveErr
+		}
+	}
+
+	return changed, nil
 }

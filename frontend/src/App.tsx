@@ -1,5 +1,20 @@
 import { CreateNewFolder, Inventory } from '@mui/icons-material';
-import { Box, Button, CssBaseline, Divider, IconButton, ThemeProvider, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  CssBaseline,
+  Divider,
+  FormControl,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
+  TextField,
+  ThemeProvider,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import type { SelectProps, Theme } from '@mui/material';
 import { Allotment } from 'allotment';
 import 'allotment/dist/style.css';
 import type { editor } from 'monaco-editor';
@@ -20,12 +35,137 @@ import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileNotes } from './hooks/useFileNotes';
 import { useFileOperations } from './hooks/useFileOperations';
 import { useInitialize } from './hooks/useInitialize';
+import type { LanguageInfo } from './lib/monaco';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import { useNoteSelecter } from './hooks/useNoteSelecter';
 import { useNotes } from './hooks/useNotes';
 import { useSplitEditor } from './hooks/useSplitEditor';
 import { darkTheme, lightTheme } from './lib/theme';
 import type { FileNote, Note } from './types';
+
+const scrollbarSx = (theme: Theme) => ({
+  '&::-webkit-scrollbar': { width: 7 },
+  '&::-webkit-scrollbar-track': { background: 'transparent' },
+  '&::-webkit-scrollbar-thumb': {
+    backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
+    borderRadius: 7,
+    '&:hover': {
+      backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+    },
+  },
+});
+
+const languageMenuProps: SelectProps['MenuProps'] = {
+  slotProps: {
+    paper: {
+      sx: (theme: Theme) => ({
+        maxHeight: 300,
+        ...scrollbarSx(theme),
+        '& ul': scrollbarSx(theme),
+      }),
+    },
+  },
+};
+
+const isFileNote = (note: Note | FileNote | null): note is FileNote => note !== null && 'filePath' in note;
+
+const PaneHeader: React.FC<{
+  note: Note | FileNote | null;
+  languages: LanguageInfo[];
+  onTitleChange: (title: string) => void;
+  onLanguageChange: (language: string) => void;
+  onFocusEditor?: () => void;
+  isSplit: boolean;
+  paneColor?: 'primary' | 'secondary';
+  paneLabel?: string;
+  dimmed?: boolean;
+}> = ({ note, languages, onTitleChange, onLanguageChange, onFocusEditor, isSplit, paneColor, paneLabel, dimmed }) => (
+  <Box
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1,
+      px: 1,
+      py: 0.5,
+      minHeight: 48,
+      opacity: dimmed ? 0.5 : 1,
+      transition: 'opacity 0.2s',
+    }}
+  >
+    {paneLabel && (
+      <Typography variant='body2' sx={{ flexShrink: 0, fontWeight: 'bold', color: `${paneColor}.main` }}>
+        {paneLabel}
+      </Typography>
+    )}
+    <TextField
+      sx={{
+        width: '100%',
+        '& .MuiOutlinedInput-root': {
+          height: 32,
+          ...(isSplit &&
+            paneColor && {
+              '& fieldset': { borderColor: `${paneColor}.main` },
+              '&:hover fieldset': { borderColor: `${paneColor}.main` },
+            }),
+        },
+        '& .MuiInputLabel-root:not(.MuiInputLabel-shrink)': { top: -4 },
+        ...(isSplit &&
+          paneColor && {
+            '& .MuiInputLabel-root': { color: `${paneColor}.main` },
+          }),
+      }}
+      label={isFileNote(note) ? 'File Path' : 'Title'}
+      variant='outlined'
+      size='small'
+      value={isFileNote(note) ? note.filePath : (note as Note | null)?.title || ''}
+      onChange={(e) => onTitleChange(e.target.value)}
+      disabled={isFileNote(note)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+          onFocusEditor?.();
+        }
+      }}
+    />
+    <FormControl
+      sx={{
+        minWidth: 270,
+        flexShrink: 0,
+        '& .MuiOutlinedInput-root': {
+          height: 32,
+          ...(isSplit &&
+            paneColor && {
+              '& fieldset': { borderColor: `${paneColor}.main` },
+              '&:hover fieldset': { borderColor: `${paneColor}.main` },
+            }),
+        },
+        '& .MuiInputLabel-root:not(.MuiInputLabel-shrink)': { top: -4 },
+        ...(isSplit &&
+          paneColor && {
+            '& .MuiInputLabel-root': { color: `${paneColor}.main` },
+          }),
+      }}
+      size='small'
+    >
+      <InputLabel size='small'>Language</InputLabel>
+      <Select
+        size='small'
+        autoWidth
+        value={languages.some((lang) => lang.id === note?.language) ? note?.language : ''}
+        onChange={(e) => onLanguageChange(e.target.value)}
+        label='Language'
+        MenuProps={languageMenuProps}
+      >
+        {languages.map((lang) => (
+          <MenuItem key={lang.id} value={lang.id}>
+            {lang.aliases?.[0] ?? lang.id}
+          </MenuItem>
+        ))}
+      </Select>
+    </FormControl>
+  </Box>
+);
 
 // 検索マッチの各出現箇所を表す型（ノート内の何番目のマッチか）
 type SearchMatch = {
@@ -201,7 +341,7 @@ function App() {
     }
   }, [isSplit, currentNote, currentFileNote, fileNotes, notes, topLevelOrder, toggleSplit]);
 
-  const STATUS_BAR_HEIGHT = platform === 'darwin' ? 83 : 57;
+  const TITLE_BAR_HEIGHT = platform === 'darwin' ? 26 : 0;
 
   const leftEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const rightEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -320,6 +460,7 @@ function App() {
         }}
         component='main'
       >
+        {/* macOS タイトルバー */}
         {platform !== 'windows' && (
           <Box
             sx={{
@@ -345,335 +486,338 @@ function App() {
             </Typography>
           </Box>
         )}
-        <AppBar
-          currentNote={isSplit ? leftFileNote || leftNote : currentFileNote || currentNote}
-          languages={languages}
-          platform={platform}
-          onTitleChange={handleTitleChange}
-          onLanguageChange={handleLanguageChange}
-          onSettings={() => setIsSettingsOpen(true)}
-          onNew={handleNewNote}
-          onOpen={handleOpenFile}
-          onSave={handleSaveAsFile}
-          onFocusEditor={() => {
-            if (isSplit) {
-              (focusedPane === 'left' ? leftEditorInstanceRef : rightEditorInstanceRef).current?.focus();
-            } else {
-              editorInstanceRef.current?.focus();
-            }
-          }}
-          showMessage={showMessage}
-          isSplit={isSplit}
-          isMarkdownPreview={isMarkdownPreview}
-          onToggleSplit={handleToggleSplit}
-          onToggleMarkdownPreview={toggleMarkdownPreview}
-          rightNote={rightFileNote || rightNote}
-          onRightTitleChange={(title) => {
-            if (rightNote) {
-              setRightNote({ ...rightNote, title, modifiedTime: new Date().toISOString() });
-            }
-          }}
-          onRightLanguageChange={(language) => {
-            if (rightNote) {
-              setRightNote({ ...rightNote, language, modifiedTime: new Date().toISOString() });
-            } else if (rightFileNote) {
-              setRightFileNote({ ...rightFileNote, language });
-            }
-          }}
-          focusedPane={focusedPane}
-        />
-        <Divider />
-        <Box
-          aria-label='Note List'
-          sx={{
-            position: 'absolute',
-            top: STATUS_BAR_HEIGHT,
-            left: 0,
-            borderRight: 1,
-            borderColor: 'divider',
-            width: 242,
-            height: `calc(100% - ${STATUS_BAR_HEIGHT}px)`,
-            display: 'flex',
-            flexDirection: 'column',
-            '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
-              backgroundColor: 'text.secondary',
-            },
-          }}
-        >
-          <NoteSearchBox
-            value={noteSearch}
-            onChange={handleSearchChange}
-            onNext={() => handleSearchNavigate('next')}
-            onPrevious={() => handleSearchNavigate('prev')}
-            matchIndex={searchMatchIndex}
-            matchCount={totalSearchMatches}
-          />
-          <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
-            <SimpleBar style={{ height: '100%' }}>
-              {filteredFileNotes.length > 0 && (
-                <>
-                  <Box
-                    sx={{
-                      height: 32,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      display: 'flex',
-                      backgroundColor: 'action.disabledBackground',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      m: 1,
-                      mb: 0,
-                    }}
-                  >
-                    <Typography variant='body2' color='text.secondary'>
-                      Local files
-                    </Typography>
-                  </Box>
-                  <NoteList
-                    notes={noteSearch ? filteredFileNotes : fileNotes}
-                    currentNote={isSplit ? leftFileNote : currentFileNote}
-                    onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
-                    onConvertToNote={handleConvertToNote}
-                    onSaveFile={handleSaveFile}
-                    onReorder={async (newNotes) => {
-                      setFileNotes(newNotes as FileNote[]);
-                    }}
-                    isFileMode={true}
-                    onCloseFile={handleCloseFile}
-                    isFileModified={isFileModified}
-                    platform={platform}
-                    secondarySelectedNoteId={secondarySelectedNoteId}
-                  />
-                  <Divider />
-                </>
-              )}
-              <Box
-                sx={{
-                  height: 32,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  display: 'flex',
-                  backgroundColor: 'action.disabledBackground',
-                  position: 'relative',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1,
-                  m: 1,
-                  mb: 0,
-                }}
-              >
-                <Typography variant='body2' color='text.secondary'>
-                  Notes
-                </Typography>
-                <Tooltip title='New Folder' arrow placement='bottom'>
-                  <IconButton
-                    sx={{
-                      position: 'absolute',
-                      right: 4,
-                    }}
-                    onClick={async () => {
-                      const folder = await handleCreateFolder('New Folder');
-                      setEditingFolderId(folder.id);
-                    }}
-                  >
-                    <CreateNewFolder sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-              <NoteList
-                notes={noteSearch ? filteredNotes : notes}
-                currentNote={isSplit ? leftNote : currentNote}
-                onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
-                onArchive={handleArchiveNote}
-                onReorder={async (newNotes) => {
-                  setNotes(newNotes as Note[]);
-                }}
-                platform={platform}
-                folders={folders}
-                collapsedFolders={collapsedFolders}
-                onToggleFolderCollapse={toggleFolderCollapse}
-                onMoveNoteToFolder={handleMoveNoteToFolder}
-                onRenameFolder={handleRenameFolder}
-                onDeleteFolder={handleDeleteFolder}
-                onArchiveFolder={handleArchiveFolder}
-                editingFolderId={editingFolderId}
-                onEditingFolderDone={() => setEditingFolderId(null)}
-                topLevelOrder={topLevelOrder}
-                onUpdateTopLevelOrder={handleUpdateTopLevelOrder}
-                secondarySelectedNoteId={secondarySelectedNoteId}
-              />
-            </SimpleBar>
-          </Box>
-          <Button
-            fullWidth
-            disabled={notes.filter((note) => note.archived).length === 0 && folders.filter((f) => f.archived).length === 0}
+
+        {/* メインレイアウト: サイドバー + エディタ領域 */}
+        <Box sx={{ position: 'absolute', top: TITLE_BAR_HEIGHT, left: 0, right: 0, bottom: 0, display: 'flex' }}>
+          {/* サイドバー */}
+          <Box
+            aria-label='Note List'
             sx={{
-              mt: 'auto',
-              borderRadius: 0,
-              borderTop: 1,
+              width: 242,
+              flexShrink: 0,
+              borderRight: 1,
               borderColor: 'divider',
-              zIndex: 1000,
-              backgroundColor: 'background.paper',
-              '&:hover': {
-                backgroundColor: 'action.hover',
+              display: 'flex',
+              flexDirection: 'column',
+              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
+                backgroundColor: 'text.secondary',
               },
             }}
-            onClick={() => setShowArchived(true)}
-            startIcon={<Inventory />}
           >
-            Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
-          </Button>
-        </Box>
-
-        <Box
-          sx={{
-            position: 'absolute',
-            top: STATUS_BAR_HEIGHT,
-            left: 242,
-            width: 'calc(100% - 242px)',
-            height: `calc(100% - ${STATUS_BAR_HEIGHT}px)`,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {showArchived ? (
-            <ArchivedNoteList
-              notes={notes}
-              folders={folders}
-              archivedTopLevelOrder={archivedTopLevelOrder}
-              onUnarchive={handleUnarchiveNote}
-              onDelete={handleDeleteNote}
-              onDeleteAll={async () => {
-                const confirmed = await showMessage(
-                  'Delete all',
-                  'Delete all archived notes? This cannot be undone.',
-                  true,
-                  'Delete',
-                  'Cancel',
-                );
-                if (confirmed) handleDeleteAllArchivedNotes();
-              }}
-              onClose={() => setShowArchived(false)}
-              onUnarchiveFolder={handleUnarchiveFolder}
-              onDeleteFolder={handleDeleteArchivedFolder}
-              onUpdateArchivedTopLevelOrder={handleUpdateArchivedTopLevelOrder}
-              onMoveNoteToFolder={handleMoveNoteToFolder}
-              isDarkMode={editorSettings.isDarkMode}
+            <AppBar platform={platform} onNew={handleNewNote} onOpen={handleOpenFile} onSave={handleSaveAsFile} />
+            <Divider />
+            <NoteSearchBox
+              value={noteSearch}
+              onChange={handleSearchChange}
+              onNext={() => handleSearchNavigate('next')}
+              onPrevious={() => handleSearchNavigate('prev')}
+              matchIndex={searchMatchIndex}
+              matchCount={totalSearchMatches}
             />
-          ) : (
-            <Allotment>
-              <Allotment.Pane minSize={200}>
-                <Editor
-                  editorInstanceRef={leftEditorInstanceRef}
-                  value={
-                    isSplit
-                      ? leftNote?.content || leftFileNote?.content || ''
-                      : currentNote?.content || currentFileNote?.content || ''
-                  }
-                  onChange={
-                    isSplit
-                      ? leftNote
-                        ? handleLeftNoteContentChange
-                        : handleLeftFileNoteContentChange
-                      : currentNote
-                        ? handleNoteContentChange
-                        : handleFileNoteContentChange
-                  }
-                  language={
-                    isSplit
-                      ? leftNote?.language || leftFileNote?.language || 'plaintext'
-                      : currentNote?.language || currentFileNote?.language || 'plaintext'
-                  }
-                  settings={editorSettings}
+            <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
+              <SimpleBar style={{ height: '100%' }}>
+                {filteredFileNotes.length > 0 && (
+                  <>
+                    <Box
+                      sx={{
+                        height: 32,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        display: 'flex',
+                        backgroundColor: 'action.disabledBackground',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        m: 1,
+                        mb: 0,
+                      }}
+                    >
+                      <Typography variant='body2' color='text.secondary'>
+                        Local files
+                      </Typography>
+                    </Box>
+                    <NoteList
+                      notes={noteSearch ? filteredFileNotes : fileNotes}
+                      currentNote={isSplit ? leftFileNote : currentFileNote}
+                      onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
+                      onConvertToNote={handleConvertToNote}
+                      onSaveFile={handleSaveFile}
+                      onReorder={async (newNotes) => {
+                        setFileNotes(newNotes as FileNote[]);
+                      }}
+                      isFileMode={true}
+                      onCloseFile={handleCloseFile}
+                      isFileModified={isFileModified}
+                      platform={platform}
+                      secondarySelectedNoteId={secondarySelectedNoteId}
+                    />
+                    <Divider />
+                  </>
+                )}
+                <Box
+                  sx={{
+                    height: 32,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    display: 'flex',
+                    backgroundColor: 'action.disabledBackground',
+                    position: 'relative',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                    m: 1,
+                    mb: 0,
+                  }}
+                >
+                  <Typography variant='body2' color='text.secondary'>
+                    Notes
+                  </Typography>
+                  <Tooltip title='New Folder' arrow placement='bottom'>
+                    <IconButton
+                      sx={{
+                        position: 'absolute',
+                        right: 4,
+                      }}
+                      onClick={async () => {
+                        const folder = await handleCreateFolder('New Folder');
+                        setEditingFolderId(folder.id);
+                      }}
+                    >
+                      <CreateNewFolder sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <NoteList
+                  notes={noteSearch ? filteredNotes : notes}
+                  currentNote={isSplit ? leftNote : currentNote}
+                  onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
+                  onArchive={handleArchiveNote}
+                  onReorder={async (newNotes) => {
+                    setNotes(newNotes as Note[]);
+                  }}
                   platform={platform}
-                  currentNote={isSplit ? leftNote || leftFileNote : currentNote || currentFileNote}
-                  searchKeyword={!isSplit || focusedPane === 'left' ? noteSearch : undefined}
-                  searchMatchIndexInNote={!isSplit || focusedPane === 'left' ? searchMatchIndexInNote : 0}
-                  onFocus={() => handleFocusPane('left')}
-                  onNew={handleNewNote}
-                  onOpen={handleOpenFile}
-                  onSave={async () => {
-                    if (isSplit) {
-                      if (leftFileNote && isFileModified(leftFileNote.id)) {
-                        await handleSaveFile(leftFileNote);
-                      }
-                    } else {
-                      if (currentFileNote && isFileModified(currentFileNote.id)) {
-                        await handleSaveFile(currentFileNote);
-                      }
-                    }
-                  }}
-                  onClose={async () => {
-                    if (isSplit) {
-                      if (leftFileNote) {
-                        await handleCloseFile(leftFileNote);
-                      } else if (leftNote) {
-                        await handleArchiveNote(leftNote.id);
-                      }
-                    } else {
-                      if (currentFileNote) {
-                        await handleCloseFile(currentFileNote);
-                      } else if (currentNote) {
-                        await handleArchiveNote(currentNote.id);
-                      }
-                    }
-                  }}
-                  onSelectNext={handleSelectNextAnyNote}
-                  onSelectPrevious={handleSelectPreviousAnyNote}
+                  folders={folders}
+                  collapsedFolders={collapsedFolders}
+                  onToggleFolderCollapse={toggleFolderCollapse}
+                  onMoveNoteToFolder={handleMoveNoteToFolder}
+                  onRenameFolder={handleRenameFolder}
+                  onDeleteFolder={handleDeleteFolder}
+                  onArchiveFolder={handleArchiveFolder}
+                  editingFolderId={editingFolderId}
+                  onEditingFolderDone={() => setEditingFolderId(null)}
+                  topLevelOrder={topLevelOrder}
+                  onUpdateTopLevelOrder={handleUpdateTopLevelOrder}
+                  secondarySelectedNoteId={secondarySelectedNoteId}
                 />
-              </Allotment.Pane>
-              {isSplit && (
+              </SimpleBar>
+            </Box>
+            <Button
+              fullWidth
+              disabled={notes.filter((note) => note.archived).length === 0 && folders.filter((f) => f.archived).length === 0}
+              sx={{
+                mt: 'auto',
+                borderRadius: 0,
+                borderTop: 1,
+                borderColor: 'divider',
+                zIndex: 1000,
+                backgroundColor: 'background.paper',
+                '&:hover': {
+                  backgroundColor: 'action.hover',
+                },
+              }}
+              onClick={() => setShowArchived(true)}
+              startIcon={<Inventory />}
+            >
+              Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
+            </Button>
+          </Box>
+
+          {/* エディタ領域 */}
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            {showArchived ? (
+              <ArchivedNoteList
+                notes={notes}
+                folders={folders}
+                archivedTopLevelOrder={archivedTopLevelOrder}
+                onUnarchive={handleUnarchiveNote}
+                onDelete={handleDeleteNote}
+                onDeleteAll={async () => {
+                  const confirmed = await showMessage(
+                    'Delete all',
+                    'Delete all archived notes? This cannot be undone.',
+                    true,
+                    'Delete',
+                    'Cancel',
+                  );
+                  if (confirmed) handleDeleteAllArchivedNotes();
+                }}
+                onClose={() => setShowArchived(false)}
+                onUnarchiveFolder={handleUnarchiveFolder}
+                onDeleteFolder={handleDeleteArchivedFolder}
+                onUpdateArchivedTopLevelOrder={handleUpdateArchivedTopLevelOrder}
+                onMoveNoteToFolder={handleMoveNoteToFolder}
+                isDarkMode={editorSettings.isDarkMode}
+              />
+            ) : (
+              <Allotment>
                 <Allotment.Pane minSize={200}>
-                  <Editor
-                    editorInstanceRef={rightEditorInstanceRef}
-                    value={rightNote?.content || rightFileNote?.content || ''}
-                    onChange={rightNote ? handleRightNoteContentChange : handleRightFileNoteContentChange}
-                    language={rightNote?.language || rightFileNote?.language || 'plaintext'}
-                    settings={editorSettings}
-                    platform={platform}
-                    currentNote={rightNote || rightFileNote}
-                    searchKeyword={focusedPane === 'right' ? noteSearch : undefined}
-                    searchMatchIndexInNote={focusedPane === 'right' ? searchMatchIndexInNote : 0}
-                    onFocus={() => handleFocusPane('right')}
-                    onNew={handleNewNote}
-                    onOpen={handleOpenFile}
-                    onSave={async () => {
-                      if (rightFileNote && isFileModified(rightFileNote.id)) {
-                        await handleSaveFile(rightFileNote);
-                      }
-                    }}
-                    onClose={async () => {
-                      if (rightFileNote) {
-                        await handleCloseFile(rightFileNote);
-                      } else if (rightNote) {
-                        await handleArchiveNote(rightNote.id);
-                      }
-                    }}
-                    onSelectNext={handleSelectNextAnyNote}
-                    onSelectPrevious={handleSelectPreviousAnyNote}
-                  />
+                  <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <PaneHeader
+                      note={isSplit ? leftFileNote || leftNote : currentFileNote || currentNote}
+                      languages={languages}
+                      onTitleChange={handleTitleChange}
+                      onLanguageChange={handleLanguageChange}
+                      onFocusEditor={() => leftEditorInstanceRef.current?.focus()}
+                      isSplit={isSplit}
+                      paneColor='primary'
+                      paneLabel={isSplit ? '1' : undefined}
+                      dimmed={isSplit && focusedPane !== 'left'}
+                    />
+                    <Box sx={{ flex: 1, minHeight: 0 }}>
+                      <Editor
+                        editorInstanceRef={leftEditorInstanceRef}
+                        value={
+                          isSplit
+                            ? leftNote?.content || leftFileNote?.content || ''
+                            : currentNote?.content || currentFileNote?.content || ''
+                        }
+                        onChange={
+                          isSplit
+                            ? leftNote
+                              ? handleLeftNoteContentChange
+                              : handleLeftFileNoteContentChange
+                            : currentNote
+                              ? handleNoteContentChange
+                              : handleFileNoteContentChange
+                        }
+                        language={
+                          isSplit
+                            ? leftNote?.language || leftFileNote?.language || 'plaintext'
+                            : currentNote?.language || currentFileNote?.language || 'plaintext'
+                        }
+                        settings={editorSettings}
+                        platform={platform}
+                        currentNote={isSplit ? leftNote || leftFileNote : currentNote || currentFileNote}
+                        searchKeyword={!isSplit || focusedPane === 'left' ? noteSearch : undefined}
+                        searchMatchIndexInNote={!isSplit || focusedPane === 'left' ? searchMatchIndexInNote : 0}
+                        onFocus={() => handleFocusPane('left')}
+                        onNew={handleNewNote}
+                        onOpen={handleOpenFile}
+                        onSave={async () => {
+                          if (isSplit) {
+                            if (leftFileNote && isFileModified(leftFileNote.id)) {
+                              await handleSaveFile(leftFileNote);
+                            }
+                          } else {
+                            if (currentFileNote && isFileModified(currentFileNote.id)) {
+                              await handleSaveFile(currentFileNote);
+                            }
+                          }
+                        }}
+                        onClose={async () => {
+                          if (isSplit) {
+                            if (leftFileNote) {
+                              await handleCloseFile(leftFileNote);
+                            } else if (leftNote) {
+                              await handleArchiveNote(leftNote.id);
+                            }
+                          } else {
+                            if (currentFileNote) {
+                              await handleCloseFile(currentFileNote);
+                            } else if (currentNote) {
+                              await handleArchiveNote(currentNote.id);
+                            }
+                          }
+                        }}
+                        onSelectNext={handleSelectNextAnyNote}
+                        onSelectPrevious={handleSelectPreviousAnyNote}
+                      />
+                    </Box>
+                  </Box>
                 </Allotment.Pane>
-              )}
-              {isMarkdownPreview && (
-                <Allotment.Pane minSize={200}>
-                  <MarkdownPreview content={currentNote?.content || currentFileNote?.content || ''} />
-                </Allotment.Pane>
-              )}
-            </Allotment>
-          )}
-          <EditorStatusBar
-            currentNote={
-              isSplit
-                ? focusedPane === 'left'
-                  ? leftFileNote || leftNote
-                  : rightFileNote || rightNote
-                : currentFileNote || currentNote
-            }
-            editorInstanceRef={
-              isSplit ? (focusedPane === 'left' ? leftEditorInstanceRef : rightEditorInstanceRef) : editorInstanceRef
-            }
-          />
+                {isSplit && (
+                  <Allotment.Pane minSize={200}>
+                    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      <PaneHeader
+                        note={rightFileNote || rightNote}
+                        languages={languages}
+                        onTitleChange={(title) => {
+                          if (rightNote) {
+                            setRightNote({ ...rightNote, title, modifiedTime: new Date().toISOString() });
+                          }
+                        }}
+                        onLanguageChange={(language) => {
+                          if (rightNote) {
+                            setRightNote({ ...rightNote, language, modifiedTime: new Date().toISOString() });
+                          } else if (rightFileNote) {
+                            setRightFileNote({ ...rightFileNote, language });
+                          }
+                        }}
+                        onFocusEditor={() => rightEditorInstanceRef.current?.focus()}
+                        isSplit={isSplit}
+                        paneColor='secondary'
+                        paneLabel='2'
+                        dimmed={focusedPane !== 'right'}
+                      />
+                      <Box sx={{ flex: 1, minHeight: 0 }}>
+                        <Editor
+                          editorInstanceRef={rightEditorInstanceRef}
+                          value={rightNote?.content || rightFileNote?.content || ''}
+                          onChange={rightNote ? handleRightNoteContentChange : handleRightFileNoteContentChange}
+                          language={rightNote?.language || rightFileNote?.language || 'plaintext'}
+                          settings={editorSettings}
+                          platform={platform}
+                          currentNote={rightNote || rightFileNote}
+                          searchKeyword={focusedPane === 'right' ? noteSearch : undefined}
+                          searchMatchIndexInNote={focusedPane === 'right' ? searchMatchIndexInNote : 0}
+                          onFocus={() => handleFocusPane('right')}
+                          onNew={handleNewNote}
+                          onOpen={handleOpenFile}
+                          onSave={async () => {
+                            if (rightFileNote && isFileModified(rightFileNote.id)) {
+                              await handleSaveFile(rightFileNote);
+                            }
+                          }}
+                          onClose={async () => {
+                            if (rightFileNote) {
+                              await handleCloseFile(rightFileNote);
+                            } else if (rightNote) {
+                              await handleArchiveNote(rightNote.id);
+                            }
+                          }}
+                          onSelectNext={handleSelectNextAnyNote}
+                          onSelectPrevious={handleSelectPreviousAnyNote}
+                        />
+                      </Box>
+                    </Box>
+                  </Allotment.Pane>
+                )}
+                {isMarkdownPreview && (
+                  <Allotment.Pane minSize={200}>
+                    <MarkdownPreview content={currentNote?.content || currentFileNote?.content || ''} />
+                  </Allotment.Pane>
+                )}
+              </Allotment>
+            )}
+            <EditorStatusBar
+              currentNote={
+                isSplit
+                  ? focusedPane === 'left'
+                    ? leftFileNote || leftNote
+                    : rightFileNote || rightNote
+                  : currentFileNote || currentNote
+              }
+              editorInstanceRef={
+                isSplit ? (focusedPane === 'left' ? leftEditorInstanceRef : rightEditorInstanceRef) : editorInstanceRef
+              }
+              isSplit={isSplit}
+              isMarkdownPreview={isMarkdownPreview}
+              onToggleSplit={handleToggleSplit}
+              onToggleMarkdownPreview={toggleMarkdownPreview}
+              onSettings={() => setIsSettingsOpen(true)}
+              showMessage={showMessage}
+            />
+          </Box>
         </Box>
       </Box>
 

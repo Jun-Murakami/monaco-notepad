@@ -457,12 +457,19 @@ func TestUpdateTopLevelOrder(t *testing.T) {
 	helper := setupNoteTest(t)
 	defer helper.cleanup()
 
+	// TopLevelOrderに含むノートとフォルダを実際に作成する（ValidateIntegrityで除去されないように）
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	_, err := helper.noteService.CreateFolder("F1")
+	assert.NoError(t, err)
+	folderID := helper.noteService.noteList.Folders[0].ID
+
 	order := []TopLevelItem{
-		{Type: "folder", ID: "f1"},
+		{Type: "folder", ID: folderID},
 		{Type: "note", ID: "n1"},
 	}
 
-	err := helper.noteService.UpdateTopLevelOrder(order)
+	err = helper.noteService.UpdateTopLevelOrder(order)
 	assert.NoError(t, err)
 	assert.Equal(t, order, helper.noteService.noteList.TopLevelOrder)
 
@@ -590,25 +597,80 @@ func TestNoteListSync(t *testing.T) {
 	helper := setupNoteTest(t)
 	defer helper.cleanup()
 
-	// テスト用のノートを作成
 	note := &Note{
 		ID:      "sync-test",
 		Title:   "同期テスト",
 		Content: "同期テスト用のノートです。",
 	}
 
-	// ノートを直接ファイルとして保存（noteListを介さない）
 	noteData, err := json.MarshalIndent(note, "", "  ")
 	assert.NoError(t, err)
 	err = os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644)
 	assert.NoError(t, err)
 
-	// 同期を実行
-	err = helper.noteService.syncNoteList()
+	changed, err := helper.noteService.ValidateIntegrity()
 	assert.NoError(t, err)
+	assert.True(t, changed)
 
-	// noteListに追加されていることを確認
 	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
 	assert.Equal(t, note.ID, helper.noteService.noteList.Notes[0].ID)
 	assert.Equal(t, note.Title, helper.noteService.noteList.Notes[0].Title)
+}
+
+func TestValidateIntegrity_RemovesStaleEntries(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "real-note", Title: "Real", Content: "exists"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	helper.noteService.noteList.Notes = append(helper.noteService.noteList.Notes, NoteMetadata{
+		ID:       "ghost-note",
+		Title:    "Ghost",
+		Archived: true,
+	})
+	helper.noteService.noteList.ArchivedTopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "ghost-note"},
+	}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+
+	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
+	assert.Equal(t, "real-note", helper.noteService.noteList.Notes[0].ID)
+	assert.Empty(t, helper.noteService.noteList.ArchivedTopLevelOrder)
+}
+
+func TestValidateIntegrity_CleansTopLevelOrder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "n1"},
+		{Type: "note", ID: "deleted-note"},
+		{Type: "folder", ID: "deleted-folder"},
+	}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+
+	assert.Equal(t, 1, len(helper.noteService.noteList.TopLevelOrder))
+	assert.Equal(t, "n1", helper.noteService.noteList.TopLevelOrder[0].ID)
+}
+
+func TestValidateIntegrity_NoChangeWhenConsistent(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.False(t, changed)
 }

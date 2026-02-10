@@ -1,11 +1,23 @@
-import { Box, Divider, List, ListItem, Popover, Tooltip, Typography } from '@mui/material';
+import { Flip, Logout, Settings } from '@mui/icons-material';
+import CloudDoneIcon from '@mui/icons-material/CloudDone';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
+import { Box, CircularProgress, Divider, IconButton, List, ListItem, Popover, Tooltip, Typography } from '@mui/material';
+import { keyframes } from '@mui/system';
 import type { editor, IDisposable } from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import * as wailsRuntime from '../../wailsjs/runtime';
+import { useDriveSync } from '../hooks/useDriveSync';
 import type { FileNote, Note } from '../types';
+import { GoogleDriveIcon, MarkdownIcon } from './Icons';
 import { VersionUp } from './VersionUp';
+
+const fadeAnimation = keyframes`
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+`;
 
 interface LogEntry {
   message: string;
@@ -25,9 +37,26 @@ function formatTime(date: Date): string {
 interface EditorStatusBarProps {
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
   currentNote: Note | FileNote | null;
+  isSplit: boolean;
+  isMarkdownPreview: boolean;
+  onToggleSplit: () => void;
+  onToggleMarkdownPreview: () => void;
+  onSettings: () => void;
+  showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>;
 }
 
-export const EditorStatusBar = ({ editorInstanceRef, currentNote }: EditorStatusBarProps) => {
+export const EditorStatusBar = ({
+  editorInstanceRef,
+  currentNote,
+  isSplit,
+  isMarkdownPreview,
+  onToggleSplit,
+  onToggleMarkdownPreview,
+  onSettings,
+  showMessage,
+}: EditorStatusBarProps) => {
+  const { syncStatus, isHoveringSync, setIsHoveringSync, isHoverLocked, handleGoogleAuth, handleLogout, handleSyncNow } =
+    useDriveSync(showMessage);
   const [logMessage, setLogMessage] = useState<string>('');
   const [opacity, setOpacity] = useState<number>(1);
   const logTimeoutRef = useRef<number | null>(null);
@@ -215,6 +244,76 @@ export const EditorStatusBar = ({ editorInstanceRef, currentNote }: EditorStatus
               {logMessage}
             </Typography>
           </Box>
+        </Tooltip>
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto', flexShrink: 0, mr: -1 }}>
+        <Tooltip title={isSplit ? 'Close Split' : 'Split Editor'} arrow placement='top'>
+          <IconButton
+            sx={{ fontSize: 16, width: 28, height: 28 }}
+            onClick={onToggleSplit}
+            color={isSplit ? 'primary' : 'default'}
+          >
+            <Flip sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title={isMarkdownPreview ? 'Close Preview' : 'Markdown Preview'} arrow placement='top'>
+          <IconButton
+            sx={{ fontSize: 16, width: 28, height: 28 }}
+            onClick={onToggleMarkdownPreview}
+            color={isMarkdownPreview ? 'primary' : 'default'}
+          >
+            <MarkdownIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {syncStatus === 'synced' ? (
+            <Tooltip title='Sync now!' arrow placement='top'>
+              <IconButton
+                onClick={handleSyncNow}
+                size='small'
+                sx={{ width: 28, height: 28 }}
+                onMouseEnter={() => !isHoverLocked && setIsHoveringSync(true)}
+                onMouseLeave={() => setIsHoveringSync(false)}
+              >
+                {isHoveringSync ? (
+                  <CloudSyncIcon color='primary' sx={{ fontSize: 22 }} />
+                ) : (
+                  <CloudDoneIcon color='primary' sx={{ fontSize: 20 }} />
+                )}
+              </IconButton>
+            </Tooltip>
+          ) : syncStatus === 'syncing' ? (
+            <Tooltip title='Syncing...' arrow placement='top'>
+              <Box
+                sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, display: 'flex', alignItems: 'center', mx: 0.5 }}
+              >
+                <CircularProgress size={18} />
+              </Box>
+            </Tooltip>
+          ) : (
+            syncStatus === 'logging in' && <CircularProgress size={18} sx={{ mx: 0.5 }} />
+          )}
+        </Box>
+        {syncStatus === 'offline' ? (
+          <Tooltip title='Connect to Google Drive' arrow placement='top'>
+            <IconButton sx={{ width: 28, height: 28 }} onClick={handleGoogleAuth}>
+              <GoogleDriveIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Tooltip title={syncStatus === 'logging in' ? 'Cancel' : 'Logout'} arrow placement='top'>
+            <span>
+              <IconButton disabled={syncStatus === 'syncing'} onClick={handleLogout} sx={{ width: 28, height: 28 }}>
+                <Logout sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+        <Tooltip title='Settings' arrow placement='top'>
+          <IconButton sx={{ width: 28, height: 28 }} onClick={onSettings}>
+            <Settings sx={{ fontSize: 18 }} />
+          </IconButton>
         </Tooltip>
       </Box>
       <Popover
