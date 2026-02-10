@@ -63,6 +63,7 @@ type driveSyncServiceImpl struct {
 	fileIDCache             map[string]string
 	cacheMu                 sync.RWMutex
 	lastNoteListMd5         string
+	cachedNoteList          *NoteList
 }
 
 // DriveSyncServiceインスタンスを作成
@@ -549,11 +550,15 @@ func (d *driveSyncServiceImpl) DownloadNoteList(
 
 	var noteList NoteList
 	if err := json.Unmarshal(content, &noteList); err != nil {
+		if d.cachedNoteList != nil {
+			d.logger.Info("クラウドのノートリストが破損しています。前回の正常な状態を使用します")
+			return d.cachedNoteList, nil
+		}
 		return nil, fmt.Errorf("failed to decode note list: %w", err)
 	}
 
-	// ダウンロード後に重複排除
 	noteList.Notes = d.DeduplicateNotes(noteList.Notes)
+	d.cachedNoteList = &noteList
 	return &noteList, nil
 }
 

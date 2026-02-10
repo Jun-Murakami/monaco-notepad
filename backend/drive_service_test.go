@@ -1318,6 +1318,654 @@ func TestCloudSync_MultipleNotes_MixedDeleteAndEdit(t *testing.T) {
 	assert.NoError(t, cloudErr, "クラウドに存在するノートは保持されるべき")
 }
 
+// --- H-1: handleCloudSync NoteList全体適用テスト ---
+
+func newTestDriveService(helper *testHelper) *driveService {
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	driveSync.SetNoteListID("test-notelist-id")
+	auth.driveSync = driveSync
+
+	return &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+}
+
+func TestCloudSync_AppliesFolders(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	helper.noteService.noteList.Folders = nil
+
+	cloudNoteList := &NoteList{
+		Notes:   []NoteMetadata{},
+		Folders: []Folder{{ID: "folder-1", Name: "Work"}, {ID: "folder-2", Name: "Personal"}},
+	}
+
+	err := ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+	assert.Len(t, helper.noteService.noteList.Folders, 2)
+	assert.Equal(t, "Work", helper.noteService.noteList.Folders[0].Name)
+	assert.Equal(t, "Personal", helper.noteService.noteList.Folders[1].Name)
+}
+
+func TestCloudSync_AppliesTopLevelOrder(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	cloudNoteList := &NoteList{
+		Notes: []NoteMetadata{},
+		TopLevelOrder: []TopLevelItem{
+			{Type: "note", ID: "n1"},
+			{Type: "folder", ID: "f1"},
+			{Type: "note", ID: "n2"},
+		},
+	}
+
+	err := ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+	assert.Len(t, helper.noteService.noteList.TopLevelOrder, 3)
+	assert.Equal(t, "n1", helper.noteService.noteList.TopLevelOrder[0].ID)
+	assert.Equal(t, "f1", helper.noteService.noteList.TopLevelOrder[1].ID)
+}
+
+func TestCloudSync_AppliesArchivedTopLevelOrder(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	cloudNoteList := &NoteList{
+		Notes: []NoteMetadata{},
+		ArchivedTopLevelOrder: []TopLevelItem{
+			{Type: "note", ID: "archived-1"},
+			{Type: "folder", ID: "archived-f1"},
+		},
+	}
+
+	err := ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+	assert.Len(t, helper.noteService.noteList.ArchivedTopLevelOrder, 2)
+	assert.Equal(t, "archived-1", helper.noteService.noteList.ArchivedTopLevelOrder[0].ID)
+}
+
+func TestCloudSync_PreservesLocalOnlyFolders(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	helper.noteService.noteList.Folders = []Folder{
+		{ID: "local-only", Name: "LocalFolder"},
+		{ID: "shared", Name: "SharedOld"},
+	}
+
+	cloudNoteList := &NoteList{
+		Notes:   []NoteMetadata{},
+		Folders: []Folder{{ID: "shared", Name: "SharedCloud"}, {ID: "cloud-new", Name: "CloudNew"}},
+	}
+
+	err := ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+
+	folderIDs := make(map[string]string)
+	for _, f := range helper.noteService.noteList.Folders {
+		folderIDs[f.ID] = f.Name
+	}
+	assert.Contains(t, folderIDs, "local-only", "ローカルのみのフォルダが保持されるべき")
+	assert.Contains(t, folderIDs, "shared")
+	assert.Equal(t, "SharedCloud", folderIDs["shared"], "共有フォルダはクラウド版が優先")
+	assert.Contains(t, folderIDs, "cloud-new")
+}
+
+func TestCloudSync_MergesTopLevelOrder_LocalOnlyItemsAppended(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "local-only-note"},
+		{Type: "note", ID: "shared-note"},
+	}
+
+	cloudNoteList := &NoteList{
+		Notes: []NoteMetadata{},
+		TopLevelOrder: []TopLevelItem{
+			{Type: "note", ID: "shared-note"},
+			{Type: "note", ID: "cloud-only-note"},
+		},
+	}
+
+	err := ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+
+	order := helper.noteService.noteList.TopLevelOrder
+	assert.Equal(t, "shared-note", order[0].ID, "クラウドの並び順が優先")
+	assert.Equal(t, "cloud-only-note", order[1].ID)
+	assert.Equal(t, "local-only-note", order[2].ID, "ローカルのみのアイテムが末尾追加")
+}
+
+// --- H-3: コンフリクトコピーテスト ---
+
+func TestCreateConflictCopy_CreatesNewNote(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	original := &Note{
+		ID:           "original-note",
+		Title:        "Original Title",
+		Content:      "Original content",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	err := helper.noteService.SaveNote(original)
+	assert.NoError(t, err)
+
+	copy, err := helper.noteService.CreateConflictCopy(original)
+	assert.NoError(t, err)
+	assert.NotEqual(t, original.ID, copy.ID)
+	assert.Contains(t, copy.Title, "競合コピー")
+	assert.Equal(t, original.Content, copy.Content)
+	assert.Equal(t, original.Language, copy.Language)
+
+	loaded, err := helper.noteService.LoadNote(copy.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, copy.Title, loaded.Title)
+}
+
+func TestCreateConflictCopy_PlacedAfterOriginal(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
+		{Type: "note", ID: "note-before"},
+		{Type: "note", ID: "original-note"},
+		{Type: "note", ID: "note-after"},
+	}
+
+	original := &Note{
+		ID:           "original-note",
+		Title:        "Original",
+		Content:      "Content",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	err := helper.noteService.SaveNote(original)
+	assert.NoError(t, err)
+
+	copy, err := helper.noteService.CreateConflictCopy(original)
+	assert.NoError(t, err)
+
+	order := helper.noteService.noteList.TopLevelOrder
+	originalIdx := -1
+	copyIdx := -1
+	for i, item := range order {
+		if item.ID == "original-note" {
+			originalIdx = i
+		}
+		if item.ID == copy.ID {
+			copyIdx = i
+		}
+	}
+	assert.Equal(t, originalIdx+1, copyIdx, "コンフリクトコピーが元ノートの直後に配置されるべき")
+}
+
+func TestMergeNotes_ConflictingContent_CreatesConflictCopy(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	localNote := &Note{
+		ID:           "conflict-note",
+		Title:        "Conflict Note",
+		Content:      "Local version",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+	}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	cloudNote := &Note{
+		ID:           "conflict-note",
+		Title:        "Conflict Note",
+		Content:      "Cloud version",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps.CreateFile("conflict-note.json", cloudData, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	localNotes := []NoteMetadata{
+		{ID: "conflict-note", Title: "Conflict Note", ContentHash: "local-hash", ModifiedTime: localNote.ModifiedTime},
+	}
+	cloudNotes := []NoteMetadata{
+		{ID: "conflict-note", Title: "Conflict Note", ContentHash: "cloud-hash", ModifiedTime: cloudNote.ModifiedTime},
+	}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err)
+
+	hasConflictCopy := false
+	for _, n := range mergedNotes {
+		if strings.Contains(n.Title, "競合コピー") {
+			hasConflictCopy = true
+			break
+		}
+	}
+	assert.True(t, hasConflictCopy, "コンフリクトコピーが作成されるべき")
+	assert.True(t, len(mergedNotes) >= 2, "元ノートとコンフリクトコピーの両方が含まれるべき")
+}
+
+func TestMergeNotes_SameContent_NoConflictCopy(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+
+	localNotes := []NoteMetadata{
+		{ID: "same-note", Title: "Same", ContentHash: "same-hash", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+	cloudNotes := []NoteMetadata{
+		{ID: "same-note", Title: "Same", ContentHash: "same-hash", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 1)
+	for _, n := range mergedNotes {
+		assert.NotContains(t, n.Title, "競合コピー")
+	}
+}
+
+// --- H-8: UploadAllNotesWithContentテスト ---
+
+func TestUploadAllNotesWithContent_IncludesContent(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	note := &Note{
+		ID:       "content-note",
+		Title:    "With Content",
+		Content:  "This is the actual content",
+		Language: "plaintext",
+	}
+	err := helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	err = ds.uploadAllNotesWithContent(context.Background())
+	assert.NoError(t, err)
+
+	mockOps.mu.RLock()
+	defer mockOps.mu.RUnlock()
+
+	found := false
+	for _, data := range mockOps.files {
+		var uploaded Note
+		if json.Unmarshal(data, &uploaded) == nil && uploaded.ID == "content-note" {
+			assert.Equal(t, "This is the actual content", uploaded.Content, "Contentが含まれるべき")
+			found = true
+		}
+	}
+	assert.True(t, found, "ノートがアップロードされるべき")
+}
+
+func TestUploadAllNotesWithContent_SkipsMissingFile(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	helper.noteService.noteList.Notes = []NoteMetadata{
+		{ID: "missing-note", Title: "Missing"},
+	}
+
+	ds := newTestDriveService(helper)
+
+	err := ds.uploadAllNotesWithContent(context.Background())
+	assert.NoError(t, err, "欠落ファイルがあってもエラーにならないべき")
+}
+
+// --- H-7: JSON破損対策テスト ---
+
+func TestMergeNotes_CorruptedNote_SkipsAndContinues(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	goodNote := &Note{ID: "good-note", Title: "Good", Content: "Good content", Language: "plaintext"}
+	goodData, _ := json.Marshal(goodNote)
+	mockOps.CreateFile("good-note.json", goodData, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	cloudNotes := []NoteMetadata{
+		{ID: "bad-note", Title: "Bad", ContentHash: "bad-hash"},
+		{ID: "good-note", Title: "Good", ContentHash: "good-hash"},
+	}
+
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes)
+	assert.NoError(t, err, "破損ノートがあっても全体がエラーにならないべき")
+	assert.Len(t, mergedNotes, 2, "メタデータは両方含まれるべき")
+	assert.Len(t, downloadedNotes, 1, "正常なノートだけダウンロードされるべき")
+	assert.Equal(t, "good-note", downloadedNotes[0].ID)
+}
+
+// --- H-5: forceNextSyncによるMD5キャッシュバイパステスト ---
+
+func TestForceNextSync_ResetsAfterSyncNotes(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	driveSync.SetNoteListID("test-notelist-id")
+	auth.driveSync = driveSync
+
+	queue := NewDriveOperationsQueue(mockOps)
+	defer queue.Cleanup()
+
+	ds := &driveService{
+		ctx:             context.Background(),
+		auth:            auth,
+		noteService:     helper.noteService,
+		logger:          logger,
+		driveOps:        queue,
+		driveSync:       syncService,
+		operationsQueue: queue,
+		forceNextSync:   true,
+	}
+
+	_ = ds.SyncNotes()
+	assert.False(t, ds.forceNextSync, "forceNextSyncはSyncNotes後にfalseにリセットされるべき")
+}
+
+func TestForceNextSync_SetByPollingOnChanges(t *testing.T) {
+	ds := &driveService{}
+	assert.False(t, ds.forceNextSync)
+	ds.forceNextSync = true
+	assert.True(t, ds.forceNextSync, "ポーリングがChanges検出時にforceNextSyncをtrueに設定できるべき")
+}
+
+// --- H-4: クロックスキューでもデータ保持テスト ---
+
+func TestMergeNotes_ClockSkew_BothVersionsPreserved(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	localNote := &Note{
+		ID:           "skew-note",
+		Title:        "Skew Note",
+		Content:      "Local edited after cloud but clock is behind",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
+	}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	cloudNote := &Note{
+		ID:           "skew-note",
+		Title:        "Skew Note",
+		Content:      "Cloud version (actually older edit but clock ahead)",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps.CreateFile("skew-note.json", cloudData, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	localNotes := []NoteMetadata{
+		{ID: "skew-note", ContentHash: "local-hash", ModifiedTime: localNote.ModifiedTime},
+	}
+	cloudNotes := []NoteMetadata{
+		{ID: "skew-note", ContentHash: "cloud-hash", ModifiedTime: cloudNote.ModifiedTime},
+	}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err)
+
+	assert.True(t, len(mergedNotes) >= 2, "クロックスキューがあっても両バージョンが保持されるべき")
+	hasConflictCopy := false
+	for _, n := range mergedNotes {
+		if strings.Contains(n.Title, "競合コピー") {
+			hasConflictCopy = true
+		}
+	}
+	assert.True(t, hasConflictCopy, "コンフリクトコピーでローカル版が保持されるべき")
+}
+
+// --- H-2: キュー非空時のSyncNotesスキップテスト ---
+
+func TestSyncNotes_SkipsWhenQueueHasItems(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	driveSync.SetNoteListID("test-notelist-id")
+	auth.driveSync = driveSync
+
+	queue := NewDriveOperationsQueue(mockOps)
+	defer queue.Cleanup()
+
+	ds := &driveService{
+		ctx:             context.Background(),
+		auth:            auth,
+		noteService:     helper.noteService,
+		logger:          logger,
+		driveOps:        mockOps,
+		driveSync:       syncService,
+		operationsQueue: queue,
+	}
+
+	queue.mutex.Lock()
+	queue.items["dummy-key"] = []*QueueItem{{OperationType: CreateOperation, FileName: "dummy.json"}}
+	queue.mutex.Unlock()
+
+	err := ds.SyncNotes()
+	assert.NoError(t, err, "キュー非空時はスキップしてnilを返すべき")
+}
+
+func TestSyncNotes_ProceedsWhenQueueEmpty(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	driveSync.SetNoteListID("test-notelist-id")
+	auth.driveSync = driveSync
+
+	queue := NewDriveOperationsQueue(mockOps)
+	defer queue.Cleanup()
+
+	ds := &driveService{
+		ctx:             context.Background(),
+		auth:            auth,
+		noteService:     helper.noteService,
+		logger:          logger,
+		driveOps:        queue,
+		driveSync:       syncService,
+		operationsQueue: queue,
+	}
+
+	err := ds.SyncNotes()
+	assert.Error(t, err, "キュー空時はskipSyncを通過し、ensureSyncIsPossibleまで進むべき")
+	assert.Contains(t, err.Error(), "not connected", "接続エラーで止まることでスキップされなかったことを確認")
+}
+
+// --- H-10: オフライン復帰時のリコンサイルテスト ---
+
+func TestOfflineRecovery_AlwaysMerges(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	note1 := &Note{ID: "note-1", Title: "Local Note", Content: "local content", Language: "plaintext", ModifiedTime: time.Now().Add(-1 * time.Hour).Format(time.RFC3339)}
+	helper.noteService.SaveNote(note1)
+
+	localNotes := helper.noteService.noteList.Notes
+	cloudNotes := []NoteMetadata{
+		{ID: "note-2", Title: "Cloud Note", ContentHash: "cloud-hash", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, len(mergedNotes), 2, "ローカルとクラウド両方のノートがマージされるべき")
+
+	hasLocal := false
+	hasCloud := false
+	for _, n := range mergedNotes {
+		if n.ID == "note-1" {
+			hasLocal = true
+		}
+		if n.ID == "note-2" {
+			hasCloud = true
+		}
+	}
+	assert.True(t, hasLocal, "ローカルノートがマージ結果に含まれるべき")
+	assert.True(t, hasCloud, "クラウドノートがマージ結果に含まれるべき")
+	_ = downloadedNotes
+}
+
+func TestOfflineRecovery_ConflictCopiesCreated(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	note := &Note{ID: "conflict-note", Title: "Shared Note", Content: "local version", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	helper.noteService.SaveNote(note)
+
+	localNotes := helper.noteService.noteList.Notes
+	cloudNotes := []NoteMetadata{
+		{ID: "conflict-note", Title: "Shared Note", ContentHash: "different-hash", ModifiedTime: time.Now().Add(1 * time.Minute).Format(time.RFC3339)},
+	}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	assert.NoError(t, err)
+
+	hasConflictCopy := false
+	for _, n := range mergedNotes {
+		if strings.Contains(n.Title, "競合コピー") {
+			hasConflictCopy = true
+			break
+		}
+	}
+	assert.True(t, hasConflictCopy, "衝突時にコンフリクトコピーが作成されるべき")
+}
+
+func TestOfflineRecovery_MergesNoteListStructure(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	helper.noteService.noteList.Folders = []Folder{{ID: "local-folder", Name: "Local"}}
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
+		{Type: "folder", ID: "local-folder"},
+	}
+
+	cloudNoteList := &NoteList{
+		Notes:   []NoteMetadata{},
+		Folders: []Folder{{ID: "cloud-folder", Name: "Cloud"}},
+		TopLevelOrder: []TopLevelItem{
+			{Type: "folder", ID: "cloud-folder"},
+		},
+	}
+
+	ds.mergeNoteListStructure(cloudNoteList)
+
+	assert.Len(t, helper.noteService.noteList.Folders, 2, "クラウドとローカル両方のフォルダが保持されるべき")
+	assert.Len(t, helper.noteService.noteList.TopLevelOrder, 2, "クラウドとローカル両方のTopLevelOrderが保持されるべき")
+}
+
 // --- C-2: drive_sync_serviceのUPDATEキャンセルテスト ---
 
 type cancellingDriveOps struct {

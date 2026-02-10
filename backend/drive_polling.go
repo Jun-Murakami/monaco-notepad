@@ -116,6 +116,7 @@ func (p *DrivePollingService) StartPolling() {
 				p.logger.ErrorWithNotify(syncErr, "Failed to sync with Drive")
 				interval = initialInterval
 			} else if hasChanges {
+				p.driveService.forceNextSync = true
 				if err := p.driveService.SyncNotes(); err != nil {
 					p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
 					interval = initialInterval

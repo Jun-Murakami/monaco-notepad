@@ -246,6 +246,68 @@ func (s *noteService) DeleteNoteFromSync(id string) error {
 	return nil
 }
 
+// CreateConflictCopy はローカルノートのコンフリクトコピーを作成する。
+// 新しいIDを生成し、タイトルに "(競合コピー YYYY-MM-DD HH:MM)" を付与。
+// TopLevelOrderでは元ノートの直後に配置する。
+func (s *noteService) CreateConflictCopy(originalNote *Note) (*Note, error) {
+	newID := uuid.New().String()
+	timestamp := time.Now().Format("2006-01-02 15:04")
+	copyNote := &Note{
+		ID:            newID,
+		Title:         originalNote.Title + " (競合コピー " + timestamp + ")",
+		Content:       originalNote.Content,
+		ContentHeader: originalNote.ContentHeader,
+		Language:      originalNote.Language,
+		ModifiedTime:  originalNote.ModifiedTime,
+		Archived:      originalNote.Archived,
+		FolderID:      originalNote.FolderID,
+	}
+
+	data, err := json.MarshalIndent(copyNote, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal conflict copy: %w", err)
+	}
+
+	h := sha256.New()
+	h.Write(data)
+	contentHash := fmt.Sprintf("%x", h.Sum(nil))
+
+	notePath := filepath.Join(s.notesDir, newID+".json")
+	if err := os.WriteFile(notePath, data, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write conflict copy: %w", err)
+	}
+
+	meta := NoteMetadata{
+		ID:            newID,
+		Title:         copyNote.Title,
+		ContentHeader: copyNote.ContentHeader,
+		Language:      copyNote.Language,
+		ModifiedTime:  copyNote.ModifiedTime,
+		Archived:      copyNote.Archived,
+		ContentHash:   contentHash,
+		FolderID:      originalNote.FolderID,
+	}
+	s.noteList.Notes = append(s.noteList.Notes, meta)
+
+	originalIdx := -1
+	for i, item := range s.noteList.TopLevelOrder {
+		if item.Type == "note" && item.ID == originalNote.ID {
+			originalIdx = i
+			break
+		}
+	}
+	newItem := TopLevelItem{Type: "note", ID: newID}
+	if originalIdx >= 0 {
+		s.noteList.TopLevelOrder = append(
+			s.noteList.TopLevelOrder[:originalIdx+1],
+			append([]TopLevelItem{newItem}, s.noteList.TopLevelOrder[originalIdx+1:]...)...)
+	} else {
+		s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, newItem)
+	}
+
+	return copyNote, nil
+}
+
 // アーカイブされたノートの完全なデータを読み込む ------------------------------------------------------------
 func (s *noteService) LoadArchivedNote(id string) (*Note, error) {
 	return s.LoadNote(id)

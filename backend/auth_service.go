@@ -292,9 +292,7 @@ func (a *authService) HandleOfflineTransition(err error) error {
 
 	// 認証エラー: リフレッシュトークン無効・取り消し等 → トークン削除＋完全オフライン
 	if strings.Contains(errStr, "invalid_grant") ||
-		strings.Contains(errStr, "unauthorized") ||
-		strings.Contains(errStr, "revoked") ||
-		strings.Contains(errStr, "401") {
+		strings.Contains(errStr, "revoked") {
 		a.handleFullOfflineTransition(err)
 		return fmt.Errorf("auth error, offline transition: %v", err)
 	}

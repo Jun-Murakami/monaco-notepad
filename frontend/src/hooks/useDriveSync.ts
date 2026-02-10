@@ -21,6 +21,8 @@ export const useDriveSync = (
   const [syncStatus, setSyncStatus] = useState<
     'synced' | 'syncing' | 'logging in' | 'offline'
   >('offline');
+  const syncStatusRef = useRef(syncStatus);
+  syncStatusRef.current = syncStatus;
   const [isHoveringSync, setIsHoveringSync] = useState(false);
   const [isHoverLocked, setIsHoverLocked] = useState(false);
   const syncStartTime = useRef<number | null>(null);
@@ -32,17 +34,16 @@ export const useDriveSync = (
     // フォールバック: Drive初期化完了を待ってから接続チェック（通常はdrive:statusイベントで更新される）
     await new Promise((resolve) => setTimeout(resolve, 3000));
     CheckDriveConnection().then((isConnected) => {
-      if (isConnected && syncStatus === 'offline') {
+      if (isConnected && syncStatusRef.current === 'offline') {
         setSyncStatus('synced');
       }
     });
-  }, [syncStatus]);
+  }, []);
 
   const handleSync = useCallback(() => {
     setSyncStatus('syncing');
   }, []);
 
-  // 同期状態の監視を停止
   const stopSyncMonitoring = useCallback(() => {
     if (syncCheckInterval.current) {
       clearInterval(syncCheckInterval.current);
@@ -51,22 +52,6 @@ export const useDriveSync = (
     syncStartTime.current = null;
   }, []);
 
-  // 強制ログアウト処理
-  const handleForcedLogout = useCallback(
-    async (message: string) => {
-      stopSyncMonitoring();
-      try {
-        await LogoutDrive();
-        showMessage('Sync Error', message);
-      } catch (error) {
-        console.error('Forced logout error:', error);
-        showMessage('Error', `Failed to logout: ${error}`);
-      }
-    },
-    [showMessage, stopSyncMonitoring],
-  );
-
-  // 同期状態の監視を開始
   const startSyncMonitoring = useCallback(() => {
     if (syncCheckInterval.current) {
       clearInterval(syncCheckInterval.current);
@@ -77,10 +62,10 @@ export const useDriveSync = (
       try {
         const isConnected = await CheckDriveConnection();
 
-        if (!isConnected && syncStatus !== 'logging in') {
-          await handleForcedLogout(
-            'Drive connection lost. Please login again.',
-          );
+        if (!isConnected && syncStatusRef.current !== 'logging in') {
+          stopSyncMonitoring();
+          setSyncStatus('offline');
+          console.warn('Drive connection lost. Waiting for auto-recovery.');
           return;
         }
 
@@ -92,58 +77,52 @@ export const useDriveSync = (
           syncStartTime.current &&
           Date.now() - syncStartTime.current > SYNC_TIMEOUT
         ) {
-          await handleForcedLogout('Sync timeout. Please login again.');
+          stopSyncMonitoring();
+          setSyncStatus('offline');
+          console.warn('Sync timeout. Please try manual sync.');
           return;
         }
       } catch (error) {
         console.error('Sync monitoring error:', error);
-        await handleForcedLogout(
-          'Error checking sync status. Please login again.',
-        );
+        stopSyncMonitoring();
+        setSyncStatus('offline');
       }
     }, 10000);
-  }, [syncStatus, handleForcedLogout]);
+  }, [stopSyncMonitoring]);
 
-  // ドライブの状態をUIに反映
-  const handleDriveStatus = useCallback(
-    (status: string) => {
-      setSyncStatus(status as 'synced' | 'syncing' | 'logging in' | 'offline');
-      // 同期中の場合は監視を開始
-      if (status === 'syncing') {
-        startSyncMonitoring();
-      } else {
-        // 同期完了時は監視を停止
-        stopSyncMonitoring();
-        // 同期完了時はホバー状態をリセット
-        if (status === 'synced') {
-          setIsHoveringSync(false);
-          setIsHoverLocked(true);
-          const timer = setTimeout(() => {
-            setIsHoverLocked(false);
-          }, 500);
-          return () => clearTimeout(timer);
-        }
+  // ドライブの状態を監視（イベントハンドラはrefで管理し、effectの再登録を防ぐ）
+  const handleDriveStatusRef = useRef((_status: string) => {});
+  handleDriveStatusRef.current = (status: string) => {
+    setSyncStatus(status as 'synced' | 'syncing' | 'logging in' | 'offline');
+    if (status === 'syncing') {
+      startSyncMonitoring();
+    } else {
+      stopSyncMonitoring();
+      if (status === 'synced') {
+        setIsHoveringSync(false);
+        setIsHoverLocked(true);
+        setTimeout(() => {
+          setIsHoverLocked(false);
+        }, 500);
       }
-    },
-    [startSyncMonitoring, stopSyncMonitoring],
-  );
+    }
+  };
 
-  // ドライブのエラーを処理
-  const handleDriveError = useCallback(
-    (error: string) => {
-      showMessage('Drive error', error);
-      console.error('Drive error:', error);
-    },
-    [showMessage],
-  );
+  const handleDriveErrorRef = useRef((_error: string) => {});
+  handleDriveErrorRef.current = (error: string) => {
+    showMessage('Drive error', error);
+    console.error('Drive error:', error);
+  };
 
-  // ドライブの状態を監視
   useEffect(() => {
     EventsOn('notes:updated', handleSync);
-    EventsOn('drive:status', handleDriveStatus);
-    EventsOn('drive:error', handleDriveError);
+    EventsOn('drive:status', (status: string) =>
+      handleDriveStatusRef.current(status),
+    );
+    EventsOn('drive:error', (error: string) =>
+      handleDriveErrorRef.current(error),
+    );
 
-    // DomReadyはuseEffectより先に完了するため、直接呼び出し
     handleBackendReady();
 
     return () => {
@@ -152,13 +131,7 @@ export const useDriveSync = (
       EventsOff('drive:error');
       stopSyncMonitoring();
     };
-  }, [
-    handleBackendReady,
-    handleSync,
-    handleDriveStatus,
-    handleDriveError,
-    stopSyncMonitoring,
-  ]);
+  }, [handleBackendReady, handleSync, stopSyncMonitoring]);
 
   // ログイン認証
   const handleGoogleAuth = useCallback(async () => {

@@ -175,17 +175,33 @@ describe('useDriveSync', () => {
       await act(async () => {
         vi.advanceTimersByTime(10000);
         await vi.runAllTicks();
-        // CheckDriveConnection の Promise を解決させる
         await Promise.resolve();
         await Promise.resolve();
       });
     }
 
     expect(LogoutDrive).not.toHaveBeenCalled();
-    expect(mockShowMessage).not.toHaveBeenCalledWith(
-      'Sync Error',
-      expect.stringContaining('timeout'),
-    );
+    expect(result.current.syncStatus).toBe('syncing');
+  });
+
+  it('接続断時にLogoutDriveが呼ばれずofflineになること', async () => {
+    (CheckDriveConnection as unknown as Mock).mockResolvedValue(true);
+    const { result } = renderHook(() => useDriveSync(mockShowMessage));
+    await waitForEffect();
+
+    await act(async () => {
+      eventHandlers['drive:status']('syncing');
+    });
+    expect(result.current.syncStatus).toBe('syncing');
+
+    (CheckDriveConnection as unknown as Mock).mockResolvedValue(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11000);
+    });
+
+    expect(LogoutDrive).not.toHaveBeenCalled();
+    expect(result.current.syncStatus).toBe('offline');
   });
 
   it('ドライブステータスの変更が正しく反映されること', async () => {
