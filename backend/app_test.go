@@ -62,18 +62,18 @@ func setupAppTest(t *testing.T) *appTestHelper {
 	// ディレクトリの作成
 	os.MkdirAll(app.notesDir, 0755)
 
+	// AppLoggerの初期化
+	app.logger = NewAppLogger(context.Background(), true, app.appDataDir) // テストモードはtrue
+
 	// 各サービスの初期化
 	app.fileService = NewFileService(app.ctx)
 	app.settingsService = NewSettingsService(app.appDataDir)
 
-	noteService, err := NewNoteService(app.notesDir)
+	noteService, err := NewNoteService(app.notesDir, app.logger)
 	if err != nil {
 		t.Fatalf("NoteServiceの初期化に失敗: %v", err)
 	}
 	app.noteService = noteService
-
-	// AppLoggerの初期化を追加
-	app.logger = NewAppLogger(context.Background(), true, app.appDataDir) // テストモードはtrue
 
 	// テスト用の認証情報
 	credentials := []byte(`{

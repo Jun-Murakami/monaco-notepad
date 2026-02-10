@@ -118,7 +118,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.appDataDir = filepath.Join(appData, "monaco-notepad")
 	a.notesDir = filepath.Join(a.appDataDir, "notes")
 
-	fmt.Println("appDataDir: ", a.appDataDir)
+	a.logger.Console("appDataDir: %s", a.appDataDir)
 
 	// ディレクトリの作成
 	os.MkdirAll(a.notesDir, 0755)
@@ -136,7 +136,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.fileNoteService = NewFileNoteService(a.appDataDir)
 
 	// NoteServiceの初期化 (NoteList読み込みを含む)
-	noteService, err := NewNoteService(a.notesDir)
+	noteService, err := NewNoteService(a.notesDir, a.logger)
 	if err != nil {
 		a.logger.Error(err, "Error initializing note service")
 		return
@@ -289,7 +289,7 @@ func (a *App) SaveNote(note *Note, action string) error {
 
 // ノートリストを保存する ------------------------------------------------------------
 func (a *App) SaveNoteList() error {
-	fmt.Println("SaveNoteList called")
+	a.logger.Console("SaveNoteList called")
 	// LastSyncを更新
 	a.noteService.noteList.LastSync = time.Now()
 
@@ -346,7 +346,7 @@ func (a *App) LoadArchivedNote(id string) (*Note, error) {
 
 // ノートの順序を更新する ------------------------------------------------------------
 func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
-	fmt.Println("UpdateNoteOrder called")
+	a.logger.Console("UpdateNoteOrder called")
 	if err := a.noteService.UpdateNoteOrder(noteID, newIndex); err != nil {
 		return fmt.Errorf("error updating note order: %v", err)
 	}
