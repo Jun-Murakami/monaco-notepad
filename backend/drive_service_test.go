@@ -2489,3 +2489,66 @@ func TestSyncJournal_PartialDownload_Recovery(t *testing.T) {
 	assert.NoError(t, err3, "note-3は未完了なので復旧ダウンロードされるべき")
 	assert.Equal(t, "Note3", loaded3.Title)
 }
+
+// --- H-9: 重複ファイル整理のソート基準修正テスト ---
+
+func TestFindLatestFile_SortsByModifiedTime(t *testing.T) {
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	ops := &driveOperationsImpl{service: nil, logger: logger}
+
+	oldCreated := time.Now().Add(-3 * time.Hour)
+	newCreated := time.Now().Add(-1 * time.Hour)
+	oldModified := time.Now().Add(-2 * time.Hour)
+	newModified := time.Now()
+
+	files := []*drive.File{
+		{
+			Id:           "file-old-created-new-modified",
+			Name:         "note.json",
+			CreatedTime:  oldCreated.Format(time.RFC3339),
+			ModifiedTime: newModified.Format(time.RFC3339),
+		},
+		{
+			Id:           "file-new-created-old-modified",
+			Name:         "note.json",
+			CreatedTime:  newCreated.Format(time.RFC3339),
+			ModifiedTime: oldModified.Format(time.RFC3339),
+		},
+	}
+
+	latest := ops.FindLatestFile(files)
+	assert.Equal(t, "file-old-created-new-modified", latest.Id,
+		"modifiedTimeが最新のファイルが返されるべき（createdTimeではなく）")
+}
+
+func TestFindLatestFile_ReturnsNilForEmptySlice(t *testing.T) {
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	ops := &driveOperationsImpl{service: nil, logger: logger}
+
+	assert.Nil(t, ops.FindLatestFile(nil))
+	assert.Nil(t, ops.FindLatestFile([]*drive.File{}))
+}
+
+func TestFindLatestFile_SingleFile(t *testing.T) {
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	ops := &driveOperationsImpl{service: nil, logger: logger}
+
+	f := &drive.File{Id: "only", ModifiedTime: time.Now().Format(time.RFC3339)}
+	assert.Equal(t, "only", ops.FindLatestFile([]*drive.File{f}).Id)
+}
+
+func TestFindLatestFile_ThreeFiles_CorrectOrder(t *testing.T) {
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	ops := &driveOperationsImpl{service: nil, logger: logger}
+
+	files := []*drive.File{
+		{Id: "oldest", ModifiedTime: time.Now().Add(-3 * time.Hour).Format(time.RFC3339)},
+		{Id: "newest", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "middle", ModifiedTime: time.Now().Add(-1 * time.Hour).Format(time.RFC3339)},
+	}
+
+	latest := ops.FindLatestFile(files)
+	assert.Equal(t, "newest", latest.Id)
+	assert.Equal(t, "newest", files[0].Id, "FindLatestFile後のスライスはmodifiedTime降順にソートされるべき")
+	assert.Equal(t, "oldest", files[2].Id)
+}

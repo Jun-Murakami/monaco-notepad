@@ -151,7 +151,7 @@ func (d *driveOperationsImpl) ListFiles(query string) ([]*drive.File, error) {
 	d.logger.Console("[GAPI] Listing files: %s", query)
 	files, err := d.service.Files.List().
 		Q(query).
-		Fields("files(id, name, createdTime)").
+		Fields("files(id, name, createdTime, modifiedTime)").
 		Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files: %w", err)
@@ -222,8 +222,8 @@ func (d *driveOperationsImpl) FindLatestFile(files []*drive.File) *drive.File {
 	}
 
 	sort.Slice(files, func(i, j int) bool {
-		t1, err1 := time.Parse(time.RFC3339, files[i].CreatedTime)
-		t2, err2 := time.Parse(time.RFC3339, files[j].CreatedTime)
+		t1, err1 := time.Parse(time.RFC3339, files[i].ModifiedTime)
+		t2, err2 := time.Parse(time.RFC3339, files[j].ModifiedTime)
 		if err1 != nil || err2 != nil {
 			return false
 		}
