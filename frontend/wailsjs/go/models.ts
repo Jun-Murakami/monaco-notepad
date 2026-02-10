@@ -93,6 +93,7 @@ export namespace backend {
 	    windowY: number;
 	    isMaximized: boolean;
 	    isDebug: boolean;
+	    markdownPreviewOnLeft: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -112,6 +113,7 @@ export namespace backend {
 	        this.windowY = source["windowY"];
 	        this.isMaximized = source["isMaximized"];
 	        this.isDebug = source["isDebug"];
+	        this.markdownPreviewOnLeft = source["markdownPreviewOnLeft"];
 	    }
 	}
 	export class TopLevelItem {

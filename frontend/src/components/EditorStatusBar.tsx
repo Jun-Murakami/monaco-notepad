@@ -39,6 +39,7 @@ interface EditorStatusBarProps {
   currentNote: Note | FileNote | null;
   isSplit: boolean;
   isMarkdownPreview: boolean;
+  canSplit: boolean;
   onToggleSplit: () => void;
   onToggleMarkdownPreview: () => void;
   onSettings: () => void;
@@ -50,6 +51,7 @@ export const EditorStatusBar = ({
   currentNote,
   isSplit,
   isMarkdownPreview,
+  canSplit,
   onToggleSplit,
   onToggleMarkdownPreview,
   onSettings,
@@ -248,13 +250,16 @@ export const EditorStatusBar = ({
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 'auto', flexShrink: 0, mr: -1 }}>
         <Tooltip title={isSplit ? 'Close Split' : 'Split Editor'} arrow placement='top'>
-          <IconButton
-            sx={{ fontSize: 16, width: 28, height: 28 }}
-            onClick={onToggleSplit}
-            color={isSplit ? 'primary' : 'default'}
-          >
-            <Flip sx={{ fontSize: 18 }} />
-          </IconButton>
+          <span>
+            <IconButton
+              sx={{ fontSize: 16, width: 28, height: 28 }}
+              onClick={onToggleSplit}
+              disabled={!canSplit && !isSplit}
+              color={isSplit ? 'primary' : 'default'}
+            >
+              <Flip sx={{ fontSize: 18 }} />
+            </IconButton>
+          </span>
         </Tooltip>
         <Tooltip title={isMarkdownPreview ? 'Close Preview' : 'Markdown Preview'} arrow placement='top'>
           <IconButton

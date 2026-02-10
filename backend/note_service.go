@@ -95,7 +95,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			// アクティブなノートはコンテンツを読み込む
 			note, err := s.LoadNote(metadata.ID)
 			if err != nil {
-				s.logConsole("ノート %s の読み込みをスキップしました: %v", metadata.ID, err)
+				s.logConsole("Skipped loading note %s: %v", metadata.ID, err)
 				continue
 			}
 			notes = append(notes, *note)
@@ -261,7 +261,7 @@ func (s *noteService) CreateConflictCopy(originalNote *Note) (*Note, error) {
 	timestamp := time.Now().Format("2006-01-02 15:04")
 	copyNote := &Note{
 		ID:            newID,
-		Title:         originalNote.Title + " (競合コピー " + timestamp + ")",
+		Title:         originalNote.Title + " (conflict copy " + timestamp + ")",
 		Content:       originalNote.Content,
 		ContentHeader: originalNote.ContentHeader,
 		Language:      originalNote.Language,
@@ -562,7 +562,7 @@ func (s *noteService) ArchiveFolder(id string) error {
 		}
 		note, err := s.LoadNote(metadata.ID)
 		if err != nil {
-			s.logConsole("ノート %s の読み込みに失敗したためアーカイブをスキップ: %v", metadata.ID, err)
+			s.logConsole("Skipped archiving note %s due to load failure: %v", metadata.ID, err)
 			continue
 		}
 		note.Archived = true
@@ -615,7 +615,7 @@ func (s *noteService) UnarchiveFolder(id string) error {
 		}
 		note, err := s.LoadNote(metadata.ID)
 		if err != nil {
-			s.logConsole("ノート %s の読み込みに失敗したため復元をスキップ: %v", metadata.ID, err)
+			s.logConsole("Skipped restoring note %s due to load failure: %v", metadata.ID, err)
 			continue
 		}
 		note.Archived = false
@@ -660,16 +660,16 @@ func (s *noteService) DeleteArchivedFolder(id string) error {
 			notePath := filepath.Join(s.notesDir, metadata.ID+".json")
 			if err := os.Remove(notePath); err == nil {
 				deletedCount++
-				s.logConsole("アーカイブノート「%s」を削除しました", metadata.Title)
+				s.logConsole("Deleted archived note \"%s\"", metadata.Title)
 			} else if !os.IsNotExist(err) {
-				s.logConsole("アーカイブノート「%s」の削除に失敗しました: %v", metadata.Title, err)
+				s.logConsole("Failed to delete archived note \"%s\": %v", metadata.Title, err)
 			}
 		} else {
 			remainingNotes = append(remainingNotes, metadata)
 		}
 	}
 	if deletedCount > 0 {
-		s.logInfo("アーカイブフォルダ内の%d件のノートを削除しました", deletedCount)
+		s.logInfo("Deleted %d notes in archived folder", deletedCount)
 	}
 	s.noteList.Notes = remainingNotes
 
@@ -800,7 +800,7 @@ func (s *noteService) deduplicateNoteList() {
 		}
 	}
 	if duplicateCount > 0 {
-		s.logInfo("ノートリストから%d件の重複エントリを除去しました", duplicateCount)
+		s.logInfo("Removed %d duplicate entries from note list", duplicateCount)
 	}
 	s.noteList.Notes = deduped
 }
@@ -810,7 +810,7 @@ func (s *noteService) loadNoteList() error {
 	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
 
 	if _, err := os.Stat(noteListPath); os.IsNotExist(err) {
-		s.logInfo("ノートリストが見つからないため、新規作成します")
+		s.logInfo("Note list not found, creating new one")
 		s.noteList = &NoteList{
 			Version: "1.0",
 			Notes:   []NoteMetadata{},
@@ -850,7 +850,7 @@ func (s *noteService) loadNoteList() error {
 
 	// resolveMetadataConflicts で変更があった場合、LastSync を変えずに保存（起動時の正規化は同期方向に影響させない）
 	if !s.isNoteListEqual(originalNotes, s.noteList.Notes) {
-		s.logConsole("ノートリストの正規化処理により変更が発生したため保存します")
+		s.logConsole("Saving note list due to normalization changes")
 		if err := s.saveNoteList(); err != nil {
 			return fmt.Errorf("failed to save note list after changes: %v", err)
 		}
@@ -909,7 +909,7 @@ func (s *noteService) resolveMetadataConflicts() error {
 		if err != nil {
 			if os.IsNotExist(err) {
 				skippedCount++
-				s.logConsole("メタデータ競合解決: ノート %s のファイルが存在しないためスキップ", listMetadata.ID)
+				s.logConsole("Metadata conflict resolution: skipping note %s (file not found)", listMetadata.ID)
 				continue
 			}
 			return fmt.Errorf("failed to load note %s: %v", listMetadata.ID, err)
@@ -954,10 +954,10 @@ func (s *noteService) resolveMetadataConflicts() error {
 	}
 
 	if resolvedCount > 0 {
-		s.logInfo("メタデータの競合を%d件解決しました", resolvedCount)
+		s.logInfo("Resolved %d metadata conflicts", resolvedCount)
 	}
 	if skippedCount > 0 {
-		s.logConsole("メタデータ競合解決: %d件のファイルが存在しないためスキップ", skippedCount)
+		s.logConsole("Metadata conflict resolution: skipped %d notes (files not found)", skippedCount)
 	}
 
 	// 解決したメタデータでノートリストを更新
@@ -1039,7 +1039,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		if !noteIDSet[noteID] {
 			note, loadErr := s.LoadNote(noteID)
 			if loadErr != nil {
-				s.logInfo("整合性チェック: 孤立ファイル %s の読み込みに失敗しました（スキップ）", noteID)
+				s.logInfo("Integrity check: failed to load orphan file %s (skipped)", noteID)
 				continue
 			}
 			s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
@@ -1050,7 +1050,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 				ModifiedTime:  note.ModifiedTime,
 				Archived:      note.Archived,
 			})
-			s.logInfo("整合性チェック: ノート「%s」を復元しました", note.Title)
+			s.logInfo("Integrity check: restored note \"%s\"", note.Title)
 			changed = true
 		}
 	}
@@ -1061,7 +1061,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		if physicalNotes[metadata.ID] {
 			validNotes = append(validNotes, metadata)
 		} else {
-			s.logInfo("整合性チェック: 物理ファイルのないノート「%s」をリストから除去しました", metadata.Title)
+			s.logInfo("Integrity check: removed note \"%s\" from list (file missing)", metadata.Title)
 			changed = true
 		}
 	}
@@ -1178,7 +1178,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	}
 
 	if changed {
-		s.logInfo("整合性チェック: 表示順序を修復しました")
+		s.logInfo("Integrity check: repaired display order")
 		if saveErr := s.saveNoteList(); saveErr != nil {
 			return changed, saveErr
 		}

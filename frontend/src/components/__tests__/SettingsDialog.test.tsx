@@ -21,6 +21,7 @@ describe('SettingsDialog', () => {
 		wordWrap: 'off',
 		minimap: true,
 		isDebug: false,
+		markdownPreviewOnLeft: false,
 		windowWidth: 800,
 		windowHeight: 600,
 		windowX: 0,

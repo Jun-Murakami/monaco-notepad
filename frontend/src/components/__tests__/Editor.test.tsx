@@ -136,6 +136,7 @@ describe('Editor', () => {
 		windowY: 0,
 		isMaximized: false,
 		isDebug: false,
+		markdownPreviewOnLeft: false,
 	};
 
   const defaultProps = {

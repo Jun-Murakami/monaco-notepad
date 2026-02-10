@@ -48,15 +48,15 @@ type Folder struct {
 
 // ノートの基本情報
 type Note struct {
-	ID            string `json:"id"`                        // ノートの一意識別子
-	Title         string `json:"title"`                     // ノートのタイトル
-	Content       string `json:"content"`                   // ノートの本文内容
-	ContentHeader string `json:"contentHeader"`             // アーカイブ時に表示される内容のプレビュー
-	Language      string `json:"language"`                  // ノートで使用されているプログラミング言語
-	ModifiedTime  string `json:"modifiedTime"`              // 最終更新日時
-	Archived      bool   `json:"archived"`                  // アーカイブ状態（true=アーカイブ済み）
-	Order         int    `json:"order"`                     // ノートの表示順序
-	FolderID      string `json:"folderId,omitempty"`        // 所属フォルダID（空文字=未分類）
+	ID            string `json:"id"`                 // ノートの一意識別子
+	Title         string `json:"title"`              // ノートのタイトル
+	Content       string `json:"content"`            // ノートの本文内容
+	ContentHeader string `json:"contentHeader"`      // アーカイブ時に表示される内容のプレビュー
+	Language      string `json:"language"`           // ノートで使用されているプログラミング言語
+	ModifiedTime  string `json:"modifiedTime"`       // 最終更新日時
+	Archived      bool   `json:"archived"`           // アーカイブ状態（true=アーカイブ済み）
+	Order         int    `json:"order"`              // ノートの表示順序
+	FolderID      string `json:"folderId,omitempty"` // 所属フォルダID（空文字=未分類）
 }
 
 // ノートのメタデータのみを保持
@@ -74,28 +74,29 @@ type NoteMetadata struct {
 
 // ノートのリストを管理
 type NoteList struct {
-	Version                string         `json:"version"`
-	Notes                  []NoteMetadata `json:"notes"`
-	Folders                []Folder       `json:"folders,omitempty"`
-	TopLevelOrder          []TopLevelItem `json:"topLevelOrder,omitempty"`
-	ArchivedTopLevelOrder  []TopLevelItem `json:"archivedTopLevelOrder,omitempty"`
-	LastSync               time.Time      `json:"lastSync"`
+	Version               string         `json:"version"`
+	Notes                 []NoteMetadata `json:"notes"`
+	Folders               []Folder       `json:"folders,omitempty"`
+	TopLevelOrder         []TopLevelItem `json:"topLevelOrder,omitempty"`
+	ArchivedTopLevelOrder []TopLevelItem `json:"archivedTopLevelOrder,omitempty"`
+	LastSync              time.Time      `json:"lastSync"`
 }
 
 // アプリケーションの設定を管理
 type Settings struct {
-	FontFamily   string `json:"fontFamily"`
-	FontSize     int    `json:"fontSize"`
-	IsDarkMode   bool   `json:"isDarkMode"`
-	EditorTheme  string `json:"editorTheme"`
-	WordWrap     string `json:"wordWrap"`
-	Minimap      bool   `json:"minimap"`
-	WindowWidth  int    `json:"windowWidth"`
-	WindowHeight int    `json:"windowHeight"`
-	WindowX      int    `json:"windowX"`
-	WindowY      int    `json:"windowY"`
-	IsMaximized  bool   `json:"isMaximized"`
-	IsDebug      bool   `json:"isDebug"`
+	FontFamily            string `json:"fontFamily"`
+	FontSize              int    `json:"fontSize"`
+	IsDarkMode            bool   `json:"isDarkMode"`
+	EditorTheme           string `json:"editorTheme"`
+	WordWrap              string `json:"wordWrap"`
+	Minimap               bool   `json:"minimap"`
+	WindowWidth           int    `json:"windowWidth"`
+	WindowHeight          int    `json:"windowHeight"`
+	WindowX               int    `json:"windowX"`
+	WindowY               int    `json:"windowY"`
+	IsMaximized           bool   `json:"isMaximized"`
+	IsDebug               bool   `json:"isDebug"`
+	MarkdownPreviewOnLeft bool   `json:"markdownPreviewOnLeft"`
 }
 
 type SyncResult struct {
@@ -114,7 +115,7 @@ func (r *SyncResult) Summary() string {
 	if !r.HasChanges() {
 		return ""
 	}
-	s := "同期完了:"
+	s := "Sync complete:"
 	if r.Uploaded > 0 {
 		s += fmt.Sprintf(" ↑%d", r.Uploaded)
 	}
@@ -125,10 +126,10 @@ func (r *SyncResult) Summary() string {
 		s += fmt.Sprintf(" 🗑%d", r.Deleted)
 	}
 	if r.ConflictCopies > 0 {
-		s += fmt.Sprintf(" ⚡%d件の競合コピー", r.ConflictCopies)
+		s += fmt.Sprintf(" ⚡%d conflict copies", r.ConflictCopies)
 	}
 	if r.Errors > 0 {
-		s += fmt.Sprintf(" ⚠%d件失敗", r.Errors)
+		s += fmt.Sprintf(" ⚠%d errors", r.Errors)
 	}
 	return s
 }
@@ -231,8 +232,8 @@ type SyncJournalAction struct {
 
 // SyncJournal は同期処理の中断からの復旧に使用するジャーナル
 type SyncJournal struct {
-	StartedAt time.Time            `json:"startedAt"` // 同期開始時刻
-	Actions   []SyncJournalAction  `json:"actions"`   // アクションリスト
+	StartedAt time.Time           `json:"startedAt"` // 同期開始時刻
+	Actions   []SyncJournalAction `json:"actions"`   // アクションリスト
 }
 
 type WailsConfig struct {

@@ -276,12 +276,15 @@ function App() {
     focusedPane,
     handleFocusPane,
     leftNote,
+    setLeftNote,
     leftFileNote,
+    setLeftFileNote,
     rightNote,
     setRightNote,
     rightFileNote,
     setRightFileNote,
     handleSelectNoteForPane,
+    openNoteInPane,
     handleLeftNoteContentChange,
     handleRightNoteContentChange,
     handleLeftFileNoteContentChange,
@@ -296,6 +299,9 @@ function App() {
     setCurrentFileNote,
   });
 
+  const archiveNoteRef = useRef(handleArchiveNote);
+  const closeFileRef = useRef(handleCloseFile);
+
   // 初期化
   const { languages, platform } = useInitialize(
     setNotes,
@@ -308,18 +314,22 @@ function App() {
     setCurrentFileNote,
     handleSaveFile,
     handleOpenFile,
-    handleCloseFile,
+    useCallback((file: FileNote) => closeFileRef.current(file), []),
     isFileModified,
     currentNote,
-    handleArchiveNote,
+    useCallback((noteId: string) => archiveNoteRef.current(noteId), []),
     handleSaveAsFile,
     handleSelectNextAnyNote,
     handleSelectPreviousAnyNote,
     restorePaneNotes,
   );
 
+  const totalAvailableItems = fileNotes.length + notes.filter((n) => !n.archived).length;
+  const canSplit = isSplit || totalAvailableItems >= 2;
+
   const handleToggleSplit = useCallback(() => {
     if (!isSplit) {
+      if (!canSplit) return;
       const leftId = currentNote?.id || currentFileNote?.id;
       const firstOther =
         fileNotes.find((fn) => fn.id !== leftId) ||
@@ -339,7 +349,111 @@ function App() {
     } else {
       toggleSplit();
     }
-  }, [isSplit, currentNote, currentFileNote, fileNotes, notes, topLevelOrder, toggleSplit]);
+  }, [isSplit, canSplit, currentNote, currentFileNote, fileNotes, notes, topLevelOrder, toggleSplit]);
+
+  const findFirstOtherNote = useCallback(
+    (...excludeIds: string[]): Note | FileNote | undefined => {
+      const excluded = new Set(excludeIds);
+      const found = fileNotes.find((fn) => !excluded.has(fn.id));
+      if (found) return found;
+      for (const item of topLevelOrder) {
+        if (item.type === 'note') {
+          const n = notes.find((n) => n.id === item.id && !n.archived && !excluded.has(n.id));
+          if (n) return n;
+        } else if (item.type === 'folder') {
+          const n = notes.find((n) => n.folderId === item.id && !n.archived && !excluded.has(n.id));
+          if (n) return n;
+        }
+      }
+      return undefined;
+    },
+    [fileNotes, notes, topLevelOrder],
+  );
+
+  const handleOpenNoteInPane = useCallback(
+    (note: Note | FileNote, pane: 'left' | 'right') => {
+      if (!canSplit && !isSplit) return;
+      const fallback = findFirstOtherNote(note.id);
+      openNoteInPane(note, pane, fallback);
+    },
+    [openNoteInPane, findFirstOtherNote, canSplit, isSplit],
+  );
+
+  const replacePaneAfterClose = useCallback(
+    (closedId: string) => {
+      if (!isSplit) return;
+      const leftId = leftNote?.id ?? leftFileNote?.id;
+      const rightId = rightNote?.id ?? rightFileNote?.id;
+      const inLeft = leftId === closedId;
+      const inRight = rightId === closedId;
+
+      if (!inLeft && !inRight) return;
+      if (inLeft && inRight) return;
+
+      const setPaneNote = (pane: 'left' | 'right', note: Note | FileNote) => {
+        const isFile = 'filePath' in note;
+        if (pane === 'left') {
+          setLeftNote(isFile ? null : note as Note);
+          setLeftFileNote(isFile ? note as FileNote : null);
+        } else {
+          setRightNote(isFile ? null : note as Note);
+          setRightFileNote(isFile ? note as FileNote : null);
+        }
+        if (focusedPane === pane) {
+          setCurrentNote(isFile ? null : note as Note);
+          setCurrentFileNote(isFile ? note as FileNote : null);
+        }
+      };
+
+      if (inLeft) {
+        const replacement = findFirstOtherNote(closedId, rightId ?? '');
+        if (replacement) {
+          setPaneNote('left', replacement);
+        } else {
+          toggleSplit();
+        }
+      } else if (inRight) {
+        const replacement = findFirstOtherNote(closedId, leftId ?? '');
+        if (replacement) {
+          setPaneNote('right', replacement);
+        } else {
+          toggleSplit();
+        }
+      }
+      saveSplitState();
+    },
+    [isSplit, leftNote, leftFileNote, rightNote, rightFileNote, focusedPane, findFirstOtherNote, setLeftNote, setLeftFileNote, setRightNote, setRightFileNote, setCurrentNote, setCurrentFileNote, toggleSplit, saveSplitState],
+  );
+
+  const handleArchiveNoteWithSplit = useCallback(
+    async (noteId: string) => {
+      await handleArchiveNote(noteId);
+      replacePaneAfterClose(noteId);
+    },
+    [handleArchiveNote, replacePaneAfterClose],
+  );
+
+	const handleCloseFileWithSplit = useCallback(
+		async (fileNote: FileNote) => {
+			await handleCloseFile(fileNote);
+			if (!isSplit) {
+				// Override the wrong selection made by handleCloseFile
+				// (which picks array-first instead of topLevelOrder-first)
+				const replacement = findFirstOtherNote(fileNote.id);
+				if (replacement) {
+					const isFile = 'filePath' in replacement;
+					setCurrentNote(isFile ? null : (replacement as Note));
+					setCurrentFileNote(isFile ? (replacement as FileNote) : null);
+				}
+				return;
+			}
+			replacePaneAfterClose(fileNote.id);
+		},
+		[handleCloseFile, replacePaneAfterClose, isSplit, findFirstOtherNote, setCurrentNote, setCurrentFileNote],
+	);
+
+  archiveNoteRef.current = handleArchiveNoteWithSplit;
+  closeFileRef.current = handleCloseFileWithSplit;
 
   const TITLE_BAR_HEIGHT = platform === 'darwin' ? 26 : 0;
 
@@ -546,10 +660,12 @@ function App() {
                         setFileNotes(newNotes as FileNote[]);
                       }}
                       isFileMode={true}
-                      onCloseFile={handleCloseFile}
+                      onCloseFile={handleCloseFileWithSplit}
                       isFileModified={isFileModified}
                       platform={platform}
                       secondarySelectedNoteId={secondarySelectedNoteId}
+                      onOpenInPane={handleOpenNoteInPane}
+                      canSplit={canSplit}
                     />
                     <Divider />
                   </>
@@ -591,7 +707,7 @@ function App() {
                   notes={noteSearch ? filteredNotes : notes}
                   currentNote={isSplit ? leftNote : currentNote}
                   onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
-                  onArchive={handleArchiveNote}
+                  onArchive={handleArchiveNoteWithSplit}
                   onReorder={async (newNotes) => {
                     setNotes(newNotes as Note[]);
                   }}
@@ -608,6 +724,8 @@ function App() {
                   topLevelOrder={topLevelOrder}
                   onUpdateTopLevelOrder={handleUpdateTopLevelOrder}
                   secondarySelectedNoteId={secondarySelectedNoteId}
+                  onOpenInPane={handleOpenNoteInPane}
+                  canSplit={canSplit}
                 />
               </SimpleBar>
             </Box>
@@ -660,6 +778,11 @@ function App() {
               />
             ) : (
               <Allotment>
+                {isMarkdownPreview && editorSettings.markdownPreviewOnLeft && (
+                  <Allotment.Pane minSize={200}>
+                    <MarkdownPreview content={currentNote?.content || currentFileNote?.content || ''} />
+                  </Allotment.Pane>
+                )}
                 <Allotment.Pane minSize={200}>
                   <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     <PaneHeader
@@ -717,15 +840,15 @@ function App() {
                         onClose={async () => {
                           if (isSplit) {
                             if (leftFileNote) {
-                              await handleCloseFile(leftFileNote);
+                              await handleCloseFileWithSplit(leftFileNote);
                             } else if (leftNote) {
-                              await handleArchiveNote(leftNote.id);
+                              await handleArchiveNoteWithSplit(leftNote.id);
                             }
                           } else {
                             if (currentFileNote) {
-                              await handleCloseFile(currentFileNote);
+                              await handleCloseFileWithSplit(currentFileNote);
                             } else if (currentNote) {
-                              await handleArchiveNote(currentNote.id);
+                              await handleArchiveNoteWithSplit(currentNote.id);
                             }
                           }
                         }}
@@ -780,9 +903,9 @@ function App() {
                           }}
                           onClose={async () => {
                             if (rightFileNote) {
-                              await handleCloseFile(rightFileNote);
+                              await handleCloseFileWithSplit(rightFileNote);
                             } else if (rightNote) {
-                              await handleArchiveNote(rightNote.id);
+                              await handleArchiveNoteWithSplit(rightNote.id);
                             }
                           }}
                           onSelectNext={handleSelectNextAnyNote}
@@ -792,7 +915,7 @@ function App() {
                     </Box>
                   </Allotment.Pane>
                 )}
-                {isMarkdownPreview && (
+                {isMarkdownPreview && !editorSettings.markdownPreviewOnLeft && (
                   <Allotment.Pane minSize={200}>
                     <MarkdownPreview content={currentNote?.content || currentFileNote?.content || ''} />
                   </Allotment.Pane>
@@ -812,6 +935,7 @@ function App() {
               }
               isSplit={isSplit}
               isMarkdownPreview={isMarkdownPreview}
+              canSplit={canSplit}
               onToggleSplit={handleToggleSplit}
               onToggleMarkdownPreview={toggleMarkdownPreview}
               onSettings={() => setIsSettingsOpen(true)}

@@ -209,6 +209,21 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
               />
             </Grid>
 
+            <Grid size={8}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={localSettings.markdownPreviewOnLeft}
+                    onChange={(e) =>
+                      handleChange({ markdownPreviewOnLeft: e.target.checked })
+                    }
+                  />
+                }
+                label="Markdown Preview on Left"
+              />
+            </Grid>
+
             <Divider orientation="horizontal" sx={{ width: '100%' }} />
 
             <Box

@@ -403,7 +403,7 @@ func (s *driveService) recoverFromJournal() {
 		return
 	}
 
-	s.logger.Info("前回の同期が中断されていたため、修復を開始します")
+	s.logger.Info("Previous sync was interrupted, starting recovery")
 
 	recovered := 0
 	for _, action := range journal.Actions {
@@ -414,22 +414,22 @@ func (s *driveService) recoverFromJournal() {
 		case "download":
 			note, dlErr := s.driveSync.DownloadNote(s.ctx, action.NoteID)
 			if dlErr != nil {
-				s.logger.Error(dlErr, "ジャーナル復旧: ノート %s のダウンロードに失敗", action.NoteID)
+				s.logger.Error(dlErr, "Journal recovery: failed to download note %s", action.NoteID)
 				continue
 			}
 			if saveErr := s.noteService.SaveNoteFromSync(note); saveErr != nil {
-				s.logger.Error(saveErr, "ジャーナル復旧: ノート %s の保存に失敗", action.NoteID)
+				s.logger.Error(saveErr, "Journal recovery: failed to save note %s", action.NoteID)
 				continue
 			}
 			recovered++
 		case "upload":
 			note, loadErr := s.noteService.LoadNote(action.NoteID)
 			if loadErr != nil {
-				s.logger.Error(loadErr, "ジャーナル復旧: ノート %s の読み込みに失敗", action.NoteID)
+				s.logger.Error(loadErr, "Journal recovery: failed to load note %s", action.NoteID)
 				continue
 			}
 			if createErr := s.driveSync.CreateNote(s.ctx, note); createErr != nil {
-				s.logger.Error(createErr, "ジャーナル復旧: ノート %s のアップロードに失敗", action.NoteID)
+				s.logger.Error(createErr, "Journal recovery: failed to upload note %s", action.NoteID)
 				continue
 			}
 			recovered++
@@ -439,9 +439,9 @@ func (s *driveService) recoverFromJournal() {
 	s.deleteSyncJournal()
 
 	if recovered > 0 {
-		s.logger.Info("前回の同期が中断されていたため、%d件のノートを修復しました", recovered)
+		s.logger.Info("Previous sync was interrupted, recovered %d notes", recovered)
 	} else {
-		s.logger.Info("前回の同期が中断されていましたが、修復済みでした")
+		s.logger.Info("Previous sync was interrupted but already recovered")
 	}
 }
 
@@ -528,7 +528,7 @@ func (s *driveService) SyncNotes() error {
 	}
 
 	// 8. タイムスタンプが異なる場合はマージベースで同期（オフライン復帰対応）
-	s.logger.Info("オフライン中の変更を同期中...")
+	s.logger.Info("Syncing changes made while offline...")
 	if err := s.mergeNoteListsAndDownload(cloudNoteList); err != nil {
 		return s.auth.HandleOfflineTransition(err)
 	}
@@ -605,7 +605,7 @@ func (s *driveService) performInitialSync() error {
 // キュー内に処理が残っている場合は同期をスキップ（true = スキップした）
 func (s *driveService) skipSyncIfQueuePending() bool {
 	if s.operationsQueue != nil && s.operationsQueue.HasItems() {
-		s.logger.Info("同期をスキップ: 保留中の操作あり")
+		s.logger.Info("Skipping sync: pending operations in queue")
 		return true
 	}
 	return false
@@ -728,7 +728,7 @@ func (s *driveService) mergeNotes(
 				if copyErr != nil {
 					s.logger.Error(copyErr, "Failed to create conflict copy for note %s", id)
 				} else {
-					s.logger.Info("「%s」の競合コピーを作成しました", localNote.Title)
+					s.logger.Info("Created conflict copy of \"%s\"", localNote.Title)
 					if s.lastSyncResult != nil {
 						s.lastSyncResult.ConflictCopies++
 					}
@@ -741,7 +741,7 @@ func (s *driveService) mergeNotes(
 			mergedNotes = append(mergedNotes, cloudNote)
 			note, dlErr := s.driveSync.DownloadNote(ctx, id)
 			if dlErr != nil {
-				s.logger.Error(dlErr, "ノート %s の同期をスキップしました（データ破損）", id)
+				s.logger.Error(dlErr, "Skipped syncing note %s (data corruption)", id)
 				if s.lastSyncResult != nil {
 					s.lastSyncResult.Errors++
 				}
@@ -759,7 +759,7 @@ func (s *driveService) mergeNotes(
 			if err == nil {
 				s.logger.Info("Uploading note %s to cloud because it doesn't exist in cloud", id)
 				if createErr := s.driveSync.CreateNote(ctx, note); createErr != nil {
-					s.logger.Error(createErr, "ノート %s のアップロードに失敗しました（スキップ）", id)
+					s.logger.Error(createErr, "Failed to upload note %s (skipped)", id)
 					if s.lastSyncResult != nil {
 						s.lastSyncResult.Errors++
 					}
@@ -776,7 +776,7 @@ func (s *driveService) mergeNotes(
 		s.logger.Info("Downloading note %s from cloud because it doesn't exist in local", id)
 		note, err := s.driveSync.DownloadNote(ctx, id)
 		if err != nil {
-			s.logger.Error(err, "ノート %s の同期をスキップしました（ダウンロード失敗）", id)
+			s.logger.Error(err, "Skipped syncing note %s (download failed)", id)
 			if s.lastSyncResult != nil {
 				s.lastSyncResult.Errors++
 			}
@@ -868,11 +868,11 @@ func (s *driveService) uploadAllNotesWithContent(ctx context.Context) error {
 	for _, meta := range s.noteService.noteList.Notes {
 		note, err := s.noteService.LoadNote(meta.ID)
 		if err != nil {
-			s.logger.Error(err, "ノート %s の読み込みをスキップ（ファイル欠落）", meta.ID)
+			s.logger.Error(err, "Skipped loading note %s (file missing)", meta.ID)
 			continue
 		}
 		if createErr := s.driveSync.CreateNote(ctx, note); createErr != nil {
-			s.logger.Error(createErr, "ノート %s のアップロードに失敗", meta.ID)
+			s.logger.Error(createErr, "Failed to upload note %s", meta.ID)
 			continue
 		}
 	}
@@ -945,11 +945,11 @@ func (s *driveService) handleLocalSync(localNoteList *NoteList, cloudNoteList *N
 		}
 		localNoteFile, err := s.noteService.LoadNote(localNote.ID)
 		if err != nil {
-			s.logger.Error(err, "ノート %s の読み込みに失敗しました（スキップ）", localNote.ID)
+			s.logger.Error(err, "Failed to load note %s (skipped)", localNote.ID)
 			continue
 		}
 		if err := s.syncNoteLocalToCloud(localNoteFile); err != nil {
-			s.logger.Error(err, "ノート %s のクラウド同期に失敗しました（スキップ）", localNote.ID)
+			s.logger.Error(err, "Failed to sync note %s to cloud (skipped)", localNote.ID)
 			continue
 		}
 	}

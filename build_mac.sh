@@ -50,7 +50,9 @@ xattr -c "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg"
 
 echo "Submitting DMG for notarization..."
 xcrun notarytool submit "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg" \
-  --keychain-profile monaconotepad \
+  --key "$APPLE_API_KEY_PATH" \
+  --key-id "$APPLE_API_KEY_ID" \
+  --issuer "$APPLE_API_ISSUER" \
   --wait
 
 echo "Waiting for notarization to complete..."

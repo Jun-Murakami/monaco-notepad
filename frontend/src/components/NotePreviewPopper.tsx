@@ -1,13 +1,14 @@
 import { Box, Paper, Popper, Typography } from '@mui/material';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface NotePreviewPopperProps {
   content: string | undefined;
   anchorX?: number;
+  disabled?: boolean;
   children: React.ReactNode;
 }
 
-export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, anchorX, children }) => {
+export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, anchorX, disabled, children }) => {
   const [open, setOpen] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
   const mouseYRef = useRef(0);
@@ -21,7 +22,18 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, a
     return containerRef.current?.getBoundingClientRect().right ?? 0;
   }, [anchorX]);
 
+  useEffect(() => {
+    if (disabled) {
+      if (hoverTimerRef.current) {
+        window.clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      setOpen(false);
+    }
+  }, [disabled]);
+
   const handleMouseEnter = useCallback(() => {
+    if (disabled) return;
     hoverTimerRef.current = window.setTimeout(() => {
       const x = getAnchorX();
       virtualAnchorRef.current = {
@@ -29,7 +41,7 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, a
       };
       setOpen(true);
     }, 200);
-  }, [getAnchorX]);
+  }, [getAnchorX, disabled]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {

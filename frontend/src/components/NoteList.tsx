@@ -34,7 +34,19 @@ import {
   Save,
   SimCardDownload,
 } from '@mui/icons-material';
-import { Box, IconButton, InputBase, List, ListItemButton, Tooltip, Typography, alpha, useTheme } from '@mui/material';
+import {
+  Box,
+  IconButton,
+  InputBase,
+  List,
+  ListItemButton,
+  Menu,
+  MenuItem,
+  Tooltip,
+  Typography,
+  alpha,
+  useTheme,
+} from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
@@ -65,6 +77,8 @@ interface NoteListProps {
   onUpdateTopLevelOrder?: (order: TopLevelItem[]) => void;
   onArchiveFolder?: (folderId: string) => Promise<void>;
   secondarySelectedNoteId?: string;
+  onOpenInPane?: (note: Note | FileNote, pane: 'left' | 'right') => void;
+  canSplit?: boolean;
 }
 
 interface NoteItemProps {
@@ -83,6 +97,8 @@ interface NoteItemProps {
   isFileModified?: (fileId: string) => boolean;
   platform: string;
   secondarySelectedNoteId?: string;
+  onOpenInPane?: (note: Note | FileNote, pane: 'left' | 'right') => void;
+  canSplit?: boolean;
 }
 
 // ノートアイテム表示コンポーネント（ドラッグはSortableWrapperが担当） ----
@@ -99,17 +115,34 @@ const NoteItem: React.FC<NoteItemProps> = ({
   isFileModified,
   platform,
   secondarySelectedNoteId,
+  onOpenInPane,
+  canSplit,
 }) => {
   const theme = useTheme();
   const cmdKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
   const noteTitle = getNoteTitle(note);
+  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
 
   const isFileNote = (note: Note | FileNote): note is FileNote => {
     return 'filePath' in note;
   };
 
+  const handleContextMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(contextMenu === null ? { mouseX: event.clientX + 2, mouseY: event.clientY - 6 } : null);
+  };
+
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+  };
+
   return (
-    <NotePreviewPopper content={'content' in note ? (note.content ?? undefined) : undefined} anchorX={242}>
+    <NotePreviewPopper
+      content={'content' in note ? (note.content ?? undefined) : undefined}
+      anchorX={242}
+      disabled={contextMenu !== null}
+    >
       <Box
         sx={{
           position: 'relative',
@@ -123,6 +156,7 @@ const NoteItem: React.FC<NoteItemProps> = ({
               await onNoteSelect(note);
             }
           }}
+          onContextMenu={handleContextMenu}
           sx={{
             display: 'flex',
             flexDirection: 'column',
@@ -192,9 +226,6 @@ const NoteItem: React.FC<NoteItemProps> = ({
                     width: 26,
                     height: 26,
                     backgroundColor: 'background.default',
-                    '&:hover': {
-                      backgroundColor: 'primary.main',
-                    },
                   }}
                 >
                   <Save sx={{ width: 18, height: 18 }} />
@@ -218,9 +249,6 @@ const NoteItem: React.FC<NoteItemProps> = ({
                     width: 26,
                     height: 26,
                     backgroundColor: 'background.default',
-                    '&:hover': {
-                      backgroundColor: 'primary.main',
-                    },
                   }}
                 >
                   <SimCardDownload sx={{ width: 18, height: 18 }} />
@@ -244,9 +272,6 @@ const NoteItem: React.FC<NoteItemProps> = ({
                     width: 26,
                     height: 26,
                     backgroundColor: 'background.default',
-                    '&:hover': {
-                      backgroundColor: 'primary.main',
-                    },
                   }}
                 >
                   <Close sx={{ width: 18, height: 18 }} />
@@ -272,9 +297,6 @@ const NoteItem: React.FC<NoteItemProps> = ({
                     width: 26,
                     height: 26,
                     backgroundColor: 'background.default',
-                    '&:hover': {
-                      backgroundColor: 'primary.main',
-                    },
                   }}
                 >
                   <Archive sx={{ width: 18, height: 18 }} />
@@ -283,6 +305,47 @@ const NoteItem: React.FC<NoteItemProps> = ({
             </Tooltip>
           )
         )}
+        <Menu
+          open={contextMenu !== null}
+          onClose={handleCloseContextMenu}
+          anchorReference='anchorPosition'
+          anchorPosition={contextMenu !== null ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+          sx={{ zIndex: 1400 }}
+          slotProps={{ paper: { sx: { minWidth: 0 } } }}
+        >
+          <MenuItem
+            dense
+            disabled={!canSplit}
+            onClick={() => {
+              onOpenInPane?.(note, 'left');
+              handleCloseContextMenu();
+            }}
+            sx={{ py: 0.25, fontSize: '0.75rem' }}
+          >
+            <Typography variant='caption' color='text.secondary' sx={{ mr: 0.5 }}>
+              Open in
+            </Typography>
+            <Typography variant='caption' sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+              1: Left Pane
+            </Typography>
+          </MenuItem>
+          <MenuItem
+            dense
+            disabled={!canSplit}
+            onClick={() => {
+              onOpenInPane?.(note, 'right');
+              handleCloseContextMenu();
+            }}
+            sx={{ py: 0.25, fontSize: '0.75rem' }}
+          >
+            <Typography variant='caption' color='text.secondary' sx={{ mr: 0.5 }}>
+              Open in
+            </Typography>
+            <Typography variant='caption' sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
+              2: Right Pane
+            </Typography>
+          </MenuItem>
+        </Menu>
       </Box>
     </NotePreviewPopper>
   );
@@ -548,6 +611,8 @@ export const NoteList: React.FC<NoteListProps> = ({
   onUpdateTopLevelOrder,
   onArchiveFolder,
   secondarySelectedNoteId,
+  onOpenInPane,
+  canSplit,
 }) => {
   const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived);
   const sensors = useSensors(
@@ -625,6 +690,8 @@ export const NoteList: React.FC<NoteListProps> = ({
       isFileModified={isFileModified}
       platform={platform}
       secondarySelectedNoteId={secondarySelectedNoteId}
+      onOpenInPane={onOpenInPane}
+      canSplit={canSplit}
     />
   );
 

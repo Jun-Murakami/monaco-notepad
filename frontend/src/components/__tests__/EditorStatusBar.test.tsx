@@ -68,6 +68,7 @@ describe('EditorStatusBar', () => {
   const statusBarProps = {
     isSplit: false,
     isMarkdownPreview: false,
+    canSplit: true,
     onToggleSplit: vi.fn(),
     onToggleMarkdownPreview: vi.fn(),
     onSettings: vi.fn(),

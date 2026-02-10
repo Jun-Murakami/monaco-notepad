@@ -63,6 +63,7 @@ export type Settings = {
 	windowY: number;
 	isMaximized: boolean;
 	isDebug: boolean;
+	markdownPreviewOnLeft: boolean;
 };
 
 export type EditorPane = 'left' | 'right';
@@ -81,4 +82,5 @@ export const DEFAULT_EDITOR_SETTINGS: Partial<Settings> = {
 	wordWrap: 'off',
 	minimap: true,
 	isDebug: false,
+	markdownPreviewOnLeft: false,
 };

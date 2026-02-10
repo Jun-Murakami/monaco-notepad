@@ -189,6 +189,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
     windowY: 0,
     isMaximized: false,
     isDebug: false,
+    markdownPreviewOnLeft: false,
   }),
   SaveSettings: vi.fn(),
   GetVersion: vi.fn().mockResolvedValue('1.0.0'),
@@ -207,6 +208,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
     windowY: 0,
     isMaximized: false,
     isDebug: false,
+    markdownPreviewOnLeft: false,
   }),
   Environment: vi.fn().mockResolvedValue({
     platform: 'win32',

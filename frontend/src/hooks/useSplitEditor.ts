@@ -209,6 +209,97 @@ export const useSplitEditor = ({
 		[setCurrentNote, setCurrentFileNote, updateFocusedPane, saveSplitState],
 	);
 
+	const setPaneNote = useCallback(
+		(pane: EditorPane, note: Note | FileNote) => {
+			const isFile = 'filePath' in note;
+			if (pane === 'left') {
+				if (isFile) {
+					setLeftFileNote(note as FileNote);
+					setLeftNote(null);
+					leftFileNoteRef.current = note as FileNote;
+					leftNoteRef.current = null;
+				} else {
+					setLeftNote(note as Note);
+					setLeftFileNote(null);
+					leftNoteRef.current = note as Note;
+					leftFileNoteRef.current = null;
+				}
+			} else {
+				if (isFile) {
+					setRightFileNote(note as FileNote);
+					setRightNote(null);
+					rightFileNoteRef.current = note as FileNote;
+					rightNoteRef.current = null;
+				} else {
+					setRightNote(note as Note);
+					setRightFileNote(null);
+					rightNoteRef.current = note as Note;
+					rightFileNoteRef.current = null;
+				}
+			}
+		},
+		[],
+	);
+
+	// 指定ペインにノートを開く（コンテキストメニュー用）
+	// fallbackNote: 反対ペインが同じノートになる場合に代わりに読み込むノート
+	const openNoteInPane = useCallback(
+		(note: Note | FileNote, targetPane: EditorPane, fallbackNote?: Note | FileNote) => {
+			const isFile = 'filePath' in note;
+			const wasSplit = isSplitRef.current;
+			const otherPane: EditorPane = targetPane === 'left' ? 'right' : 'left';
+
+			if (!wasSplit) {
+				setIsMarkdownPreview(false);
+				isMarkdownPreviewRef.current = false;
+
+				const currentId = currentNote?.id ?? currentFileNote?.id;
+				const otherNote = (currentId === note.id && fallbackNote) ? fallbackNote : null;
+
+				setPaneNote(targetPane, note);
+
+				if (otherNote) {
+					setPaneNote(otherPane, otherNote);
+				} else if (targetPane === 'left') {
+					setRightNote(currentNote);
+					setRightFileNote(currentFileNote);
+					rightNoteRef.current = currentNote;
+					rightFileNoteRef.current = currentFileNote;
+				} else {
+					setLeftNote(currentNote);
+					setLeftFileNote(currentFileNote);
+					leftNoteRef.current = currentNote;
+					leftFileNoteRef.current = currentFileNote;
+				}
+
+				setCurrentNote(isFile ? null : note as Note);
+				setCurrentFileNote(isFile ? note as FileNote : null);
+				updateFocusedPane(targetPane);
+				setIsSplit(true);
+				isSplitRef.current = true;
+			} else {
+				const otherPaneId = targetPane === 'left'
+					? (rightNoteRef.current?.id ?? rightFileNoteRef.current?.id)
+					: (leftNoteRef.current?.id ?? leftFileNoteRef.current?.id);
+
+				if (otherPaneId === note.id) {
+					if (fallbackNote) {
+						setPaneNote(otherPane, fallbackNote);
+					} else {
+						setPaneNote(otherPane, note);
+					}
+				}
+
+				setPaneNote(targetPane, note);
+				setCurrentNote(isFile ? null : note as Note);
+				setCurrentFileNote(isFile ? note as FileNote : null);
+				updateFocusedPane(targetPane);
+			}
+			saveSplitState();
+		},
+		[currentNote, currentFileNote, setCurrentNote, setCurrentFileNote, updateFocusedPane, saveSplitState, setPaneNote],
+	);
+
 	// 左ペインのノートコンテンツ変更
 	const handleLeftNoteContentChange = useCallback(
 		(newContent: string) => {
@@ -314,6 +405,7 @@ export const useSplitEditor = ({
 		activeNote,
 		activeFileNote,
 		handleSelectNoteForPane,
+		openNoteInPane,
 		handleLeftNoteContentChange,
 		handleRightNoteContentChange,
 		handleLeftFileNoteContentChange,

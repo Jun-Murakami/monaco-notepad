@@ -1474,7 +1474,7 @@ func TestCreateConflictCopy_CreatesNewNote(t *testing.T) {
 	copy, err := helper.noteService.CreateConflictCopy(original)
 	assert.NoError(t, err)
 	assert.NotEqual(t, original.ID, copy.ID)
-	assert.Contains(t, copy.Title, "競合コピー")
+	assert.Contains(t, copy.Title, "conflict copy")
 	assert.Equal(t, original.Content, copy.Content)
 	assert.Equal(t, original.Language, copy.Language)
 
@@ -1574,7 +1574,7 @@ func TestMergeNotes_ConflictingContent_CreatesConflictCopy(t *testing.T) {
 
 	hasConflictCopy := false
 	for _, n := range mergedNotes {
-		if strings.Contains(n.Title, "競合コピー") {
+		if strings.Contains(n.Title, "conflict copy") {
 			hasConflictCopy = true
 			break
 		}
@@ -1806,7 +1806,7 @@ func TestMergeNotes_ClockSkew_BothVersionsPreserved(t *testing.T) {
 	assert.True(t, len(mergedNotes) >= 2, "クロックスキューがあっても両バージョンが保持されるべき")
 	hasConflictCopy := false
 	for _, n := range mergedNotes {
-		if strings.Contains(n.Title, "競合コピー") {
+		if strings.Contains(n.Title, "conflict copy") {
 			hasConflictCopy = true
 		}
 	}
@@ -1934,7 +1934,7 @@ func TestOfflineRecovery_ConflictCopiesCreated(t *testing.T) {
 
 	hasConflictCopy := false
 	for _, n := range mergedNotes {
-		if strings.Contains(n.Title, "競合コピー") {
+		if strings.Contains(n.Title, "conflict copy") {
 			hasConflictCopy = true
 			break
 		}
@@ -2153,13 +2153,13 @@ func TestSyncResult_WithChanges_Summary(t *testing.T) {
 func TestSyncResult_WithConflicts_Summary(t *testing.T) {
 	r := &SyncResult{Uploaded: 1, ConflictCopies: 2}
 	summary := r.Summary()
-	assert.Contains(t, summary, "⚡2件の競合コピー")
+	assert.Contains(t, summary, "⚡2 conflict copies")
 }
 
 func TestSyncResult_WithErrors_Summary(t *testing.T) {
 	r := &SyncResult{Downloaded: 1, Errors: 3}
 	summary := r.Summary()
-	assert.Contains(t, summary, "⚠3件失敗")
+	assert.Contains(t, summary, "⚠3 errors")
 }
 
 // --- M-5: Syncedステータスの信頼性向上テスト ---

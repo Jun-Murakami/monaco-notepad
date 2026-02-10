@@ -34,6 +34,7 @@ describe('useEditorSettings フック', () => {
     isMaximized: true,
     isDebug: true,
     editorTheme: 'default',
+    markdownPreviewOnLeft: false,
   };
 
   beforeEach(() => {
@@ -62,6 +63,7 @@ describe('useEditorSettings フック', () => {
         isMaximized: false,
         isDebug: false,
         editorTheme: 'default',
+        markdownPreviewOnLeft: false,
       });
 
       // 非同期処理の完了を待つ
@@ -108,6 +110,7 @@ describe('useEditorSettings フック', () => {
         isMaximized: false,
         isDebug: false,
         editorTheme: 'default',
+        markdownPreviewOnLeft: false,
       });
     });
   });
