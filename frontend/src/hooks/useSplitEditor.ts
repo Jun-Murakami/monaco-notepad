@@ -507,6 +507,42 @@ export const useSplitEditor = ({
     [scheduleSplitSave],
   );
 
+  const handleLeftNoteTitleChange = useCallback(
+    (newTitle: string) => {
+      const currentLeftNote = leftNoteRef.current;
+      if (!currentLeftNote) return;
+
+      const pendingContent = pendingLeftContentRef.current;
+
+      // タイトル変更時も「左ペイン側に未保存変更がある」ことを明示的に記録する。
+      // これを立てないと、他経路の同期で左ペイン内容が上書きされる可能性がある。
+      isLeftModified.current = true;
+
+      setLeftNote((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          title: newTitle,
+          // タイトル変更時に未反映の本文があれば同時に保持して保存へ流す。
+          ...(pendingContent !== null ? { content: pendingContent } : {}),
+          modifiedTime: new Date().toISOString(),
+        };
+      });
+
+      // ノート一覧（左サイドバー）へ即時反映するために notes 状態も同時更新する。
+      // これをしないと入力中に一覧表示が古いまま残り、視覚的に不整合が発生しやすい。
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === currentLeftNote.id ? { ...n, title: newTitle } : n,
+        ),
+      );
+
+      pendingLeftContentRef.current = null;
+      scheduleSplitSave('left');
+    },
+    [scheduleSplitSave, setNotes],
+  );
+
   const handleRightNoteLanguageChange = useCallback(
     (newLanguage: string) => {
       const pendingContent = pendingRightContentRef.current;
@@ -524,6 +560,43 @@ export const useSplitEditor = ({
       scheduleSplitSave('right');
     },
     [scheduleSplitSave],
+  );
+
+  const handleRightNoteTitleChange = useCallback(
+    (newTitle: string) => {
+      const currentRightNote = rightNoteRef.current;
+      if (!currentRightNote) return;
+
+      const pendingContent = pendingRightContentRef.current;
+
+      // 右ペインのタイトル編集を「右ペインの変更」として確実にマーキングする。
+      // これにより、左ペイン側の保存や同期イベントで右ペイン編集中データが
+      // 意図せず巻き戻るのを防ぐ。
+      isRightModified.current = true;
+
+      setRightNote((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          title: newTitle,
+          // タイトル入力中でも、未保存本文があれば同一ノートへ一貫して保持する。
+          ...(pendingContent !== null ? { content: pendingContent } : {}),
+          modifiedTime: new Date().toISOString(),
+        };
+      });
+
+      // サイドバーの表示を右ペイン編集内容に追随させるため、
+      // グローバル notes も rightNote の ID 限定で更新する。
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === currentRightNote.id ? { ...n, title: newTitle } : n,
+        ),
+      );
+
+      pendingRightContentRef.current = null;
+      scheduleSplitSave('right');
+    },
+    [scheduleSplitSave, setNotes],
   );
 
   const handleLeftFileNoteContentChange = useCallback((newContent: string) => {
@@ -619,6 +692,8 @@ export const useSplitEditor = ({
     openNoteInPane,
     handleLeftNoteContentChange,
     handleRightNoteContentChange,
+    handleLeftNoteTitleChange,
+    handleRightNoteTitleChange,
     handleLeftNoteLanguageChange,
     handleRightNoteLanguageChange,
     handleLeftFileNoteContentChange,

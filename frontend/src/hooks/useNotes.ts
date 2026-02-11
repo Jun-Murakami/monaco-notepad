@@ -339,8 +339,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         prev.map((note) => (note.id === noteId ? unarchivedNote : note)),
       );
       setTopLevelOrder((prev) => [{ type: 'note', id: noteId }, ...prev]);
-      setCurrentNote(unarchivedNote);
-      setShowArchived(false);
+      // リストア後はノートを開かずアーカイブページのままにする（setCurrentNote / setShowArchived は呼ばない）
       await SaveNote(backend.Note.createFrom(unarchivedNote), 'update');
 
       const rawArchivedOrder = await GetArchivedTopLevelOrder();
@@ -605,15 +604,8 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   const handleUnarchiveFolder = useCallback(
     async (folderId: string) => {
       await UnarchiveFolder(folderId);
-      const newNotes = await reloadAllState();
-      setShowArchived(false);
-
-      const restoredNotes = newNotes.filter(
-        (n) => n.folderId === folderId && !n.archived,
-      );
-      if (restoredNotes.length > 0) {
-        setCurrentNote(restoredNotes[0]);
-      }
+      await reloadAllState();
+      // リストア後はノートを開かずアーカイブページのままにする
     },
     [reloadAllState],
   );

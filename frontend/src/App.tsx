@@ -299,6 +299,8 @@ function App() {
     openNoteInPane,
     handleLeftNoteContentChange,
     handleRightNoteContentChange,
+    handleLeftNoteTitleChange,
+    handleRightNoteTitleChange,
     handleLeftNoteLanguageChange,
     handleRightNoteLanguageChange,
     handleLeftFileNoteContentChange,
@@ -848,14 +850,25 @@ function App() {
                     <PaneHeader
                       note={isSplit ? leftFileNote || leftNote : currentFileNote || currentNote}
                       languages={languages}
-                      onTitleChange={handleTitleChange}
+                      onTitleChange={
+                        isSplit
+                          ? (title) => {
+                              if (leftNote) {
+                                handleLeftNoteTitleChange(title);
+                              }
+                            }
+                          : handleTitleChange
+                      }
                       onLanguageChange={
                         isSplit
                           ? (language) => {
                               if (leftNote) {
                                 handleLeftNoteLanguageChange(language);
                               } else if (leftFileNote) {
-                                setLeftFileNote({ ...leftFileNote, language });
+                                // 非同期更新の取りこぼしを避けるため、関数型更新で現在値に対して適用する。
+                                setLeftFileNote((prev) =>
+                                  prev ? { ...prev, language } : prev,
+                                );
                               }
                             }
                           : handleLanguageChange
@@ -937,18 +950,17 @@ function App() {
                         languages={languages}
                         onTitleChange={(title) => {
                           if (rightNote) {
-                            setRightNote({
-                              ...rightNote,
-                              title,
-                              modifiedTime: new Date().toISOString(),
-                            });
+                            handleRightNoteTitleChange(title);
                           }
                         }}
                         onLanguageChange={(language) => {
                           if (rightNote) {
                             handleRightNoteLanguageChange(language);
                           } else if (rightFileNote) {
-                            setRightFileNote({ ...rightFileNote, language });
+                            // 非同期更新の取りこぼしを避けるため、関数型更新で現在値に対して適用する。
+                            setRightFileNote((prev) =>
+                              prev ? { ...prev, language } : prev,
+                            );
                           }
                         }}
                         onFocusEditor={() => rightEditorInstanceRef.current?.focus()}
