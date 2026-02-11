@@ -126,6 +126,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 		credentials,
 		app.logger,
 		authService,
+		"test-client-id",
 	)
 
 	// DriveOpsの初期化を追加

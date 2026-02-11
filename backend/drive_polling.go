@@ -15,7 +15,6 @@ type DrivePollingService struct {
 	stopPollingChan  chan struct{}
 	logger           AppLogger
 	changePageToken  string
-	skipNextChange   bool
 }
 
 func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePollingService {
@@ -122,25 +121,19 @@ func (p *DrivePollingService) StartPolling() {
 				p.logger.ErrorWithNotify(syncErr, "Failed to sync with Drive")
 				interval = initialInterval
 			} else if hasChanges {
-				if p.skipNextChange {
-					p.skipNextChange = false
-					p.logger.Console("Skipping self-detected change")
-					p.initChangeToken()
+				p.driveService.forceNextSync = true
+				if err := p.driveService.SyncNotes(); err != nil {
+					p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
+					interval = initialInterval
+				} else if p.driveService.lastSyncResult != nil && p.driveService.lastSyncResult.HasChanges() {
+					if !p.driveService.IsTestMode() {
+						p.logger.NotifyDriveStatus(p.ctx, "synced")
+					}
+					interval = initialInterval
 				} else {
-					p.driveService.forceNextSync = true
-					if err := p.driveService.SyncNotes(); err != nil {
-						p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
-						interval = initialInterval
-					} else if p.driveService.lastSyncResult != nil && p.driveService.lastSyncResult.HasChanges() {
-						if !p.driveService.IsTestMode() {
-							p.logger.NotifyDriveStatus(p.ctx, "synced")
-						}
-						interval = initialInterval
-					} else {
-						interval = time.Duration(float64(interval) * factor)
-						if interval > maxInterval {
-							interval = maxInterval
-						}
+					interval = time.Duration(float64(interval) * factor)
+					if interval > maxInterval {
+						interval = maxInterval
 					}
 				}
 			} else {
@@ -180,7 +173,6 @@ func (p *DrivePollingService) RefreshChangeToken() {
 		return
 	}
 	p.changePageToken = token
-	p.skipNextChange = true
 }
 
 func (p *DrivePollingService) checkForChanges() (bool, error) {
@@ -210,6 +202,11 @@ func (p *DrivePollingService) checkForChanges() (bool, error) {
 
 	rootID, notesID := p.driveService.auth.GetDriveSync().FolderIDs()
 	if hasRelevantChanges(result.Changes, rootID, notesID) {
+		if p.isSelfNoteListChange(result.Changes, rootID, notesID) {
+			p.logger.Console("Skipping self-detected change (client id)")
+			p.initChangeToken()
+			return false, nil
+		}
 		return true, nil
 	}
 
@@ -232,6 +229,46 @@ func hasRelevantChanges(changes []*drive.Change, rootID, notesID string) bool {
 		}
 	}
 	return false
+}
+
+func (p *DrivePollingService) isSelfNoteListChange(changes []*drive.Change, rootID, notesID string) bool {
+	noteListID := p.driveService.auth.GetDriveSync().NoteListID()
+	if noteListID == "" {
+		return false
+	}
+
+	hasNoteListChange := false
+	for _, change := range changes {
+		if change.File == nil {
+			continue
+		}
+		if change.File.Id == noteListID {
+			hasNoteListChange = true
+			continue
+		}
+		for _, parentID := range change.File.Parents {
+			if parentID == rootID || parentID == notesID {
+				return false
+			}
+		}
+		if strings.HasSuffix(change.File.Name, ".json") {
+			return false
+		}
+	}
+
+	if !hasNoteListChange {
+		return false
+	}
+
+	noteList, err := p.driveService.driveSync.DownloadNoteList(p.ctx, noteListID)
+	if err != nil {
+		p.logger.Error(err, "Failed to download noteList for self-change check")
+		return false
+	}
+	if noteList.LastSyncClientID == "" {
+		return false
+	}
+	return noteList.LastSyncClientID == p.driveService.clientID
 }
 
 func (p *DrivePollingService) StopPolling() {

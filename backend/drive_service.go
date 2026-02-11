@@ -55,6 +55,7 @@ type driveService struct {
 	deferredUploadTimer    *time.Timer // デバウンス: 遅延アップロード用タイマー
 	deletedMu              sync.Mutex  // recentlyDeletedNoteIDs の排他制御
 	recentlyDeletedNoteIDs map[string]bool
+	clientID               string
 }
 
 // NewDriveService は新しいDriveServiceインスタンスを作成します
@@ -66,6 +67,7 @@ func NewDriveService(
 	credentialsJSON []byte,
 	logger AppLogger,
 	authService *authService,
+	clientID string,
 ) *driveService {
 	ds := &driveService{
 		ctx:                    ctx,
@@ -78,6 +80,7 @@ func NewDriveService(
 		driveOps:               nil,
 		driveSync:              nil,
 		recentlyDeletedNoteIDs: make(map[string]bool),
+		clientID:               clientID,
 	}
 
 	ds.pollingService = NewDrivePollingService(ctx, ds)
@@ -420,6 +423,7 @@ func (s *driveService) updateNoteListInternal() error {
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 	s.logger.Console("Modifying note list: %v, Notes count: %d", s.noteService.noteList.LastSync, len(s.noteService.noteList.Notes))
 
+	s.noteService.noteList.LastSyncClientID = s.clientID
 	err := s.driveSync.UpdateNoteList(s.ctx, s.noteService.noteList, s.auth.GetDriveSync().NoteListID())
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
@@ -431,6 +435,7 @@ func (s *driveService) updateNoteListInternal() error {
 
 	s.auth.GetDriveSync().UpdateCloudNoteList(
 		s.noteService.noteList.LastSync,
+		s.noteService.noteList.LastSyncClientID,
 		s.noteService.noteList.Notes,
 		s.noteService.noteList.Folders,
 		s.noteService.noteList.TopLevelOrder,

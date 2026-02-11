@@ -32,11 +32,12 @@ export type NoteMetadata = {
 };
 
 export type NoteList = {
-  version: string;
-  notes: NoteMetadata[];
-  folders?: Folder[];
-  archivedTopLevelOrder?: TopLevelItem[];
-  lastSync: string;
+	version: string;
+	notes: NoteMetadata[];
+	folders?: Folder[];
+	archivedTopLevelOrder?: TopLevelItem[];
+	lastSync: string;
+	lastSyncClientId?: string;
 };
 
 // ファイルノートの型

@@ -57,8 +57,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -98,6 +100,20 @@ func NewApp() *App {
 	}
 }
 
+func (a *App) loadOrCreateClientID() string {
+	clientIDPath := filepath.Join(a.appDataDir, "client_id.txt")
+	if data, err := os.ReadFile(clientIDPath); err == nil {
+		id := strings.TrimSpace(string(data))
+		if id != "" {
+			return id
+		}
+	}
+
+	id := uuid.New().String()
+	_ = os.WriteFile(clientIDPath, []byte(id), 0644)
+	return id
+}
+
 // ------------------------------------------------------------
 // アプリケーション関連の操作
 // ------------------------------------------------------------
@@ -120,6 +136,8 @@ func (a *App) Startup(ctx context.Context) {
 
 	// ディレクトリの作成
 	os.MkdirAll(a.notesDir, 0755)
+
+	a.clientID = a.loadOrCreateClientID()
 
 	// AppLoggerの初期化
 	a.logger = NewAppLogger(ctx, false, a.appDataDir)
@@ -170,6 +188,7 @@ func (a *App) DomReady(ctx context.Context) {
 		credentialsJSON,
 		a.logger,
 		authService,
+		a.clientID,
 	)
 	a.driveService = driveService
 

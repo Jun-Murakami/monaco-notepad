@@ -25,6 +25,7 @@ type App struct {
 	fileNoteService *fileNoteService // ファイルノート操作サービス
 	frontendReady   chan struct{}    // フロントエンドの準備完了を通知するチャネル
 	logger          AppLogger        // アプリケーションのロガー
+	clientID        string           // 端末固有の識別子
 }
 
 // アプリケーションのコンテキストを管理
@@ -82,6 +83,7 @@ type NoteList struct {
 	ArchivedTopLevelOrder []TopLevelItem `json:"archivedTopLevelOrder,omitempty"`
 	CollapsedFolderIDs    []string       `json:"collapsedFolderIDs,omitempty"`
 	LastSync              time.Time      `json:"lastSync"`
+	LastSyncClientID      string         `json:"lastSyncClientId,omitempty"`
 }
 
 // アプリケーションの設定を管理
@@ -189,13 +191,14 @@ func (ds *DriveSync) SetConnected(connected bool) {
 	ds.isConnected = connected
 }
 
-func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata, folders []Folder, topLevelOrder []TopLevelItem, archivedTopLevelOrder []TopLevelItem, collapsedFolderIDs []string) {
+func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, lastSyncClientID string, notes []NoteMetadata, folders []Folder, topLevelOrder []TopLevelItem, archivedTopLevelOrder []TopLevelItem, collapsedFolderIDs []string) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 	if ds.cloudNoteList == nil {
 		return
 	}
 	ds.cloudNoteList.LastSync = lastSync
+	ds.cloudNoteList.LastSyncClientID = lastSyncClientID
 	notesCopy := make([]NoteMetadata, len(notes))
 	copy(notesCopy, notes)
 	ds.cloudNoteList.Notes = notesCopy
