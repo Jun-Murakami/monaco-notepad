@@ -22,11 +22,17 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
-import type { Folder, Note, TopLevelItem } from '../types';
+import type { EditorPane, FileNote, Folder, Note, TopLevelItem } from '../types';
 
-export const useNotes = (
-  onNotesReloaded?: React.RefObject<((notes: Note[]) => void) | null>,
-) => {
+interface UseNotesOptions {
+  onNotesReloaded?: React.RefObject<((notes: Note[]) => void) | null>;
+  isSplit?: boolean;
+  focusedPane?: EditorPane;
+  openNoteInSplitPane?: (note: Note | FileNote, pane: EditorPane) => void;
+}
+
+export const useNotes = (options: UseNotesOptions = {}) => {
+  const { onNotesReloaded, isSplit, focusedPane, openNoteInSplitPane } = options;
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -220,10 +226,17 @@ export const useNotes = (
     setShowArchived(false);
     setNotes((prev) => [newNote, ...prev]);
     setTopLevelOrder((prev) => [{ type: 'note', id: newNote.id }, ...prev]);
-    setCurrentNote(newNote);
+
+    // Splitモード時はフォーカスされたペインに開く
+    if (isSplit && openNoteInSplitPane && focusedPane) {
+      openNoteInSplitPane(newNote, focusedPane);
+    } else {
+      setCurrentNote(newNote);
+    }
+
     await SaveNote(backend.Note.createFrom(newNote), 'create');
     return newNote;
-  }, []);
+  }, [isSplit, focusedPane, openNoteInSplitPane]);
 
   // 新規ノート作成 ------------------------------------------------------------
   const handleNewNote = useCallback(async () => {

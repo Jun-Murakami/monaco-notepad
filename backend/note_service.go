@@ -1163,6 +1163,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 				}
 			}
 			if !inFolder {
+				s.logInfo("Integrity check: adding missing note %s to TopLevelOrder", id)
 				s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "note", ID: id})
 				changed = true
 			}
@@ -1170,6 +1171,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	}
 	for id := range activeFolderIDs {
 		if !topLevelSeen["folder:"+id] {
+			s.logInfo("Integrity check: adding missing folder %s to TopLevelOrder", id)
 			s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "folder", ID: id})
 			changed = true
 		}

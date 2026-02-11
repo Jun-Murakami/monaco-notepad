@@ -59,7 +59,8 @@ const languageMenuProps: SelectProps['MenuProps'] = {
   slotProps: {
     paper: {
       sx: (theme: Theme) => ({
-        maxHeight: 300,
+        height: '80%',
+        maxHeight: 800,
         ...scrollbarSx(theme),
         '& ul': scrollbarSx(theme),
       }),
@@ -190,6 +191,9 @@ function App() {
   } = useMessageDialog();
 
   const onNotesReloadedRef = useRef<((notes: Note[]) => void) | null>(null);
+  const isSplitRef = useRef<boolean>(false);
+  const focusedPaneRef = useRef<'left' | 'right'>('left');
+  const openNoteInPaneRef = useRef<((note: Note | FileNote, pane: 'left' | 'right') => void) | null>(null);
 
   // ノート
   const {
@@ -225,7 +229,12 @@ function App() {
     handleUnarchiveFolder,
     handleDeleteArchivedFolder,
     handleUpdateArchivedTopLevelOrder,
-  } = useNotes(onNotesReloadedRef);
+  } = useNotes({
+    onNotesReloaded: onNotesReloadedRef,
+    isSplit: isSplitRef.current,
+    focusedPane: focusedPaneRef.current,
+    openNoteInSplitPane: openNoteInPaneRef.current ?? undefined,
+  });
 
   // ファイルノート
   const {
@@ -307,6 +316,9 @@ function App() {
   });
 
   onNotesReloadedRef.current = syncPaneNotes;
+  isSplitRef.current = isSplit;
+  focusedPaneRef.current = focusedPane;
+  openNoteInPaneRef.current = openNoteInPane;
 
   const archiveNoteRef = useRef(handleArchiveNote);
   const closeFileRef = useRef(handleCloseFile);

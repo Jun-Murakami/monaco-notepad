@@ -322,6 +322,10 @@ func (s *driveService) SaveNoteAndUpdateList(note *Note, isCreate bool) error {
 		}
 	}
 
+	s.noteService.noteList.LastSync = time.Now()
+	if err := s.noteService.saveNoteList(); err != nil {
+		return err
+	}
 	if err := s.updateNoteListInternal(); err != nil {
 		return err
 	}
@@ -337,8 +341,6 @@ func (s *driveService) updateNoteListInternal() error {
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 	s.logger.Console("Modifying note list: %v, Notes count: %d", s.noteService.noteList.LastSync, len(s.noteService.noteList.Notes))
 
-	lastSync := s.noteService.noteList.LastSync
-
 	err := s.driveSync.UpdateNoteList(s.ctx, s.noteService.noteList, s.auth.GetDriveSync().NoteListID())
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
@@ -349,7 +351,7 @@ func (s *driveService) updateNoteListInternal() error {
 	}
 
 	s.auth.GetDriveSync().UpdateCloudNoteList(
-		lastSync,
+		s.noteService.noteList.LastSync,
 		s.noteService.noteList.Notes,
 		s.noteService.noteList.Folders,
 		s.noteService.noteList.TopLevelOrder,
@@ -563,16 +565,8 @@ func (s *driveService) SyncNotes() error {
 
 	// 7. コンテンツベースの差分チェック（タイムスタンプではなくハッシュで判定）
 	if !s.isNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
-		s.logger.Info("Note content is identical, syncing structure only")
+		s.logger.Info("Notes unchanged, syncing folder structure only")
 		s.mergeNoteListStructure(cloudNoteList)
-		if s.noteService.noteList.LastSync != cloudNoteList.LastSync {
-			s.noteService.noteList.LastSync = cloudNoteList.LastSync
-			if err := s.noteService.saveNoteList(); err != nil {
-				s.logger.Error(err, "Failed to save note list after structure merge")
-			}
-		} else {
-			s.logger.Console("Skipping noteList save - LastSync unchanged")
-		}
 		s.notifySyncComplete()
 		return nil
 	}
@@ -989,13 +983,17 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 	return nil
 }
 
-// mergeNoteListStructure はクラウドのFolders/TopLevelOrder/ArchivedTopLevelOrderを
-// ローカルにマージする。クラウド版をベースに、ローカルのみのアイテムを末尾追加。
 func (s *driveService) mergeNoteListStructure(cloudNoteList *NoteList) {
+	cloudNewer := isModifiedTimeAfter(
+		cloudNoteList.LastSync.Format(time.RFC3339),
+		s.noteService.noteList.LastSync.Format(time.RFC3339),
+	)
+
 	cloudFolderIDs := make(map[string]bool)
 	for _, f := range cloudNoteList.Folders {
 		cloudFolderIDs[f.ID] = true
 	}
+
 	mergedFolders := make([]Folder, len(cloudNoteList.Folders))
 	copy(mergedFolders, cloudNoteList.Folders)
 	for _, localFolder := range s.noteService.noteList.Folders {
@@ -1005,13 +1003,23 @@ func (s *driveService) mergeNoteListStructure(cloudNoteList *NoteList) {
 	}
 	s.noteService.noteList.Folders = mergedFolders
 
-	s.noteService.noteList.TopLevelOrder = s.mergeTopLevelOrder(
-		cloudNoteList.TopLevelOrder, s.noteService.noteList.TopLevelOrder)
-
-	s.noteService.noteList.ArchivedTopLevelOrder = s.mergeTopLevelOrder(
-		cloudNoteList.ArchivedTopLevelOrder, s.noteService.noteList.ArchivedTopLevelOrder)
+	if cloudNewer {
+		s.noteService.noteList.TopLevelOrder = s.mergeTopLevelOrder(
+			cloudNoteList.TopLevelOrder, s.noteService.noteList.TopLevelOrder)
+		s.noteService.noteList.ArchivedTopLevelOrder = s.mergeTopLevelOrder(
+			cloudNoteList.ArchivedTopLevelOrder, s.noteService.noteList.ArchivedTopLevelOrder)
+	} else {
+		s.noteService.noteList.TopLevelOrder = s.mergeTopLevelOrder(
+			s.noteService.noteList.TopLevelOrder, cloudNoteList.TopLevelOrder)
+		s.noteService.noteList.ArchivedTopLevelOrder = s.mergeTopLevelOrder(
+			s.noteService.noteList.ArchivedTopLevelOrder, cloudNoteList.ArchivedTopLevelOrder)
+	}
 
 	s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
+
+	if err := s.noteService.saveNoteList(); err != nil {
+		s.logger.Error(err, "Failed to save note list after structure merge")
+	}
 }
 
 // uploadAllNotesWithContent はローカルの全ノートをContentを含めてアップロードする
