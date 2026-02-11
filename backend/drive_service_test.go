@@ -2323,6 +2323,169 @@ func TestOfflineRecovery_SameTimeConflictMerged(t *testing.T) {
 	assert.Contains(t, downloadedNotes[0].Content, ">>>>>>>", "コンフリクトマーカーが含まれるべき")
 }
 
+func TestMergeNotes_SimultaneousEdits_MultipleNotes_ConflictMerged(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+	ds.lastSyncResult = &SyncResult{}
+
+	sameTime := time.Now().Format(time.RFC3339)
+
+	localNoteA := &Note{
+		ID:           "note-a",
+		Title:        "Shared A",
+		Content:      "local A",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+	localNoteB := &Note{
+		ID:           "note-b",
+		Title:        "Shared B",
+		Content:      "local B",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+	assert.NoError(t, helper.noteService.SaveNote(localNoteA))
+	assert.NoError(t, helper.noteService.SaveNote(localNoteB))
+
+	cloudNoteA := &Note{
+		ID:           "note-a",
+		Title:        "Shared A",
+		Content:      "cloud A",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+	cloudNoteB := &Note{
+		ID:           "note-b",
+		Title:        "Shared B",
+		Content:      "cloud B",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+
+	mockOps, ok := ds.driveOps.(*mockDriveOperations)
+	assert.True(t, ok)
+	cloudDataA, _ := json.Marshal(cloudNoteA)
+	cloudDataB, _ := json.Marshal(cloudNoteB)
+	_, err := mockOps.CreateFile("note-a.json", cloudDataA, "test-folder", "application/json")
+	assert.NoError(t, err)
+	_, err = mockOps.CreateFile("note-b.json", cloudDataB, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	localNotes := helper.noteService.noteList.Notes
+	cloudNotes := []NoteMetadata{
+		{ID: "note-a", Title: "Shared A", ContentHash: computeContentHash(cloudNoteA), ModifiedTime: sameTime},
+		{ID: "note-b", Title: "Shared B", ContentHash: computeContentHash(cloudNoteB), ModifiedTime: sameTime},
+	}
+
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 2, "同時編集のノートは両方保持されるべき")
+	assert.Len(t, downloadedNotes, 2, "同時編集のノートは両方ダウンロードされるべき")
+	assert.Equal(t, 2, ds.lastSyncResult.ConflictMerges, "同時編集の衝突数がカウントされるべき")
+	assert.Equal(t, 2, ds.lastSyncResult.Downloaded, "ダウンロード数がカウントされるべき")
+
+	downloadedByID := map[string]*Note{}
+	for _, note := range downloadedNotes {
+		downloadedByID[note.ID] = note
+	}
+	assert.Contains(t, downloadedByID["note-a"].Content, "<<<<<<<", "note-a はコンフリクトマーカーを含むべき")
+	assert.Contains(t, downloadedByID["note-a"].Content, "cloud A", "note-a はクラウド内容を含むべき")
+	assert.Contains(t, downloadedByID["note-a"].Content, "local A", "note-a はローカル内容を含むべき")
+	assert.Contains(t, downloadedByID["note-b"].Content, "<<<<<<<", "note-b はコンフリクトマーカーを含むべき")
+	assert.Contains(t, downloadedByID["note-b"].Content, "cloud B", "note-b はクラウド内容を含むべき")
+	assert.Contains(t, downloadedByID["note-b"].Content, "local B", "note-b はローカル内容を含むべき")
+}
+
+func TestMergeNotes_SimultaneousEdits_TitleChange_ConflictMerged(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+	ds.lastSyncResult = &SyncResult{}
+
+	sameTime := time.Now().Format(time.RFC3339)
+
+	localNote := &Note{
+		ID:           "title-conflict",
+		Title:        "Local Title",
+		Content:      "same content",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+	assert.NoError(t, helper.noteService.SaveNote(localNote))
+
+	cloudNote := &Note{
+		ID:           "title-conflict",
+		Title:        "Cloud Title",
+		Content:      "same content",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+
+	mockOps, ok := ds.driveOps.(*mockDriveOperations)
+	assert.True(t, ok)
+	cloudData, _ := json.Marshal(cloudNote)
+	_, err := mockOps.CreateFile("title-conflict.json", cloudData, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	localNotes := helper.noteService.noteList.Notes
+	cloudNotes := []NoteMetadata{
+		{ID: "title-conflict", Title: cloudNote.Title, ContentHash: computeContentHash(cloudNote), ModifiedTime: sameTime},
+	}
+
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 1)
+	assert.Len(t, downloadedNotes, 1)
+	assert.Equal(t, cloudNote.Title, mergedNotes[0].Title, "同時編集時はクラウドのメタデータが優先されるべき")
+	assert.Contains(t, downloadedNotes[0].Content, "<<<<<<<", "タイトル変更のみでもコンフリクトマーカーが含まれるべき")
+	assert.Contains(t, downloadedNotes[0].Content, "same content", "同一内容でもマージ結果に含まれるべき")
+}
+
+func TestMergeNotes_SimultaneousEdits_LanguageChange_ConflictMerged(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+	ds.lastSyncResult = &SyncResult{}
+
+	sameTime := time.Now().Format(time.RFC3339)
+
+	localNote := &Note{
+		ID:           "lang-conflict",
+		Title:        "Lang Note",
+		Content:      "same content",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+	assert.NoError(t, helper.noteService.SaveNote(localNote))
+
+	cloudNote := &Note{
+		ID:           "lang-conflict",
+		Title:        "Lang Note",
+		Content:      "same content",
+		Language:     "markdown",
+		ModifiedTime: sameTime,
+	}
+
+	mockOps, ok := ds.driveOps.(*mockDriveOperations)
+	assert.True(t, ok)
+	cloudData, _ := json.Marshal(cloudNote)
+	_, err := mockOps.CreateFile("lang-conflict.json", cloudData, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	localNotes := helper.noteService.noteList.Notes
+	cloudNotes := []NoteMetadata{
+		{ID: "lang-conflict", Title: cloudNote.Title, ContentHash: computeContentHash(cloudNote), ModifiedTime: sameTime},
+	}
+
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 1)
+	assert.Len(t, downloadedNotes, 1)
+	assert.Contains(t, downloadedNotes[0].Content, "<<<<<<<", "言語変更のみでもコンフリクトマーカーが含まれるべき")
+	assert.Contains(t, downloadedNotes[0].Content, "same content", "同一内容でもマージ結果に含まれるべき")
+}
+
 func TestOfflineRecovery_MergesNoteListStructure(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
