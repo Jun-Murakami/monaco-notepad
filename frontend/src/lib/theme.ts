@@ -24,7 +24,7 @@ const getComplementaryColor = (hex: string): string => {
 
   // 色相を180°回転し、彩度を抑える
   h = (h + 0.5) % 1;
-  s *= 0.85;
+  s *= 0.95;
 
   // HSL → RGB
   const hue2rgb = (p: number, q: number, t: number): number => {
