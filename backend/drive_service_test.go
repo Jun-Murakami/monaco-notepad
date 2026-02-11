@@ -1900,6 +1900,95 @@ func TestMergeNotes_CorruptedNote_SkipsAndContinues(t *testing.T) {
 	assert.Equal(t, "good-note", mergedNotes[0].ID)
 }
 
+func TestMergeNotes_EmptyVsNonEmpty_ConflictMerge(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+	mockOps := ds.driveOps.(*mockDriveOperations)
+
+	modified := time.Now().Format(time.RFC3339)
+	localNote := &Note{ID: "h1-empty-content", Title: "H1", Content: "", Language: "plaintext", ModifiedTime: modified}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	cloudNote := &Note{ID: "h1-empty-content", Title: "H1", Content: "cloud data", Language: "plaintext", ModifiedTime: modified}
+	cloudData, _ := json.Marshal(cloudNote)
+	_, err = mockOps.CreateFile(cloudNote.ID+".json", cloudData, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	localMeta := NoteMetadata{ID: localNote.ID, Title: localNote.Title, ModifiedTime: modified, ContentHash: computeContentHash(localNote)}
+	cloudMeta := NoteMetadata{ID: cloudNote.ID, Title: cloudNote.Title, ModifiedTime: modified, ContentHash: computeContentHash(cloudNote)}
+
+	merged, downloaded, err := ds.mergeNotes(context.Background(), []NoteMetadata{localMeta}, []NoteMetadata{cloudMeta}, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, merged, 1)
+	assert.Len(t, downloaded, 1)
+	assert.Equal(t, "h1-empty-content", downloaded[0].ID)
+}
+
+func TestMergeNotes_TitleOnlyChange_DetectedByContentHash(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+	mockOps := ds.driveOps.(*mockDriveOperations)
+
+	modified := time.Now().Format(time.RFC3339)
+	localNote := &Note{ID: "h2-title-change", Title: "Old title", Content: "same content", Language: "plaintext", ModifiedTime: modified}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	cloudNote := &Note{ID: "h2-title-change", Title: "New title", Content: "same content", Language: "plaintext", ModifiedTime: modified}
+	cloudData, _ := json.Marshal(cloudNote)
+	_, err = mockOps.CreateFile(cloudNote.ID+".json", cloudData, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	localHash := computeContentHash(localNote)
+	cloudHash := computeContentHash(cloudNote)
+	assert.NotEqual(t, localHash, cloudHash)
+
+	localMeta := NoteMetadata{ID: localNote.ID, Title: localNote.Title, ModifiedTime: modified, ContentHash: localHash}
+	cloudMeta := NoteMetadata{ID: cloudNote.ID, Title: cloudNote.Title, ModifiedTime: modified, ContentHash: cloudHash}
+
+	merged, downloaded, err := ds.mergeNotes(context.Background(), []NoteMetadata{localMeta}, []NoteMetadata{cloudMeta}, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, merged, 1)
+	assert.Len(t, downloaded, 1)
+	assert.Equal(t, "h2-title-change", downloaded[0].ID)
+}
+
+func TestMergeNotes_LanguageOnlyChange_DetectedByContentHash(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+	mockOps := ds.driveOps.(*mockDriveOperations)
+
+	modified := time.Now().Format(time.RFC3339)
+	localNote := &Note{ID: "h3-language-change", Title: "Same", Content: "same content", Language: "plaintext", ModifiedTime: modified}
+	err := helper.noteService.SaveNote(localNote)
+	assert.NoError(t, err)
+
+	cloudNote := &Note{ID: "h3-language-change", Title: "Same", Content: "same content", Language: "go", ModifiedTime: modified}
+	cloudData, _ := json.Marshal(cloudNote)
+	_, err = mockOps.CreateFile(cloudNote.ID+".json", cloudData, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	localHash := computeContentHash(localNote)
+	cloudHash := computeContentHash(cloudNote)
+	assert.NotEqual(t, localHash, cloudHash)
+
+	localMeta := NoteMetadata{ID: localNote.ID, Title: localNote.Title, ModifiedTime: modified, ContentHash: localHash}
+	cloudMeta := NoteMetadata{ID: cloudNote.ID, Title: cloudNote.Title, ModifiedTime: modified, ContentHash: cloudHash}
+
+	merged, downloaded, err := ds.mergeNotes(context.Background(), []NoteMetadata{localMeta}, []NoteMetadata{cloudMeta}, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, merged, 1)
+	assert.Len(t, downloaded, 1)
+	assert.Equal(t, "h3-language-change", downloaded[0].ID)
+}
+
 // --- H-5: forceNextSyncによるMD5キャッシュバイパステスト ---
 
 func TestForceNextSync_ResetsAfterSyncNotes(t *testing.T) {
@@ -3167,4 +3256,758 @@ func TestMergeNotes_InNoteMerge_NoNewNotesCreated(t *testing.T) {
 	assert.Len(t, downloadedNotes, 1, "マージ済みノートがダウンロードされるべき")
 	assert.Contains(t, downloadedNotes[0].Content, "<<<<<<<", "コンフリクトマーカーが含まれるべき")
 	assert.Contains(t, downloadedNotes[0].Content, ">>>>>>>", "コンフリクトマーカーが含まれるべき")
+}
+
+func TestSaveNoteAndUpdateList_CreateSuccess_ListUpdated(t *testing.T) {
+	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	note := &Note{
+		ID:           "d1-create-note",
+		Title:        "D1 create",
+		Content:      "create content",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	assert.NoError(t, ds.noteService.SaveNote(note))
+
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	cloudNoteList, err := json.Marshal(&NoteList{Version: "1.0", Notes: []NoteMetadata{}})
+	assert.NoError(t, err)
+	mockOps.mu.Lock()
+	mockOps.files[noteListID] = cloudNoteList
+	mockOps.mu.Unlock()
+
+	lastSyncBefore := ds.noteService.noteList.LastSync
+	err = ds.SaveNoteAndUpdateList(note, true)
+	assert.NoError(t, err)
+
+	mockOps.mu.RLock()
+	noteData, exists := mockOps.files["test-file-"+note.ID+".json"]
+	mockOps.mu.RUnlock()
+	assert.True(t, exists, "作成ノートがDriveに存在するべき")
+
+	var savedNote Note
+	err = json.Unmarshal(noteData, &savedNote)
+	assert.NoError(t, err)
+	assert.Equal(t, note.ID, savedNote.ID)
+
+	assert.True(t, ds.noteService.noteList.LastSync.After(lastSyncBefore), "LastSyncが更新されるべき")
+
+	statuses := recorder.statusCalls()
+	assert.Contains(t, statuses, "syncing")
+	assert.Contains(t, statuses, "synced")
+}
+
+func TestSaveNoteAndUpdateList_UpdateSuccess_ListUpdated(t *testing.T) {
+	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	note := &Note{
+		ID:           "d2-update-note",
+		Title:        "D2 update",
+		Content:      "before update",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	assert.NoError(t, ds.noteService.SaveNote(note))
+
+	noteData, err := json.Marshal(note)
+	assert.NoError(t, err)
+	fileID, err := mockOps.CreateFile(note.ID+".json", noteData, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	syncImpl, ok := ds.driveSync.(*driveSyncServiceImpl)
+	if !assert.True(t, ok) {
+		return
+	}
+	syncImpl.setCachedFileID(note.ID, fileID)
+
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	cloudNoteList, err := json.Marshal(&NoteList{Version: "1.0", Notes: []NoteMetadata{}})
+	assert.NoError(t, err)
+	mockOps.mu.Lock()
+	mockOps.files[noteListID] = cloudNoteList
+	mockOps.mu.Unlock()
+
+	lastSyncBefore := ds.noteService.noteList.LastSync
+	note.Content = "after update"
+	err = ds.SaveNoteAndUpdateList(note, false)
+	assert.NoError(t, err)
+	assert.True(t, ds.noteService.noteList.LastSync.After(lastSyncBefore), "LastSyncが更新されるべき")
+
+	mockOps.mu.RLock()
+	updatedData, exists := mockOps.files[fileID]
+	mockOps.mu.RUnlock()
+	assert.True(t, exists, "更新対象ノートがDriveに存在するべき")
+
+	var updated Note
+	err = json.Unmarshal(updatedData, &updated)
+	assert.NoError(t, err)
+	assert.Equal(t, "after update", updated.Content)
+
+	statuses := recorder.statusCalls()
+	assert.Contains(t, statuses, "syncing")
+	assert.Contains(t, statuses, "synced")
+}
+
+func TestSaveNoteAndUpdateList_CreateFails_ListNotUpdated(t *testing.T) {
+	ds, recorder, _, cleanup := newNotificationTestDriveService(t, func() DriveOperations {
+		return &failingCreateDriveOps{
+			mockDriveOperations: newMockDriveOperations(),
+			failFileNames:       map[string]bool{"d3-fail-note.json": true},
+		}
+	})
+	defer cleanup()
+
+	note := &Note{
+		ID:           "d3-fail-note",
+		Title:        "D3 fail",
+		Content:      "should fail",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	assert.NoError(t, ds.noteService.SaveNote(note))
+
+	lastSyncBefore := ds.noteService.noteList.LastSync
+	err := ds.SaveNoteAndUpdateList(note, true)
+	assert.Error(t, err)
+	assert.Equal(t, lastSyncBefore, ds.noteService.noteList.LastSync, "Create失敗時はLastSyncが更新されないべき")
+
+	statuses := recorder.statusCalls()
+	assert.NotContains(t, statuses, "syncing")
+	assert.NotContains(t, statuses, "synced")
+}
+
+func TestSaveNoteAndUpdateList_SaveNoteListFails(t *testing.T) {
+	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	note := &Note{
+		ID:           "d4-save-list-fail",
+		Title:        "D4 fail",
+		Content:      "create succeeds but save list fails",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+
+	brokenNotesDir := filepath.Join(t.TempDir(), "missing-parent", "notes")
+	ds.noteService.notesDir = brokenNotesDir
+
+	err := ds.SaveNoteAndUpdateList(note, true)
+	assert.Error(t, err)
+
+	mockOps.mu.RLock()
+	_, exists := mockOps.files["test-file-"+note.ID+".json"]
+	mockOps.mu.RUnlock()
+	assert.True(t, exists, "saveNoteList失敗でもCreate自体は成功しているべき")
+
+	statuses := recorder.statusCalls()
+	assert.NotContains(t, statuses, "syncing")
+	assert.NotContains(t, statuses, "synced")
+}
+
+func TestSaveNoteAndUpdateList_MutualExclusionWithSyncNotes(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, func() DriveOperations {
+		return newBlockingDriveOps()
+	})
+	defer cleanup()
+
+	ops, ok := rawOps.(*blockingDriveOps)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	note := &Note{
+		ID:           "d7-mutex-note",
+		Title:        "D7 mutex",
+		Content:      "mutex test",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	assert.NoError(t, ds.noteService.SaveNote(note))
+
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	cloudNoteList, err := json.Marshal(&NoteList{Version: "1.0", Notes: []NoteMetadata{}})
+	assert.NoError(t, err)
+	ops.mu.Lock()
+	ops.files[noteListID] = cloudNoteList
+	ops.mu.Unlock()
+
+	saveDone := make(chan struct{})
+	syncDone := make(chan struct{})
+
+	var saveErr error
+	var syncErr error
+	var saveFinishedAt time.Time
+	var syncFinishedAt time.Time
+
+	go func() {
+		saveErr = ds.SaveNoteAndUpdateList(note, true)
+		saveFinishedAt = time.Now()
+		close(saveDone)
+	}()
+
+	select {
+	case <-ops.startedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SaveNoteAndUpdateList did not reach CreateFile")
+	}
+
+	go func() {
+		syncErr = ds.SyncNotes()
+		syncFinishedAt = time.Now()
+		close(syncDone)
+	}()
+
+	select {
+	case <-syncDone:
+		t.Fatal("SyncNotes should block while SaveNoteAndUpdateList holds syncMu")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(ops.blockCh)
+
+	select {
+	case <-saveDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SaveNoteAndUpdateList did not complete")
+	}
+
+	select {
+	case <-syncDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SyncNotes did not complete after SaveNoteAndUpdateList")
+	}
+
+	assert.NoError(t, saveErr)
+	assert.NoError(t, syncErr)
+	assert.True(t, syncFinishedAt.After(saveFinishedAt), "SyncNotesはSaveNoteAndUpdateList完了後に終了するべき")
+}
+
+type driveSyncOverride struct {
+	DriveSyncService
+
+	createNoteFn       func(ctx context.Context, note *Note) error
+	downloadNoteListFn func(ctx context.Context, noteListID string) (*NoteList, error)
+}
+
+func (o *driveSyncOverride) CreateNote(ctx context.Context, note *Note) error {
+	if o.createNoteFn != nil {
+		return o.createNoteFn(ctx, note)
+	}
+	return o.DriveSyncService.CreateNote(ctx, note)
+}
+
+func (o *driveSyncOverride) DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error) {
+	if o.downloadNoteListFn != nil {
+		return o.downloadNoteListFn(ctx, noteListID)
+	}
+	return o.DriveSyncService.DownloadNoteList(ctx, noteListID)
+}
+
+func seedCloudNoteListFile(t *testing.T, ds *driveService, rawOps DriveOperations) {
+	t.Helper()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !ok {
+		t.Fatalf("expected *mockDriveOperations, got %T", rawOps)
+	}
+
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	noteListData, err := json.Marshal(ds.noteService.noteList)
+	if err != nil {
+		t.Fatalf("failed to marshal noteList: %v", err)
+	}
+
+	mockOps.mu.Lock()
+	mockOps.files[noteListID] = noteListData
+	mockOps.mu.Unlock()
+}
+
+func TestSaveNoteAndUpdateList_Cancelled_ReturnsNil(t *testing.T) {
+	ds, recorder, _, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	baseSync := ds.driveSync
+	ds.driveSync = &driveSyncOverride{
+		DriveSyncService: baseSync,
+		createNoteFn: func(ctx context.Context, note *Note) error {
+			return fmt.Errorf("operation cancelled")
+		},
+	}
+
+	note := &Note{
+		ID:           "d5-cancelled-note",
+		Title:        "D5 cancelled",
+		Content:      "cancelled create",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+
+	err := ds.SaveNoteAndUpdateList(note, true)
+	assert.NoError(t, err)
+
+	statuses := recorder.statusCalls()
+	assert.NotContains(t, statuses, "syncing")
+	assert.NotContains(t, statuses, "synced")
+}
+
+func TestSaveNoteAndUpdateList_NotConnected_Error(t *testing.T) {
+	ds, _, _, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	ds.auth.GetDriveSync().SetConnected(false)
+
+	note := &Note{
+		ID:           "d6-not-connected-note",
+		Title:        "D6 offline",
+		Content:      "offline save",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+
+	err := ds.SaveNoteAndUpdateList(note, true)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not connected")
+}
+
+func TestPerformInitialSync_NoCloudNoteList_UploadsAll(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	ds.appDataDir = t.TempDir()
+
+	localNotes := []*Note{
+		{ID: "e1-local-1", Title: "E1 Local 1", Content: "one", Language: "plaintext"},
+		{ID: "e1-local-2", Title: "E1 Local 2", Content: "two", Language: "plaintext"},
+		{ID: "e1-local-3", Title: "E1 Local 3", Content: "three", Language: "plaintext"},
+	}
+	for _, note := range localNotes {
+		assert.NoError(t, ds.noteService.SaveNote(note))
+	}
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	baseSync := ds.driveSync
+	callCount := 0
+	ds.driveSync = &driveSyncOverride{
+		DriveSyncService: baseSync,
+		downloadNoteListFn: func(ctx context.Context, noteListID string) (*NoteList, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, nil
+			}
+			cloudNotes := make([]NoteMetadata, len(ds.noteService.noteList.Notes))
+			copy(cloudNotes, ds.noteService.noteList.Notes)
+			return &NoteList{Version: "1.0", Notes: cloudNotes, LastSync: time.Now()}, nil
+		},
+	}
+
+	err := ds.performInitialSync()
+	assert.NoError(t, err)
+
+	mockOps.mu.RLock()
+	defer mockOps.mu.RUnlock()
+	for _, note := range localNotes {
+		_, exists := mockOps.files["test-file-"+note.ID+".json"]
+		assert.True(t, exists, "local note %s should be uploaded", note.ID)
+	}
+}
+
+func TestPerformInitialSync_UnknownNotes_Incorporated(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	ds.appDataDir = t.TempDir()
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	cloudNotes := []*Note{
+		{ID: "e2-cloud-a", Title: "Cloud A", Content: "A", Language: "plaintext"},
+		{ID: "e2-cloud-b", Title: "Cloud B", Content: "B", Language: "plaintext"},
+		{ID: "e2-cloud-unknown", Title: "Cloud Unknown", Content: "U", Language: "plaintext"},
+	}
+	for _, note := range cloudNotes {
+		data, err := json.Marshal(note)
+		assert.NoError(t, err)
+		_, err = mockOps.CreateFile(note.ID+".json", data, "test-folder", "application/json")
+		assert.NoError(t, err)
+	}
+
+	baseSync := ds.driveSync
+	ds.driveSync = &driveSyncOverride{
+		DriveSyncService: baseSync,
+		downloadNoteListFn: func(ctx context.Context, noteListID string) (*NoteList, error) {
+			return &NoteList{
+				Version: "1.0",
+				Notes: []NoteMetadata{
+					{ID: "e2-cloud-a", Title: "Cloud A", ModifiedTime: time.Now().Add(-2 * time.Minute).Format(time.RFC3339)},
+					{ID: "e2-cloud-b", Title: "Cloud B", ModifiedTime: time.Now().Add(-1 * time.Minute).Format(time.RFC3339)},
+				},
+				LastSync: time.Now().Add(-1 * time.Minute),
+			}, nil
+		},
+	}
+
+	err := ds.performInitialSync()
+	assert.NoError(t, err)
+
+	foundUnknown := false
+	for _, meta := range ds.noteService.noteList.Notes {
+		if meta.ID == "e2-cloud-unknown" {
+			foundUnknown = true
+			break
+		}
+	}
+	assert.True(t, foundUnknown, "unknown cloud note should be incorporated")
+}
+
+func TestPerformInitialSync_PublishesPreview(t *testing.T) {
+	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	ds.appDataDir = t.TempDir()
+
+	localNotes := []*Note{
+		{ID: "e3-local-1", Title: "Local 1", Content: "L1", Language: "plaintext"},
+		{ID: "e3-local-2", Title: "Local 2", Content: "L2", Language: "plaintext"},
+	}
+	for _, note := range localNotes {
+		assert.NoError(t, ds.noteService.SaveNote(note))
+	}
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	cloudNotes := []*Note{
+		{ID: "e3-local-1", Title: "Local 1", Content: "L1", Language: "plaintext", ModifiedTime: time.Now().Add(-2 * time.Minute).Format(time.RFC3339)},
+		{ID: "e3-local-2", Title: "Local 2", Content: "L2", Language: "plaintext", ModifiedTime: time.Now().Add(-1 * time.Minute).Format(time.RFC3339)},
+		{ID: "e3-cloud-new", Title: "Cloud New", Content: "CN", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+	for _, note := range cloudNotes {
+		data, err := json.Marshal(note)
+		assert.NoError(t, err)
+		_, err = mockOps.CreateFile(note.ID+".json", data, "test-folder", "application/json")
+		assert.NoError(t, err)
+	}
+
+	baseSync := ds.driveSync
+	ds.driveSync = &driveSyncOverride{
+		DriveSyncService: baseSync,
+		downloadNoteListFn: func(ctx context.Context, noteListID string) (*NoteList, error) {
+			return &NoteList{
+				Version: "1.0",
+				Notes: []NoteMetadata{
+					{ID: "e3-local-1", Title: "Local 1", ModifiedTime: cloudNotes[0].ModifiedTime, ContentHash: computeContentHash(cloudNotes[0])},
+					{ID: "e3-local-2", Title: "Local 2", ModifiedTime: cloudNotes[1].ModifiedTime, ContentHash: computeContentHash(cloudNotes[1])},
+					{ID: "e3-cloud-new", Title: "Cloud New", ModifiedTime: cloudNotes[2].ModifiedTime, ContentHash: computeContentHash(cloudNotes[2])},
+				},
+				LastSync: time.Now().Add(-1 * time.Minute),
+			}, nil
+		},
+	}
+
+	err := ds.performInitialSync()
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, recorder.syncedReloadCount(), 2)
+}
+
+func TestPerformInitialSync_LargeDownload_ProgressiveNotification(t *testing.T) {
+	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	ds.appDataDir = t.TempDir()
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	metadata := make([]NoteMetadata, 0, 15)
+	for i := 0; i < 15; i++ {
+		noteID := fmt.Sprintf("e4-cloud-%02d", i)
+		note := &Note{
+			ID:           noteID,
+			Title:        fmt.Sprintf("Cloud %02d", i),
+			Content:      fmt.Sprintf("content-%02d", i),
+			Language:     "plaintext",
+			ModifiedTime: time.Now().Add(time.Duration(i) * time.Second).Format(time.RFC3339),
+		}
+		data, err := json.Marshal(note)
+		assert.NoError(t, err)
+		_, err = mockOps.CreateFile(note.ID+".json", data, "test-folder", "application/json")
+		assert.NoError(t, err)
+
+		metadata = append(metadata, NoteMetadata{
+			ID:           note.ID,
+			Title:        note.Title,
+			ModifiedTime: note.ModifiedTime,
+			ContentHash:  computeContentHash(note),
+		})
+	}
+
+	baseSync := ds.driveSync
+	ds.driveSync = &driveSyncOverride{
+		DriveSyncService: baseSync,
+		downloadNoteListFn: func(ctx context.Context, noteListID string) (*NoteList, error) {
+			return &NoteList{Version: "1.0", Notes: metadata, LastSync: time.Now().Add(-1 * time.Minute)}, nil
+		},
+	}
+
+	err := ds.performInitialSync()
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, recorder.syncedReloadCount(), 3)
+}
+
+func TestPerformInitialSync_JournalLifecycle(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+
+	ds.appDataDir = t.TempDir()
+
+	local := &Note{ID: "e5-local", Title: "E5 Local", Content: "local", Language: "plaintext"}
+	assert.NoError(t, ds.noteService.SaveNote(local))
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	cloudNew := &Note{
+		ID:           "e5-cloud-new",
+		Title:        "E5 Cloud New",
+		Content:      "cloud",
+		Language:     "plaintext",
+		ModifiedTime: time.Now().Format(time.RFC3339),
+	}
+	cloudData, err := json.Marshal(cloudNew)
+	assert.NoError(t, err)
+	_, err = mockOps.CreateFile(cloudNew.ID+".json", cloudData, "test-folder", "application/json")
+	assert.NoError(t, err)
+
+	baseSync := ds.driveSync
+	ds.driveSync = &driveSyncOverride{
+		DriveSyncService: baseSync,
+		downloadNoteListFn: func(ctx context.Context, noteListID string) (*NoteList, error) {
+			return &NoteList{
+				Version: "1.0",
+				Notes: []NoteMetadata{{
+					ID:           cloudNew.ID,
+					Title:        cloudNew.Title,
+					ModifiedTime: cloudNew.ModifiedTime,
+					ContentHash:  computeContentHash(cloudNew),
+				}},
+				LastSync: time.Now().Add(-1 * time.Minute),
+			}, nil
+		},
+	}
+
+	err = ds.performInitialSync()
+	assert.NoError(t, err)
+
+	_, statErr := os.Stat(ds.journalPath())
+	assert.True(t, os.IsNotExist(statErr), "journal file should be removed after initial sync")
+}
+
+type syncNotesTrackingDriveSync struct {
+	DriveSyncService
+
+	downloadNoteListCalls          int
+	downloadNoteListIfChangedCalls int
+	updateNoteListCalls            int
+	createNoteCalls                int
+	downloadNoteCalls              int
+
+	downloadNoteListFn          func(ctx context.Context, noteListID string) (*NoteList, error)
+	downloadNoteListIfChangedFn func(ctx context.Context, noteListID string) (*NoteList, bool, error)
+	updateNoteListFn            func(ctx context.Context, noteList *NoteList, noteListID string) error
+	createNoteFn                func(ctx context.Context, note *Note) error
+}
+
+func (s *syncNotesTrackingDriveSync) DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error) {
+	s.downloadNoteListCalls++
+	if s.downloadNoteListFn != nil {
+		return s.downloadNoteListFn(ctx, noteListID)
+	}
+	return s.DriveSyncService.DownloadNoteList(ctx, noteListID)
+}
+
+func (s *syncNotesTrackingDriveSync) DownloadNoteListIfChanged(ctx context.Context, noteListID string) (*NoteList, bool, error) {
+	s.downloadNoteListIfChangedCalls++
+	if s.downloadNoteListIfChangedFn != nil {
+		return s.downloadNoteListIfChangedFn(ctx, noteListID)
+	}
+	return s.DriveSyncService.DownloadNoteListIfChanged(ctx, noteListID)
+}
+
+func (s *syncNotesTrackingDriveSync) UpdateNoteList(ctx context.Context, noteList *NoteList, noteListID string) error {
+	s.updateNoteListCalls++
+	if s.updateNoteListFn != nil {
+		return s.updateNoteListFn(ctx, noteList, noteListID)
+	}
+	return s.DriveSyncService.UpdateNoteList(ctx, noteList, noteListID)
+}
+
+func (s *syncNotesTrackingDriveSync) CreateNote(ctx context.Context, note *Note) error {
+	s.createNoteCalls++
+	if s.createNoteFn != nil {
+		return s.createNoteFn(ctx, note)
+	}
+	return s.DriveSyncService.CreateNote(ctx, note)
+}
+
+func (s *syncNotesTrackingDriveSync) DownloadNote(ctx context.Context, noteID string) (*Note, error) {
+	s.downloadNoteCalls++
+	return s.DriveSyncService.DownloadNote(ctx, noteID)
+}
+
+func TestSyncNotes_SameNotes_StructureChanged_MergesStructure(t *testing.T) {
+	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	note := &Note{ID: "j1-note", Title: "J1", Content: "same", Language: "plaintext"}
+	assert.NoError(t, ds.noteService.SaveNote(note))
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	localMeta := ds.noteService.noteList.Notes[0]
+	cloudNoteList := &NoteList{
+		Version: "1.0",
+		Notes:   []NoteMetadata{localMeta},
+		Folders: []Folder{{ID: "cloud-folder-j1", Name: "Cloud Folder"}},
+		TopLevelOrder: []TopLevelItem{
+			{Type: "folder", ID: "cloud-folder-j1"},
+			{Type: "note", ID: "j1-note"},
+		},
+		LastSync: time.Now().Add(1 * time.Minute),
+	}
+
+	tracker := &syncNotesTrackingDriveSync{
+		DriveSyncService: ds.driveSync,
+		downloadNoteListIfChangedFn: func(ctx context.Context, noteListID string) (*NoteList, bool, error) {
+			return cloudNoteList, true, nil
+		},
+	}
+	ds.driveSync = tracker
+
+	err := ds.SyncNotes()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, tracker.updateNoteListCalls, "構造変更時はupdateNoteListInternal経由でUpdateNoteListが呼ばれるべき")
+	assert.Equal(t, 0, tracker.createNoteCalls, "同一ノート内容ではアップロード不要")
+	assert.Equal(t, 0, tracker.downloadNoteCalls, "同一ノート内容ではダウンロード不要")
+
+	foundFolder := false
+	for _, f := range ds.noteService.noteList.Folders {
+		if f.ID == "cloud-folder-j1" {
+			foundFolder = true
+			break
+		}
+	}
+	assert.True(t, foundFolder, "クラウド側の新規フォルダがローカルに反映されるべき")
+
+	foundModifyLog := false
+	for _, msg := range recorder.consoleCalls {
+		if strings.Contains(msg, "Modifying note list") {
+			foundModifyLog = true
+			break
+		}
+	}
+	assert.True(t, foundModifyLog, "updateNoteListInternalの実行ログが残るべき")
+}
+
+func TestSyncNotes_CloudNoteListNil_UploadsAll(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	note1 := &Note{ID: "j2-local-1", Title: "J2-1", Content: "one", Language: "plaintext"}
+	note2 := &Note{ID: "j2-local-2", Title: "J2-2", Content: "two", Language: "plaintext"}
+	assert.NoError(t, ds.noteService.SaveNote(note1))
+	assert.NoError(t, ds.noteService.SaveNote(note2))
+
+	tracker := &syncNotesTrackingDriveSync{
+		DriveSyncService: ds.driveSync,
+		downloadNoteListIfChangedFn: func(ctx context.Context, noteListID string) (*NoteList, bool, error) {
+			return nil, true, nil
+		},
+		downloadNoteListFn: func(ctx context.Context, noteListID string) (*NoteList, error) {
+			cloudNotes := make([]NoteMetadata, len(ds.noteService.noteList.Notes))
+			copy(cloudNotes, ds.noteService.noteList.Notes)
+			return &NoteList{Version: "1.0", Notes: cloudNotes, LastSync: time.Now()}, nil
+		},
+	}
+	ds.driveSync = tracker
+
+	err := ds.SyncNotes()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, tracker.createNoteCalls, "cloud noteListがnilの場合は全ローカルノートがアップロードされるべき")
+	assert.GreaterOrEqual(t, tracker.downloadNoteListCalls, 1, "全アップロード後にnoteList再取得が行われるべき")
+
+	mockOps, ok := rawOps.(*mockDriveOperations)
+	if !assert.True(t, ok) {
+		return
+	}
+	mockOps.mu.RLock()
+	_, exists1 := mockOps.files["test-file-j2-local-1.json"]
+	_, exists2 := mockOps.files["test-file-j2-local-2.json"]
+	mockOps.mu.RUnlock()
+	assert.True(t, exists1)
+	assert.True(t, exists2)
+}
+
+func TestSyncNotes_ForceSync_BypassesMD5Check(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	note := &Note{ID: "j3-note", Title: "J3", Content: "force", Language: "plaintext"}
+	assert.NoError(t, ds.noteService.SaveNote(note))
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	cloudNotes := make([]NoteMetadata, len(ds.noteService.noteList.Notes))
+	copy(cloudNotes, ds.noteService.noteList.Notes)
+
+	tracker := &syncNotesTrackingDriveSync{
+		DriveSyncService: ds.driveSync,
+		downloadNoteListFn: func(ctx context.Context, noteListID string) (*NoteList, error) {
+			return &NoteList{Version: "1.0", Notes: cloudNotes, LastSync: time.Now()}, nil
+		},
+		downloadNoteListIfChangedFn: func(ctx context.Context, noteListID string) (*NoteList, bool, error) {
+			return nil, false, fmt.Errorf("DownloadNoteListIfChanged should not be called when forceNextSync=true")
+		},
+	}
+	ds.driveSync = tracker
+	ds.forceNextSync = true
+
+	err := ds.SyncNotes()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, tracker.downloadNoteListCalls, "force sync時はDownloadNoteListが呼ばれるべき")
+	assert.Equal(t, 0, tracker.downloadNoteListIfChangedCalls, "force sync時はDownloadNoteListIfChangedを使わないべき")
+	assert.False(t, ds.forceNextSync, "forceNextSyncはSyncNotes後にfalseへ戻るべき")
 }

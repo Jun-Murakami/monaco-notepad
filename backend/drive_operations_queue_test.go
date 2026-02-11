@@ -494,3 +494,262 @@ func TestQueue_Cleanup_ThenNewEnqueue_Rejected(t *testing.T) {
 		q.addToQueue(item)
 	}, "Cleanup後のenqueueでパニックしてはならない")
 }
+
+func TestQueue_UpdateDeleteCreate_Chain(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["file-1"] = []byte("v1")
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	updateResult := make(chan error, 1)
+	go func() {
+		updateResult <- q.UpdateFile("file-1", []byte("v2"))
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	deleteResult := make(chan error, 1)
+	go func() {
+		deleteResult <- q.DeleteFile("file-1")
+	}()
+
+	createIDResult := make(chan string, 1)
+	createResult := make(chan error, 1)
+	go func() {
+		fileID, err := q.CreateFile("file-1.json", []byte("v3"), "folder-id", "application/json")
+		createIDResult <- fileID
+		createResult <- err
+	}()
+
+	var updateErr error
+	select {
+	case updateErr = <-updateResult:
+	case <-time.After(10 * time.Second):
+		t.Fatal("UPDATE結果がタイムアウト")
+	}
+	assert.True(t, errors.Is(updateErr, ErrOperationCancelled), "UPDATEはDELETEによりキャンセルされるべき")
+
+	select {
+	case err := <-deleteResult:
+		assert.NoError(t, err, "DELETEは成功するべき")
+	case <-time.After(10 * time.Second):
+		t.Fatal("DELETE結果がタイムアウト")
+	}
+
+	var createFileID string
+	select {
+	case createFileID = <-createIDResult:
+	case <-time.After(10 * time.Second):
+		t.Fatal("CREATE fileID取得がタイムアウト")
+	}
+
+	select {
+	case err := <-createResult:
+		assert.NoError(t, err, "CREATEは成功するべき")
+	case <-time.After(10 * time.Second):
+		t.Fatal("CREATE結果がタイムアウト")
+	}
+
+	ops.mu.RLock()
+	finalContent, exists := ops.files[createFileID]
+	ops.mu.RUnlock()
+	assert.True(t, exists, "再作成されたファイルが存在するべき")
+	assert.Equal(t, "v3", string(finalContent), "最終コンテンツはv3であるべき")
+}
+
+func TestQueue_CreateThenUpdate_SameFile(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	fileID, err := q.CreateFile("note.json", []byte("v1"), "folder-id", "application/json")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, fileID)
+
+	err = q.UpdateFile(fileID, []byte("v2"))
+	assert.NoError(t, err)
+
+	ops.mu.RLock()
+	finalContent, exists := ops.files[fileID]
+	ops.mu.RUnlock()
+	assert.True(t, exists)
+	assert.Equal(t, "v2", string(finalContent))
+}
+
+func TestQueue_ConcurrentUpdates_DifferentFiles(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["file-a"] = []byte("a-old")
+	ops.files["file-b"] = []byte("b-old")
+	ops.files["file-c"] = []byte("c-old")
+
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	updates := map[string]string{
+		"file-a": "a-new",
+		"file-b": "b-new",
+		"file-c": "c-new",
+	}
+
+	results := make(map[string]chan error, len(updates))
+	for fileID := range updates {
+		results[fileID] = make(chan error, 1)
+	}
+
+	for fileID, content := range updates {
+		go func(id string, data string) {
+			results[id] <- q.UpdateFile(id, []byte(data))
+		}(fileID, content)
+	}
+
+	for fileID, ch := range results {
+		select {
+		case err := <-ch:
+			assert.NoError(t, err, "%s のUPDATEは成功するべき", fileID)
+		case <-time.After(12 * time.Second):
+			t.Fatalf("%s のUPDATE結果がタイムアウト", fileID)
+		}
+	}
+
+	ops.mu.RLock()
+	defer ops.mu.RUnlock()
+	for fileID, expected := range updates {
+		assert.Equal(t, expected, string(ops.files[fileID]), "%s の最終コンテンツが不正", fileID)
+	}
+}
+
+func TestQueue_Cleanup_DelayedGoroutine_SafeReturn(t *testing.T) {
+	ops := newMockDriveOperations()
+	ops.files["file-1"] = []byte("before")
+	q := NewDriveOperationsQueue(ops)
+
+	updateResult := make(chan error, 1)
+	go func() {
+		updateResult <- q.UpdateFile("file-1", []byte("after"))
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	q.Cleanup()
+
+	time.Sleep(4 * time.Second)
+
+	select {
+	case err := <-updateResult:
+		assert.True(t, errors.Is(err, ErrOperationCancelled), "Cleanup後の遅延UPDATEはErrOperationCancelledを返すべき: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("UPDATE結果がタイムアウト")
+	}
+}
+
+func TestQueue_BufferFull_BlocksUntilSpace(t *testing.T) {
+	ops := newBlockingDriveOps()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	seedDone := make(chan error, 1)
+	go func() {
+		_, err := q.CreateFile("seed.json", []byte("seed"), "folder", "application/json")
+		seedDone <- err
+	}()
+
+	select {
+	case <-ops.startedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("seed create did not start")
+	}
+
+	for i := 0; i < cap(q.queue); i++ {
+		q.queue <- &QueueItem{OperationType: ListOperation, Result: make(chan error, 1)}
+	}
+
+	overflowDone := make(chan struct{})
+	go func() {
+		overflow := &QueueItem{
+			OperationType: CreateOperation,
+			FileName:      "overflow.json",
+			ParentID:      "folder",
+			MimeType:      "application/json",
+			CreatedAt:     time.Now(),
+			Result:        make(chan error, 1),
+		}
+		q.addToQueue(overflow)
+		close(overflowDone)
+	}()
+
+	select {
+	case <-overflowDone:
+		t.Fatal("overflow enqueue should block while buffer is full")
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	select {
+	case item := <-q.queue:
+		item.Result <- ErrOperationCancelled
+	case <-time.After(2 * time.Second):
+		t.Fatal("failed to drain one queued item")
+	}
+
+	close(ops.blockCh)
+
+	select {
+	case <-overflowDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("overflow enqueue did not proceed after buffer space was available")
+	}
+
+	select {
+	case err := <-seedDone:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("seed create did not complete")
+	}
+}
+
+func TestQueue_WaitForEmpty_Timeout(t *testing.T) {
+	ops := newBlockingDriveOps()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := q.CreateFile("wait-timeout.json", []byte("x"), "folder", "application/json")
+		done <- err
+	}()
+
+	select {
+	case <-ops.startedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("create did not start")
+	}
+
+	assert.False(t, q.WaitForEmpty(200*time.Millisecond))
+
+	close(ops.blockCh)
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("create did not complete after unblock")
+	}
+}
+
+func TestQueue_WaitForEmpty_Success(t *testing.T) {
+	ops := newMockDriveOperations()
+	q := NewDriveOperationsQueue(ops)
+	defer q.Cleanup()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := q.CreateFile("wait-success.json", []byte("ok"), "folder", "application/json")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("create did not complete")
+	}
+
+	assert.True(t, q.WaitForEmpty(5*time.Second))
+}
