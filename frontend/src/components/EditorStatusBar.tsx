@@ -1,4 +1,4 @@
-import { Flip, Logout, Settings } from '@mui/icons-material';
+import { Logout, Settings } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import { Box, CircularProgress, Divider, IconButton, List, ListItem, Popover, Tooltip, Typography } from '@mui/material';
@@ -9,8 +9,7 @@ import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import * as wailsRuntime from '../../wailsjs/runtime';
 import { useDriveSync } from '../hooks/useDriveSync';
-import type { FileNote, Note } from '../types';
-import { GoogleDriveIcon, MarkdownIcon } from './Icons';
+import { GoogleDriveIcon, MarkdownIcon, SplitEditorIcon } from './Icons';
 import { VersionUp } from './VersionUp';
 
 const fadeAnimation = keyframes`
@@ -36,7 +35,6 @@ function formatTime(date: Date): string {
 
 interface EditorStatusBarProps {
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
-  currentNote: Note | FileNote | null;
   isSplit: boolean;
   isMarkdownPreview: boolean;
   canSplit: boolean;
@@ -48,7 +46,6 @@ interface EditorStatusBarProps {
 
 export const EditorStatusBar = ({
   editorInstanceRef,
-  currentNote,
   isSplit,
   isMarkdownPreview,
   canSplit,
@@ -101,32 +98,24 @@ export const EditorStatusBar = ({
   const [info, setInfo] = useState<string[]>(getEditorInfo());
 
   useEffect(() => {
-    if (!editorInstanceRef?.current || !currentNote) return;
+    const editor = editorInstanceRef?.current;
+    if (!editor) return;
 
     setInfo(getEditorInfo());
 
-    const disposables: IDisposable[] = [];
-
-    if (editorInstanceRef.current) {
-      disposables.push(
-        editorInstanceRef.current.onDidChangeCursorPosition(() => {
-          setInfo(getEditorInfo());
-        }),
-        editorInstanceRef.current.onDidChangeCursorSelection(() => {
-          setInfo(getEditorInfo());
-        }),
-        editorInstanceRef.current.onDidChangeModelContent(() => {
-          setInfo(getEditorInfo());
-        }),
-      );
-    }
+    const disposables: IDisposable[] = [
+      editor.onDidChangeCursorPosition(() => setInfo(getEditorInfo())),
+      editor.onDidChangeCursorSelection(() => setInfo(getEditorInfo())),
+      editor.onDidChangeModelContent(() => setInfo(getEditorInfo())),
+      editor.onDidChangeModel(() => setInfo(getEditorInfo())),
+    ];
 
     return () => {
       for (const d of disposables) {
         d.dispose();
       }
     };
-  }, [editorInstanceRef, currentNote, getEditorInfo]);
+  }, [editorInstanceRef, getEditorInfo]);
 
   useEffect(() => {
     wailsRuntime.EventsOn('logMessage', (message: string) => {
@@ -183,7 +172,7 @@ export const EditorStatusBar = ({
         position: 'relative',
       }}
     >
-      <Box sx={{ display: 'flex', width: 220, minWidth: 0, flexShrink: 1, textAlign: 'left' }}>
+      <Box sx={{ display: 'flex', width: 220, flexShrink: 0, textAlign: 'left' }}>
         <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
           {info[0]}
         </Typography>
@@ -192,7 +181,7 @@ export const EditorStatusBar = ({
         </Typography>
       </Box>
 
-      <Box sx={{ display: 'flex', textAlign: 'left', width: 280, minWidth: 0, flexShrink: 1 }}>
+      <Box sx={{ display: 'flex', textAlign: 'left', width: 280, flexShrink: 0 }}>
         <Divider orientation='vertical' flexItem />
         <Typography variant='caption' component='div' sx={{ mx: 4, width: '100%' }} noWrap>
           {info[2]}
@@ -272,7 +261,7 @@ export const EditorStatusBar = ({
               disabled={!canSplit && !isSplit}
               color={isSplit ? 'primary' : 'default'}
             >
-              <Flip sx={{ fontSize: 18 }} />
+              <SplitEditorIcon sx={{ fontSize: 20 }} />
             </IconButton>
           </span>
         </Tooltip>
@@ -282,7 +271,7 @@ export const EditorStatusBar = ({
             onClick={onToggleMarkdownPreview}
             color={isMarkdownPreview ? 'primary' : 'default'}
           >
-            <MarkdownIcon sx={{ fontSize: 18 }} />
+            <MarkdownIcon sx={{ fontSize: 20 }} />
           </IconButton>
         </Tooltip>
 
@@ -306,7 +295,12 @@ export const EditorStatusBar = ({
           ) : syncStatus === 'syncing' ? (
             <Tooltip title='Syncing...' arrow placement='top'>
               <Box
-                sx={{ animation: `${fadeAnimation} 1.5s ease-in-out infinite`, display: 'flex', alignItems: 'center', mx: 0.5 }}
+                sx={{
+                  animation: `${fadeAnimation} 1.5s ease-in-out infinite`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  mx: 0.5,
+                }}
               >
                 <CircularProgress size={18} />
               </Box>

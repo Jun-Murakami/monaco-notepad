@@ -50,19 +50,10 @@ describe('EditorStatusBar', () => {
       onDidChangeCursorPosition: vi.fn().mockReturnValue({ dispose: vi.fn() }),
       onDidChangeCursorSelection: vi.fn().mockReturnValue({ dispose: vi.fn() }),
       onDidChangeModelContent: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+      onDidChangeModel: vi.fn().mockReturnValue({ dispose: vi.fn() }),
     } as unknown as editor.IStandaloneCodeEditor;
 
     return mockEditor;
-  };
-
-  const mockNote = {
-    id: '1',
-    title: 'Test Note',
-    content: 'Test Content',
-    contentHeader: null,
-    language: 'typescript',
-    modifiedTime: new Date().toISOString(),
-    archived: false,
   };
 
   const statusBarProps = {
@@ -88,7 +79,7 @@ describe('EditorStatusBar', () => {
     const mockEditor = createMockEditor();
     const editorRef = { current: mockEditor };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
+      <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
     );
 
     expect(screen.getByText('Length: 100')).toBeInTheDocument();
@@ -110,7 +101,7 @@ describe('EditorStatusBar', () => {
     });
 
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
+      <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
     );
     expect(screen.getByText('Select: [ 1.1 -> 2.5 ]')).toBeInTheDocument();
   });
@@ -118,7 +109,7 @@ describe('EditorStatusBar', () => {
   it('エディタがnullの場合、情報が表示されないこと', () => {
     const editorRef = { current: null };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
+      <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
     );
 
     expect(screen.queryByText(/Length:/)).not.toBeInTheDocument();
@@ -129,7 +120,7 @@ describe('EditorStatusBar', () => {
   it('ログメッセージが正しく表示され、フェードアウトすること', async () => {
     const editorRef = { current: null };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
+      <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
     );
 
     // ログメッセージイベントをシミュレート
@@ -155,7 +146,7 @@ describe('EditorStatusBar', () => {
   it('コンポーネントのアンマウント時にイベントリスナーが解除されること', () => {
     const editorRef = { current: null };
     const { unmount } = render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
+      <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
     );
     unmount();
 
@@ -165,7 +156,7 @@ describe('EditorStatusBar', () => {
   it('バージョンアップコンポーネントが表示されること', () => {
     const editorRef = { current: null };
     render(
-      <EditorStatusBar currentNote={mockNote} editorInstanceRef={editorRef} {...statusBarProps} />,
+      <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
     );
     expect(screen.getByTestId('version-up')).toBeInTheDocument();
   });
@@ -184,22 +175,33 @@ describe('EditorStatusBar', () => {
       }
     };
 
+    const getLogMessageClickableArea = (message: string): HTMLElement => {
+      const logText = screen.getByText(message);
+      const clickableArea = logText.closest('[class]')?.parentElement;
+      if (!clickableArea) {
+        throw new Error('Clickable area not found');
+      }
+      return clickableArea;
+    };
+
+    const getHistoryPopover = (title: string): HTMLElement => {
+      const popover = screen.getByText(title).closest('[role="presentation"]');
+      if (!popover) {
+        throw new Error('Notification history popover not found');
+      }
+      return popover as HTMLElement;
+    };
+
     it('メッセージ受信後にログメッセージ領域をクリックするとPopoverが開くこと', () => {
       const editorRef = { current: null };
       render(
-        <EditorStatusBar
-          currentNote={mockNote}
-          editorInstanceRef={editorRef}
-          {...statusBarProps}
-        />,
+        <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
       );
 
       sendLogMessages(['First message']);
 
       // ログメッセージのテキストを含むクリック可能な領域をクリック
-      const logText = screen.getByText('First message');
-      const clickableArea = logText.closest('[class]')!.parentElement!;
-      fireEvent.click(clickableArea);
+      fireEvent.click(getLogMessageClickableArea('First message'));
 
       // Popoverが開き、履歴ヘッダーが表示される
       expect(screen.getByText('Notification History (1)')).toBeInTheDocument();
@@ -208,11 +210,7 @@ describe('EditorStatusBar', () => {
     it('履歴が空の場合はクリックしてもPopoverが開かないこと', () => {
       const editorRef = { current: null };
       render(
-        <EditorStatusBar
-          currentNote={mockNote}
-          editorInstanceRef={editorRef}
-          {...statusBarProps}
-        />,
+        <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
       );
 
       // メッセージが無い状態でVersionUpの隣のBoxをクリック
@@ -225,18 +223,13 @@ describe('EditorStatusBar', () => {
     it('複数メッセージが履歴に蓄積されること', () => {
       const editorRef = { current: null };
       render(
-        <EditorStatusBar
-          currentNote={mockNote}
-          editorInstanceRef={editorRef}
-          {...statusBarProps}
-        />,
+        <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
       );
 
       sendLogMessages(['Message A', 'Message B', 'Message C']);
 
       // 最新メッセージが表示されていることを確認
-      const logText = screen.getByText('Message C');
-      fireEvent.click(logText.closest('[class]')!.parentElement!);
+      fireEvent.click(getLogMessageClickableArea('Message C'));
 
       // 全メッセージが履歴に存在
       expect(screen.getByText('Notification History (3)')).toBeInTheDocument();
@@ -251,23 +244,16 @@ describe('EditorStatusBar', () => {
       vi.setSystemTime(new Date('2025-02-09T10:30:45'));
 
       render(
-        <EditorStatusBar
-          currentNote={mockNote}
-          editorInstanceRef={editorRef}
-          {...statusBarProps}
-        />,
+        <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
       );
 
       sendLogMessages(['Timestamped message']);
 
-      const logText = screen.getByText('Timestamped message');
-      fireEvent.click(logText.closest('[class]')!.parentElement!);
+      fireEvent.click(getLogMessageClickableArea('Timestamped message'));
 
       // タイムスタンプ要素が存在する（ロケールに依存するので形式は緩くチェック）
-      const popover = screen
-        .getByText('Notification History (1)')
-        .closest('[role="presentation"]')!;
-      const listItems = within(popover as HTMLElement).getAllByRole('listitem');
+      const popover = getHistoryPopover('Notification History (1)');
+      const listItems = within(popover).getAllByRole('listitem');
       expect(listItems).toHaveLength(1);
       // タイムスタンプテキストが含まれている
       expect(listItems[0].textContent).toContain('Timestamped message');
@@ -276,17 +262,12 @@ describe('EditorStatusBar', () => {
     it('Popoverの外をクリックすると閉じること', async () => {
       const editorRef = { current: null };
       render(
-        <EditorStatusBar
-          currentNote={mockNote}
-          editorInstanceRef={editorRef}
-          {...statusBarProps}
-        />,
+        <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
       );
 
       sendLogMessages(['Close test']);
 
-      const logText = screen.getByText('Close test');
-      fireEvent.click(logText.closest('[class]')!.parentElement!);
+      fireEvent.click(getLogMessageClickableArea('Close test'));
 
       // Popoverが開いている
       expect(screen.getByText('Notification History (1)')).toBeInTheDocument();
@@ -305,22 +286,15 @@ describe('EditorStatusBar', () => {
     it('メッセージ履歴は古い順に表示されること（上が古い、下が新しい）', () => {
       const editorRef = { current: null };
       render(
-        <EditorStatusBar
-          currentNote={mockNote}
-          editorInstanceRef={editorRef}
-          {...statusBarProps}
-        />,
+        <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
       );
 
       sendLogMessages(['First', 'Second', 'Third']);
 
-      const logTexts = screen.getAllByText('Third');
-      fireEvent.click(logTexts[0].closest('[class]')!.parentElement!);
+      fireEvent.click(getLogMessageClickableArea('Third'));
 
-      const popover = screen
-        .getByText('Notification History (3)')
-        .closest('[role="presentation"]')!;
-      const listItems = within(popover as HTMLElement).getAllByRole('listitem');
+      const popover = getHistoryPopover('Notification History (3)');
+      const listItems = within(popover).getAllByRole('listitem');
       expect(listItems).toHaveLength(3);
       expect(listItems[0]).toHaveTextContent('First');
       expect(listItems[1]).toHaveTextContent('Second');

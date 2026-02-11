@@ -36,64 +36,69 @@ vi.mock('monaco-editor/esm/vs/language/html/html.worker?worker', () => ({
   default: {},
 }));
 vi.mock('monaco-editor/esm/vs/language/typescript/ts.worker?worker', () => ({
-	default: {},
+  default: {},
 }));
 
 // lib/monaco.ts のモック
 vi.mock('../lib/monaco', () => ({
-	getMonaco: () => ({
-		editor: {
-			create: () => ({
-				dispose: () => {},
-				getModel: () => ({ isDisposed: () => false }),
-				updateOptions: () => {},
-				setModel: () => {},
-				getValue: () => '',
-				setValue: () => {},
-				onDidChangeModelContent: () => ({ dispose: () => {} }),
-				addCommand: () => {},
-				focus: () => {},
-			}),
-			setTheme: () => {},
-			defineTheme: () => {},
-			getModel: () => null,
-			createModel: () => ({
-				dispose: () => {},
-				isDisposed: () => false,
-			}),
-			setModelLanguage: () => {},
-		},
-		languages: {
-			getLanguages: () => [],
-		},
-		Uri: {
-			parse: (uri: string) => ({ toString: () => uri }),
-		},
-	}),
-	getOrCreateEditor: () => ({
-		dispose: () => {},
-		getModel: () => ({ isDisposed: () => false }),
-		updateOptions: () => {},
-		setModel: () => {},
-		getValue: () => '',
-		setValue: () => {},
-		onDidChangeModelContent: () => ({ dispose: () => {} }),
-		addCommand: () => {},
-		focus: () => {},
-	}),
-	disposeEditor: () => {},
-	getSupportedLanguages: () => [],
-	getLanguageByExtension: () => null,
-	getExtensionByLanguage: () => null,
-	THEME_PAIRS: [
-		{ id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
-		{ id: 'github', label: 'GitHub', light: 'github-light', dark: 'github-dark' },
-	],
-	getThemePair: (id: string) => ({
-		id: 'default',
-		label: 'Default',
-		light: 'vs',
-		dark: 'vs-dark',
-	}),
-	monaco: {},
+  getMonaco: () => ({
+    editor: {
+      create: () => ({
+        dispose: () => {},
+        getModel: () => ({ isDisposed: () => false }),
+        updateOptions: () => {},
+        setModel: () => {},
+        getValue: () => '',
+        setValue: () => {},
+        onDidChangeModelContent: () => ({ dispose: () => {} }),
+        addCommand: () => {},
+        focus: () => {},
+      }),
+      setTheme: () => {},
+      defineTheme: () => {},
+      getModel: () => null,
+      createModel: () => ({
+        dispose: () => {},
+        isDisposed: () => false,
+      }),
+      setModelLanguage: () => {},
+    },
+    languages: {
+      getLanguages: () => [],
+    },
+    Uri: {
+      parse: (uri: string) => ({ toString: () => uri }),
+    },
+  }),
+  getOrCreateEditor: () => ({
+    dispose: () => {},
+    getModel: () => ({ isDisposed: () => false }),
+    updateOptions: () => {},
+    setModel: () => {},
+    getValue: () => '',
+    setValue: () => {},
+    onDidChangeModelContent: () => ({ dispose: () => {} }),
+    addCommand: () => {},
+    focus: () => {},
+  }),
+  disposeEditor: () => {},
+  getSupportedLanguages: () => [],
+  getLanguageByExtension: () => null,
+  getExtensionByLanguage: () => null,
+  THEME_PAIRS: [
+    { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+    {
+      id: 'github',
+      label: 'GitHub',
+      light: 'github-light',
+      dark: 'github-dark',
+    },
+  ],
+  getThemePair: (id: string) => ({
+    id: 'default',
+    label: 'Default',
+    light: 'vs',
+    dark: 'vs-dark',
+  }),
+  monaco: {},
 }));

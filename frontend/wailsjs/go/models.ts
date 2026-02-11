@@ -62,6 +62,7 @@ export namespace backend {
 	    archived: boolean;
 	    order: number;
 	    folderId?: string;
+	    syncing?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Note(source);
@@ -78,6 +79,7 @@ export namespace backend {
 	        this.archived = source["archived"];
 	        this.order = source["order"];
 	        this.folderId = source["folderId"];
+	        this.syncing = source["syncing"];
 	    }
 	}
 	export class Settings {

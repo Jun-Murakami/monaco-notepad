@@ -11,7 +11,6 @@ import type { FileNote, Note, Settings } from '../types';
 
 interface EditorProps {
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
-  value?: string;
   onChange?: (value: string) => void;
   language?: string;
   settings: Settings;
@@ -31,7 +30,6 @@ interface EditorProps {
 
 export const Editor: React.FC<EditorProps> = ({
   editorInstanceRef,
-  value = '',
   onChange,
   language = 'plaintext',
   settings,
@@ -49,8 +47,26 @@ export const Editor: React.FC<EditorProps> = ({
   onSelectPrevious,
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
+
+  // コールバックをrefで保持し、リスナーの再登録を防止
   const onFocusRef = useRef(onFocus);
+  const onChangeRef = useRef(onChange);
+  const onNewRef = useRef(onNew);
+  const onOpenRef = useRef(onOpen);
+  const onSaveRef = useRef(onSave);
+  const onSaveAsRef = useRef(onSaveAs);
+  const onCloseRef = useRef(onClose);
+  const onSelectNextRef = useRef(onSelectNext);
+  const onSelectPreviousRef = useRef(onSelectPrevious);
   onFocusRef.current = onFocus;
+  onChangeRef.current = onChange;
+  onNewRef.current = onNew;
+  onOpenRef.current = onOpen;
+  onSaveRef.current = onSave;
+  onSaveAsRef.current = onSaveAs;
+  onCloseRef.current = onClose;
+  onSelectNextRef.current = onSelectNext;
+  onSelectPreviousRef.current = onSelectPrevious;
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -82,56 +98,61 @@ export const Editor: React.FC<EditorProps> = ({
       onFocusRef.current?.();
     });
 
+    const contentDisposable = instance.onDidChangeModelContent(() => {
+      const currentValue = instance.getValue();
+      onChangeRef.current?.(currentValue || '');
+    });
+
     return () => {
       focusDisposable.dispose();
+      contentDisposable.dispose();
       disposeEditorInstance(instance);
       editorInstanceRef.current = null;
     };
   }, [editorInstanceRef]);
 
-  // イベントリスナーの設定
+  const currentNoteRef = useRef(currentNote);
+  currentNoteRef.current = currentNote;
+  const currentNoteId = currentNote?.id ?? null;
+
+  // ノートIDが変わったときだけモデルを切り替え（同一ノート内の編集ではsetValueしない）
   useEffect(() => {
-    if (!editorInstanceRef.current) return;
+    if (!editorInstanceRef.current || !currentNoteId || !currentNoteRef.current)
+      return;
 
-    const disposables = [
-      editorInstanceRef.current.onDidChangeModelContent(() => {
-        const currentValue = editorInstanceRef.current?.getValue();
-        if (currentValue !== value) {
-          // 値が実際に変更された場合のみ通知
-          onChange?.(currentValue || '');
-        }
-      }),
-    ];
-
-    return () => {
-      for (const d of disposables) {
-        d.dispose();
-      }
-    };
-  }, [onChange, value, editorInstanceRef]); // onChangeとvalueの変更時のみリスナーを更新
-
-  // currentNoteが変更されたときの処理を追加
-  useEffect(() => {
-    if (!editorInstanceRef.current || !currentNote) return;
-
+    const note = currentNoteRef.current;
     const monaco = getMonaco();
-    const modelUri = `inmemory://${currentNote.id}`;
+    const modelUri = `inmemory://${currentNoteId}`;
     let model = monaco.editor.getModel(monaco.Uri.parse(modelUri));
 
     if (!model) {
-      // モデルが存在しない場合は新規作成
       model = monaco.editor.createModel(
-        currentNote.content || '',
-        currentNote.language,
+        note.content || '',
+        note.language,
         monaco.Uri.parse(modelUri),
       );
+    } else {
+      const nextValue = note.content || '';
+      if (model.getValue() !== nextValue) {
+        model.setValue(nextValue);
+      }
     }
     editorInstanceRef.current.setModel(model);
-  }, [currentNote, editorInstanceRef]);
+  }, [currentNoteId, editorInstanceRef]);
 
-  const currentNoteId = currentNote?.id ?? null;
+  // 外部からのコンテンツ更新（Cloud sync等）をエディタモデルに反映
+  // pendingContentRef設計により、ユーザーのタイピングはcurrentNote.contentを変更しないため、
+  // stateのcontentが変わる＝外部更新と安全に判別できる
+  const currentNoteContent = currentNote?.content ?? '';
+  useEffect(() => {
+    if (!editorInstanceRef.current || !currentNoteId) return;
+    const model = editorInstanceRef.current.getModel();
+    if (!model) return;
+    if (model.getValue() !== currentNoteContent) {
+      model.setValue(currentNoteContent);
+    }
+  }, [currentNoteContent, currentNoteId, editorInstanceRef]);
 
-  // 検索キーワードをエディタ内でハイライト・選択（指定されたマッチインデックスを使用）
   useEffect(() => {
     if (!currentNoteId) return;
     const editor = editorInstanceRef.current;
@@ -156,19 +177,16 @@ export const Editor: React.FC<EditorProps> = ({
     }
   }, [searchKeyword, searchMatchIndexInNote, currentNoteId, editorInstanceRef]);
 
-  // 言語変更時の処理
   useEffect(() => {
     if (!editorInstanceRef.current) return;
 
     const model = editorInstanceRef.current.getModel();
     if (!model) return;
 
-    // モデルの言語を更新
     const monaco = getMonaco();
     monaco.editor.setModelLanguage(model, language);
   }, [language, editorInstanceRef]);
 
-  // 設定変更時の処理
   useEffect(() => {
     if (editorInstanceRef.current) {
       const monaco = getMonaco();
@@ -186,17 +204,16 @@ export const Editor: React.FC<EditorProps> = ({
     }
   }, [settings, editorInstanceRef]);
 
-  // キーボードコマンドの設定
+  // キーボードコマンドの設定（一度だけ登録、ref経由で最新コールバックを参照）
   useEffect(() => {
     if (!editorInstanceRef.current) return;
 
     const monaco = getMonaco();
 
-    // カスタムコマンドの登録
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN,
       () => {
-        onNew?.();
+        onNewRef.current?.();
       },
       'editorTextFocus',
     );
@@ -204,7 +221,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO,
       () => {
-        onOpen?.();
+        onOpenRef.current?.();
       },
       'editorTextFocus',
     );
@@ -212,7 +229,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => {
-        onSave?.();
+        onSaveRef.current?.();
       },
       'editorTextFocus',
     );
@@ -220,7 +237,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.Alt | monaco.KeyCode.KeyS,
       () => {
-        onSaveAs?.();
+        onSaveAsRef.current?.();
       },
       'editorTextFocus',
     );
@@ -228,7 +245,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW,
       () => {
-        onClose?.();
+        onCloseRef.current?.();
       },
       'editorTextFocus',
     );
@@ -237,7 +254,7 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab,
         async () => {
-          await onSelectNext?.();
+          await onSelectNextRef.current?.();
         },
         'editorTextFocus',
       );
@@ -245,7 +262,7 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab,
         async () => {
-          await onSelectNext?.();
+          await onSelectNextRef.current?.();
         },
         'editorTextFocus',
       );
@@ -255,7 +272,7 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
         async () => {
-          await onSelectPrevious?.();
+          await onSelectPreviousRef.current?.();
         },
         'editorTextFocus',
       );
@@ -263,23 +280,12 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
         async () => {
-          console.log('onSelectPrevious');
-          await onSelectPrevious?.();
+          await onSelectPreviousRef.current?.();
         },
         'editorTextFocus',
       );
     }
-  }, [
-    onNew,
-    onOpen,
-    onSave,
-    onSaveAs,
-    onClose,
-    onSelectNext,
-    onSelectPrevious,
-    platform,
-    editorInstanceRef,
-  ]); // コマンドのコールバックが変更されたときのみ再登録
+  }, [platform, editorInstanceRef]);
 
   return (
     <Box

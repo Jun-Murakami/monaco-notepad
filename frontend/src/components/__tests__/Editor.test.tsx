@@ -2,7 +2,11 @@ import { render } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import { createEditor, disposeEditorInstance, getMonaco } from '../../lib/monaco';
+import {
+  createEditor,
+  disposeEditorInstance,
+  getMonaco,
+} from '../../lib/monaco';
 import type { Settings } from '../../types';
 import { Editor } from '../Editor';
 
@@ -60,8 +64,16 @@ vi.mock('../../lib/monaco', () => {
     createEditor: vi.fn(() => mockEditor),
     disposeEditorInstance: vi.fn(),
     getThemePair: vi.fn((id: string) => {
-      const pairs: Record<string, { id: string; label: string; light: string; dark: string }> = {
-        default: { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+      const pairs: Record<
+        string,
+        { id: string; label: string; light: string; dark: string }
+      > = {
+        default: {
+          id: 'default',
+          label: 'Default',
+          light: 'vs',
+          dark: 'vs-dark',
+        },
       };
       return pairs[id] || pairs.default;
     }),
@@ -123,21 +135,21 @@ const getMockFunctions = () => {
 };
 
 describe('Editor', () => {
-	const mockSettings: Settings = {
-		fontFamily: 'Test Font',
-		fontSize: 14,
-		isDarkMode: false,
-		editorTheme: 'default',
-		wordWrap: 'off',
-		minimap: true,
-		windowWidth: 800,
-		windowHeight: 600,
-		windowX: 0,
-		windowY: 0,
-		isMaximized: false,
-		isDebug: false,
-		markdownPreviewOnLeft: false,
-	};
+  const mockSettings: Settings = {
+    fontFamily: 'Test Font',
+    fontSize: 14,
+    isDarkMode: false,
+    editorTheme: 'default',
+    wordWrap: 'off',
+    minimap: true,
+    windowWidth: 800,
+    windowHeight: 600,
+    windowX: 0,
+    windowY: 0,
+    isMaximized: false,
+    isDebug: false,
+    markdownPreviewOnLeft: false,
+  };
 
   const defaultProps = {
     editorInstanceRef: { current: null },
@@ -167,6 +179,12 @@ describe('Editor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     changeContentCallback = null;
+    const { editor } = getMockFunctions();
+    editor.getModel.mockReturnValue({
+      getValue: vi.fn(() => ''),
+      setValue: vi.fn(),
+      isDisposed: vi.fn(() => false),
+    });
   });
 
   it('エディタが正しく初期化されること', () => {
@@ -338,7 +356,10 @@ describe('Editor', () => {
   it('新しい値が設定されたとき、エディタの内容が更新されること', () => {
     const { rerender } = render(<Editor {...defaultProps} />);
     const { editor, monaco } = getMockFunctions();
-    const mockModel = {};
+    const mockModel = {
+      getValue: vi.fn(() => 'Old Content'),
+      setValue: vi.fn(),
+    };
 
     // 初期状態のモックを設定
     editor.getValue.mockReturnValue('Old Content');
@@ -346,14 +367,15 @@ describe('Editor', () => {
     monaco.editor.getModel.mockReturnValue(null); // 新しいモデルを作成させるためnullを返す
     monaco.Uri.parse.mockReturnValue('mockUri');
 
-    // 新しい値で再レンダリング
+    // 別のノートに切り替えて再レンダリング
     const newNote = {
       ...defaultProps.currentNote,
+      id: 'note-2',
       content: 'New Content',
     };
     rerender(<Editor {...defaultProps} currentNote={newNote} />);
 
-    // モデルが作成されることを確認
+    // 新しいノートのモデルが作成されることを確認
     expect(monaco.Uri.parse).toHaveBeenCalledWith(`inmemory://${newNote.id}`);
     expect(monaco.editor.createModel).toHaveBeenCalledWith(
       'New Content',
@@ -365,7 +387,10 @@ describe('Editor', () => {
   it('既存のモデルが再利用されること', () => {
     const { rerender } = render(<Editor {...defaultProps} />);
     const { editor, monaco } = getMockFunctions();
-    const mockModel = {};
+    const mockModel = {
+      getValue: vi.fn(() => 'Old Content'),
+      setValue: vi.fn(),
+    };
 
     // モックをリセット
     vi.clearAllMocks();

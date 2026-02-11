@@ -29,6 +29,7 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -384,4 +385,23 @@ func TestUpdateNoteOrderWithSync(t *testing.T) {
 	assert.Equal(t, 2, len(updatedNotes))
 	assert.Equal(t, "note2", updatedNotes[0].ID)
 	assert.Equal(t, "note1", updatedNotes[1].ID)
+}
+
+func TestUpdateCollapsedFolderIDs(t *testing.T) {
+	helper := setupAppTest(t)
+	defer helper.cleanup()
+	helper.app.driveService = nil
+
+	err := helper.app.UpdateCollapsedFolderIDs([]string{"folder-a", "folder-b"})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"folder-a", "folder-b"}, helper.app.GetCollapsedFolderIDs())
+
+	noteListPath := filepath.Join(helper.app.appDataDir, "noteList.json")
+	data, readErr := os.ReadFile(noteListPath)
+	assert.NoError(t, readErr)
+
+	var persisted NoteList
+	unmarshalErr := json.Unmarshal(data, &persisted)
+	assert.NoError(t, unmarshalErr)
+	assert.Equal(t, []string{"folder-a", "folder-b"}, persisted.CollapsedFolderIDs)
 }

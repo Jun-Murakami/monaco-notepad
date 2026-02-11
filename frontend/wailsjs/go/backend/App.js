@@ -66,6 +66,10 @@ export function GetArchivedTopLevelOrder() {
   return window['go']['backend']['App']['GetArchivedTopLevelOrder']();
 }
 
+export function GetCollapsedFolderIDs() {
+  return window['go']['backend']['App']['GetCollapsedFolderIDs']();
+}
+
 export function GetModifiedTime(arg1) {
   return window['go']['backend']['App']['GetModifiedTime'](arg1);
 }
@@ -176,6 +180,10 @@ export function UnarchiveFolder(arg1) {
 
 export function UpdateArchivedTopLevelOrder(arg1) {
   return window['go']['backend']['App']['UpdateArchivedTopLevelOrder'](arg1);
+}
+
+export function UpdateCollapsedFolderIDs(arg1) {
+  return window['go']['backend']['App']['UpdateCollapsedFolderIDs'](arg1);
 }
 
 export function UpdateNoteOrder(arg1, arg2) {

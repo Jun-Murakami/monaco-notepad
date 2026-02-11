@@ -418,6 +418,17 @@ func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context, fil
 		duplicateMap[noteID] = append(duplicateMap[noteID], file)
 	}
 
+	// 重複ファイル数をカウントして開始メッセージを表示
+	totalDuplicates := 0
+	for _, files := range duplicateMap {
+		if len(files) > 1 {
+			totalDuplicates++
+		}
+	}
+	if totalDuplicates > 0 {
+		d.logger.Info("Cleaning up %d duplicate note files on cloud...", totalDuplicates)
+	}
+
 	// 各noteIDごとに複数ファイルが存在すれば最新1つ以外を削除
 	cleanupCount := 0
 	for _, files := range duplicateMap {

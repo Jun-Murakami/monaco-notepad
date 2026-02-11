@@ -89,8 +89,16 @@ vi.mock('../../lib/monaco', () => {
     getLanguageByExtension: () => null,
     getExtensionByLanguage: () => null,
     getThemePair: (id: string) => {
-      const pairs: Record<string, { id: string; label: string; light: string; dark: string }> = {
-        default: { id: 'default', label: 'Default', light: 'vs', dark: 'vs-dark' },
+      const pairs: Record<
+        string,
+        { id: string; label: string; light: string; dark: string }
+      > = {
+        default: {
+          id: 'default',
+          label: 'Default',
+          light: 'vs',
+          dark: 'vs-dark',
+        },
       };
       return pairs[id] || pairs.default;
     },
@@ -225,8 +233,10 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   ListFolders: vi.fn().mockResolvedValue([]),
   GetTopLevelOrder: vi.fn().mockResolvedValue([]),
   GetArchivedTopLevelOrder: vi.fn().mockResolvedValue([]),
+  GetCollapsedFolderIDs: vi.fn().mockResolvedValue([]),
   UpdateTopLevelOrder: vi.fn().mockResolvedValue(undefined),
   UpdateArchivedTopLevelOrder: vi.fn().mockResolvedValue(undefined),
+  UpdateCollapsedFolderIDs: vi.fn().mockResolvedValue(undefined),
   ArchiveFolder: vi.fn().mockResolvedValue(undefined),
   UnarchiveFolder: vi.fn().mockResolvedValue(undefined),
   DeleteArchivedFolder: vi.fn().mockResolvedValue(undefined),
@@ -398,7 +408,9 @@ describe('App', () => {
       fireEvent.click(archivePageButton);
 
       // アーカイブからの復元
-      const restoreButton = await screen.findByRole('button', { name: 'Restore' });
+      const restoreButton = await screen.findByRole('button', {
+        name: 'Restore',
+      });
 
       // LoadArchivedNoteのモック結果を設定
       (LoadArchivedNote as Mock).mockResolvedValue({

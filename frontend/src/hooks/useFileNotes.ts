@@ -154,26 +154,14 @@ export const useFileNotes = ({
     [],
   );
 
-  //自動保存の処理 (デバウンスあり) ------------------------------------------------------------
-  useEffect(() => {
-    const debounce = setTimeout(() => {
-      if (fileNotes.length > 0) {
-        if (currentFileNote) {
-          handleSaveFileNotes(fileNotes);
-        }
-      }
-    }, 1000);
+  // ウィンドウフォーカス時のファイル変更チェック（ref経由で一度だけ登録） ------------------------------------------------------------
+  const checkAndReloadFileRef = useRef(checkAndReloadFile);
+  checkAndReloadFileRef.current = checkAndReloadFile;
 
-    return () => {
-      clearTimeout(debounce);
-    };
-  }, [fileNotes, currentFileNote, handleSaveFileNotes]);
-
-  // ウィンドウフォーカス時のファイル変更チェック ------------------------------------------------------------
   useEffect(() => {
     const handleFocus = async () => {
-      if (currentFileNote) {
-        await checkAndReloadFile(currentFileNote);
+      if (currentFileNoteRef.current) {
+        await checkAndReloadFileRef.current(currentFileNoteRef.current);
       }
     };
 
@@ -181,25 +169,43 @@ export const useFileNotes = ({
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, [currentFileNote, checkAndReloadFile]);
+  }, []);
+
+  // ファイルノート自動保存のデバウンスタイマー
+  const fileNoteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileNotesRef = useRef(fileNotes);
+  fileNotesRef.current = fileNotes;
+
+  useEffect(() => {
+    return () => {
+      if (fileNoteSaveTimer.current) clearTimeout(fileNoteSaveTimer.current);
+    };
+  }, []);
 
   // ファイルノートが変更されたときの処理 ------------------------------------------------------------
   const handleFileNoteContentChange = useCallback(
     (newContent: string) => {
-      if (!currentFileNote) {
+      if (!currentFileNoteRef.current) {
         return;
       }
 
       const newFileNote: FileNote = {
-        ...currentFileNote,
+        ...currentFileNoteRef.current,
         content: newContent,
       };
       setCurrentFileNote(newFileNote);
       setFileNotes((prev) =>
         prev.map((note) => (note.id === newFileNote.id ? newFileNote : note)),
       );
+
+      if (fileNoteSaveTimer.current) {
+        clearTimeout(fileNoteSaveTimer.current);
+      }
+      fileNoteSaveTimer.current = setTimeout(() => {
+        handleSaveFileNotes(fileNotesRef.current);
+      }, 1000);
     },
-    [currentFileNote],
+    [handleSaveFileNotes],
   );
 
   // ノートを選択したときの処理 ------------------------------------------------------------

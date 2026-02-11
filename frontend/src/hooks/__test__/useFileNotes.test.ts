@@ -387,7 +387,13 @@ describe('useFileNotes', () => {
 
       await act(async () => {
         await result.current.handleSelectFileNote(mockFileNote);
+      });
+
+      await act(async () => {
         result.current.setFileNotes([mockFileNote, anotherFileNote]);
+      });
+
+      await act(async () => {
         result.current.handleFileNoteContentChange('Updated content');
       });
 

@@ -36,6 +36,8 @@ export function GetAppVersion():Promise<string>;
 
 export function GetArchivedTopLevelOrder():Promise<Array<backend.TopLevelItem>>;
 
+export function GetCollapsedFolderIDs():Promise<Array<string>>;
+
 export function GetModifiedTime(arg1:string):Promise<time.Time>;
 
 export function GetTopLevelOrder():Promise<Array<backend.TopLevelItem>>;
@@ -91,6 +93,8 @@ export function SyncNow():Promise<void>;
 export function UnarchiveFolder(arg1:string):Promise<void>;
 
 export function UpdateArchivedTopLevelOrder(arg1:Array<backend.TopLevelItem>):Promise<void>;
+
+export function UpdateCollapsedFolderIDs(arg1:Array<string>):Promise<void>;
 
 export function UpdateNoteOrder(arg1:string,arg2:number):Promise<void>;
 

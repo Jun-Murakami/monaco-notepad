@@ -57,6 +57,7 @@ type Note struct {
 	Archived      bool   `json:"archived"`           // アーカイブ状態（true=アーカイブ済み）
 	Order         int    `json:"order"`              // ノートの表示順序
 	FolderID      string `json:"folderId,omitempty"` // 所属フォルダID（空文字=未分類）
+	Syncing       bool   `json:"syncing,omitempty"`  // 同期中フラグ（ダウンロード未完了）
 }
 
 // ノートのメタデータのみを保持
@@ -79,6 +80,7 @@ type NoteList struct {
 	Folders               []Folder       `json:"folders,omitempty"`
 	TopLevelOrder         []TopLevelItem `json:"topLevelOrder,omitempty"`
 	ArchivedTopLevelOrder []TopLevelItem `json:"archivedTopLevelOrder,omitempty"`
+	CollapsedFolderIDs    []string       `json:"collapsedFolderIDs,omitempty"`
 	LastSync              time.Time      `json:"lastSync"`
 }
 
@@ -187,7 +189,7 @@ func (ds *DriveSync) SetConnected(connected bool) {
 	ds.isConnected = connected
 }
 
-func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata, folders []Folder, topLevelOrder []TopLevelItem, archivedTopLevelOrder []TopLevelItem) {
+func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadata, folders []Folder, topLevelOrder []TopLevelItem, archivedTopLevelOrder []TopLevelItem, collapsedFolderIDs []string) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 	if ds.cloudNoteList == nil {
@@ -211,6 +213,11 @@ func (ds *DriveSync) UpdateCloudNoteList(lastSync time.Time, notes []NoteMetadat
 		archivedCopy := make([]TopLevelItem, len(archivedTopLevelOrder))
 		copy(archivedCopy, archivedTopLevelOrder)
 		ds.cloudNoteList.ArchivedTopLevelOrder = archivedCopy
+	}
+	if collapsedFolderIDs != nil {
+		collapsedCopy := make([]string, len(collapsedFolderIDs))
+		copy(collapsedCopy, collapsedFolderIDs)
+		ds.cloudNoteList.CollapsedFolderIDs = collapsedCopy
 	}
 }
 

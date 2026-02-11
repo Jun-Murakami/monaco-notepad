@@ -348,7 +348,14 @@ func (s *driveService) updateNoteListInternal() error {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note list"))
 	}
 
-	s.auth.GetDriveSync().UpdateCloudNoteList(lastSync, s.noteService.noteList.Notes, s.noteService.noteList.Folders, s.noteService.noteList.TopLevelOrder, s.noteService.noteList.ArchivedTopLevelOrder)
+	s.auth.GetDriveSync().UpdateCloudNoteList(
+		lastSync,
+		s.noteService.noteList.Notes,
+		s.noteService.noteList.Folders,
+		s.noteService.noteList.TopLevelOrder,
+		s.noteService.noteList.ArchivedTopLevelOrder,
+		s.noteService.noteList.CollapsedFolderIDs,
+	)
 
 	s.logger.Console("Note list updated")
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
@@ -558,9 +565,13 @@ func (s *driveService) SyncNotes() error {
 	if !s.isNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
 		s.logger.Info("Note content is identical, syncing structure only")
 		s.mergeNoteListStructure(cloudNoteList)
-		s.noteService.noteList.LastSync = cloudNoteList.LastSync
-		if err := s.noteService.saveNoteList(); err != nil {
-			s.logger.Error(err, "Failed to save note list after structure merge")
+		if s.noteService.noteList.LastSync != cloudNoteList.LastSync {
+			s.noteService.noteList.LastSync = cloudNoteList.LastSync
+			if err := s.noteService.saveNoteList(); err != nil {
+				s.logger.Error(err, "Failed to save note list after structure merge")
+			}
+		} else {
+			s.logger.Console("Skipping noteList save - LastSync unchanged")
 		}
 		s.notifySyncComplete()
 		return nil
@@ -605,22 +616,30 @@ func (s *driveService) performInitialSync() error {
 		len(mergedCloudNotes),
 	)
 
+	// 2.5. プレビュー: メタデータだけ先にマージしてノートリストを表示
+	originalLocalNotes := make([]NoteMetadata, len(s.noteService.noteList.Notes))
+	copy(originalLocalNotes, s.noteService.noteList.Notes)
+	s.publishPreviewNoteList(cloudNoteList, mergedCloudNotes)
+
 	// 3. ノートのマージ処理 (ローカル vs クラウド)
-	journal := s.buildSyncJournal(s.noteService.noteList.Notes, mergedCloudNotes)
+	journal := s.buildSyncJournal(originalLocalNotes, mergedCloudNotes)
 	if len(journal.Actions) > 0 {
 		s.writeSyncJournal(journal)
 	}
 
-	mergedNotes, downloadedNotes, err := s.mergeNotes(s.ctx, s.noteService.noteList.Notes, mergedCloudNotes)
+	mergedNotes, downloadedNotes, err := s.mergeNotes(s.ctx, originalLocalNotes, mergedCloudNotes, cloudNoteList.LastSync)
 	if err != nil {
 		return fmt.Errorf("failed to merge notes: %w", err)
 	}
 
-	for _, note := range downloadedNotes {
+	for i, note := range downloadedNotes {
 		if err := s.noteService.SaveNoteFromSync(note); err != nil {
 			return fmt.Errorf("failed to save downloaded note: %w", err)
 		}
 		s.markJournalActionCompleted(journal, note.ID)
+		if len(downloadedNotes) > 10 && ((i+1)%10 == 0 || i+1 == len(downloadedNotes)) {
+			s.logger.NotifyFrontendSyncedAndReload(s.ctx)
+		}
 	}
 	s.deleteSyncJournal()
 
@@ -634,6 +653,28 @@ func (s *driveService) performInitialSync() error {
 	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	return nil
+}
+
+// publishPreviewNoteList はメタデータだけを先にマージしてフロントエンドに通知する。
+// ダウンロード未完了のノートはSyncing状態でリストに表示される。
+func (s *driveService) publishPreviewNoteList(cloudNoteList *NoteList, cloudNotes []NoteMetadata) {
+	seen := make(map[string]bool)
+	var preview []NoteMetadata
+	for _, n := range s.noteService.noteList.Notes {
+		preview = append(preview, n)
+		seen[n.ID] = true
+	}
+	for _, n := range cloudNotes {
+		if !seen[n.ID] {
+			preview = append(preview, n)
+		}
+	}
+	s.noteService.noteList.Notes = preview
+	s.mergeNoteListStructure(cloudNoteList)
+	if err := s.noteService.saveNoteList(); err != nil {
+		s.logger.Error(err, "Failed to save preview note list")
+	}
+	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 }
 
 // ------------------------------------------------------------
@@ -664,15 +705,8 @@ func (s *driveService) ensureSyncIsPossible() error {
 
 // 同期が完了したらフロントエンドへ通知
 func (s *driveService) notifySyncComplete() {
-	if changed, err := s.noteService.ValidateIntegrity(); err != nil {
+	if _, err := s.noteService.ValidateIntegrity(); err != nil {
 		s.logger.Error(err, "Failed to validate note list integrity after sync")
-	} else if changed {
-		s.logger.Info("Note list integrity fixed after sync, uploading corrected noteList")
-		if s.IsConnected() {
-			if uploadErr := s.updateNoteListInternal(); uploadErr != nil {
-				s.logger.Error(uploadErr, "Failed to upload corrected noteList after integrity fix")
-			}
-		}
 	}
 	if s.lastSyncResult != nil && s.lastSyncResult.HasChanges() {
 		s.logger.Info(s.lastSyncResult.Summary())
@@ -682,7 +716,7 @@ func (s *driveService) notifySyncComplete() {
 		s.logger.Info("Queue still has items, keeping syncing status")
 		s.logger.NotifyDriveStatus(s.ctx, "syncing")
 	} else {
-		s.logger.Info("Sync status is up to date")
+		s.logger.Console("Sync status is up to date")
 		s.logger.NotifyDriveStatus(s.ctx, "synced")
 	}
 }
@@ -700,7 +734,7 @@ func (s *driveService) mergeNoteListsAndDownload(cloudNoteList *NoteList) error 
 		s.writeSyncJournal(journal)
 	}
 
-	mergedNotes, downloadedNotes, err := s.mergeNotes(s.ctx, s.noteService.noteList.Notes, cloudNoteList.Notes)
+	mergedNotes, downloadedNotes, err := s.mergeNotes(s.ctx, s.noteService.noteList.Notes, cloudNoteList.Notes, cloudNoteList.LastSync)
 	if err != nil {
 		return err
 	}
@@ -724,10 +758,13 @@ func (s *driveService) mergeNoteListsAndDownload(cloudNoteList *NoteList) error 
 // ------------------------------------------------------------
 
 // ノートのフルマージ処理 (localNotes vs cloudNotes)
+// cloudLastSync: クラウドの最終同期時刻。ローカルのみのノートがこの時刻以前に変更されていた場合、
+// 他端末で削除されたと判定してローカルからも削除する。
 func (s *driveService) mergeNotes(
 	ctx context.Context,
 	localNotes []NoteMetadata,
 	cloudNotes []NoteMetadata,
+	cloudLastSync time.Time,
 ) ([]NoteMetadata, []*Note, error) {
 	// 重複するidを排除
 	localNotes = s.driveSync.DeduplicateNotes(localNotes)
@@ -775,63 +812,109 @@ func (s *driveService) mergeNotes(
 			localMeta := localNotesMap[id]
 			cloudMeta := cloudNote
 
-			if s.isOneSidedChange(localMeta, cloudMeta) {
-				s.logger.Info("Local file already matches cloud for note %s, updating metadata only", id)
+			localTime := localMeta.ModifiedTime
+			cloudTime := cloudMeta.ModifiedTime
+			if isModifiedTimeAfter(cloudTime, localTime) {
+				s.logger.Info("Cloud note %s is newer, downloading (cloud: %s, local: %s)", id, cloudTime, localTime)
 				mergedNotes = append(mergedNotes, cloudMeta)
-			} else {
-				// 真のコンフリクト: ノート内マージ（Git風コンフリクトマーカー）
-				localNote, loadErr := s.noteService.LoadNote(id)
-				if loadErr != nil {
-					s.logger.Error(loadErr, "Failed to load local note %s for conflict merge", id)
-				} else {
-					s.logger.Info("Merging conflict for \"%s\" (in-note merge)", localNote.Title)
-					if s.lastSyncResult != nil {
-						s.lastSyncResult.ConflictMerges++
-					}
-				}
-				mergedNotes = append(mergedNotes, cloudMeta)
-				cloudNote, dlErr := s.driveSync.DownloadNote(ctx, id)
+				note, dlErr := s.driveSync.DownloadNote(ctx, id)
 				if dlErr != nil {
-					s.logger.Error(dlErr, "Skipped syncing note %s (data corruption)", id)
+					s.logger.Error(dlErr, "Failed to download note %s", id)
 					if s.lastSyncResult != nil {
 						s.lastSyncResult.Errors++
 					}
 				} else {
-					if localNote != nil {
-						cloudNote.Content = MergeConflictContent(
-							cloudNote.Content, localNote.Content,
-							cloudMeta.ModifiedTime, localMeta.ModifiedTime,
-						)
-					}
-					downloadedNotes = append(downloadedNotes, cloudNote)
+					downloadedNotes = append(downloadedNotes, note)
 					if s.lastSyncResult != nil {
 						s.lastSyncResult.Downloaded++
+					}
+				}
+			} else if isModifiedTimeAfter(localTime, cloudTime) {
+				s.logger.Info("Local note %s is newer, uploading (local: %s, cloud: %s)", id, localTime, cloudTime)
+				mergedNotes = append(mergedNotes, localMeta)
+				note, err := s.noteService.LoadNote(id)
+				if err == nil {
+					if createErr := s.driveSync.UpdateNote(ctx, note); createErr != nil {
+						s.logger.Error(createErr, "Failed to upload note %s", id)
+						if s.lastSyncResult != nil {
+							s.lastSyncResult.Errors++
+						}
+					} else if s.lastSyncResult != nil {
+						s.lastSyncResult.Uploaded++
+					}
+				}
+			} else {
+				if s.isOneSidedChange(localMeta, cloudMeta) {
+					s.logger.Info("Local file already matches cloud for note %s, updating metadata only", id)
+					mergedNotes = append(mergedNotes, cloudMeta)
+				} else {
+					localNote, loadErr := s.noteService.LoadNote(id)
+					if loadErr != nil {
+						s.logger.Error(loadErr, "Failed to load local note %s for conflict merge", id)
+					} else {
+						s.logger.Info("Merging conflict for \"%s\" (in-note merge)", localNote.Title)
+						if s.lastSyncResult != nil {
+							s.lastSyncResult.ConflictMerges++
+						}
+					}
+					mergedNotes = append(mergedNotes, cloudMeta)
+					cloudNote, dlErr := s.driveSync.DownloadNote(ctx, id)
+					if dlErr != nil {
+						s.logger.Error(dlErr, "Skipped syncing note %s (data corruption)", id)
+						if s.lastSyncResult != nil {
+							s.lastSyncResult.Errors++
+						}
+					} else {
+						if localNote != nil {
+							cloudNote.Content = MergeConflictContent(
+								cloudNote.Content, localNote.Content,
+								cloudMeta.ModifiedTime, localMeta.ModifiedTime,
+							)
+						}
+						downloadedNotes = append(downloadedNotes, cloudNote)
+						if s.lastSyncResult != nil {
+							s.lastSyncResult.Downloaded++
+						}
 					}
 				}
 			}
 			delete(cloudNotesMap, id)
 		} else {
-			// ローカルのみ存在するノートはアップロード
-			mergedNotes = append(mergedNotes, localNote)
-			note, err := s.noteService.LoadNote(id)
-			if err == nil {
-				s.logger.Info("Uploading note %s to cloud because it doesn't exist in cloud", id)
-				if createErr := s.driveSync.CreateNote(ctx, note); createErr != nil {
-					s.logger.Error(createErr, "Failed to upload note %s (skipped)", id)
-					if s.lastSyncResult != nil {
-						s.lastSyncResult.Errors++
+			// ローカルのみ存在するノート: cloudLastSyncより前に変更 → 他端末で削除済み、後に変更 → アップロード
+			if !cloudLastSync.IsZero() && !isModifiedTimeAfter(localNote.ModifiedTime, cloudLastSync.Format(time.RFC3339)) {
+				s.logger.Console("Deleting local-only note: %s (deleted on other device)", localNote.Title)
+				s.noteService.DeleteNoteFromSync(id)
+				if s.lastSyncResult != nil {
+					s.lastSyncResult.Deleted++
+				}
+			} else {
+				mergedNotes = append(mergedNotes, localNote)
+				note, err := s.noteService.LoadNote(id)
+				if err == nil {
+					s.logger.Info("Uploading note %s to cloud because it doesn't exist in cloud", id)
+					if createErr := s.driveSync.CreateNote(ctx, note); createErr != nil {
+						s.logger.Error(createErr, "Failed to upload note %s (skipped)", id)
+						if s.lastSyncResult != nil {
+							s.lastSyncResult.Errors++
+						}
+					} else if s.lastSyncResult != nil {
+						s.lastSyncResult.Uploaded++
 					}
-				} else if s.lastSyncResult != nil {
-					s.lastSyncResult.Uploaded++
 				}
 			}
 		}
 	}
 
 	// クラウドのみ存在するノートはダウンロード
+	cloudOnlyCount := len(cloudNotesMap)
+	cloudOnlyIndex := 0
+	if cloudOnlyCount > 0 {
+		s.logger.Info("Downloading %d notes from cloud...", cloudOnlyCount)
+	}
 	for id, cloudNote := range cloudNotesMap {
 		mergedNotes = append(mergedNotes, cloudNote)
-		s.logger.Info("Downloading note %s from cloud because it doesn't exist in local", id)
+		cloudOnlyIndex++
+		s.logger.Console("Downloading note %s from cloud (%d/%d)", id, cloudOnlyIndex, cloudOnlyCount)
 		note, err := s.driveSync.DownloadNote(ctx, id)
 		if err != nil {
 			s.logger.Error(err, "Skipped syncing note %s (download failed)", id)
@@ -843,6 +926,9 @@ func (s *driveService) mergeNotes(
 		downloadedNotes = append(downloadedNotes, note)
 		if s.lastSyncResult != nil {
 			s.lastSyncResult.Downloaded++
+		}
+		if cloudOnlyCount > 10 && cloudOnlyIndex%10 == 0 {
+			s.logger.Info("Downloading notes... (%d/%d)", cloudOnlyIndex, cloudOnlyCount)
 		}
 	}
 
@@ -864,7 +950,8 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 	}
 
 	// ローカルにしかないノートを処理 (C-4: 削除 vs 編集の衝突保護)
-	lastSync := s.noteService.noteList.LastSync
+	lastSync := cloudNoteList.LastSync
+	deletedCount := 0
 	for _, localNote := range currentNotes {
 		exists := false
 		for _, cloudNote := range cloudNoteList.Notes {
@@ -884,13 +971,17 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 				}
 				cloudNoteList.Notes = append(cloudNoteList.Notes, localNote)
 			} else {
-				s.logger.Info("Deleting local-only note: %s (not modified after last sync)", localNote.Title)
+				s.logger.Console("Deleting local-only note: %s (not modified after last sync)", localNote.Title)
 				s.noteService.DeleteNoteFromSync(localNote.ID)
+				deletedCount++
 				if s.lastSyncResult != nil {
 					s.lastSyncResult.Deleted++
 				}
 			}
 		}
+	}
+	if deletedCount > 0 {
+		s.logger.Info("Removed %d local-only notes (deleted on other device)", deletedCount)
 	}
 
 	s.mergeNoteListStructure(cloudNoteList)
@@ -919,6 +1010,8 @@ func (s *driveService) mergeNoteListStructure(cloudNoteList *NoteList) {
 
 	s.noteService.noteList.ArchivedTopLevelOrder = s.mergeTopLevelOrder(
 		cloudNoteList.ArchivedTopLevelOrder, s.noteService.noteList.ArchivedTopLevelOrder)
+
+	s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
 }
 
 // uploadAllNotesWithContent はローカルの全ノートをContentを含めてアップロードする
@@ -1131,10 +1224,6 @@ func (s *driveService) isNoteListChanged(cloudList, localList []NoteMetadata) bo
 		}
 		if cloudNote.ContentHash != localNote.ContentHash {
 			s.logger.Console("Note %s has different content hash", id)
-			return true
-		}
-		if cloudNote.Order != localNote.Order {
-			s.logger.Console("Note %s has different order", id)
 			return true
 		}
 	}

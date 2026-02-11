@@ -29,6 +29,9 @@ export default defineConfig({
     fs: {
       strict: true,
       allow: ['..']
+    },
+    hmr: {
+      host: 'localhost'
     }
   }
 })

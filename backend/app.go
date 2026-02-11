@@ -256,16 +256,21 @@ func (a *App) SaveNote(note *Note, action string) error {
 
 	// ドライブサービスが初期化されており、接続中の場合はアップロード
 	if a.driveService != nil && a.driveService.IsConnected() {
+		a.logger.Console("SaveNote: uploading to Drive - noteID=%s, action=%s", note.ID, action)
 		noteCopy := *note
 		isCreate := action == "create"
 		go func() {
 			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
 			if err := a.driveService.SaveNoteAndUpdateList(&noteCopy, isCreate); err != nil {
+				a.logger.Console("SaveNote: upload failed - noteID=%s, err=%v", noteCopy.ID, err)
 				a.authService.HandleOfflineTransition(err)
 				return
 			}
+			a.logger.Console("SaveNote: upload completed - noteID=%s", noteCopy.ID)
 			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 		}()
+	} else {
+		a.logger.Console("SaveNote: skipping upload - driveService=%v, isConnected=%v", a.driveService != nil, a.driveService != nil && a.driveService.IsConnected())
 	}
 	return nil
 }
@@ -387,6 +392,29 @@ func (a *App) MoveNoteToFolder(noteID string, folderID string) error {
 // トップレベルの表示順序を返す ------------------------------------------------------------
 func (a *App) GetTopLevelOrder() []TopLevelItem {
 	return a.noteService.GetTopLevelOrder()
+}
+
+func (a *App) GetCollapsedFolderIDs() []string {
+	return a.noteService.noteList.CollapsedFolderIDs
+}
+
+func (a *App) UpdateCollapsedFolderIDs(ids []string) error {
+	a.noteService.noteList.CollapsedFolderIDs = ids
+	if err := a.noteService.saveNoteList(); err != nil {
+		return err
+	}
+
+	if a.driveService != nil && a.driveService.IsConnected() {
+		go func() {
+			if err := a.driveService.UpdateNoteList(); err != nil {
+				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
+				return
+			}
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
+		}()
+	}
+
+	return nil
 }
 
 // トップレベルの表示順序を更新する ------------------------------------------------------------

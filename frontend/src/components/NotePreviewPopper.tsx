@@ -8,7 +8,12 @@ interface NotePreviewPopperProps {
   children: React.ReactNode;
 }
 
-export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, anchorX, disabled, children }) => {
+export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
+  content,
+  anchorX,
+  disabled,
+  children,
+}) => {
   const [open, setOpen] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
   const mouseYRef = useRef(0);
@@ -40,7 +45,7 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, a
         getBoundingClientRect: () => new DOMRect(x, mouseYRef.current, 0, 0),
       };
       setOpen(true);
-    }, 200);
+    }, 0);
   }, [getAnchorX, disabled]);
 
   const handleMouseMove = useCallback(
@@ -66,19 +71,30 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, a
 
   const previewLines = useMemo(() => {
     if (!content) return null;
-    return content.split(/\r\n|\n|\r/).slice(0, 10).join('\n');
+    return content
+      .split(/\r\n|\n|\r/)
+      .slice(0, 10)
+      .join('\n');
   }, [content]);
 
   return (
-    <Box ref={containerRef} onMouseEnter={handleMouseEnter} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-      {open && previewLines && (
+    <Box
+      ref={containerRef}
+      onMouseEnter={handleMouseEnter}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
+      {open && !disabled && previewLines && (
         <Popper
           open
           anchorEl={virtualAnchorRef.current as unknown as HTMLElement}
-          placement='right-start'
+          placement="right-start"
           modifiers={[
             { name: 'offset', options: { offset: [0, 4] } },
-            { name: 'preventOverflow', options: { boundary: 'window', padding: 2 } },
+            {
+              name: 'preventOverflow',
+              options: { boundary: 'window', padding: 2 },
+            },
           ]}
           sx={{ zIndex: 1300, pointerEvents: 'none', maxWidth: 400 }}
         >
@@ -92,10 +108,17 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, a
             }}
           >
             <Box sx={{ px: 1.5, pt: 1, flex: '0 0 auto' }} />
-            <Box sx={{ px: 1.5, overflow: 'hidden', flex: '1 1 auto', minHeight: 0 }}>
+            <Box
+              sx={{
+                px: 1.5,
+                overflow: 'hidden',
+                flex: '1 1 auto',
+                minHeight: 0,
+              }}
+            >
               <Typography
-                variant='caption'
-                component='pre'
+                variant="caption"
+                component="pre"
                 sx={{
                   fontFamily: 'monospace',
                   fontSize: '0.75rem',

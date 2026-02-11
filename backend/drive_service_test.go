@@ -1235,7 +1235,8 @@ func TestCloudSync_DeletedOnCloud_NotEditedLocally_Deleted(t *testing.T) {
 	}
 
 	cloudNoteList := &NoteList{
-		Notes: []NoteMetadata{},
+		Notes:    []NoteMetadata{},
+		LastSync: lastSyncTime,
 	}
 
 	err = ds.handleCloudSync(cloudNoteList)
@@ -1310,6 +1311,7 @@ func TestCloudSync_MultipleNotes_MixedDeleteAndEdit(t *testing.T) {
 		Notes: []NoteMetadata{
 			{ID: "cloud-existing", Title: cloudNote.Title, ModifiedTime: cloudNote.ModifiedTime},
 		},
+		LastSync: lastSyncTime,
 	}
 
 	err := ds.handleCloudSync(cloudNoteList)
@@ -1405,6 +1407,23 @@ func TestCloudSync_AppliesArchivedTopLevelOrder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, helper.noteService.noteList.ArchivedTopLevelOrder, 2)
 	assert.Equal(t, "archived-1", helper.noteService.noteList.ArchivedTopLevelOrder[0].ID)
+}
+
+func TestCloudSync_AppliesCollapsedFolderIDs(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	helper.noteService.noteList.CollapsedFolderIDs = []string{"local-folder"}
+
+	cloudNoteList := &NoteList{
+		Notes:              []NoteMetadata{},
+		CollapsedFolderIDs: []string{"cloud-folder-1", "cloud-folder-2"},
+	}
+
+	err := ds.handleCloudSync(cloudNoteList)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"cloud-folder-1", "cloud-folder-2"}, helper.noteService.noteList.CollapsedFolderIDs)
 }
 
 func TestCloudSync_PreservesLocalOnlyFolders(t *testing.T) {
@@ -1576,7 +1595,7 @@ func TestMergeNotes_ConflictingContent_MergesInNote(t *testing.T) {
 		{ID: "conflict-note", Title: "Conflict Note", ContentHash: "cloud-hash", ModifiedTime: cloudNote.ModifiedTime},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	assert.Len(t, mergedNotes, 1, "ノート内マージではノート数が増えないべき")
@@ -1600,12 +1619,99 @@ func TestMergeNotes_SameContent_NoConflictCopy(t *testing.T) {
 		{ID: "same-note", Title: "Same", ContentHash: "same-hash", ModifiedTime: time.Now().Format(time.RFC3339)},
 	}
 
-	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 	assert.Len(t, mergedNotes, 1)
 	for _, n := range mergedNotes {
 		assert.NotContains(t, n.Title, "競合コピー")
 	}
+}
+
+func TestMergeNotes_LocalOnly_DeletedOnOtherDevice(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+
+	oldTime := time.Now().Add(-10 * time.Minute)
+	note := &Note{
+		ID:       "deleted-note",
+		Title:    "Deleted On Other Device",
+		Content:  "some content",
+		Language: "plaintext",
+	}
+	err := helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	localNotes := []NoteMetadata{
+		{ID: "deleted-note", Title: "Deleted On Other Device", ContentHash: "hash1", ModifiedTime: oldTime.Format(time.RFC3339)},
+	}
+	cloudNotes := []NoteMetadata{}
+	cloudLastSync := time.Now()
+
+	ds.lastSyncResult = &SyncResult{}
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, cloudLastSync)
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 0, "他端末で削除されたノートはマージ結果に含まれないべき")
+	assert.Equal(t, 1, ds.lastSyncResult.Deleted)
+}
+
+func TestMergeNotes_LocalOnly_CreatedOffline(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+
+	note := &Note{
+		ID:       "offline-note",
+		Title:    "Created Offline",
+		Content:  "offline content",
+		Language: "plaintext",
+	}
+	err := helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	recentTime := time.Now().Add(10 * time.Minute)
+	localNotes := []NoteMetadata{
+		{ID: "offline-note", Title: "Created Offline", ContentHash: "hash1", ModifiedTime: recentTime.Format(time.RFC3339)},
+	}
+	cloudNotes := []NoteMetadata{}
+	cloudLastSync := time.Now()
+
+	ds.lastSyncResult = &SyncResult{}
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, cloudLastSync)
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 1, "オフラインで作成されたノートはアップロードされるべき")
+	assert.Equal(t, 0, ds.lastSyncResult.Deleted)
+	assert.Equal(t, 1, ds.lastSyncResult.Uploaded)
+}
+
+func TestMergeNotes_LocalOnly_ZeroCloudLastSync(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+
+	note := &Note{
+		ID:       "first-sync-note",
+		Title:    "First Sync",
+		Content:  "content",
+		Language: "plaintext",
+	}
+	err := helper.noteService.SaveNote(note)
+	assert.NoError(t, err)
+
+	localNotes := []NoteMetadata{
+		{ID: "first-sync-note", Title: "First Sync", ContentHash: "hash1", ModifiedTime: time.Now().Add(-1 * time.Hour).Format(time.RFC3339)},
+	}
+	cloudNotes := []NoteMetadata{}
+
+	ds.lastSyncResult = &SyncResult{}
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 1, "cloudLastSyncがゼロの場合はアップロードされるべき")
+	assert.Equal(t, 0, ds.lastSyncResult.Deleted)
+	assert.Equal(t, 1, ds.lastSyncResult.Uploaded)
 }
 
 // --- H-8: UploadAllNotesWithContentテスト ---
@@ -1705,7 +1811,7 @@ func TestMergeNotes_CorruptedNote_SkipsAndContinues(t *testing.T) {
 		{ID: "good-note", Title: "Good", ContentHash: "good-hash"},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes, time.Time{})
 	assert.NoError(t, err, "破損ノートがあっても全体がエラーにならないべき")
 	assert.Len(t, mergedNotes, 2, "メタデータは両方含まれるべき")
 	assert.Len(t, downloadedNotes, 1, "正常なノートだけダウンロードされるべき")
@@ -1804,7 +1910,7 @@ func TestMergeNotes_ClockSkew_BothVersionsPreserved(t *testing.T) {
 		{ID: "skew-note", ContentHash: "cloud-hash", ModifiedTime: cloudNote.ModifiedTime},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	assert.Len(t, mergedNotes, 1, "ノート内マージではノート数が増えないべき")
@@ -1897,7 +2003,7 @@ func TestOfflineRecovery_AlwaysMerges(t *testing.T) {
 		{ID: "note-2", Title: "Cloud Note", ContentHash: "cloud-hash", ModifiedTime: time.Now().Format(time.RFC3339)},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(mergedNotes), 2, "ローカルとクラウド両方のノートがマージされるべき")
 
@@ -1916,11 +2022,10 @@ func TestOfflineRecovery_AlwaysMerges(t *testing.T) {
 	_ = downloadedNotes
 }
 
-func TestOfflineRecovery_ConflictMerged(t *testing.T) {
+func TestOfflineRecovery_NewerCloudWins(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
 
-	// ローカルノートを保存
 	localNote := &Note{
 		ID:           "conflict-note",
 		Title:        "Shared Note",
@@ -1931,17 +2036,15 @@ func TestOfflineRecovery_ConflictMerged(t *testing.T) {
 	helper.noteService.SaveNote(localNote)
 	localHash := helper.noteService.noteList.Notes[0].ContentHash
 
-	// クラウドノートを作成（異なる内容）
 	cloudNote := &Note{
 		ID:           "conflict-note",
 		Title:        "Shared Note",
-		Content:      "cloud version - different",
+		Content:      "cloud version - newer",
 		Language:     "plaintext",
 		ModifiedTime: time.Now().Add(1 * time.Minute).Format(time.RFC3339),
 	}
 	cloudHash := computeContentHash(cloudNote)
 
-	// mockにクラウドノートを配置（DownloadNoteが成功するように）
 	mockOps := newMockDriveOperations()
 	logger := NewAppLogger(context.Background(), true, helper.tempDir)
 	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
@@ -1970,12 +2073,74 @@ func TestOfflineRecovery_ConflictMerged(t *testing.T) {
 		{ID: "conflict-note", Title: "Shared Note", ContentHash: cloudHash, ModifiedTime: cloudNote.ModifiedTime},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
+	assert.NoError(t, err)
+
+	assert.Len(t, mergedNotes, 1, "ノート数は1のまま")
+	assert.Len(t, downloadedNotes, 1, "クラウド版がダウンロードされるべき")
+	assert.Equal(t, "cloud version - newer", downloadedNotes[0].Content, "新しいクラウド版で上書きされるべき")
+	assert.NotContains(t, downloadedNotes[0].Content, "<<<<<<<", "コンフリクトマーカーは不要")
+}
+
+func TestOfflineRecovery_SameTimeConflictMerged(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	sameTime := time.Now().Format(time.RFC3339)
+
+	localNote := &Note{
+		ID:           "conflict-note",
+		Title:        "Shared Note",
+		Content:      "local version",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+	helper.noteService.SaveNote(localNote)
+	localHash := helper.noteService.noteList.Notes[0].ContentHash
+
+	cloudNote := &Note{
+		ID:           "conflict-note",
+		Title:        "Shared Note",
+		Content:      "cloud version - different",
+		Language:     "plaintext",
+		ModifiedTime: sameTime,
+	}
+	cloudHash := computeContentHash(cloudNote)
+
+	mockOps := newMockDriveOperations()
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	syncService := NewDriveSyncService(mockOps, "test-folder", "test-root", logger)
+
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps.CreateFile("conflict-note.json", cloudData, "test-folder", "application/json")
+
+	auth := &authService{isTestMode: true}
+	driveSync := &DriveSync{}
+	driveSync.SetFolderIDs("test-root", "test-folder")
+	auth.driveSync = driveSync
+
+	ds := &driveService{
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    mockOps,
+		driveSync:   syncService,
+	}
+
+	localNotes := []NoteMetadata{
+		{ID: "conflict-note", Title: "Shared Note", ContentHash: localHash, ModifiedTime: sameTime},
+	}
+	cloudNotes := []NoteMetadata{
+		{ID: "conflict-note", Title: "Shared Note", ContentHash: cloudHash, ModifiedTime: sameTime},
+	}
+
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	assert.Len(t, mergedNotes, 1, "ノート内マージではノート数が増えないべき")
 	assert.Len(t, downloadedNotes, 1, "マージ済みノートがダウンロードされるべき")
-	assert.Contains(t, downloadedNotes[0].Content, "<<<<<<<", "衝突時にコンフリクトマーカーが含まれるべき")
+	assert.Contains(t, downloadedNotes[0].Content, "<<<<<<<", "同一時刻の衝突時にコンフリクトマーカーが含まれるべき")
 	assert.Contains(t, downloadedNotes[0].Content, "cloud version - different", "クラウド版の内容が含まれるべき")
 	assert.Contains(t, downloadedNotes[0].Content, "local version", "ローカル版の内容が含まれるべき")
 	assert.Contains(t, downloadedNotes[0].Content, ">>>>>>>", "コンフリクトマーカーが含まれるべき")
@@ -2081,7 +2246,7 @@ func TestMergeNotes_ArchiveChange_TriggersConflictOrDownload(t *testing.T) {
 	localNotes := []NoteMetadata{{ID: "n1", ContentHash: localHash}}
 	cloudNotes := []NoteMetadata{{ID: "n1", ContentHash: cloudHash}}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 	assert.Len(t, mergedNotes, 1, "ノート内マージではノート数が増えないべき")
 	assert.Len(t, downloadedNotes, 1, "マージ済みノートがダウンロードされるべき")
@@ -2122,7 +2287,7 @@ func TestMergeNotes_FolderIdChange_TriggersConflictOrDownload(t *testing.T) {
 	localNotes := []NoteMetadata{{ID: "n1", ContentHash: localHash}}
 	cloudNotes := []NoteMetadata{{ID: "n1", ContentHash: cloudHash}}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 	assert.Len(t, mergedNotes, 1, "ノート内マージではノート数が増えないべき")
 	assert.Len(t, downloadedNotes, 1, "マージ済みノートがダウンロードされるべき")
@@ -2288,7 +2453,7 @@ func TestMergeNotes_OneNoteFails_OthersContinue(t *testing.T) {
 	localNotes := helper.noteService.noteList.Notes
 	cloudNotes := []NoteMetadata{}
 
-	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err, "1ノートのアップロード失敗で全体がエラーにならないべき")
 	assert.Len(t, mergedNotes, 2, "失敗ノートもメタデータはmerged listに含まれるべき")
 }
@@ -2655,7 +2820,7 @@ func TestMergeNotes_OneSidedChange_NoConflictCopy(t *testing.T) {
 		{ID: "onesided-note", Title: "One Sided", ContentHash: realHash, ModifiedTime: time.Now().Format(time.RFC3339)},
 	}
 
-	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	// コンフリクトコピーが作成されていないことを確認
@@ -2721,7 +2886,7 @@ func TestMergeNotes_BothSidesChanged_MergesInNote(t *testing.T) {
 		{ID: "both-changed", Title: "Both Changed", ContentHash: cloudHash, ModifiedTime: cloudNote.ModifiedTime},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	assert.Len(t, mergedNotes, 1, "ノート内マージではノート数が増えないべき")
@@ -2764,7 +2929,7 @@ func TestMergeNotes_EmptyContentHash_RecomputesBeforeCompare(t *testing.T) {
 		{ID: "empty-hash-note", Title: "Empty Hash", ContentHash: realHash, ModifiedTime: note.ModifiedTime},
 	}
 
-	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	// 空ハッシュが再計算されて一致するため、コンフリクトコピーは作成されないべき
@@ -2831,7 +2996,7 @@ func TestMergeNotes_InNoteMerge_PreservesNoteIdentity(t *testing.T) {
 		{ID: "repeated-conflict", Title: cloudNote.Title, ContentHash: cloudHash, ModifiedTime: cloudNote.ModifiedTime},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	assert.Len(t, mergedNotes, 1, "ノート内マージではノート数が増えないべき")
@@ -2900,7 +3065,7 @@ func TestMergeNotes_InNoteMerge_NoNewNotesCreated(t *testing.T) {
 		{ID: "no-new-note", Title: "No New Note Test", ContentHash: cloudHash, ModifiedTime: cloudNote.ModifiedTime},
 	}
 
-	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes)
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), localNotes, cloudNotes, time.Time{})
 	assert.NoError(t, err)
 
 	assert.Len(t, mergedNotes, 1, "ノート内マージでは新しいノートが作成されないべき")

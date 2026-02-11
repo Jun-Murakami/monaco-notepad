@@ -95,7 +95,19 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			// アクティブなノートはコンテンツを読み込む
 			note, err := s.LoadNote(metadata.ID)
 			if err != nil {
-				s.logConsole("Skipped loading note %s: %v", metadata.ID, err)
+				// ファイルが未ダウンロードの場合はSyncing状態として返す
+				notes = append(notes, Note{
+					ID:            metadata.ID,
+					Title:         metadata.Title,
+					Content:       "",
+					ContentHeader: metadata.ContentHeader,
+					Language:      metadata.Language,
+					ModifiedTime:  metadata.ModifiedTime,
+					Order:         metadata.Order,
+					Archived:      false,
+					FolderID:      metadata.FolderID,
+					Syncing:       true,
+				})
 				continue
 			}
 			notes = append(notes, *note)

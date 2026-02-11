@@ -1,4 +1,10 @@
-import { ArrowBack, ArrowForward, Close, DeleteForever, Unarchive } from '@mui/icons-material';
+import {
+  ArrowBack,
+  ArrowForward,
+  Close,
+  DeleteForever,
+  Unarchive,
+} from '@mui/icons-material';
 import {
   Box,
   Button,
@@ -29,7 +35,9 @@ interface ArchivedNoteContentDialogProps {
   hasNext?: boolean;
 }
 
-export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps> = ({
+export const ArchivedNoteContentDialog: React.FC<
+  ArchivedNoteContentDialogProps
+> = ({
   open,
   note,
   onClose,
@@ -46,16 +54,19 @@ export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps>
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState('');
 
-  const getNoteTitle = useCallback((n: Note): { text: string; isFallback: boolean } => {
-    if (n.title.trim()) return { text: n.title, isFallback: false };
-    if (n.contentHeader) {
-      return {
-        text: n.contentHeader.replace(/\r\n|\n|\r/g, ' ').slice(0, 30),
-        isFallback: true,
-      };
-    }
-    return { text: 'Empty Note', isFallback: true };
-  }, []);
+  const getNoteTitle = useCallback(
+    (n: Note): { text: string; isFallback: boolean } => {
+      if (n.title.trim()) return { text: n.title, isFallback: false };
+      if (n.contentHeader) {
+        return {
+          text: n.contentHeader.replace(/\r\n|\n|\r/g, ' ').slice(0, 30),
+          isFallback: true,
+        };
+      }
+      return { text: 'Empty Note', isFallback: true };
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!open || !note) {
@@ -115,14 +126,14 @@ export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps>
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth='lg'
+      maxWidth="lg"
       fullWidth
       disableRestoreFocus
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography
-            variant='h6'
+            variant="h6"
             noWrap
             sx={{
               fontStyle: titleInfo.isFallback ? 'italic' : 'normal',
@@ -131,15 +142,15 @@ export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps>
           >
             {titleInfo.text}
           </Typography>
-          <Typography variant='caption' color='text.secondary'>
+          <Typography variant="caption" color="text.secondary">
             {dayjs(note.modifiedTime).format('L HH:mm:ss')}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>
-          <IconButton onClick={onPrevious} disabled={!hasPrevious} size='small'>
+          <IconButton onClick={onPrevious} disabled={!hasPrevious} size="small">
             <ArrowBack />
           </IconButton>
-          <IconButton onClick={onNext} disabled={!hasNext} size='small'>
+          <IconButton onClick={onNext} disabled={!hasNext} size="small">
             <ArrowForward />
           </IconButton>
         </Box>
@@ -149,7 +160,14 @@ export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps>
       </DialogTitle>
       <DialogContent sx={{ p: 0 }}>
         {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              height: '60vh',
+            }}
+          >
             <CircularProgress />
           </Box>
         ) : (
@@ -157,14 +175,24 @@ export const ArchivedNoteContentDialog: React.FC<ArchivedNoteContentDialogProps>
         )}
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 1.5 }}>
-        <Button onClick={handleRestore} color='primary' variant='contained' startIcon={<Unarchive />}>
+        <Button
+          onClick={handleRestore}
+          color="primary"
+          variant="contained"
+          startIcon={<Unarchive />}
+        >
           Restore
         </Button>
-        <Button onClick={handleDelete} color='error' variant='outlined' startIcon={<DeleteForever />}>
+        <Button
+          onClick={handleDelete}
+          color="error"
+          variant="outlined"
+          startIcon={<DeleteForever />}
+        >
           Delete
         </Button>
         <Box sx={{ flex: 1 }} />
-        <Button onClick={onClose} variant='outlined'>
+        <Button onClick={onClose} variant="outlined">
           Close
         </Button>
       </DialogActions>

@@ -37,7 +37,7 @@ func (p *DrivePollingService) WaitForFrontendAndStartSync() {
 	}
 
 	time.Sleep(1 * time.Second)
-	p.logger.Console("Starting polling service...")
+	p.logger.Info("Starting polling service...")
 	p.StartPolling()
 }
 
@@ -56,19 +56,19 @@ func (p *DrivePollingService) StartPolling() {
 		p.logger.Error(err, "Failed to refresh file ID cache")
 	}
 
-	p.logger.Console("Listing files in notes folder")
+	p.logger.Info("Checking cloud files...")
 	_, notesID := p.driveService.auth.GetDriveSync().FolderIDs()
 	files, err := p.driveService.driveSync.ListFiles(p.ctx, notesID)
 	if err != nil {
 		p.logger.Error(err, "Failed to list files in notes folder")
 	}
 
-	p.logger.Console("Checking for duplicate note files")
+	p.logger.Info("Checking for duplicate note files...")
 	if err := p.driveService.driveSync.RemoveDuplicateNoteFiles(p.ctx, files); err != nil {
 		p.logger.Error(err, "Failed to clean duplicate note files")
 	}
 
-	p.logger.Console("Downloading cloud noteList")
+	p.logger.Info("Downloading cloud note list...")
 	noteListID := p.driveService.auth.GetDriveSync().NoteListID()
 	cloudNoteList, err := p.driveService.driveSync.DownloadNoteList(p.ctx, noteListID)
 	if err != nil {

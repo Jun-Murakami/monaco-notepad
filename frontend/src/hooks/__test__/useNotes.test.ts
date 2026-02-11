@@ -13,11 +13,13 @@ import {
   DeleteFolder,
   DeleteNote,
   DestroyApp,
+  GetCollapsedFolderIDs,
   ListNotes,
   LoadArchivedNote,
   MoveNoteToFolder,
   RenameFolder,
   SaveNote,
+  UpdateCollapsedFolderIDs,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
 import type { Note } from '../../types';
@@ -33,8 +35,10 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   ListFolders: vi.fn().mockResolvedValue([]),
   GetTopLevelOrder: vi.fn().mockResolvedValue([]),
   GetArchivedTopLevelOrder: vi.fn().mockResolvedValue([]),
+  GetCollapsedFolderIDs: vi.fn().mockResolvedValue([]),
   UpdateTopLevelOrder: vi.fn().mockResolvedValue(undefined),
   UpdateArchivedTopLevelOrder: vi.fn().mockResolvedValue(undefined),
+  UpdateCollapsedFolderIDs: vi.fn().mockResolvedValue(undefined),
   ArchiveFolder: vi.fn().mockResolvedValue(undefined),
   UnarchiveFolder: vi.fn().mockResolvedValue(undefined),
   DeleteArchivedFolder: vi.fn().mockResolvedValue(undefined),
@@ -82,6 +86,7 @@ describe('useNotes', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     (ListNotes as unknown as Mock).mockResolvedValue([mockNote]);
+    (GetCollapsedFolderIDs as unknown as Mock).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -134,7 +139,18 @@ describe('useNotes', () => {
         result.current.handleNoteContentChange('Updated Content');
       });
 
-      expect(result.current.currentNote?.content).toBe('Updated Content');
+      expect(result.current.currentNote?.content).toBe(mockNote.content);
+
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'Updated Content',
+        }),
+        'update',
+      );
     });
 
     it('自動保存が3秒後に実行されること', async () => {
@@ -233,7 +249,13 @@ describe('useNotes', () => {
         vi.advanceTimersByTime(3000);
       });
 
-      expect(result.current.currentNote?.content).toBe(updatedContent);
+      expect(result.current.currentNote?.content).toBe(mockNote.content);
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: updatedContent,
+        }),
+        'update',
+      );
     });
   });
 
@@ -352,7 +374,7 @@ describe('useNotes', () => {
 
   describe('イベントリスナー', () => {
     it('notes:reloadイベントで正しくノートリストが更新されること', async () => {
-      const { result } = renderHook(() => useNotes());
+      renderHook(() => useNotes());
       const updatedNotes = [{ ...mockNote, content: 'Updated via reload' }];
 
       // イベントリスナーの登録を確認
@@ -378,29 +400,29 @@ describe('useNotes', () => {
       expect(ListNotes).toHaveBeenCalled();
     });
 
-    it('note:updatedイベントで正しく個別のノートが更新されること', async () => {
+    it('notes:updatedイベントで正しく個別のノートが更新されること', async () => {
       const { result } = renderHook(() => useNotes());
       const updatedNote = { ...mockNote, content: 'Updated via event' };
 
       // イベントリスナーの登録を確認
       expect(runtime.EventsOn).toHaveBeenCalledWith(
-        'note:updated',
+        'notes:updated',
         expect.any(Function),
       );
 
-      // note:updatedイベントをシミュレート
+      // notes:updatedイベントをシミュレート
       const mockCalls2 = (runtime.EventsOn as unknown as Mock).mock.calls;
       const foundUpdateCall = mockCalls2.find(
-        (call) => call[0] === 'note:updated',
+        (call) => call[0] === 'notes:updated',
       );
-      if (!foundUpdateCall) throw new Error('note:updated callback not found');
+      if (!foundUpdateCall) throw new Error('notes:updated callback not found');
       const updateCallback = foundUpdateCall[1];
 
       (ListNotes as unknown as Mock).mockResolvedValue([updatedNote]);
 
       await act(async () => {
         await result.current.handleSelectNote(mockNote);
-        await updateCallback(mockNote.id);
+        await updateCallback();
       });
 
       expect(ListNotes).toHaveBeenCalled();
@@ -760,8 +782,6 @@ describe('useNotes', () => {
     });
 
     it('toggleFolderCollapseがフォルダの折りたたみ状態を切り替えること', async () => {
-      const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
-
       const { result } = renderHook(() => useNotes());
 
       act(() => {
@@ -769,9 +789,14 @@ describe('useNotes', () => {
       });
 
       expect(result.current.collapsedFolders.has('folder-1')).toBe(true);
-      expect(setItemSpy).toHaveBeenCalledWith(
-        'collapsedFolders',
-        expect.any(String),
+      expect(UpdateCollapsedFolderIDs).toHaveBeenCalledWith(['folder-1']);
+
+      act(() => {
+        result.current.toggleFolderCollapse('folder-2');
+      });
+
+      expect(UpdateCollapsedFolderIDs).toHaveBeenLastCalledWith(
+        expect.arrayContaining(['folder-1', 'folder-2']),
       );
 
       act(() => {
@@ -779,8 +804,24 @@ describe('useNotes', () => {
       });
 
       expect(result.current.collapsedFolders.has('folder-1')).toBe(false);
+      expect(UpdateCollapsedFolderIDs).toHaveBeenLastCalledWith(['folder-2']);
+    });
 
-      setItemSpy.mockRestore();
+    it('初期化時にバックエンドのcollapsed folder IDsを読み込むこと', async () => {
+      (GetCollapsedFolderIDs as unknown as Mock).mockResolvedValue([
+        'folder-from-backend',
+      ]);
+
+      const { result } = renderHook(() => useNotes());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(GetCollapsedFolderIDs).toHaveBeenCalled();
+      expect(result.current.collapsedFolders.has('folder-from-backend')).toBe(
+        true,
+      );
     });
   });
 });

@@ -79,6 +79,13 @@ export const lightTheme = createTheme({
     },
   },
   components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        ':root': {
+          '--focus-border': LIGHT_PRIMARY,
+        },
+      },
+    },
     MuiButton: {
       styleOverrides: {
         root: {
@@ -105,6 +112,9 @@ export const darkTheme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        ':root': {
+          '--focus-border': DARK_PRIMARY,
+        },
         body: { backgroundColor: '#121212' },
       },
     },

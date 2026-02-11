@@ -57,7 +57,13 @@ describe('ArchivedNoteList', () => {
   };
 
   it('アーカイブされたノートがない場合、メッセージが表示されること', () => {
-    render(<ArchivedNoteList {...defaultProps} notes={[]} archivedTopLevelOrder={[]} />);
+    render(
+      <ArchivedNoteList
+        {...defaultProps}
+        notes={[]}
+        archivedTopLevelOrder={[]}
+      />,
+    );
     expect(screen.getByText('No archived notes')).toBeInTheDocument();
   });
 
@@ -97,10 +103,17 @@ describe('ArchivedNoteList', () => {
       },
     ];
 
-    const order: TopLevelItem[] = notesWithVariousTitles.map((n) => ({ type: 'note', id: n.id }));
+    const order: TopLevelItem[] = notesWithVariousTitles.map((n) => ({
+      type: 'note',
+      id: n.id,
+    }));
 
     render(
-      <ArchivedNoteList {...defaultProps} notes={notesWithVariousTitles} archivedTopLevelOrder={order} />,
+      <ArchivedNoteList
+        {...defaultProps}
+        notes={notesWithVariousTitles}
+        archivedTopLevelOrder={order}
+      />,
     );
 
     expect(screen.getByText('Content from content')).toBeInTheDocument();

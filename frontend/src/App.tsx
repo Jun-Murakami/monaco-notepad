@@ -1,4 +1,5 @@
 import { CreateNewFolder, Inventory } from '@mui/icons-material';
+import type { SelectProps, Theme } from '@mui/material';
 import {
   Box,
   Button,
@@ -14,7 +15,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import type { SelectProps, Theme } from '@mui/material';
 import { Allotment } from 'allotment';
 import 'allotment/dist/style.css';
 import type { editor } from 'monaco-editor';
@@ -35,11 +35,11 @@ import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileNotes } from './hooks/useFileNotes';
 import { useFileOperations } from './hooks/useFileOperations';
 import { useInitialize } from './hooks/useInitialize';
-import type { LanguageInfo } from './lib/monaco';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import { useNoteSelecter } from './hooks/useNoteSelecter';
 import { useNotes } from './hooks/useNotes';
 import { useSplitEditor } from './hooks/useSplitEditor';
+import type { LanguageInfo } from './lib/monaco';
 import { darkTheme, lightTheme } from './lib/theme';
 import type { FileNote, Note } from './types';
 
@@ -189,6 +189,8 @@ function App() {
     secondaryButtonText,
   } = useMessageDialog();
 
+  const onNotesReloadedRef = useRef<((notes: Note[]) => void) | null>(null);
+
   // ノート
   const {
     notes,
@@ -223,7 +225,7 @@ function App() {
     handleUnarchiveFolder,
     handleDeleteArchivedFolder,
     handleUpdateArchivedTopLevelOrder,
-  } = useNotes();
+  } = useNotes(onNotesReloadedRef);
 
   // ファイルノート
   const {
@@ -288,17 +290,23 @@ function App() {
     openNoteInPane,
     handleLeftNoteContentChange,
     handleRightNoteContentChange,
+    handleLeftNoteLanguageChange,
+    handleRightNoteLanguageChange,
     handleLeftFileNoteContentChange,
     handleRightFileNoteContentChange,
     secondarySelectedNoteId,
     restorePaneNotes,
     saveSplitState,
+    syncPaneNotes,
   } = useSplitEditor({
     currentNote,
     currentFileNote,
     setCurrentNote,
     setCurrentFileNote,
+    setNotes,
   });
+
+  onNotesReloadedRef.current = syncPaneNotes;
 
   const archiveNoteRef = useRef(handleArchiveNote);
   const closeFileRef = useRef(handleCloseFile);
@@ -395,15 +403,15 @@ function App() {
       const setPaneNote = (pane: 'left' | 'right', note: Note | FileNote) => {
         const isFile = 'filePath' in note;
         if (pane === 'left') {
-          setLeftNote(isFile ? null : note as Note);
-          setLeftFileNote(isFile ? note as FileNote : null);
+          setLeftNote(isFile ? null : (note as Note));
+          setLeftFileNote(isFile ? (note as FileNote) : null);
         } else {
-          setRightNote(isFile ? null : note as Note);
-          setRightFileNote(isFile ? note as FileNote : null);
+          setRightNote(isFile ? null : (note as Note));
+          setRightFileNote(isFile ? (note as FileNote) : null);
         }
         if (focusedPane === pane) {
-          setCurrentNote(isFile ? null : note as Note);
-          setCurrentFileNote(isFile ? note as FileNote : null);
+          setCurrentNote(isFile ? null : (note as Note));
+          setCurrentFileNote(isFile ? (note as FileNote) : null);
         }
       };
 
@@ -424,7 +432,23 @@ function App() {
       }
       saveSplitState();
     },
-    [isSplit, leftNote, leftFileNote, rightNote, rightFileNote, focusedPane, findFirstOtherNote, setLeftNote, setLeftFileNote, setRightNote, setRightFileNote, setCurrentNote, setCurrentFileNote, toggleSplit, saveSplitState],
+    [
+      isSplit,
+      leftNote,
+      leftFileNote,
+      rightNote,
+      rightFileNote,
+      focusedPane,
+      findFirstOtherNote,
+      setLeftNote,
+      setLeftFileNote,
+      setRightNote,
+      setRightFileNote,
+      setCurrentNote,
+      setCurrentFileNote,
+      toggleSplit,
+      saveSplitState,
+    ],
   );
 
   const handleArchiveNoteWithSplit = useCallback(
@@ -435,24 +459,24 @@ function App() {
     [handleArchiveNote, replacePaneAfterClose],
   );
 
-	const handleCloseFileWithSplit = useCallback(
-		async (fileNote: FileNote) => {
-			await handleCloseFile(fileNote);
-			if (!isSplit) {
-				// Override the wrong selection made by handleCloseFile
-				// (which picks array-first instead of topLevelOrder-first)
-				const replacement = findFirstOtherNote(fileNote.id);
-				if (replacement) {
-					const isFile = 'filePath' in replacement;
-					setCurrentNote(isFile ? null : (replacement as Note));
-					setCurrentFileNote(isFile ? (replacement as FileNote) : null);
-				}
-				return;
-			}
-			replacePaneAfterClose(fileNote.id);
-		},
-		[handleCloseFile, replacePaneAfterClose, isSplit, findFirstOtherNote, setCurrentNote, setCurrentFileNote],
-	);
+  const handleCloseFileWithSplit = useCallback(
+    async (fileNote: FileNote) => {
+      await handleCloseFile(fileNote);
+      if (!isSplit) {
+        // Override the wrong selection made by handleCloseFile
+        // (which picks array-first instead of topLevelOrder-first)
+        const replacement = findFirstOtherNote(fileNote.id);
+        if (replacement) {
+          const isFile = 'filePath' in replacement;
+          setCurrentNote(isFile ? null : (replacement as Note));
+          setCurrentFileNote(isFile ? (replacement as FileNote) : null);
+        }
+        return;
+      }
+      replacePaneAfterClose(fileNote.id);
+    },
+    [handleCloseFile, replacePaneAfterClose, isSplit, findFirstOtherNote, setCurrentNote, setCurrentFileNote],
+  );
 
   archiveNoteRef.current = handleArchiveNoteWithSplit;
   closeFileRef.current = handleCloseFileWithSplit;
@@ -604,7 +628,16 @@ function App() {
         )}
 
         {/* メインレイアウト: サイドバー + エディタ領域 */}
-        <Box sx={{ position: 'absolute', top: TITLE_BAR_HEIGHT, left: 0, right: 0, bottom: 0, display: 'flex' }}>
+        <Box
+          sx={{
+            position: 'absolute',
+            top: TITLE_BAR_HEIGHT,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+          }}
+        >
           {/* サイドバー */}
           <Box
             aria-label='Note List'
@@ -753,7 +786,14 @@ function App() {
           </Box>
 
           {/* エディタ領域 */}
-          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <Box
+            sx={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+            }}
+          >
             {showArchived ? (
               <ArchivedNoteList
                 notes={notes}
@@ -782,16 +822,32 @@ function App() {
               <Allotment>
                 {isMarkdownPreview && editorSettings.markdownPreviewOnLeft && (
                   <Allotment.Pane minSize={200}>
-                    <MarkdownPreview content={currentNote?.content || currentFileNote?.content || ''} />
+                    <MarkdownPreview editorInstanceRef={leftEditorInstanceRef} />
                   </Allotment.Pane>
                 )}
                 <Allotment.Pane minSize={200}>
-                  <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Box
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
                     <PaneHeader
                       note={isSplit ? leftFileNote || leftNote : currentFileNote || currentNote}
                       languages={languages}
                       onTitleChange={handleTitleChange}
-                      onLanguageChange={handleLanguageChange}
+                      onLanguageChange={
+                        isSplit
+                          ? (language) => {
+                              if (leftNote) {
+                                handleLeftNoteLanguageChange(language);
+                              } else if (leftFileNote) {
+                                setLeftFileNote({ ...leftFileNote, language });
+                              }
+                            }
+                          : handleLanguageChange
+                      }
                       onFocusEditor={() => leftEditorInstanceRef.current?.focus()}
                       isSplit={isSplit}
                       paneColor='primary'
@@ -801,11 +857,6 @@ function App() {
                     <Box sx={{ flex: 1, minHeight: 0 }}>
                       <Editor
                         editorInstanceRef={leftEditorInstanceRef}
-                        value={
-                          isSplit
-                            ? leftNote?.content || leftFileNote?.content || ''
-                            : currentNote?.content || currentFileNote?.content || ''
-                        }
                         onChange={
                           isSplit
                             ? leftNote
@@ -862,18 +913,28 @@ function App() {
                 </Allotment.Pane>
                 {isSplit && (
                   <Allotment.Pane minSize={200}>
-                    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <Box
+                      sx={{
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                    >
                       <PaneHeader
                         note={rightFileNote || rightNote}
                         languages={languages}
                         onTitleChange={(title) => {
                           if (rightNote) {
-                            setRightNote({ ...rightNote, title, modifiedTime: new Date().toISOString() });
+                            setRightNote({
+                              ...rightNote,
+                              title,
+                              modifiedTime: new Date().toISOString(),
+                            });
                           }
                         }}
                         onLanguageChange={(language) => {
                           if (rightNote) {
-                            setRightNote({ ...rightNote, language, modifiedTime: new Date().toISOString() });
+                            handleRightNoteLanguageChange(language);
                           } else if (rightFileNote) {
                             setRightFileNote({ ...rightFileNote, language });
                           }
@@ -887,7 +948,6 @@ function App() {
                       <Box sx={{ flex: 1, minHeight: 0 }}>
                         <Editor
                           editorInstanceRef={rightEditorInstanceRef}
-                          value={rightNote?.content || rightFileNote?.content || ''}
                           onChange={rightNote ? handleRightNoteContentChange : handleRightFileNoteContentChange}
                           language={rightNote?.language || rightFileNote?.language || 'plaintext'}
                           settings={editorSettings}
@@ -919,19 +979,12 @@ function App() {
                 )}
                 {isMarkdownPreview && !editorSettings.markdownPreviewOnLeft && (
                   <Allotment.Pane minSize={200}>
-                    <MarkdownPreview content={currentNote?.content || currentFileNote?.content || ''} />
+                    <MarkdownPreview editorInstanceRef={leftEditorInstanceRef} />
                   </Allotment.Pane>
                 )}
               </Allotment>
             )}
             <EditorStatusBar
-              currentNote={
-                isSplit
-                  ? focusedPane === 'left'
-                    ? leftFileNote || leftNote
-                    : rightFileNote || rightNote
-                  : currentFileNote || currentNote
-              }
               editorInstanceRef={
                 isSplit ? (focusedPane === 'left' ? leftEditorInstanceRef : rightEditorInstanceRef) : editorInstanceRef
               }
