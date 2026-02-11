@@ -957,7 +957,7 @@ func (s *driveService) mergeNotes(
 		} else {
 			// ローカルのみ存在するノート: cloudLastSyncより前に変更 → 他端末で削除済み、後に変更 → アップロード
 			if !cloudLastSync.IsZero() && !isModifiedTimeAfter(localNote.ModifiedTime, cloudLastSync.Format(time.RFC3339)) {
-				s.logger.Console("Deleting local-only note: %s (deleted on other device)", localNote.Title)
+				s.logger.Info("Deleting local-only note: %s (deleted on other device)", localNote.Title)
 				s.noteService.DeleteNoteFromSync(id)
 				if s.lastSyncResult != nil {
 					s.lastSyncResult.Deleted++
@@ -1067,7 +1067,7 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 				}
 				cloudNoteList.Notes = append(cloudNoteList.Notes, localNote)
 			} else {
-				s.logger.Console("Deleting local-only note: %s (not modified after last sync)", localNote.Title)
+				s.logger.Info("Deleting local-only note: %s (not modified after last sync)", localNote.Title)
 				s.noteService.DeleteNoteFromSync(localNote.ID)
 				deletedCount++
 				if s.lastSyncResult != nil {

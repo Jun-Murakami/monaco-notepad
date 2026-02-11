@@ -435,7 +435,7 @@ func (a *App) ArchiveFolder(id string) error {
 	if err := a.noteService.ArchiveFolder(id); err != nil {
 		return err
 	}
-	a.syncNoteListToDrive()
+	a.uploadFolderNotesAndNoteList(id)
 	return nil
 }
 
@@ -444,8 +444,35 @@ func (a *App) UnarchiveFolder(id string) error {
 	if err := a.noteService.UnarchiveFolder(id); err != nil {
 		return err
 	}
-	a.syncNoteListToDrive()
+	a.uploadFolderNotesAndNoteList(id)
 	return nil
+}
+
+func (a *App) uploadFolderNotesAndNoteList(folderID string) {
+	if a.driveService == nil || !a.driveService.IsConnected() {
+		return
+	}
+	var notes []*Note
+	for _, meta := range a.noteService.noteList.Notes {
+		if meta.FolderID == folderID {
+			if note, err := a.noteService.LoadNote(meta.ID); err == nil {
+				notes = append(notes, note)
+			}
+		}
+	}
+	go func() {
+		a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
+		for _, note := range notes {
+			if err := a.driveService.SaveNoteAndUpdateList(note, false); err != nil {
+				a.logger.Console("Failed to upload note %s: %v", note.ID, err)
+			}
+		}
+		if err := a.driveService.UpdateNoteList(); err != nil {
+			a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
+			return
+		}
+		a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
+	}()
 }
 
 // アーカイブされたフォルダを削除する ------------------------------------------------------------
