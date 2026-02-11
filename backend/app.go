@@ -305,6 +305,9 @@ func (a *App) DeleteNote(id string) error {
 	}
 
 	// ドライブサービスが初期化されており、接続中の場合は削除
+	if a.driveService != nil {
+		a.driveService.RecordNoteDeletion(id)
+	}
 	if a.driveService != nil && a.driveService.IsConnected() {
 		go func() {
 			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
@@ -447,10 +450,38 @@ func (a *App) UnarchiveFolder(id string) error {
 
 // アーカイブされたフォルダを削除する ------------------------------------------------------------
 func (a *App) DeleteArchivedFolder(id string) error {
+	var noteIDs []string
+	for _, note := range a.noteService.noteList.Notes {
+		if note.FolderID == id {
+			noteIDs = append(noteIDs, note.ID)
+		}
+	}
+
+	if a.driveService != nil && len(noteIDs) > 0 {
+		a.driveService.RecordNoteDeletion(noteIDs...)
+	}
+
 	if err := a.noteService.DeleteArchivedFolder(id); err != nil {
 		return err
 	}
-	a.syncNoteListToDrive()
+
+	if a.driveService != nil && a.driveService.IsConnected() {
+		go func() {
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
+
+			for _, noteID := range noteIDs {
+				if err := a.driveService.DeleteNoteDrive(noteID); err != nil {
+					a.logger.Console("Failed to delete note %s from Drive: %v", noteID, err)
+				}
+			}
+
+			if err := a.driveService.UpdateNoteList(); err != nil {
+				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
+				return
+			}
+			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
+		}()
+	}
 	return nil
 }
 

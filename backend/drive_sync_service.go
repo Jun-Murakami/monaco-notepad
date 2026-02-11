@@ -218,7 +218,8 @@ var downloadRetryConfig = &retryConfig{
 		}
 		return strings.Contains(err.Error(), "connection") ||
 			strings.Contains(err.Error(), "deadline exceeded") ||
-			strings.Contains(err.Error(), "internal error")
+			strings.Contains(err.Error(), "internal error") ||
+			strings.Contains(err.Error(), "idle HTTP channel")
 	},
 }
 
@@ -232,7 +233,8 @@ var uploadRetryConfig = &retryConfig{
 			return false
 		}
 		return strings.Contains(err.Error(), "connection") ||
-			strings.Contains(err.Error(), "deadline exceeded")
+			strings.Contains(err.Error(), "deadline exceeded") ||
+			strings.Contains(err.Error(), "idle HTTP channel")
 	},
 }
 
@@ -247,7 +249,8 @@ var listOperationRetryConfig = &retryConfig{
 		}
 		return strings.Contains(err.Error(), "connection") ||
 			strings.Contains(err.Error(), "deadline exceeded") ||
-			strings.Contains(err.Error(), "internal error")
+			strings.Contains(err.Error(), "internal error") ||
+			strings.Contains(err.Error(), "idle HTTP channel")
 	},
 }
 

@@ -15,6 +15,7 @@ type DrivePollingService struct {
 	stopPollingChan  chan struct{}
 	logger           AppLogger
 	changePageToken  string
+	skipNextChange   bool
 }
 
 func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePollingService {
@@ -43,12 +44,15 @@ func (p *DrivePollingService) WaitForFrontendAndStartSync() {
 
 func (p *DrivePollingService) StartPolling() {
 	const (
-		initialInterval = 20 * time.Second
-		maxInterval     = 3 * time.Minute
-		factor          = 1.5
+		initialInterval    = 5 * time.Second
+		maxInterval        = 1 * time.Minute
+		factor             = 1.5
+		reconnectBaseDelay = 10 * time.Second
+		reconnectMaxDelay  = 3 * time.Minute
 	)
 
 	interval := initialInterval
+	reconnectDelay := reconnectBaseDelay
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -68,24 +72,8 @@ func (p *DrivePollingService) StartPolling() {
 		p.logger.Error(err, "Failed to clean duplicate note files")
 	}
 
-	p.logger.Info("Downloading cloud note list...")
-	noteListID := p.driveService.auth.GetDriveSync().NoteListID()
-	cloudNoteList, err := p.driveService.driveSync.DownloadNoteList(p.ctx, noteListID)
-	if err != nil {
-		p.logger.Error(err, "Failed to download cloud noteList")
-	}
-
-	p.logger.Console("Listing unknown notes")
-	unknownNotes, err := p.driveService.driveSync.ListUnknownNotes(p.ctx, cloudNoteList, files, false)
-	if err != nil {
-		p.logger.Error(err, "Failed to list unknown notes")
-	}
-	for _, note := range unknownNotes.Notes {
-		p.logger.Console("Found unknown cloud note: %s (not in noteList, skipping delete)", note.ID)
-	}
-
-	if err := p.driveService.SyncNotes(); err != nil {
-		p.logger.Error(err, "Error syncing with Drive")
+	if err := p.driveService.performInitialSync(); err != nil {
+		p.logger.Error(err, "Error during initial sync")
 	}
 
 	p.initChangeToken()
@@ -102,8 +90,26 @@ func (p *DrivePollingService) StartPolling() {
 			p.logger.Console("Polling interval reset to %s", interval)
 		case <-ticker.C:
 			if !p.driveService.IsConnected() {
+				p.logger.Console("Connection lost, attempting reconnect (next retry in %s)...", reconnectDelay)
+				if err := p.driveService.reconnect(); err != nil {
+					p.logger.Console("Reconnect failed: %v", err)
+					reconnectDelay = time.Duration(float64(reconnectDelay) * factor)
+					if reconnectDelay > reconnectMaxDelay {
+						reconnectDelay = reconnectMaxDelay
+					}
+					ticker.Reset(reconnectDelay)
+					continue
+				}
+				p.logger.Info("Reconnected to Google Drive")
+				p.logger.NotifyDriveStatus(p.ctx, "synced")
+				reconnectDelay = reconnectBaseDelay
+				interval = initialInterval
+				p.changePageToken = ""
+				ticker.Reset(interval)
 				continue
 			}
+
+			reconnectDelay = reconnectBaseDelay
 
 			if p.driveService.operationsQueue != nil && p.driveService.operationsQueue.HasItems() {
 				interval = initialInterval
@@ -116,15 +122,26 @@ func (p *DrivePollingService) StartPolling() {
 				p.logger.ErrorWithNotify(syncErr, "Failed to sync with Drive")
 				interval = initialInterval
 			} else if hasChanges {
-				p.driveService.forceNextSync = true
-				if err := p.driveService.SyncNotes(); err != nil {
-					p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
-					interval = initialInterval
+				if p.skipNextChange {
+					p.skipNextChange = false
+					p.logger.Console("Skipping self-detected change")
+					p.initChangeToken()
 				} else {
-					if !p.driveService.IsTestMode() {
-						p.logger.NotifyDriveStatus(p.ctx, "synced")
+					p.driveService.forceNextSync = true
+					if err := p.driveService.SyncNotes(); err != nil {
+						p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
+						interval = initialInterval
+					} else if p.driveService.lastSyncResult != nil && p.driveService.lastSyncResult.HasChanges() {
+						if !p.driveService.IsTestMode() {
+							p.logger.NotifyDriveStatus(p.ctx, "synced")
+						}
+						interval = initialInterval
+					} else {
+						interval = time.Duration(float64(interval) * factor)
+						if interval > maxInterval {
+							interval = maxInterval
+						}
 					}
-					interval = initialInterval
 				}
 			} else {
 				if !p.driveService.IsTestMode() {
@@ -152,6 +169,18 @@ func (p *DrivePollingService) initChangeToken() {
 	}
 	p.changePageToken = token
 	p.logger.Console("Changes API initialized with token: %s", token)
+}
+
+func (p *DrivePollingService) RefreshChangeToken() {
+	if p.driveService.driveOps == nil {
+		return
+	}
+	token, err := p.driveService.driveOps.GetStartPageToken()
+	if err != nil {
+		return
+	}
+	p.changePageToken = token
+	p.skipNextChange = true
 }
 
 func (p *DrivePollingService) checkForChanges() (bool, error) {

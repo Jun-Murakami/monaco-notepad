@@ -26,6 +26,7 @@ type DriveService interface {
 	SyncNotes() error                                      // ノートをただちに同期
 	UpdateNoteList() error                                 // ノートリスト更新
 	SaveNoteAndUpdateList(note *Note, isCreate bool) error // ノート保存+リスト更新をアトミックに実行
+	RecordNoteDeletion(noteIDs ...string)                  // ローカル削除を記録（マージ時の誤ダウンロード防止）
 
 	// ---- ユーティリティ ----
 	NotifyFrontendReady()                           // フロントエンド準備完了通知
@@ -36,20 +37,24 @@ type DriveService interface {
 
 // driveService はDriveServiceインターフェースの実装
 type driveService struct {
-	ctx             context.Context
-	auth            *authService
-	noteService     *noteService
-	appDataDir      string
-	notesDir        string
-	stopPollingChan chan struct{}
-	logger          AppLogger
-	driveOps        DriveOperations
-	driveSync       DriveSyncService
-	pollingService  *DrivePollingService
-	operationsQueue *DriveOperationsQueue
-	syncMu          sync.Mutex  // SyncNotes/UpdateNoteList の排他制御
-	forceNextSync   bool        // Changes API検出時にMD5キャッシュをバイパス
-	lastSyncResult  *SyncResult // 直近の同期結果サマリー
+	ctx                    context.Context
+	auth                   *authService
+	noteService            *noteService
+	appDataDir             string
+	notesDir               string
+	stopPollingChan        chan struct{}
+	logger                 AppLogger
+	driveOps               DriveOperations
+	driveSync              DriveSyncService
+	pollingService         *DrivePollingService
+	operationsQueue        *DriveOperationsQueue
+	syncMu                 sync.Mutex  // SyncNotes/UpdateNoteList の排他制御
+	forceNextSync          bool        // Changes API検出時にMD5キャッシュをバイパス
+	lastSyncResult         *SyncResult // 直近の同期結果サマリー
+	lastNoteListUpload     time.Time   // 直近のnoteListアップロード時刻（デバウンス用）
+	deferredUploadTimer    *time.Timer // デバウンス: 遅延アップロード用タイマー
+	deletedMu              sync.Mutex  // recentlyDeletedNoteIDs の排他制御
+	recentlyDeletedNoteIDs map[string]bool
 }
 
 // NewDriveService は新しいDriveServiceインスタンスを作成します
@@ -63,15 +68,16 @@ func NewDriveService(
 	authService *authService,
 ) *driveService {
 	ds := &driveService{
-		ctx:             ctx,
-		auth:            authService,
-		noteService:     noteService,
-		appDataDir:      appDataDir,
-		notesDir:        notesDir,
-		stopPollingChan: make(chan struct{}),
-		logger:          logger,
-		driveOps:        nil,
-		driveSync:       nil,
+		ctx:                    ctx,
+		auth:                   authService,
+		noteService:            noteService,
+		appDataDir:             appDataDir,
+		notesDir:               notesDir,
+		stopPollingChan:        make(chan struct{}),
+		logger:                 logger,
+		driveOps:               nil,
+		driveSync:              nil,
+		recentlyDeletedNoteIDs: make(map[string]bool),
 	}
 
 	ds.pollingService = NewDrivePollingService(ctx, ds)
@@ -104,6 +110,45 @@ func (s *driveService) AuthorizeDrive() error {
 	s.logger.Console("AuthorizeDrive success")
 	return s.onConnected(true)
 
+}
+
+// reconnect はポーリング中の接続断から復旧する
+// onConnected と異なりポーリングの再起動は行わない（既にポーリングループ内から呼ばれるため）
+func (s *driveService) reconnect() error {
+	if s.IsConnected() {
+		return nil
+	}
+
+	success, err := s.auth.InitializeWithSavedToken()
+	if err != nil {
+		return fmt.Errorf("reconnect: auth failed: %w", err)
+	}
+	if !success {
+		return fmt.Errorf("reconnect: no valid token available")
+	}
+
+	if !s.IsConnected() {
+		return fmt.Errorf("reconnect: still not connected after auth")
+	}
+
+	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service, s.logger)
+	if s.driveOps == nil {
+		return fmt.Errorf("reconnect: failed to create DriveOperations")
+	}
+
+	s.operationsQueue = NewDriveOperationsQueue(s.driveOps)
+	if s.operationsQueue == nil {
+		return fmt.Errorf("reconnect: failed to create operations queue")
+	}
+	s.driveOps = s.operationsQueue
+
+	rootID, notesID := s.auth.GetDriveSync().FolderIDs()
+	s.driveSync = NewDriveSyncService(s.driveOps, notesID, rootID, s.logger)
+	if s.driveSync == nil {
+		return fmt.Errorf("reconnect: failed to create DriveSyncService")
+	}
+
+	return nil
 }
 
 // 接続成功時の処理
@@ -205,6 +250,17 @@ func (s *driveService) IsTestMode() bool {
 	return s.auth != nil && s.auth.IsTestMode()
 }
 
+func (s *driveService) RecordNoteDeletion(noteIDs ...string) {
+	s.deletedMu.Lock()
+	defer s.deletedMu.Unlock()
+	if s.recentlyDeletedNoteIDs == nil {
+		s.recentlyDeletedNoteIDs = make(map[string]bool)
+	}
+	for _, id := range noteIDs {
+		s.recentlyDeletedNoteIDs[id] = true
+	}
+}
+
 // ------------------------------------------------------------
 // ポーリングのラッパー
 // ------------------------------------------------------------
@@ -289,6 +345,29 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 func (s *driveService) UpdateNoteList() error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
+
+	if s.deferredUploadTimer != nil {
+		s.deferredUploadTimer.Stop()
+		s.deferredUploadTimer = nil
+	}
+
+	if time.Since(s.lastNoteListUpload) < 2*time.Second {
+		s.logger.Console("Deferring note list upload (last upload %v ago)", time.Since(s.lastNoteListUpload))
+		s.deferredUploadTimer = time.AfterFunc(2*time.Second, func() {
+			s.syncMu.Lock()
+			defer s.syncMu.Unlock()
+			s.deferredUploadTimer = nil
+			s.noteService.noteList.LastSync = time.Now()
+			if err := s.noteService.saveNoteList(); err != nil {
+				s.logger.Error(err, "Failed to save note list for deferred upload")
+				return
+			}
+			if err := s.updateNoteListInternal(); err != nil {
+				s.logger.Error(err, "Failed to execute deferred note list upload")
+			}
+		})
+		return nil
+	}
 	return s.updateNoteListInternal()
 }
 
@@ -359,9 +438,10 @@ func (s *driveService) updateNoteListInternal() error {
 		s.noteService.noteList.CollapsedFolderIDs,
 	)
 
+	s.lastNoteListUpload = time.Now()
+	s.pollingService.RefreshChangeToken()
 	s.logger.Console("Note list updated")
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
-	s.resetPollingInterval()
 	return nil
 }
 
@@ -518,12 +598,7 @@ func (s *driveService) SyncNotes() error {
 		return err
 	}
 
-	// 3. FileIDキャッシュを更新
-	if err := s.driveSync.RefreshFileIDCache(s.ctx); err != nil {
-		s.logger.Error(err, "Failed to refresh file ID cache")
-	}
-
-	// 4. 同期開始の通知
+	// 3. 同期開始の通知
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 	s.logger.Info("Starting sync with Drive...")
 
@@ -565,13 +640,21 @@ func (s *driveService) SyncNotes() error {
 
 	// 7. コンテンツベースの差分チェック（タイムスタンプではなくハッシュで判定）
 	if !s.isNoteListChanged(cloudNoteList.Notes, s.noteService.noteList.Notes) {
-		s.logger.Info("Notes unchanged, syncing folder structure only")
-		s.mergeNoteListStructure(cloudNoteList)
+		if s.isStructureChanged(cloudNoteList) {
+			s.logger.Info("Notes unchanged, syncing folder structure")
+			s.mergeNoteListStructure(cloudNoteList)
+			if err := s.updateNoteListInternal(); err != nil {
+				s.logger.Error(err, "Failed to upload note list after structure merge")
+			}
+		}
 		s.notifySyncComplete()
 		return nil
 	}
 
 	// 8. ノートの内容が異なる場合はマージ
+	if err := s.driveSync.RefreshFileIDCache(s.ctx); err != nil {
+		s.logger.Error(err, "Failed to refresh file ID cache before merge")
+	}
 	s.logger.Info("Note content differs between local and cloud, merging...")
 	if err := s.mergeNoteListsAndDownload(cloudNoteList); err != nil {
 		return s.auth.HandleOfflineTransition(err)
@@ -704,8 +787,8 @@ func (s *driveService) notifySyncComplete() {
 	}
 	if s.lastSyncResult != nil && s.lastSyncResult.HasChanges() {
 		s.logger.Info(s.lastSyncResult.Summary())
+		s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 	}
-	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 	if s.operationsQueue != nil && s.operationsQueue.HasItems() {
 		s.logger.Info("Queue still has items, keeping syncing status")
 		s.logger.NotifyDriveStatus(s.ctx, "syncing")
@@ -739,6 +822,7 @@ func (s *driveService) mergeNoteListsAndDownload(cloudNoteList *NoteList) error 
 		s.markJournalActionCompleted(journal, note.ID)
 	}
 	s.noteService.noteList.Notes = mergedNotes
+	s.mergeNoteListStructure(cloudNoteList)
 	if err := s.noteService.saveNoteList(); err != nil {
 		return fmt.Errorf("failed to save merged note list: %w", err)
 	}
@@ -751,9 +835,6 @@ func (s *driveService) mergeNoteListsAndDownload(cloudNoteList *NoteList) error 
 // 既存の大・中メソッド (部分的に細分化済)
 // ------------------------------------------------------------
 
-// ノートのフルマージ処理 (localNotes vs cloudNotes)
-// cloudLastSync: クラウドの最終同期時刻。ローカルのみのノートがこの時刻以前に変更されていた場合、
-// 他端末で削除されたと判定してローカルからも削除する。
 func (s *driveService) mergeNotes(
 	ctx context.Context,
 	localNotes []NoteMetadata,
@@ -905,18 +986,39 @@ func (s *driveService) mergeNotes(
 	if cloudOnlyCount > 0 {
 		s.logger.Info("Downloading %d notes from cloud...", cloudOnlyCount)
 	}
+	s.deletedMu.Lock()
+	locallyDeleted := make(map[string]bool, len(s.recentlyDeletedNoteIDs))
+	for id, v := range s.recentlyDeletedNoteIDs {
+		locallyDeleted[id] = v
+	}
+	s.deletedMu.Unlock()
+
 	for id, cloudNote := range cloudNotesMap {
-		mergedNotes = append(mergedNotes, cloudNote)
+		if locallyDeleted[id] {
+			s.logger.Console("Skipping cloud-only note: %s (deleted locally)", cloudNote.Title)
+			s.deletedMu.Lock()
+			delete(s.recentlyDeletedNoteIDs, id)
+			s.deletedMu.Unlock()
+			continue
+		}
 		cloudOnlyIndex++
 		s.logger.Console("Downloading note %s from cloud (%d/%d)", id, cloudOnlyIndex, cloudOnlyCount)
 		note, err := s.driveSync.DownloadNote(ctx, id)
 		if err != nil {
-			s.logger.Error(err, "Skipped syncing note %s (download failed)", id)
+			if strings.Contains(err.Error(), "not found") {
+				// ファイルがDriveから削除済み — noteListにも含めない
+				s.logger.Info("Note %s no longer exists on Drive, removing from note list", id)
+			} else {
+				// 一時的なエラー（ネットワーク等）— noteListに残して次回リトライ
+				s.logger.Error(err, "Skipped syncing note %s (download failed, will retry)", id)
+				mergedNotes = append(mergedNotes, cloudNote)
+			}
 			if s.lastSyncResult != nil {
 				s.lastSyncResult.Errors++
 			}
 			continue
 		}
+		mergedNotes = append(mergedNotes, cloudNote)
 		downloadedNotes = append(downloadedNotes, note)
 		if s.lastSyncResult != nil {
 			s.lastSyncResult.Downloaded++
@@ -983,7 +1085,53 @@ func (s *driveService) handleCloudSync(cloudNoteList *NoteList) error {
 	return nil
 }
 
+func (s *driveService) isStructureChanged(cloudNoteList *NoteList) bool {
+	if len(s.noteService.noteList.Folders) != len(cloudNoteList.Folders) {
+		s.logger.Console("Structure changed: Folder count differs (local=%d, cloud=%d)", len(s.noteService.noteList.Folders), len(cloudNoteList.Folders))
+		return true
+	}
+	cloudFolderSet := make(map[string]bool)
+	for _, f := range cloudNoteList.Folders {
+		cloudFolderSet[f.ID] = true
+	}
+	for _, f := range s.noteService.noteList.Folders {
+		if !cloudFolderSet[f.ID] {
+			s.logger.Console("Structure changed: Local folder %s not in cloud", f.ID)
+			return true
+		}
+	}
+	if len(s.noteService.noteList.TopLevelOrder) != len(cloudNoteList.TopLevelOrder) {
+		s.logger.Console("Structure changed: TopLevelOrder length differs (local=%d, cloud=%d)", len(s.noteService.noteList.TopLevelOrder), len(cloudNoteList.TopLevelOrder))
+		return true
+	}
+	for i, item := range s.noteService.noteList.TopLevelOrder {
+		if i >= len(cloudNoteList.TopLevelOrder) || item.ID != cloudNoteList.TopLevelOrder[i].ID || item.Type != cloudNoteList.TopLevelOrder[i].Type {
+			s.logger.Console("Structure changed: TopLevelOrder[%d] differs (local=%s/%s, cloud=%s/%s)", i, item.Type, item.ID, cloudNoteList.TopLevelOrder[i].Type, cloudNoteList.TopLevelOrder[i].ID)
+			return true
+		}
+	}
+	if len(s.noteService.noteList.ArchivedTopLevelOrder) != len(cloudNoteList.ArchivedTopLevelOrder) {
+		s.logger.Console("Structure changed: ArchivedTopLevelOrder length differs (local=%d, cloud=%d)", len(s.noteService.noteList.ArchivedTopLevelOrder), len(cloudNoteList.ArchivedTopLevelOrder))
+		return true
+	}
+	for i, item := range s.noteService.noteList.ArchivedTopLevelOrder {
+		if i >= len(cloudNoteList.ArchivedTopLevelOrder) || item.ID != cloudNoteList.ArchivedTopLevelOrder[i].ID || item.Type != cloudNoteList.ArchivedTopLevelOrder[i].Type {
+			s.logger.Console("Structure changed: ArchivedTopLevelOrder[%d] differs", i)
+			return true
+		}
+	}
+	if len(s.noteService.noteList.CollapsedFolderIDs) != len(cloudNoteList.CollapsedFolderIDs) {
+		s.logger.Console("Structure changed: CollapsedFolderIDs length differs (local=%d, cloud=%d)", len(s.noteService.noteList.CollapsedFolderIDs), len(cloudNoteList.CollapsedFolderIDs))
+		return true
+	}
+	return false
+}
+
 func (s *driveService) mergeNoteListStructure(cloudNoteList *NoteList) {
+	if !s.isStructureChanged(cloudNoteList) {
+		return
+	}
+
 	cloudNewer := isModifiedTimeAfter(
 		cloudNoteList.LastSync.Format(time.RFC3339),
 		s.noteService.noteList.LastSync.Format(time.RFC3339),
@@ -1016,6 +1164,8 @@ func (s *driveService) mergeNoteListStructure(cloudNoteList *NoteList) {
 	}
 
 	s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
+
+	s.noteService.ValidateIntegrity()
 
 	if err := s.noteService.saveNoteList(); err != nil {
 		s.logger.Error(err, "Failed to save note list after structure merge")

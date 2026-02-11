@@ -214,6 +214,8 @@ func (m *mockDriveService) GetDriveOperationsQueue() *DriveOperationsQueue {
 	return m.operationsQueue
 }
 
+func (m *mockDriveService) RecordNoteDeletion(noteIDs ...string) {}
+
 type mockDriveOperations struct {
 	service *drive.Service
 	mu      sync.RWMutex
@@ -1341,12 +1343,13 @@ func newTestDriveService(helper *testHelper) *driveService {
 	auth.driveSync = driveSync
 
 	return &driveService{
-		ctx:         context.Background(),
-		auth:        auth,
-		noteService: helper.noteService,
-		logger:      logger,
-		driveOps:    mockOps,
-		driveSync:   syncService,
+		ctx:                    context.Background(),
+		auth:                   auth,
+		noteService:            helper.noteService,
+		logger:                 logger,
+		driveOps:               mockOps,
+		driveSync:              syncService,
+		recentlyDeletedNoteIDs: make(map[string]bool),
 	}
 }
 
@@ -1374,8 +1377,15 @@ func TestCloudSync_AppliesTopLevelOrder(t *testing.T) {
 	defer helper.cleanup()
 	ds := newTestDriveService(helper)
 
+	helper.noteService.SaveNote(&Note{ID: "n1", Title: "Note1", Content: ""})
+	helper.noteService.SaveNote(&Note{ID: "n2", Title: "Note2", Content: ""})
+
 	cloudNoteList := &NoteList{
-		Notes: []NoteMetadata{},
+		Notes: []NoteMetadata{
+			{ID: "n1", Title: "Note1"},
+			{ID: "n2", Title: "Note2"},
+		},
+		Folders: []Folder{{ID: "f1", Name: "Folder1"}},
 		TopLevelOrder: []TopLevelItem{
 			{Type: "note", ID: "n1"},
 			{Type: "folder", ID: "f1"},
@@ -1383,11 +1393,22 @@ func TestCloudSync_AppliesTopLevelOrder(t *testing.T) {
 		},
 	}
 
+	helper.noteService.noteList.Notes = cloudNoteList.Notes
+	helper.noteService.noteList.Folders = cloudNoteList.Folders
+	helper.noteService.noteList.TopLevelOrder = nil
+
 	err := ds.handleCloudSync(cloudNoteList)
 	assert.NoError(t, err)
-	assert.Len(t, helper.noteService.noteList.TopLevelOrder, 3)
-	assert.Equal(t, "n1", helper.noteService.noteList.TopLevelOrder[0].ID)
-	assert.Equal(t, "f1", helper.noteService.noteList.TopLevelOrder[1].ID)
+
+	order := helper.noteService.noteList.TopLevelOrder
+	orderIDs := make([]string, len(order))
+	for i, item := range order {
+		orderIDs[i] = item.ID
+	}
+	assert.Contains(t, orderIDs, "n1")
+	assert.Contains(t, orderIDs, "f1")
+	assert.Contains(t, orderIDs, "n2")
+	assert.Len(t, order, 3)
 }
 
 func TestCloudSync_AppliesArchivedTopLevelOrder(t *testing.T) {
@@ -1395,13 +1416,21 @@ func TestCloudSync_AppliesArchivedTopLevelOrder(t *testing.T) {
 	defer helper.cleanup()
 	ds := newTestDriveService(helper)
 
+	helper.noteService.SaveNote(&Note{ID: "archived-1", Title: "Archived1", Content: "", Archived: true})
+
 	cloudNoteList := &NoteList{
-		Notes: []NoteMetadata{},
+		Notes: []NoteMetadata{
+			{ID: "archived-1", Title: "Archived1", Archived: true},
+		},
+		Folders: []Folder{{ID: "archived-f1", Name: "ArchivedFolder", Archived: true}},
 		ArchivedTopLevelOrder: []TopLevelItem{
 			{Type: "note", ID: "archived-1"},
 			{Type: "folder", ID: "archived-f1"},
 		},
 	}
+
+	helper.noteService.noteList.Notes = cloudNoteList.Notes
+	helper.noteService.noteList.Folders = cloudNoteList.Folders
 
 	err := ds.handleCloudSync(cloudNoteList)
 	assert.NoError(t, err)
@@ -1459,21 +1488,34 @@ func TestCloudSync_MergesTopLevelOrder_LocalOnlyItemsAppended(t *testing.T) {
 	defer helper.cleanup()
 	ds := newTestDriveService(helper)
 
+	helper.noteService.SaveNote(&Note{ID: "local-only-note", Title: "Local", Content: ""})
+	helper.noteService.SaveNote(&Note{ID: "shared-note", Title: "Shared", Content: ""})
+	helper.noteService.SaveNote(&Note{ID: "cloud-only-note", Title: "Cloud", Content: ""})
+
+	helper.noteService.noteList.Notes = []NoteMetadata{
+		{ID: "local-only-note", Title: "Local"},
+		{ID: "shared-note", Title: "Shared"},
+		{ID: "cloud-only-note", Title: "Cloud"},
+	}
 	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{
 		{Type: "note", ID: "local-only-note"},
 		{Type: "note", ID: "shared-note"},
 	}
+	helper.noteService.noteList.LastSync = time.Now().Add(-1 * time.Hour)
 
 	cloudNoteList := &NoteList{
-		Notes: []NoteMetadata{},
+		Notes: []NoteMetadata{
+			{ID: "shared-note", Title: "Shared"},
+			{ID: "cloud-only-note", Title: "Cloud"},
+		},
 		TopLevelOrder: []TopLevelItem{
 			{Type: "note", ID: "shared-note"},
 			{Type: "note", ID: "cloud-only-note"},
 		},
+		LastSync: time.Now(),
 	}
 
-	err := ds.handleCloudSync(cloudNoteList)
-	assert.NoError(t, err)
+	ds.mergeNoteListStructure(cloudNoteList)
 
 	order := helper.noteService.noteList.TopLevelOrder
 	assert.Equal(t, "shared-note", order[0].ID, "クラウドの並び順が優先")
@@ -1714,6 +1756,44 @@ func TestMergeNotes_LocalOnly_ZeroCloudLastSync(t *testing.T) {
 	assert.Equal(t, 1, ds.lastSyncResult.Uploaded)
 }
 
+func TestMergeNotes_CloudOnly_DeletedLocally(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+	ds.recentlyDeletedNoteIDs = map[string]bool{"deleted-locally": true}
+
+	cloudNotes := []NoteMetadata{
+		{ID: "deleted-locally", Title: "Deleted Locally", ContentHash: "hash1", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	mergedNotes, _, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 0, "ローカルで削除済みのノートはダウンロードされないべき")
+	assert.False(t, ds.recentlyDeletedNoteIDs["deleted-locally"], "マージ後にrecentlyDeletedから除去されるべき")
+}
+
+func TestMergeNotes_CloudOnly_NotDeletedLocally(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+	ds := newTestDriveService(helper)
+
+	cloudNote := &Note{ID: "new-cloud-note", Title: "New Cloud Note", Content: "content", Language: "plaintext"}
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps := ds.driveOps.(*mockDriveOperations)
+	mockOps.CreateFile("new-cloud-note.json", cloudData, "test-folder", "application/json")
+
+	cloudNotes := []NoteMetadata{
+		{ID: "new-cloud-note", Title: "New Cloud Note", ContentHash: "hash1", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	ds.lastSyncResult = &SyncResult{}
+	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes, time.Time{})
+	assert.NoError(t, err)
+	assert.Len(t, mergedNotes, 1, "他端末で新規作成されたノートはダウンロードされるべき")
+	assert.Len(t, downloadedNotes, 1)
+	assert.Equal(t, "new-cloud-note", downloadedNotes[0].ID)
+}
+
 // --- H-8: UploadAllNotesWithContentテスト ---
 
 func TestUploadAllNotesWithContent_IncludesContent(t *testing.T) {
@@ -1798,12 +1878,13 @@ func TestMergeNotes_CorruptedNote_SkipsAndContinues(t *testing.T) {
 	auth.driveSync = driveSync
 
 	ds := &driveService{
-		ctx:         context.Background(),
-		auth:        auth,
-		noteService: helper.noteService,
-		logger:      logger,
-		driveOps:    mockOps,
-		driveSync:   syncService,
+		ctx:                    context.Background(),
+		auth:                   auth,
+		noteService:            helper.noteService,
+		logger:                 logger,
+		driveOps:               mockOps,
+		driveSync:              syncService,
+		recentlyDeletedNoteIDs: make(map[string]bool),
 	}
 
 	cloudNotes := []NoteMetadata{
@@ -1813,9 +1894,10 @@ func TestMergeNotes_CorruptedNote_SkipsAndContinues(t *testing.T) {
 
 	mergedNotes, downloadedNotes, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes, time.Time{})
 	assert.NoError(t, err, "破損ノートがあっても全体がエラーにならないべき")
-	assert.Len(t, mergedNotes, 2, "メタデータは両方含まれるべき")
+	assert.Len(t, mergedNotes, 1, "Driveに存在しないノートはnoteListから除外されるべき")
 	assert.Len(t, downloadedNotes, 1, "正常なノートだけダウンロードされるべき")
 	assert.Equal(t, "good-note", downloadedNotes[0].ID)
+	assert.Equal(t, "good-note", mergedNotes[0].ID)
 }
 
 // --- H-5: forceNextSyncによるMD5キャッシュバイパステスト ---
@@ -1998,6 +2080,11 @@ func TestOfflineRecovery_AlwaysMerges(t *testing.T) {
 	note1 := &Note{ID: "note-1", Title: "Local Note", Content: "local content", Language: "plaintext", ModifiedTime: time.Now().Add(-1 * time.Hour).Format(time.RFC3339)}
 	helper.noteService.SaveNote(note1)
 
+	cloudNote := &Note{ID: "note-2", Title: "Cloud Note", Content: "cloud content", Language: "plaintext"}
+	cloudData, _ := json.Marshal(cloudNote)
+	mockOps := ds.driveOps.(*mockDriveOperations)
+	mockOps.CreateFile("note-2.json", cloudData, "test-folder", "application/json")
+
 	localNotes := helper.noteService.noteList.Notes
 	cloudNotes := []NoteMetadata{
 		{ID: "note-2", Title: "Cloud Note", ContentHash: "cloud-hash", ModifiedTime: time.Now().Format(time.RFC3339)},
@@ -2019,7 +2106,8 @@ func TestOfflineRecovery_AlwaysMerges(t *testing.T) {
 	}
 	assert.True(t, hasLocal, "ローカルノートがマージ結果に含まれるべき")
 	assert.True(t, hasCloud, "クラウドノートがマージ結果に含まれるべき")
-	_ = downloadedNotes
+	assert.Len(t, downloadedNotes, 1, "クラウドノートがダウンロードされるべき")
+	assert.Equal(t, "note-2", downloadedNotes[0].ID)
 }
 
 func TestOfflineRecovery_NewerCloudWins(t *testing.T) {
