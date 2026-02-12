@@ -208,7 +208,7 @@ func (s *noteService) SaveNote(note *Note) error {
 	if !found {
 		s.ensureTopLevelOrder()
 
-		s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
+		newMetadata := NoteMetadata{
 			ID:            note.ID,
 			Title:         note.Title,
 			ContentHeader: note.ContentHeader,
@@ -216,7 +216,24 @@ func (s *noteService) SaveNote(note *Note) error {
 			ModifiedTime:  note.ModifiedTime,
 			Archived:      note.Archived,
 			ContentHash:   contentHash,
-		})
+		}
+
+		// 新規ノートはアクティブリスト先頭に追加して、UIの表示順と揃える
+		if !note.Archived {
+			activeNotes := make([]NoteMetadata, 0)
+			archivedNotes := make([]NoteMetadata, 0)
+			for _, metadata := range s.noteList.Notes {
+				if metadata.Archived {
+					archivedNotes = append(archivedNotes, metadata)
+				} else {
+					activeNotes = append(activeNotes, metadata)
+				}
+			}
+			s.noteList.Notes = append([]NoteMetadata{newMetadata}, activeNotes...)
+			s.noteList.Notes = append(s.noteList.Notes, archivedNotes...)
+		} else {
+			s.noteList.Notes = append(s.noteList.Notes, newMetadata)
+		}
 
 		if note.FolderID == "" && !note.Archived {
 			s.noteList.TopLevelOrder = append([]TopLevelItem{{Type: "note", ID: note.ID}}, s.noteList.TopLevelOrder...)
