@@ -92,7 +92,7 @@ func TestNewNoteService(t *testing.T) {
 	// 初期状態の検証
 	assert.NotNil(t, helper.noteService)
 	assert.NotNil(t, helper.noteService.noteList)
-	assert.Equal(t, "1.0", helper.noteService.noteList.Version)
+	assert.Equal(t, CurrentVersion, helper.noteService.noteList.Version)
 	assert.Empty(t, helper.noteService.noteList.Notes)
 }
 
@@ -1206,4 +1206,206 @@ func TestContentHash_IncludesAllStableFields(t *testing.T) {
 	contentChanged.Content = "Different Content"
 	assert.NotEqual(t, computeContentHash(base), computeContentHash(&contentChanged),
 		"Content 変更でハッシュが変わるべき")
+}
+
+// --- リカバリテスト ---
+
+func TestLoadNoteList_CorruptedJSON_RecoverFromBackup(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "note-1", Title: "Test", Content: "hello", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	noteListPath := helper.noteService.noteListPath()
+	backupPath := noteListPath + ".bak"
+
+	goodData, _ := os.ReadFile(noteListPath)
+	_ = os.WriteFile(backupPath, goodData, 0644)
+
+	_ = os.WriteFile(noteListPath, []byte("{broken-json"), 0644)
+
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	service, err := NewNoteService(helper.notesDir, logger)
+	assert.NoError(t, err)
+	assert.NotNil(t, service)
+	assert.Equal(t, "backup", service.recoveryApplied)
+	assert.Equal(t, 1, len(service.noteList.Notes))
+	assert.Equal(t, "note-1", service.noteList.Notes[0].ID)
+
+	_, statErr := os.Stat(noteListPath + ".corrupted")
+	assert.False(t, os.IsNotExist(statErr), ".corrupted ファイルが保存されるべき")
+}
+
+func TestLoadNoteList_CorruptedJSON_NoBackup_RebuildFromFiles(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "note-1", Title: "Rebuilt", Content: "data", Language: "go"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	noteListPath := helper.noteService.noteListPath()
+	_ = os.WriteFile(noteListPath, []byte("{broken-json"), 0644)
+
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	service, err := NewNoteService(helper.notesDir, logger)
+	assert.NoError(t, err)
+	assert.NotNil(t, service)
+	assert.Equal(t, "rebuild", service.recoveryApplied)
+	assert.Equal(t, 1, len(service.noteList.Notes))
+	assert.Equal(t, "note-1", service.noteList.Notes[0].ID)
+	assert.Equal(t, "Rebuilt", service.noteList.Notes[0].Title)
+}
+
+func TestLoadNoteList_MissingFile_RecoverFromBackup(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "note-1", Title: "Saved", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	noteListPath := helper.noteService.noteListPath()
+	backupPath := noteListPath + ".bak"
+
+	goodData, _ := os.ReadFile(noteListPath)
+	_ = os.WriteFile(backupPath, goodData, 0644)
+
+	os.Remove(noteListPath)
+
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	service, err := NewNoteService(helper.notesDir, logger)
+	assert.NoError(t, err)
+	assert.Equal(t, "backup", service.recoveryApplied)
+	assert.Equal(t, 1, len(service.noteList.Notes))
+}
+
+func TestLoadNoteList_EmptyFile_Recover(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "note-1", Title: "Test", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	noteListPath := helper.noteService.noteListPath()
+	_ = os.WriteFile(noteListPath, []byte(""), 0644)
+
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	service, err := NewNoteService(helper.notesDir, logger)
+	assert.NoError(t, err)
+	assert.NotNil(t, service)
+	assert.Equal(t, "rebuild", service.recoveryApplied)
+	assert.Equal(t, 1, len(service.noteList.Notes))
+}
+
+func TestSaveNoteList_AtomicWrite(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "note-1", Title: "Atomic", Content: "test", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	noteListPath := helper.noteService.noteListPath()
+	data, err := os.ReadFile(noteListPath)
+	assert.NoError(t, err)
+
+	var nl NoteList
+	assert.NoError(t, json.Unmarshal(data, &nl))
+	assert.Equal(t, 1, len(nl.Notes))
+
+	_, tmpErr := os.Stat(noteListPath + ".tmp")
+	assert.True(t, os.IsNotExist(tmpErr), ".tmp ファイルが残っていないべき")
+}
+
+func TestLoadNoteList_SuccessCreatesBackup(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "note-1", Title: "Backup", Content: "test", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	noteListPath := helper.noteService.noteListPath()
+	backupPath := noteListPath + ".bak"
+	os.Remove(backupPath)
+
+	logger := NewAppLogger(context.Background(), true, helper.tempDir)
+	service, err := NewNoteService(helper.notesDir, logger)
+	assert.NoError(t, err)
+	assert.Empty(t, service.recoveryApplied)
+
+	_, bakErr := os.Stat(backupPath)
+	assert.False(t, os.IsNotExist(bakErr), ".bak ファイルが作成されるべき")
+}
+
+func TestValidateIntegrity_OrphanedFolderReference(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "note-1", Title: "Orphan", Content: "c", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	helper.noteService.noteList.Notes[0].FolderID = "non-existent-folder"
+	helper.noteService.noteList.TopLevelOrder = []TopLevelItem{}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+	assert.Empty(t, helper.noteService.noteList.Notes[0].FolderID, "FolderID がクリアされるべき")
+
+	found := false
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		if item.Type == "note" && item.ID == "note-1" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "ノートがTopLevelOrderに追加されるべき")
+}
+
+func TestRebuildFromPhysicalFiles_PreservesNoteData(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	notes := []*Note{
+		{ID: "note-1", Title: "First", Content: "c1", Language: "go"},
+		{ID: "note-2", Title: "Second", Content: "c2", Language: "python", Archived: true, ContentHeader: "c2"},
+	}
+	for _, n := range notes {
+		assert.NoError(t, helper.noteService.SaveNote(n))
+	}
+
+	assert.NoError(t, helper.noteService.rebuildFromPhysicalFiles())
+
+	assert.Equal(t, 2, len(helper.noteService.noteList.Notes))
+	assert.Equal(t, "rebuild", helper.noteService.recoveryApplied)
+
+	idSet := map[string]bool{}
+	for _, m := range helper.noteService.noteList.Notes {
+		idSet[m.ID] = true
+	}
+	assert.True(t, idSet["note-1"])
+	assert.True(t, idSet["note-2"])
+}
+
+func TestNewEmptyNoteService_CreatesUsableService(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "empty_service_test")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	notesDir := filepath.Join(tempDir, "notes")
+	os.MkdirAll(notesDir, 0755)
+
+	logger := NewAppLogger(context.Background(), true, tempDir)
+	service := NewEmptyNoteService(notesDir, logger)
+
+	assert.NotNil(t, service)
+	assert.Equal(t, "rebuild", service.recoveryApplied)
+	assert.Equal(t, CurrentVersion, service.noteList.Version)
+
+	notes, err := service.ListNotes()
+	assert.NoError(t, err)
+	assert.Empty(t, notes)
+
+	note := &Note{ID: "test-1", Title: "Test", Content: "c", Language: "plaintext"}
+	assert.NoError(t, service.SaveNote(note))
+	assert.Equal(t, 1, len(service.noteList.Notes))
 }

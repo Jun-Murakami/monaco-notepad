@@ -34,6 +34,7 @@ import {
   Unarchive,
 } from '@mui/icons-material';
 import {
+  alpha,
   Box,
   Button,
   Divider,
@@ -209,11 +210,12 @@ interface ArchivedNoteItemProps {
   onUnarchive: (noteId: string) => void;
   onDelete: (noteId: string) => void;
   onSelect: (note: Note) => void;
+  selected?: boolean;
   isDragging?: boolean;
 }
 
 const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
-  ({ note, indented, onUnarchive, onDelete, onSelect, isDragging }) => {
+  ({ note, indented, onUnarchive, onDelete, onSelect, selected, isDragging }) => {
     const titleInfo = getNoteTitle(note);
     const actionButtonSx = { width: 28, height: 28 };
     return (
@@ -223,6 +225,7 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
       >
         <ListItemButton
           onClick={() => onSelect(note)}
+          selected={!!selected}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -233,6 +236,17 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
             borderBottom: 1,
             borderColor: 'divider',
             '&:hover .archive-action': { opacity: 1 },
+            ...(theme) =>
+              theme.palette.mode === 'light'
+                ? {
+                    '&.Mui-selected': {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.22),
+                    },
+                    '&.Mui-selected:hover': {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.28),
+                    },
+                  }
+                : {},
           }}
         >
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
@@ -1486,6 +1500,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                                 onUnarchive={onUnarchive}
                                 onDelete={onDelete}
                                 onSelect={handleSelectNote}
+                                selected={selectedNote?.id === note.id}
                                 isDragging={!!activeDragId}
                               />
                             </Box>
@@ -1506,6 +1521,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                                   onUnarchive={onUnarchive}
                                   onDelete={onDelete}
                                   onSelect={handleSelectNote}
+                                  selected={selectedNote?.id === note.id}
                                   isDragging={!!activeDragId}
                                 />
                               </Box>

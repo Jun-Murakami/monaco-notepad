@@ -61,12 +61,26 @@ type noteService struct {
 	noteList               *NoteList
 	logger                 AppLogger
 	pendingIntegrityIssues []IntegrityIssue
+	recoveryApplied        string // 復旧方法: "", "backup", "rebuild"
 }
 
 type conflictCopyResolution struct {
 	deleted []string
 	kept    []string
 	changed bool
+}
+
+// 最終フォールバック用の空のnoteServiceインスタンスを作成（NewNoteServiceが全リカバリ失敗時のみ使用）
+func NewEmptyNoteService(notesDir string, logger AppLogger) *noteService {
+	return &noteService{
+		notesDir: notesDir,
+		noteList: &NoteList{
+			Version: CurrentVersion,
+			Notes:   []NoteMetadata{},
+		},
+		logger:          logger,
+		recoveryApplied: "rebuild",
+	}
 }
 
 // 新しいnoteServiceインスタンスを作成
@@ -744,49 +758,69 @@ func (s *noteService) deduplicateNoteList() {
 }
 
 // ノートリストをJSONファイルから読み込む ------------------------------------------------------------
+// 読み込み失敗時はバックアップ → 一時ファイル → 物理ファイルからの再構築を試みる
 func (s *noteService) loadNoteList() error {
-	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList_v2.json")
+	noteListPath := s.noteListPath()
+	backupPath := noteListPath + ".bak"
+
+	// --- Phase 1: メインファイルの読み込み ---
+	loaded := false
 
 	if _, err := os.Stat(noteListPath); os.IsNotExist(err) {
-		s.logInfo("Note list not found, creating new one")
-		s.noteList = &NoteList{
-			Version: "1.0",
-			Notes:   []NoteMetadata{},
-			// LastSync はゼロ値のまま（クラウドに既存データがあれば cloud→local を優先させる）
+		// メインファイルが存在しない → リカバリ試行
+		s.logConsole("Note list file not found, attempting recovery...")
+		if err := s.recoverNoteList(noteListPath); err != nil {
+			// リカバリも失敗 → 新規作成
+			s.logInfo("Note list not found, creating new one")
+			s.noteList = &NoteList{
+				Version: CurrentVersion,
+				Notes:   []NoteMetadata{},
+			}
+			return s.saveNoteList()
 		}
-		return s.saveNoteList()
+		loaded = true
 	}
 
-	// 既存のノートリストを読み込む
-	data, err := os.ReadFile(noteListPath)
-	if err != nil {
-		return err
+	if !loaded {
+		data, readErr := os.ReadFile(noteListPath)
+		if readErr != nil {
+			s.logConsole("Failed to read note list: %v", readErr)
+			if err := s.recoverNoteList(noteListPath); err != nil {
+				return fmt.Errorf("failed to load note list and all recovery failed: %v", err)
+			}
+			loaded = true
+		}
+
+		if !loaded {
+			if parseErr := json.Unmarshal(data, &s.noteList); parseErr != nil {
+				s.logConsole("Note list JSON corrupted: %v", parseErr)
+				s.preserveCorruptedFile(noteListPath)
+				if err := s.recoverNoteList(noteListPath); err != nil {
+					return fmt.Errorf("failed to parse note list and all recovery failed: %v", err)
+				}
+			} else {
+				// 正常読み込み成功 → バックアップ保存
+				_ = os.WriteFile(backupPath, data, 0644)
+			}
+		}
 	}
 
-	if err := json.Unmarshal(data, &s.noteList); err != nil {
-		return err
-	}
-
+	// --- Phase 2: 後処理（既存ロジック） ---
 	s.deduplicateTopLevelOrder()
 
-	// 処理前のノートリストをコピー
 	originalNotes := make([]NoteMetadata, len(s.noteList.Notes))
 	copy(originalNotes, s.noteList.Notes)
 
-	// 読み込んだ後に重複削除を実施
 	s.deduplicateNoteList()
 
-	// メタデータの競合解決を実行
 	if err := s.resolveMetadataConflicts(); err != nil {
 		return fmt.Errorf("failed to resolve metadata conflicts: %v", err)
 	}
 
-	// ノートリストと物理ファイルの整合性を検証・修復
 	if _, err := s.ValidateIntegrity(); err != nil {
 		return err
 	}
 
-	// resolveMetadataConflicts で変更があった場合、LastSync を変えずに保存（起動時の正規化は同期方向に影響させない）
 	if !s.isNoteListEqual(originalNotes, s.noteList.Notes) {
 		s.logConsole("Saving note list due to normalization changes")
 		if err := s.saveNoteList(); err != nil {
@@ -795,6 +829,97 @@ func (s *noteService) loadNoteList() error {
 	}
 
 	return nil
+}
+
+// 破損したファイルを .corrupted として保存する（デバッグ用） ------------------------------------------------------------
+func (s *noteService) preserveCorruptedFile(path string) {
+	corruptedPath := path + ".corrupted"
+	if data, err := os.ReadFile(path); err == nil {
+		_ = os.WriteFile(corruptedPath, data, 0644)
+		s.logConsole("Corrupted note list saved to %s", corruptedPath)
+	}
+}
+
+// リカバリチェーン: バックアップ → 一時ファイル → 物理ファイルからの再構築 ------------------------------------------------------------
+func (s *noteService) recoverNoteList(noteListPath string) error {
+	backupPath := noteListPath + ".bak"
+	tmpPath := noteListPath + ".tmp"
+
+	// 1. バックアップから復旧
+	if data, err := os.ReadFile(backupPath); err == nil {
+		if err := json.Unmarshal(data, &s.noteList); err == nil {
+			s.recoveryApplied = "backup"
+			s.logInfo("Note list restored from backup")
+			return s.saveNoteList()
+		}
+		s.logConsole("Backup file also corrupted, trying next recovery method...")
+	}
+
+	// 2. 一時ファイルから復旧（アトミック書き込み中断の可能性）
+	if data, err := os.ReadFile(tmpPath); err == nil {
+		if err := json.Unmarshal(data, &s.noteList); err == nil {
+			s.recoveryApplied = "backup"
+			s.logInfo("Note list restored from temporary file")
+			_ = os.Remove(tmpPath)
+			return s.saveNoteList()
+		}
+		s.logConsole("Temp file also corrupted, trying rebuild from note files...")
+	}
+
+	// 3. 物理ファイルから再構築
+	return s.rebuildFromPhysicalFiles()
+}
+
+// 物理ノートファイルからノートリストを再構築する ------------------------------------------------------------
+// フォルダ構造と表示順序は復元できないため、全ノートがトップレベルに配置される
+func (s *noteService) rebuildFromPhysicalFiles() error {
+	files, err := os.ReadDir(s.notesDir)
+	if err != nil {
+		return fmt.Errorf("failed to read notes directory: %w", err)
+	}
+
+	s.noteList = &NoteList{
+		Version: CurrentVersion,
+		Notes:   []NoteMetadata{},
+	}
+
+	recoveredCount := 0
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+		noteID := file.Name()[:len(file.Name())-5]
+		note, loadErr := s.LoadNote(noteID)
+		if loadErr != nil {
+			s.logConsole("Skipping unreadable note file: %s", file.Name())
+			continue
+		}
+
+		s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
+			ID:            note.ID,
+			Title:         note.Title,
+			ContentHeader: note.ContentHeader,
+			Language:      note.Language,
+			ModifiedTime:  note.ModifiedTime,
+			Archived:      note.Archived,
+			ContentHash:   computeContentHash(note),
+		})
+		recoveredCount++
+	}
+
+	s.noteList.TopLevelOrder = s.buildTopLevelOrder()
+	s.noteList.ArchivedTopLevelOrder = s.buildArchivedTopLevelOrder()
+	s.recoveryApplied = "rebuild"
+
+	s.logConsole("Rebuilt note list from %d physical files (folder structure lost)", recoveredCount)
+	return s.saveNoteList()
+}
+
+// 復旧が適用されたかどうかと方法を返し、フラグをリセットする ------------------------------------------------------------
+func (s *noteService) DrainRecoveryApplied() string {
+	r := s.recoveryApplied
+	s.recoveryApplied = ""
+	return r
 }
 
 // 2つのノートリストが等しいかどうかを比較する ------------------------------------------------------------
@@ -914,7 +1039,13 @@ func (s *noteService) resolveMetadata(listMetadata, fileMetadata NoteMetadata) N
 	return fileMetadata
 }
 
-// ノートリストをJSONファイルとして保存 ------------------------------------------------------------
+// noteList_v2.json のファイルパスを返す ------------------------------------------------------------
+func (s *noteService) noteListPath() string {
+	return filepath.Join(filepath.Dir(s.notesDir), "noteList_v2.json")
+}
+
+// ノートリストをJSONファイルとしてアトミックに保存 ------------------------------------------------------------
+// 一時ファイルに書き込んでからrenameすることで、書き込み途中のクラッシュによる破損を防止する
 func (s *noteService) saveNoteList() error {
 	s.deduplicateTopLevelOrder()
 	s.deduplicateArchivedTopLevelOrder()
@@ -924,8 +1055,20 @@ func (s *noteService) saveNoteList() error {
 		return err
 	}
 
-	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList_v2.json")
-	return os.WriteFile(noteListPath, data, 0644)
+	noteListPath := s.noteListPath()
+	tmpPath := noteListPath + ".tmp"
+
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temp note list: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, noteListPath); err != nil {
+		// rename失敗時は直接書き込みにフォールバック
+		s.logConsole("Atomic rename failed, falling back to direct write: %v", err)
+		return os.WriteFile(noteListPath, data, 0644)
+	}
+
+	return nil
 }
 
 // logInfo はloggerが設定されている場合にInfo出力する
@@ -1192,7 +1335,33 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		}
 	}
 
-	// 7. ContentHash が空のノートは再計算（ファイルが存在する場合のみ）
+	// 7. 存在しないフォルダを参照しているノートをトップレベルに移動
+	{
+		orphanCount := 0
+		for i, m := range s.noteList.Notes {
+			if m.FolderID == "" {
+				continue
+			}
+			if !activeFolderIDs[m.FolderID] && !archivedFolderIDs[m.FolderID] {
+				logRepair("Orphaned folder ref: note %s referenced non-existent folder %s", m.ID, m.FolderID)
+				s.noteList.Notes[i].FolderID = ""
+				if !m.Archived && !topLevelSeen["note:"+m.ID] {
+					s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "note", ID: m.ID})
+					topLevelSeen["note:"+m.ID] = true
+				} else if m.Archived && !archivedSeen["note:"+m.ID] {
+					s.noteList.ArchivedTopLevelOrder = append(s.noteList.ArchivedTopLevelOrder, TopLevelItem{Type: "note", ID: m.ID})
+					archivedSeen["note:"+m.ID] = true
+				}
+				orphanCount++
+				changed = true
+			}
+		}
+		if orphanCount > 0 {
+			logRepair("Moved %d notes from non-existent folders to top level", orphanCount)
+		}
+	}
+
+	// 8. ContentHash が空のノートは再計算（ファイルが存在する場合のみ）
 	for i, metadata := range s.noteList.Notes {
 		if metadata.ContentHash != "" {
 			continue
@@ -1211,7 +1380,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		changed = true
 	}
 
-	// 8. conflict copy の自動解決（重複ハッシュのみ削除）
+	// 9. conflict copy の自動解決（重複ハッシュのみ削除）
 	resolution := s.autoResolveConflictCopies()
 	if resolution.changed {
 		changed = true

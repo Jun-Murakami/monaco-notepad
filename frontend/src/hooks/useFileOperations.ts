@@ -13,6 +13,18 @@ import { getExtensionByLanguage, getLanguageByExtension } from '../lib/monaco';
 import type { FileNote, Note } from '../types';
 import { isBinaryFile } from '../utils/fileUtils';
 
+// ドロップ座標からエディタペインを判定する
+const detectTargetPane = (x: number, y: number): 'left' | 'right' | null => {
+  const elements = document.elementsFromPoint(x, y);
+  for (const el of elements) {
+    const paneEl = (el as HTMLElement).closest('[data-pane]');
+    if (paneEl) {
+      return paneEl.getAttribute('data-pane') as 'left' | 'right';
+    }
+  }
+  return null;
+};
+
 export function useFileOperations(
   notes: Note[],
   setNotes: (notes: Note[]) => void,
@@ -27,6 +39,10 @@ export function useFileOperations(
     isTwoButton?: boolean,
   ) => Promise<boolean>,
   handleSaveFileNotes: (fileNotes: FileNote[]) => Promise<void>,
+  isSplitRef: React.RefObject<boolean>,
+  openNoteInPaneRef: React.RefObject<
+    ((note: Note | FileNote, pane: 'left' | 'right') => void) | null
+  >,
 ) {
   // ファイルを開く共通処理
   const createFileNote = useCallback(
@@ -94,7 +110,7 @@ export function useFileOperations(
 
   // ファイルをドラッグアンドドロップする
   const handleFileDrop = useCallback(
-    async (filePath: string) => {
+    async (filePath: string, targetPane?: 'left' | 'right') => {
       try {
         if (!filePath) return;
 
@@ -116,7 +132,12 @@ export function useFileOperations(
         const updatedFileNotes = [newFileNote, ...fileNotes];
         setFileNotes(updatedFileNotes);
         await handleSaveFileNotes(updatedFileNotes);
-        await handleSelecAnyNote(newFileNote);
+
+        if (targetPane && isSplitRef.current && openNoteInPaneRef.current) {
+          openNoteInPaneRef.current(newFileNote, targetPane);
+        } else {
+          await handleSelecAnyNote(newFileNote);
+        }
       } catch (error) {
         console.error('Failed to handle dropped file:', error);
       }
@@ -127,6 +148,8 @@ export function useFileOperations(
       setFileNotes,
       handleSaveFileNotes,
       handleSelecAnyNote,
+      isSplitRef,
+      openNoteInPaneRef,
     ],
   );
 
@@ -221,15 +244,23 @@ export function useFileOperations(
         const updatedFileNotes = [newFileNote, ...fileNotes];
         setFileNotes(updatedFileNotes);
         await handleSaveFileNotes(updatedFileNotes);
-        await handleSelecAnyNote(newFileNote);
+
+        if (isSplitRef.current && openNoteInPaneRef.current) {
+          openNoteInPaneRef.current(newFileNote, 'left');
+        } else {
+          await handleSelecAnyNote(newFileNote);
+        }
       },
     );
 
-    runtime.OnFileDrop(async (_, __, paths) => {
+    runtime.OnFileDrop(async (x, y, paths) => {
       if (paths.length > 0) {
         const file = paths[0];
         if (file) {
-          await handleFileDrop(file);
+          const targetPane = isSplitRef.current
+            ? (detectTargetPane(x, y) ?? 'left')
+            : undefined;
+          await handleFileDrop(file, targetPane);
         }
       }
     }, true);
@@ -245,6 +276,8 @@ export function useFileOperations(
     handleSaveFileNotes,
     handleFileDrop,
     createFileNote,
+    isSplitRef,
+    openNoteInPaneRef,
   ]);
 
   const handleCloseFile = async (note: FileNote) => {

@@ -125,11 +125,12 @@ export const useInitialize = (
       const selections: IntegrityFixSelection[] = [];
 
       for (const issue of issues) {
-        if (
-          !issue.needsUserDecision ||
-          !issue.fixOptions ||
-          issue.fixOptions.length < 2
-        ) {
+        if (!issue.needsUserDecision) {
+          continue;
+        }
+
+        if (!issue.fixOptions || issue.fixOptions.length < 2) {
+          await showMessage('Notice', issue.summary, false, 'OK');
           continue;
         }
 

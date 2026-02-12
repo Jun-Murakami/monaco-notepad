@@ -83,6 +83,8 @@ describe('useFileOperations', () => {
   const mockHandleSelecAnyNote = vi.fn();
   const mockShowMessage = vi.fn();
   const mockHandleSaveFileNotes = vi.fn();
+  const mockIsSplitRef = { current: false };
+  const mockOpenNoteInPaneRef = { current: null };
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -114,6 +116,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -141,6 +145,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -166,6 +172,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -201,6 +209,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -228,6 +238,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -257,6 +269,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -287,6 +301,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -319,6 +335,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -346,6 +364,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -373,6 +393,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -398,6 +420,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -429,6 +453,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -456,6 +482,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -485,6 +513,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -512,6 +542,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -546,6 +578,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 
@@ -576,6 +610,8 @@ describe('useFileOperations', () => {
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
+          mockIsSplitRef,
+          mockOpenNoteInPaneRef,
         ),
       );
 

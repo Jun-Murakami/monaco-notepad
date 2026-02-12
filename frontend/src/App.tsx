@@ -47,16 +47,10 @@ const scrollbarSx = (theme: Theme) => ({
   '&::-webkit-scrollbar': { width: 7 },
   '&::-webkit-scrollbar-track': { background: 'transparent' },
   '&::-webkit-scrollbar-thumb': {
-    backgroundColor:
-      theme.palette.mode === 'dark'
-        ? 'rgba(255,255,255,0.3)'
-        : 'rgba(0,0,0,0.3)',
+    backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
     borderRadius: 7,
     '&:hover': {
-      backgroundColor:
-        theme.palette.mode === 'dark'
-          ? 'rgba(255,255,255,0.5)'
-          : 'rgba(0,0,0,0.5)',
+      backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
     },
   },
 });
@@ -74,8 +68,7 @@ const languageMenuProps: SelectProps['MenuProps'] = {
   },
 };
 
-const isFileNote = (note: Note | FileNote | null): note is FileNote =>
-  note !== null && 'filePath' in note;
+const isFileNote = (note: Note | FileNote | null): note is FileNote => note !== null && 'filePath' in note;
 
 const PaneHeader: React.FC<{
   note: Note | FileNote | null;
@@ -87,17 +80,7 @@ const PaneHeader: React.FC<{
   paneColor?: 'primary' | 'secondary';
   paneLabel?: string;
   dimmed?: boolean;
-}> = ({
-  note,
-  languages,
-  onTitleChange,
-  onLanguageChange,
-  onFocusEditor,
-  isSplit,
-  paneColor,
-  paneLabel,
-  dimmed,
-}) => (
+}> = ({ note, languages, onTitleChange, onLanguageChange, onFocusEditor, isSplit, paneColor, paneLabel, dimmed }) => (
   <Box
     sx={{
       display: 'flex',
@@ -110,14 +93,46 @@ const PaneHeader: React.FC<{
       transition: 'opacity 0.2s',
     }}
   >
-    {paneLabel && (
-      <Typography
-        variant="body2"
-        sx={{ flexShrink: 0, fontWeight: 'bold', color: `${paneColor}.main` }}
-      >
-        {paneLabel}
-      </Typography>
-    )}
+    {paneLabel &&
+      (!dimmed ? (
+        <Box
+          sx={{
+            flexShrink: 0,
+            width: 24,
+            height: 24,
+            borderRadius: '50%',
+            border: (theme) => `2px solid ${theme.palette[paneColor || 'primary'].main}`,
+            backgroundColor: (theme) => `${theme.palette[paneColor || 'primary'].main}20`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Typography
+            variant='body2'
+            sx={{
+              fontWeight: 'bold',
+              color: `${paneColor}.main`,
+              lineHeight: 1,
+            }}
+          >
+            {paneLabel}
+          </Typography>
+        </Box>
+      ) : (
+        <Typography
+          variant='body2'
+          sx={{
+            flexShrink: 0,
+            fontWeight: 'bold',
+            color: `${paneColor}.main`,
+            width: 24,
+            textAlign: 'center',
+          }}
+        >
+          {paneLabel}
+        </Typography>
+      ))}
     <TextField
       sx={{
         width: '100%',
@@ -136,11 +151,9 @@ const PaneHeader: React.FC<{
           }),
       }}
       label={isFileNote(note) ? 'File Path' : 'Title'}
-      variant="outlined"
-      size="small"
-      value={
-        isFileNote(note) ? note.filePath : (note as Note | null)?.title || ''
-      }
+      variant='outlined'
+      size='small'
+      value={isFileNote(note) ? note.filePath : (note as Note | null)?.title || ''}
       onChange={(e) => onTitleChange(e.target.value)}
       disabled={isFileNote(note)}
       onKeyDown={(e) => {
@@ -153,7 +166,7 @@ const PaneHeader: React.FC<{
     />
     <FormControl
       sx={{
-        minWidth: 270,
+        minWidth: 180,
         flexShrink: 0,
         '& .MuiOutlinedInput-root': {
           height: 32,
@@ -169,19 +182,15 @@ const PaneHeader: React.FC<{
             '& .MuiInputLabel-root': { color: `${paneColor}.main` },
           }),
       }}
-      size="small"
+      size='small'
     >
-      <InputLabel size="small">Language</InputLabel>
+      <InputLabel size='small'>Language</InputLabel>
       <Select
-        size="small"
+        size='small'
         autoWidth
-        value={
-          languages.some((lang) => lang.id === note?.language)
-            ? note?.language
-            : ''
-        }
+        value={languages.some((lang) => lang.id === note?.language) ? note?.language : ''}
         onChange={(e) => onLanguageChange(e.target.value)}
-        label="Language"
+        label='Language'
         MenuProps={languageMenuProps}
       >
         {languages.map((lang) => (
@@ -202,13 +211,7 @@ type SearchMatch = {
 
 function App() {
   // エディタ設定
-  const {
-    isSettingsOpen,
-    setIsSettingsOpen,
-    editorSettings,
-    setEditorSettings,
-    handleSettingsChange,
-  } = useEditorSettings();
+  const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
 
   // メッセージダイアログ
   const {
@@ -225,9 +228,7 @@ function App() {
   const onNotesReloadedRef = useRef<((notes: Note[]) => void) | null>(null);
   const isSplitRef = useRef<boolean>(false);
   const focusedPaneRef = useRef<'left' | 'right'>('left');
-  const openNoteInPaneRef = useRef<
-    ((note: Note | FileNote, pane: 'left' | 'right') => void) | null
-  >(null);
+  const openNoteInPaneRef = useRef<((note: Note | FileNote, pane: 'left' | 'right') => void) | null>(null);
 
   // ノート
   const {
@@ -290,11 +291,7 @@ function App() {
   });
 
   // ノート選択専用フック
-  const {
-    handleSelecAnyNote,
-    handleSelectNextAnyNote,
-    handleSelectPreviousAnyNote,
-  } = useNoteSelecter({
+  const { handleSelecAnyNote, handleSelectNextAnyNote, handleSelectPreviousAnyNote } = useNoteSelecter({
     handleSelectNote,
     handleSelectFileNote,
     notes,
@@ -306,12 +303,7 @@ function App() {
   });
 
   // ファイル操作
-  const {
-    handleOpenFile,
-    handleSaveFile,
-    handleSaveAsFile,
-    handleConvertToNote,
-  } = useFileOperations(
+  const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
     notes,
     setNotes,
     currentNote,
@@ -321,6 +313,8 @@ function App() {
     handleSelecAnyNote,
     showMessage,
     handleSaveFileNotes,
+    isSplitRef,
+    openNoteInPaneRef,
   );
 
   const {
@@ -392,8 +386,7 @@ function App() {
     restorePaneNotes,
   );
 
-  const totalAvailableItems =
-    fileNotes.length + notes.filter((n) => !n.archived).length;
+  const totalAvailableItems = fileNotes.length + notes.filter((n) => !n.archived).length;
   const canSplit = isSplit || totalAvailableItems >= 2;
 
   const handleToggleSplit = useCallback(() => {
@@ -405,14 +398,10 @@ function App() {
         (() => {
           for (const item of topLevelOrder) {
             if (item.type === 'note') {
-              const n = notes.find(
-                (n) => n.id === item.id && !n.archived && n.id !== leftId,
-              );
+              const n = notes.find((n) => n.id === item.id && !n.archived && n.id !== leftId);
               if (n) return n;
             } else if (item.type === 'folder') {
-              const n = notes.find(
-                (n) => n.folderId === item.id && !n.archived && n.id !== leftId,
-              );
+              const n = notes.find((n) => n.folderId === item.id && !n.archived && n.id !== leftId);
               if (n) return n;
             }
           }
@@ -422,16 +411,7 @@ function App() {
     } else {
       toggleSplit();
     }
-  }, [
-    isSplit,
-    canSplit,
-    currentNote,
-    currentFileNote,
-    fileNotes,
-    notes,
-    topLevelOrder,
-    toggleSplit,
-  ]);
+  }, [isSplit, canSplit, currentNote, currentFileNote, fileNotes, notes, topLevelOrder, toggleSplit]);
 
   const findFirstOtherNote = useCallback(
     (...excludeIds: string[]): Note | FileNote | undefined => {
@@ -440,14 +420,10 @@ function App() {
       if (found) return found;
       for (const item of topLevelOrder) {
         if (item.type === 'note') {
-          const n = notes.find(
-            (n) => n.id === item.id && !n.archived && !excluded.has(n.id),
-          );
+          const n = notes.find((n) => n.id === item.id && !n.archived && !excluded.has(n.id));
           if (n) return n;
         } else if (item.type === 'folder') {
-          const n = notes.find(
-            (n) => n.folderId === item.id && !n.archived && !excluded.has(n.id),
-          );
+          const n = notes.find((n) => n.folderId === item.id && !n.archived && !excluded.has(n.id));
           if (n) return n;
         }
       }
@@ -551,14 +527,7 @@ function App() {
       }
       replacePaneAfterClose(fileNote.id);
     },
-    [
-      handleCloseFile,
-      replacePaneAfterClose,
-      isSplit,
-      findFirstOtherNote,
-      setCurrentNote,
-      setCurrentFileNote,
-    ],
+    [handleCloseFile, replacePaneAfterClose, isSplit, findFirstOtherNote, setCurrentNote, setCurrentFileNote],
   );
 
   archiveNoteRef.current = handleArchiveNoteWithSplit;
@@ -566,12 +535,8 @@ function App() {
 
   const TITLE_BAR_HEIGHT = platform === 'darwin' ? 26 : 0;
 
-  const leftEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(
-    null,
-  );
-  const rightEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(
-    null,
-  );
+  const leftEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const rightEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const editorInstanceRef = leftEditorInstanceRef;
 
   const [noteSearch, setNoteSearch] = useState('');
@@ -583,27 +548,19 @@ function App() {
     const q = noteSearch.toLowerCase();
     return notes.filter((note) => {
       if (note.archived) return false;
-      return (
-        note.title.toLowerCase().includes(q) ||
-        (note.content?.toLowerCase().includes(q) ?? false)
-      );
+      return note.title.toLowerCase().includes(q) || (note.content?.toLowerCase().includes(q) ?? false);
     });
   }, [notes, noteSearch]);
 
   const filteredFileNotes = useMemo(() => {
     if (!noteSearch) return fileNotes;
     const q = noteSearch.toLowerCase();
-    return fileNotes.filter(
-      (note) =>
-        note.fileName.toLowerCase().includes(q) ||
-        note.content.toLowerCase().includes(q),
-    );
+    return fileNotes.filter((note) => note.fileName.toLowerCase().includes(q) || note.content.toLowerCase().includes(q));
   }, [fileNotes, noteSearch]);
 
   // サイドバーの表示順に一致する検索マッチリスト（各ノート内の出現箇所ごとに展開）
   const { globalMatches, totalSearchMatches } = useMemo(() => {
-    if (!noteSearch)
-      return { globalMatches: [] as SearchMatch[], totalSearchMatches: 0 };
+    if (!noteSearch) return { globalMatches: [] as SearchMatch[], totalSearchMatches: 0 };
 
     const q = noteSearch.toLowerCase();
     const countOccurrences = (text: string | null): number => {
@@ -629,9 +586,7 @@ function App() {
           if (note) orderedNotes.push(note);
         }
       } else if (item.type === 'folder') {
-        const folderNotes = activeFiltered.filter(
-          (n) => n.folderId === item.id,
-        );
+        const folderNotes = activeFiltered.filter((n) => n.folderId === item.id);
         orderedNotes.push(...folderNotes);
       }
     }
@@ -658,11 +613,9 @@ function App() {
       if (totalSearchMatches === 0) return;
       let newIndex = searchMatchIndex;
       if (direction === 'next') {
-        newIndex =
-          searchMatchIndex >= totalSearchMatches ? 1 : searchMatchIndex + 1;
+        newIndex = searchMatchIndex >= totalSearchMatches ? 1 : searchMatchIndex + 1;
       } else {
-        newIndex =
-          searchMatchIndex <= 1 ? totalSearchMatches : searchMatchIndex - 1;
+        newIndex = searchMatchIndex <= 1 ? totalSearchMatches : searchMatchIndex - 1;
       }
       setSearchMatchIndex(newIndex);
       const match = globalMatches[newIndex - 1];
@@ -674,14 +627,7 @@ function App() {
         }
       }
     },
-    [
-      totalSearchMatches,
-      searchMatchIndex,
-      globalMatches,
-      handleSelecAnyNote,
-      isSplit,
-      handleSelectNoteForPane,
-    ],
+    [totalSearchMatches, searchMatchIndex, globalMatches, handleSelecAnyNote, isSplit, handleSelectNoteForPane],
   );
 
   const searchMatchIndexInNote = useMemo(() => {
@@ -698,16 +644,8 @@ function App() {
           width: '100vw',
           height: '100vh',
           position: 'relative',
-          // ドロップ対象エリアとして設定
-          '.wails-drop-target-active': {
-            backgroundColor: (theme) =>
-              theme.palette.mode === 'dark'
-                ? 'rgba(255, 255, 255, 0.05)'
-                : 'rgba(0, 0, 0, 0.05)',
-          },
-          '--wails-drop-target': 'drop',
         }}
-        component="main"
+        component='main'
       >
         {/* macOS タイトルバー */}
         {platform !== 'windows' && (
@@ -716,9 +654,7 @@ function App() {
               height: 26,
               width: '100vw',
               '--wails-draggable': 'drag',
-              backgroundColor: editorSettings.isDarkMode
-                ? 'rgba(255, 255, 255, 0.2)'
-                : 'rgba(0, 0, 0, 0.2)',
+              backgroundColor: editorSettings.isDarkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -728,9 +664,9 @@ function App() {
             }}
           >
             <Typography
-              variant="body2"
-              color="text.secondary"
-              fontWeight="bold"
+              variant='body2'
+              color='text.secondary'
+              fontWeight='bold'
               sx={{ userSelect: 'none', pointerEvents: 'none' }}
             >
               Monaco Notepad
@@ -751,7 +687,7 @@ function App() {
         >
           {/* サイドバー */}
           <Box
-            aria-label="Note List"
+            aria-label='Note List'
             sx={{
               width: 242,
               flexShrink: 0,
@@ -759,18 +695,12 @@ function App() {
               borderColor: 'divider',
               display: 'flex',
               flexDirection: 'column',
-              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before':
-                {
-                  backgroundColor: 'text.secondary',
-                },
+              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
+                backgroundColor: 'text.secondary',
+              },
             }}
           >
-            <AppBar
-              platform={platform}
-              onNew={handleNewNote}
-              onOpen={handleOpenFile}
-              onSave={handleSaveAsFile}
-            />
+            <AppBar platform={platform} onNew={handleNewNote} onOpen={handleOpenFile} onSave={handleSaveAsFile} />
             <Divider />
             <NoteSearchBox
               value={noteSearch}
@@ -798,16 +728,17 @@ function App() {
                         mb: 0,
                       }}
                     >
-                      <Typography variant="body2" color="text.secondary">
-                        Local files
+                      <Typography variant='body2' color='text.secondary'>
+                        Local files{' '}
+                        <Typography component='span' variant='caption' sx={{ fontWeight: 'normal', display: 'inline-block', ml: 1 }}>
+                          {noteSearch ? filteredFileNotes.length : fileNotes.length}
+                        </Typography>
                       </Typography>
                     </Box>
                     <NoteList
                       notes={noteSearch ? filteredFileNotes : fileNotes}
                       currentNote={isSplit ? leftFileNote : currentFileNote}
-                      onNoteSelect={
-                        isSplit ? handleSelectNoteForPane : handleSelecAnyNote
-                      }
+                      onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
                       onConvertToNote={handleConvertToNote}
                       onSaveFile={handleSaveFile}
                       onReorder={async (newNotes) => {
@@ -839,10 +770,13 @@ function App() {
                     mb: 0,
                   }}
                 >
-                  <Typography variant="body2" color="text.secondary">
-                    Notes
+                  <Typography variant='body2' color='text.secondary'>
+                    Notes{' '}
+                    <Typography component='span' variant='caption' sx={{ fontWeight: 'normal', display: 'inline-block', ml: 1 }}>
+                      {noteSearch ? filteredNotes.length : notes.filter((note) => !note.archived).length}
+                    </Typography>
                   </Typography>
-                  <Tooltip title="New Folder" arrow placement="bottom">
+                  <Tooltip title='New Folder' arrow placement='bottom'>
                     <IconButton
                       sx={{
                         position: 'absolute',
@@ -860,9 +794,7 @@ function App() {
                 <NoteList
                   notes={noteSearch ? filteredNotes : notes}
                   currentNote={isSplit ? leftNote : currentNote}
-                  onNoteSelect={
-                    isSplit ? handleSelectNoteForPane : handleSelecAnyNote
-                  }
+                  onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
                   onArchive={handleArchiveNoteWithSplit}
                   onReorder={async (newNotes) => {
                     setNotes(newNotes as Note[]);
@@ -887,10 +819,7 @@ function App() {
             </Box>
             <Button
               fullWidth
-              disabled={
-                notes.filter((note) => note.archived).length === 0 &&
-                folders.filter((f) => f.archived).length === 0
-              }
+              disabled={notes.filter((note) => note.archived).length === 0 && folders.filter((f) => f.archived).length === 0}
               sx={{
                 mt: 'auto',
                 borderRadius: 0,
@@ -905,10 +834,7 @@ function App() {
               onClick={() => setShowArchived(true)}
               startIcon={<Inventory />}
             >
-              Archives{' '}
-              {notes.filter((note) => note.archived).length
-                ? `(${notes.filter((note) => note.archived).length})`
-                : ''}
+              Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
             </Button>
           </Box>
 
@@ -941,9 +867,7 @@ function App() {
                 onClose={() => setShowArchived(false)}
                 onUnarchiveFolder={handleUnarchiveFolder}
                 onDeleteFolder={handleDeleteArchivedFolder}
-                onUpdateArchivedTopLevelOrder={
-                  handleUpdateArchivedTopLevelOrder
-                }
+                onUpdateArchivedTopLevelOrder={handleUpdateArchivedTopLevelOrder}
                 onMoveNoteToFolder={handleMoveNoteToFolder}
                 isDarkMode={editorSettings.isDarkMode}
               />
@@ -951,25 +875,31 @@ function App() {
               <Allotment>
                 {isMarkdownPreview && editorSettings.markdownPreviewOnLeft && (
                   <Allotment.Pane minSize={200}>
-                    <MarkdownPreview
-                      editorInstanceRef={leftEditorInstanceRef}
-                    />
+                    <MarkdownPreview editorInstanceRef={leftEditorInstanceRef} />
                   </Allotment.Pane>
                 )}
                 <Allotment.Pane minSize={200}>
                   <Box
+                    data-pane='left'
                     sx={{
                       height: '100%',
                       display: 'flex',
                       flexDirection: 'column',
+                      position: 'relative',
+                      '--wails-drop-target': 'drop',
+                      '&.wails-drop-target-active::after': {
+                        content: '""',
+                        position: 'absolute',
+                        inset: 0,
+                        backgroundColor: (theme) =>
+                          theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                        pointerEvents: 'none',
+                        zIndex: 5,
+                      },
                     }}
                   >
                     <PaneHeader
-                      note={
-                        isSplit
-                          ? leftFileNote || leftNote
-                          : currentFileNote || currentNote
-                      }
+                      note={isSplit ? leftFileNote || leftNote : currentFileNote || currentNote}
                       languages={languages}
                       onTitleChange={
                         isSplit
@@ -987,18 +917,14 @@ function App() {
                                 handleLeftNoteLanguageChange(language);
                               } else if (leftFileNote) {
                                 // 非同期更新の取りこぼしを避けるため、関数型更新で現在値に対して適用する。
-                                setLeftFileNote((prev) =>
-                                  prev ? { ...prev, language } : prev,
-                                );
+                                setLeftFileNote((prev) => (prev ? { ...prev, language } : prev));
                               }
                             }
                           : handleLanguageChange
                       }
-                      onFocusEditor={() =>
-                        leftEditorInstanceRef.current?.focus()
-                      }
+                      onFocusEditor={() => leftEditorInstanceRef.current?.focus()}
                       isSplit={isSplit}
-                      paneColor="primary"
+                      paneColor='primary'
                       paneLabel={isSplit ? '1' : undefined}
                       dimmed={isSplit && focusedPane !== 'left'}
                     />
@@ -1016,46 +942,24 @@ function App() {
                         }
                         language={
                           isSplit
-                            ? leftNote?.language ||
-                              leftFileNote?.language ||
-                              'plaintext'
-                            : currentNote?.language ||
-                              currentFileNote?.language ||
-                              'plaintext'
+                            ? leftNote?.language || leftFileNote?.language || 'plaintext'
+                            : currentNote?.language || currentFileNote?.language || 'plaintext'
                         }
                         settings={editorSettings}
                         platform={platform}
-                        currentNote={
-                          isSplit
-                            ? leftNote || leftFileNote
-                            : currentNote || currentFileNote
-                        }
-                        searchKeyword={
-                          !isSplit || focusedPane === 'left'
-                            ? noteSearch
-                            : undefined
-                        }
-                        searchMatchIndexInNote={
-                          !isSplit || focusedPane === 'left'
-                            ? searchMatchIndexInNote
-                            : 0
-                        }
+                        currentNote={isSplit ? leftNote || leftFileNote : currentNote || currentFileNote}
+                        searchKeyword={!isSplit || focusedPane === 'left' ? noteSearch : undefined}
+                        searchMatchIndexInNote={!isSplit || focusedPane === 'left' ? searchMatchIndexInNote : 0}
                         onFocus={() => handleFocusPane('left')}
                         onNew={handleNewNote}
                         onOpen={handleOpenFile}
                         onSave={async () => {
                           if (isSplit) {
-                            if (
-                              leftFileNote &&
-                              isFileModified(leftFileNote.id)
-                            ) {
+                            if (leftFileNote && isFileModified(leftFileNote.id)) {
                               await handleSaveFile(leftFileNote);
                             }
                           } else {
-                            if (
-                              currentFileNote &&
-                              isFileModified(currentFileNote.id)
-                            ) {
+                            if (currentFileNote && isFileModified(currentFileNote.id)) {
                               await handleSaveFile(currentFileNote);
                             }
                           }
@@ -1084,10 +988,22 @@ function App() {
                 {isSplit && (
                   <Allotment.Pane minSize={200}>
                     <Box
+                      data-pane='right'
                       sx={{
                         height: '100%',
                         display: 'flex',
                         flexDirection: 'column',
+                        position: 'relative',
+                        '--wails-drop-target': 'drop',
+                        '&.wails-drop-target-active::after': {
+                          content: '""',
+                          position: 'absolute',
+                          inset: 0,
+                          backgroundColor: (theme) =>
+                            theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                          pointerEvents: 'none',
+                          zIndex: 5,
+                        },
                       }}
                     >
                       <PaneHeader
@@ -1103,49 +1019,30 @@ function App() {
                             handleRightNoteLanguageChange(language);
                           } else if (rightFileNote) {
                             // 非同期更新の取りこぼしを避けるため、関数型更新で現在値に対して適用する。
-                            setRightFileNote((prev) =>
-                              prev ? { ...prev, language } : prev,
-                            );
+                            setRightFileNote((prev) => (prev ? { ...prev, language } : prev));
                           }
                         }}
-                        onFocusEditor={() =>
-                          rightEditorInstanceRef.current?.focus()
-                        }
+                        onFocusEditor={() => rightEditorInstanceRef.current?.focus()}
                         isSplit={isSplit}
-                        paneColor="secondary"
-                        paneLabel="2"
+                        paneColor='secondary'
+                        paneLabel='2'
                         dimmed={focusedPane !== 'right'}
                       />
                       <Box sx={{ flex: 1, minHeight: 0 }}>
                         <Editor
                           editorInstanceRef={rightEditorInstanceRef}
-                          onChange={
-                            rightNote
-                              ? handleRightNoteContentChange
-                              : handleRightFileNoteContentChange
-                          }
-                          language={
-                            rightNote?.language ||
-                            rightFileNote?.language ||
-                            'plaintext'
-                          }
+                          onChange={rightNote ? handleRightNoteContentChange : handleRightFileNoteContentChange}
+                          language={rightNote?.language || rightFileNote?.language || 'plaintext'}
                           settings={editorSettings}
                           platform={platform}
                           currentNote={rightNote || rightFileNote}
-                          searchKeyword={
-                            focusedPane === 'right' ? noteSearch : undefined
-                          }
-                          searchMatchIndexInNote={
-                            focusedPane === 'right' ? searchMatchIndexInNote : 0
-                          }
+                          searchKeyword={focusedPane === 'right' ? noteSearch : undefined}
+                          searchMatchIndexInNote={focusedPane === 'right' ? searchMatchIndexInNote : 0}
                           onFocus={() => handleFocusPane('right')}
                           onNew={handleNewNote}
                           onOpen={handleOpenFile}
                           onSave={async () => {
-                            if (
-                              rightFileNote &&
-                              isFileModified(rightFileNote.id)
-                            ) {
+                            if (rightFileNote && isFileModified(rightFileNote.id)) {
                               await handleSaveFile(rightFileNote);
                             }
                           }}
@@ -1165,20 +1062,14 @@ function App() {
                 )}
                 {isMarkdownPreview && !editorSettings.markdownPreviewOnLeft && (
                   <Allotment.Pane minSize={200}>
-                    <MarkdownPreview
-                      editorInstanceRef={leftEditorInstanceRef}
-                    />
+                    <MarkdownPreview editorInstanceRef={leftEditorInstanceRef} />
                   </Allotment.Pane>
                 )}
               </Allotment>
             )}
             <EditorStatusBar
               editorInstanceRef={
-                isSplit
-                  ? focusedPane === 'left'
-                    ? leftEditorInstanceRef
-                    : rightEditorInstanceRef
-                  : editorInstanceRef
+                isSplit ? (focusedPane === 'left' ? leftEditorInstanceRef : rightEditorInstanceRef) : editorInstanceRef
               }
               isSplit={isSplit}
               isMarkdownPreview={isMarkdownPreview}

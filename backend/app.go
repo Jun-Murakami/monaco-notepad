@@ -146,12 +146,13 @@ func (a *App) Startup(ctx context.Context) {
 	}
 
 	// NoteServiceの初期化 (NoteList読み込みを含む)
-	noteService, err := NewNoteService(a.notesDir, a.logger)
+	ns, err := NewNoteService(a.notesDir, a.logger)
 	if err != nil {
 		a.logger.Error(err, "Error initializing note service")
-		return
+		a.logger.Console("Creating empty note service as last resort")
+		ns = NewEmptyNoteService(a.notesDir, a.logger)
 	}
-	a.noteService = noteService
+	a.noteService = ns
 
 	// SyncStateの初期化
 	a.syncState = NewSyncState(a.appDataDir)
@@ -231,17 +232,34 @@ func (a *App) DestroyApp() {
 
 // フロントエンドの準備完了を通知する ------------------------------------------------------------
 func (a *App) NotifyFrontendReady() {
-	a.logger.Console("App.NotifyFrontendReady called") // デバッグログ
+	a.logger.Console("App.NotifyFrontendReady called")
 	if a.driveService != nil {
 		a.driveService.NotifyFrontendReady()
 	} else {
-		a.logger.Console("Warning: driveService is nil") // デバッグログ
+		a.logger.Console("Warning: driveService is nil")
 	}
 	if a.migrationMessage != "" {
 		a.logger.Info(a.migrationMessage)
 		a.migrationMessage = ""
 	}
 	if a.noteService != nil {
+		if recovery := a.noteService.DrainRecoveryApplied(); recovery != "" {
+			switch recovery {
+			case "rebuild":
+				a.logger.NotifyIntegrityIssues(a.ctx.ctx, []IntegrityIssue{
+					{
+						ID:                "recovery:rebuild",
+						Kind:              "noteList_recovered",
+						Severity:          "warn",
+						NeedsUserDecision: true,
+						Summary:           "Note list was corrupted and rebuilt from note files. Folder structure and display order have been reset.",
+					},
+				})
+			case "backup":
+				a.logger.Info("Note list restored from backup")
+			}
+		}
+
 		if issues := a.noteService.DrainPendingIntegrityIssues(); len(issues) > 0 {
 			a.logger.NotifyIntegrityIssues(a.ctx.ctx, issues)
 		}
