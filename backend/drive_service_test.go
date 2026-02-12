@@ -1588,6 +1588,49 @@ func TestCreateConflictCopy_PlacedAfterOriginal(t *testing.T) {
 	assert.Equal(t, originalIdx+1, copyIdx, "コンフリクトコピーが元ノートの直後に配置されるべき")
 }
 
+func TestResolveConflictCopiesAfterMerge_DeletesDuplicateFromCloud(t *testing.T) {
+	helper := setupTest(t)
+	defer helper.cleanup()
+
+	ds := newTestDriveService(helper)
+	ds.auth.GetDriveSync().SetConnected(true)
+
+	base := &Note{
+		ID:       "note-main",
+		Title:    "Main",
+		Content:  "same-content",
+		Language: "plaintext",
+	}
+	conflict := &Note{
+		ID:       "note-conflict",
+		Title:    " (conflict copy 2026-02-11 00:24)",
+		Content:  "same-content",
+		Language: "plaintext",
+	}
+
+	err := helper.noteService.SaveNote(base)
+	assert.NoError(t, err)
+	err = helper.noteService.SaveNote(conflict)
+	assert.NoError(t, err)
+
+	mockOps := ds.driveOps.(*mockDriveOperations)
+	conflictFileID := fmt.Sprintf("test-file-%s.json", conflict.ID)
+	mockOps.files[conflictFileID] = []byte(`{"id":"note-conflict"}`)
+
+	ds.resolveConflictCopiesAfterMerge()
+
+	_, err = helper.noteService.LoadNote(conflict.ID)
+	assert.Error(t, err, "重複したコンフリクトコピーはローカルから削除されるべき")
+	_, err = helper.noteService.LoadNote(base.ID)
+	assert.NoError(t, err, "非コンフリクトノートは保持されるべき")
+
+	for _, metadata := range helper.noteService.noteList.Notes {
+		assert.NotEqual(t, conflict.ID, metadata.ID)
+	}
+	assert.True(t, ds.recentlyDeletedNoteIDs[conflict.ID], "削除済みIDが記録されるべき")
+	assert.NotContains(t, mockOps.files, conflictFileID, "コンフリクトコピーのクラウドファイルは削除されるべき")
+}
+
 func TestMergeNotes_ConflictingContent_MergesInNote(t *testing.T) {
 	helper := setupTest(t)
 	defer helper.cleanup()
@@ -2656,7 +2699,10 @@ func TestNotifySyncComplete_IntegrityChanged_TriggersUpload(t *testing.T) {
 
 	changed, err := helper.noteService.ValidateIntegrity()
 	assert.NoError(t, err)
-	assert.True(t, changed, "ゴーストノートがあるのでchanged=trueであるべき")
+	assert.True(t, changed, "ファイルが無いノートの除外でchanged=trueであるべき")
+
+	issues := helper.noteService.DrainPendingIntegrityIssues()
+	assert.Empty(t, issues, "missing_fileはユーザー確認不要")
 
 	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
 	assert.Equal(t, "real-note", helper.noteService.noteList.Notes[0].ID)
@@ -4083,7 +4129,7 @@ func TestSyncNotes_SameNotes_StructureChanged_MergesStructure(t *testing.T) {
 
 	err := ds.SyncNotes()
 	assert.NoError(t, err)
-	assert.Equal(t, 1, tracker.updateNoteListCalls, "構造変更時はupdateNoteListInternal経由でUpdateNoteListが呼ばれるべき")
+	assert.Equal(t, 0, tracker.updateNoteListCalls, "マージ後ローカルがクラウドと同一構造なら再アップロード不要")
 	assert.Equal(t, 0, tracker.createNoteCalls, "同一ノート内容ではアップロード不要")
 	assert.Equal(t, 0, tracker.downloadNoteCalls, "同一ノート内容ではダウンロード不要")
 
@@ -4096,14 +4142,14 @@ func TestSyncNotes_SameNotes_StructureChanged_MergesStructure(t *testing.T) {
 	}
 	assert.True(t, foundFolder, "クラウド側の新規フォルダがローカルに反映されるべき")
 
-	foundModifyLog := false
+	foundNoUploadLog := false
 	for _, msg := range recorder.consoleCalls {
-		if strings.Contains(msg, "Modifying note list") {
-			foundModifyLog = true
+		if strings.Contains(msg, "no upload needed") {
+			foundNoUploadLog = true
 			break
 		}
 	}
-	assert.True(t, foundModifyLog, "updateNoteListInternalの実行ログが残るべき")
+	assert.True(t, foundNoUploadLog, "クラウドから受信した構造をそのまま適用時はアップロードスキップのログが出るべき")
 }
 
 func TestSyncNotes_CloudNoteListNil_UploadsAll(t *testing.T) {
@@ -4173,4 +4219,78 @@ func TestSyncNotes_ForceSync_BypassesMD5Check(t *testing.T) {
 	assert.Equal(t, 1, tracker.downloadNoteListCalls, "force sync時はDownloadNoteListが呼ばれるべき")
 	assert.Equal(t, 0, tracker.downloadNoteListIfChangedCalls, "force sync時はDownloadNoteListIfChangedを使わないべき")
 	assert.False(t, ds.forceNextSync, "forceNextSyncはSyncNotes後にfalseへ戻るべき")
+}
+
+func TestEqualStructure_IdenticalStructures(t *testing.T) {
+	a := &NoteList{
+		Folders:               []Folder{{ID: "f1", Name: "Folder1"}},
+		TopLevelOrder:         []TopLevelItem{{Type: "note", ID: "n1"}, {Type: "folder", ID: "f1"}},
+		ArchivedTopLevelOrder: []TopLevelItem{{Type: "note", ID: "n2"}},
+		CollapsedFolderIDs:    []string{"f1"},
+		LastSync:              time.Now(),
+		LastSyncClientID:      "client-A",
+	}
+	b := &NoteList{
+		Folders:               []Folder{{ID: "f1", Name: "Folder1"}},
+		TopLevelOrder:         []TopLevelItem{{Type: "note", ID: "n1"}, {Type: "folder", ID: "f1"}},
+		ArchivedTopLevelOrder: []TopLevelItem{{Type: "note", ID: "n2"}},
+		CollapsedFolderIDs:    []string{"f1"},
+		LastSync:              time.Now().Add(5 * time.Minute),
+		LastSyncClientID:      "client-B",
+	}
+	assert.True(t, equalStructure(a, b), "LastSync/LastSyncClientIDが異なっても構造が同一なら等価")
+}
+
+func TestEqualStructure_DifferentArchivedOrder(t *testing.T) {
+	a := &NoteList{
+		ArchivedTopLevelOrder: []TopLevelItem{{Type: "note", ID: "n1"}, {Type: "note", ID: "n2"}},
+	}
+	b := &NoteList{
+		ArchivedTopLevelOrder: []TopLevelItem{{Type: "note", ID: "n2"}, {Type: "note", ID: "n1"}},
+	}
+	assert.False(t, equalStructure(a, b), "ArchivedTopLevelOrderの順序が異なれば不等価")
+}
+
+func TestEqualStructure_CollapsedFolderIDsOrderIgnored(t *testing.T) {
+	a := &NoteList{
+		CollapsedFolderIDs: []string{"f1", "f2"},
+	}
+	b := &NoteList{
+		CollapsedFolderIDs: []string{"f2", "f1"},
+	}
+	assert.True(t, equalStructure(a, b), "CollapsedFolderIDsは順序無視でセット比較")
+}
+
+func TestSyncNotes_StructureOnlyChange_LocalHasUniqueItems_Uploads(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	note := &Note{ID: "local-note", Title: "Local", Content: "content", Language: "plaintext"}
+	assert.NoError(t, ds.noteService.SaveNote(note))
+	localFolder := Folder{ID: "local-folder", Name: "Local Folder"}
+	ds.noteService.noteList.Folders = append(ds.noteService.noteList.Folders, localFolder)
+	ds.noteService.noteList.TopLevelOrder = append(ds.noteService.noteList.TopLevelOrder,
+		TopLevelItem{Type: "folder", ID: "local-folder"})
+	assert.NoError(t, ds.noteService.saveNoteList())
+	seedCloudNoteListFile(t, ds, rawOps)
+
+	localMeta := ds.noteService.noteList.Notes[0]
+	cloudNoteList := &NoteList{
+		Version:       "1.0",
+		Notes:         []NoteMetadata{localMeta},
+		TopLevelOrder: []TopLevelItem{{Type: "note", ID: "local-note"}},
+		LastSync:      time.Now().Add(-1 * time.Minute),
+	}
+
+	tracker := &syncNotesTrackingDriveSync{
+		DriveSyncService: ds.driveSync,
+		downloadNoteListIfChangedFn: func(ctx context.Context, noteListID string) (*NoteList, bool, error) {
+			return cloudNoteList, true, nil
+		},
+	}
+	ds.driveSync = tracker
+
+	err := ds.SyncNotes()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, tracker.updateNoteListCalls, "ローカルにのみ存在するフォルダがある場合は再アップロードすべき")
 }

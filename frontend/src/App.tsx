@@ -345,6 +345,7 @@ function App() {
     handleSaveAsFile,
     handleSelectNextAnyNote,
     handleSelectPreviousAnyNote,
+    showMessage,
     restorePaneNotes,
   );
 

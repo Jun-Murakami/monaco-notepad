@@ -133,7 +133,7 @@ func TestUpdateNoteList_DeferredTimer_ErrorLogged(t *testing.T) {
 
 	found := false
 	for _, msg := range errorLogs {
-		if strings.Contains(msg, "Failed to save note list for deferred upload") {
+		if strings.Contains(msg, "Drive: failed to save note list for deferred upload") {
 			found = true
 			break
 		}

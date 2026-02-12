@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import type { MockInstance } from 'vitest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CheckFileExists,
   CheckFileModified,
@@ -72,11 +72,18 @@ describe('useFileNotes', () => {
     handleSelectNote: vi.fn(),
     showMessage: vi.fn(),
   };
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
     mockProps.showMessage.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    consoleErrorSpy.mockRestore();
   });
 
   describe('基本機能', () => {
@@ -346,7 +353,7 @@ describe('useFileNotes', () => {
     it('ファイルの変更チェックに失敗した場合、エラーを適切に処理すること', async () => {
       const consoleSpy = vi
         .spyOn(console, 'error')
-        .mockImplementation(() => {});
+        .mockImplementation(() => { });
       const { result } = renderHook(() => useFileNotes(mockProps));
       const error = new Error('チェックエラー');
       mockCheckFileExists.mockResolvedValue(true);

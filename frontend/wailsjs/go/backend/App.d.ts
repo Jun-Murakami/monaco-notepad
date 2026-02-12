@@ -4,6 +4,8 @@ import {backend} from '../models';
 import {context} from '../models';
 import {time} from '../models';
 
+export function ApplyIntegrityFixes(arg1:Array<backend.IntegrityFixSelection>):Promise<backend.IntegrityRepairSummary>;
+
 export function ArchiveFolder(arg1:string):Promise<void>;
 
 export function AuthorizeDrive():Promise<void>;

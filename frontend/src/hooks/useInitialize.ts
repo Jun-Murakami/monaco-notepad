@@ -6,10 +6,11 @@ import {
   ListNotes,
   LoadFileNotes,
   NotifyFrontendReady,
+  ApplyIntegrityFixes,
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { getSupportedLanguages, type LanguageInfo } from '../lib/monaco';
-import type { FileNote, Folder, Note, TopLevelItem } from '../types';
+import type { FileNote, Folder, IntegrityFixSelection, IntegrityIssue, Note, TopLevelItem } from '../types';
 
 export const useInitialize = (
   setNotes: (notes: Note[]) => void,
@@ -30,6 +31,7 @@ export const useInitialize = (
   handleSaveAsFile: () => Promise<void>,
   handleSelectNextAnyNote: () => Promise<void>,
   handleSelectPreviousAnyNote: () => Promise<void>,
+  showMessage: (title: string, message: string, isTwoButton?: boolean, primaryButtonText?: string, secondaryButtonText?: string) => Promise<boolean>,
   restorePaneNotes: (notes: Note[], fileNotes: FileNote[]) => void,
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
@@ -100,6 +102,49 @@ export const useInitialize = (
     setNotes,
     restorePaneNotes,
   ]);
+
+  useEffect(() => {
+    const handleIntegrityIssues = async (issues: IntegrityIssue[]) => {
+      if (!issues || issues.length === 0) {
+        return;
+      }
+
+      const selections: IntegrityFixSelection[] = [];
+
+      for (const issue of issues) {
+        if (!issue.needsUserDecision || !issue.fixOptions || issue.fixOptions.length < 2) {
+          continue;
+        }
+
+        const primary = issue.fixOptions[0];
+        const secondary = issue.fixOptions[1];
+        const confirmed = await showMessage(
+          'Unknown file',
+          issue.summary,
+          true,
+          primary.label,
+          secondary.label,
+        );
+        selections.push({
+          issueId: issue.id,
+          fixId: confirmed ? primary.id : secondary.id,
+        });
+      }
+
+      if (selections.length > 0) {
+        try {
+          await ApplyIntegrityFixes(selections);
+        } catch (error) {
+          console.error('Failed to apply integrity fixes:', error);
+        }
+      }
+    };
+
+    runtime.EventsOn('notes:integrity-issues', handleIntegrityIssues);
+    return () => {
+      runtime.EventsOff('notes:integrity-issues');
+    };
+  }, [showMessage]);
 
   useEffect(() => {
     if (isInitialized) return;

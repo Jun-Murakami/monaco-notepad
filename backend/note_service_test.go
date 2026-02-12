@@ -615,14 +615,59 @@ func TestNoteListSync(t *testing.T) {
 
 	changed, err := helper.noteService.ValidateIntegrity()
 	assert.NoError(t, err)
-	assert.True(t, changed)
+	assert.False(t, changed)
+
+	issues := helper.noteService.DrainPendingIntegrityIssues()
+	if assert.Len(t, issues, 1) {
+		assert.Equal(t, "orphan_file", issues[0].Kind)
+		assert.Contains(t, issues[0].Summary, "同期テスト", "Summaryにノートタイトルを含むべき")
+	}
+
+	summary, err := helper.noteService.ApplyIntegrityFixes([]IntegrityFixSelection{
+		{IssueID: "orphan_file:" + note.ID, FixID: "restore"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, summary.Applied)
 
 	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
 	assert.Equal(t, note.ID, helper.noteService.noteList.Notes[0].ID)
 	assert.Equal(t, note.Title, helper.noteService.noteList.Notes[0].Title)
 }
 
-func TestValidateIntegrity_RemovesStaleEntries(t *testing.T) {
+func TestApplyIntegrityFixes_OrphanFile_Delete(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{
+		ID:      "orphan-delete",
+		Title:   "削除テスト",
+		Content: "削除されるノート",
+	}
+	noteData, _ := json.MarshalIndent(note, "", "  ")
+	err := os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644)
+	assert.NoError(t, err)
+
+	_, err = helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+
+	issues := helper.noteService.DrainPendingIntegrityIssues()
+	if !assert.Len(t, issues, 1) {
+		return
+	}
+	assert.Equal(t, "orphan_file", issues[0].Kind)
+
+	summary, err := helper.noteService.ApplyIntegrityFixes([]IntegrityFixSelection{
+		{IssueID: "orphan_file:" + note.ID, FixID: "delete"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, summary.Applied)
+
+	_, err = os.Stat(filepath.Join(helper.notesDir, note.ID+".json"))
+	assert.True(t, os.IsNotExist(err), "物理ファイルが削除されるべき")
+	assert.Empty(t, helper.noteService.noteList.Notes, "ノートリストに追加されないべき")
+}
+
+func TestValidateIntegrity_RemovesMissingFileSilently(t *testing.T) {
 	helper := setupNoteTest(t)
 	defer helper.cleanup()
 
@@ -640,7 +685,10 @@ func TestValidateIntegrity_RemovesStaleEntries(t *testing.T) {
 
 	changed, err := helper.noteService.ValidateIntegrity()
 	assert.NoError(t, err)
-	assert.True(t, changed)
+	assert.True(t, changed, "ファイルが無いノートの除外でchanged=trueであるべき")
+
+	issues := helper.noteService.DrainPendingIntegrityIssues()
+	assert.Empty(t, issues, "missing_fileはユーザー確認不要")
 
 	assert.Equal(t, 1, len(helper.noteService.noteList.Notes))
 	assert.Equal(t, "real-note", helper.noteService.noteList.Notes[0].ID)
@@ -850,6 +898,138 @@ func TestValidateIntegrity_ReproducesUserBug_ArchivedNotesNotShown(t *testing.T)
 		id := fmt.Sprintf("archived-%d", i)
 		assert.True(t, archivedInOrder[id], "アーカイブノート %s がArchivedTopLevelOrderに存在すべき", id)
 	}
+}
+
+func TestValidateIntegrity_FutureModifiedTimeRequiresConfirmation(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note := &Note{ID: "future-note", Title: "Future", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	futureTime := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	for i := range helper.noteService.noteList.Notes {
+		if helper.noteService.noteList.Notes[i].ID == note.ID {
+			helper.noteService.noteList.Notes[i].ModifiedTime = futureTime
+		}
+	}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.False(t, changed)
+
+	issues := helper.noteService.DrainPendingIntegrityIssues()
+	if assert.Len(t, issues, 1) {
+		assert.Equal(t, "future_modified_time", issues[0].Kind)
+	}
+
+	summary, err := helper.noteService.ApplyIntegrityFixes([]IntegrityFixSelection{
+		{IssueID: "future_time:" + note.ID, FixID: "normalize"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, summary.Applied)
+
+	for _, metadata := range helper.noteService.noteList.Notes {
+		if metadata.ID == note.ID {
+			assert.NotEqual(t, futureTime, metadata.ModifiedTime)
+		}
+	}
+}
+
+func TestValidateIntegrity_AutoResolvesDuplicateConflictCopies(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	base := &Note{ID: "base-note", Title: "Base", Content: "same content"}
+	conflict := &Note{
+		ID:      "conflict-note",
+		Title:   "Base (conflict copy 2026-02-11 00:00)",
+		Content: "same content",
+	}
+
+	assert.NoError(t, helper.noteService.SaveNote(base))
+	assert.NoError(t, helper.noteService.SaveNote(conflict))
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed, "重複するconflict copyは削除されるべき")
+
+	foundConflict := false
+	for _, metadata := range helper.noteService.noteList.Notes {
+		if metadata.ID == conflict.ID {
+			foundConflict = true
+			break
+		}
+	}
+	assert.False(t, foundConflict, "conflict copyはnoteListから除去されるべき")
+}
+
+func TestValidateIntegrity_KeepUniqueConflictCopy(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	base := &Note{ID: "base-note", Title: "Base", Content: "same content"}
+	duplicate := &Note{
+		ID:      "conflict-dup",
+		Title:   "Base (conflict copy 2026-02-11 00:00)",
+		Content: "same content",
+	}
+	unique := &Note{
+		ID:      "conflict-unique",
+		Title:   "Base (conflict copy 2026-02-11 00:01)",
+		Content: "unique content",
+	}
+
+	assert.NoError(t, helper.noteService.SaveNote(base))
+	assert.NoError(t, helper.noteService.SaveNote(duplicate))
+	assert.NoError(t, helper.noteService.SaveNote(unique))
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed, "重複するconflict copyのみ削除されるべき")
+
+	foundDuplicate := false
+	foundUnique := false
+	for _, metadata := range helper.noteService.noteList.Notes {
+		if metadata.ID == duplicate.ID {
+			foundDuplicate = true
+		}
+		if metadata.ID == unique.ID {
+			foundUnique = true
+		}
+	}
+	assert.False(t, foundDuplicate, "重複conflict copyは削除されるべき")
+	assert.True(t, foundUnique, "ユニークなconflict copyは残るべき")
+}
+
+func TestValidateIntegrity_AutoResolvesArchivedConflictCopyWithActiveOriginal(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	base := &Note{ID: "base-note", Title: "Base", Content: "same content", Language: "plaintext"}
+	assert.NoError(t, helper.noteService.SaveNote(base))
+
+	conflict := &Note{
+		ID:       "conflict-note",
+		Title:    "Base (conflict copy 2026-02-11 00:00)",
+		Content:  "same content",
+		Language: "plaintext",
+		Archived: true,
+	}
+	assert.NoError(t, helper.noteService.SaveNote(conflict))
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed, "archived conflict copyは重複として削除されるべき")
+
+	foundConflict := false
+	for _, metadata := range helper.noteService.noteList.Notes {
+		if metadata.ID == conflict.ID {
+			foundConflict = true
+			break
+		}
+	}
+	assert.False(t, foundConflict, "archived conflict copyはnoteListから除去されるべき")
 }
 
 // --- M-8: アーカイブ操作のModifiedTime更新テスト ---

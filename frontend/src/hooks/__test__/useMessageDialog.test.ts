@@ -44,11 +44,12 @@ describe('useMessageDialog', () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useMessageDialog());
 
-    // showMessageの戻り値は必ずPromise<boolean>
-    const dialogPromise = result.current.showMessage(
-      'Test Title',
-      'Test Message',
-    );
+    // act内で代入された値を後段で利用するため、明示的にnull初期化して
+    // TypeScriptの未代入判定を回避しつつ、実行時にも安全に扱えるようにする
+    let dialogPromise: Promise<boolean> | null = null;
+    await act(async () => {
+      dialogPromise = result.current.showMessage('Test Title', 'Test Message');
+    });
 
     // ダイアログの表示を待つ
     await act(async () => {
@@ -70,6 +71,11 @@ describe('useMessageDialog', () => {
 
     // ダイアログが閉じていることを確認
     expect(result.current.isMessageDialogOpen).toBe(false);
+    // ここまでで showMessage が必ず呼ばれている前提を明示し、
+    // もし想定外に未設定ならテストを失敗させて原因を追いやすくする
+    if (!dialogPromise) {
+      throw new Error('dialogPromise was not initialized');
+    }
     const dialogResult = await dialogPromise;
     expect(dialogResult).toBe(true);
 

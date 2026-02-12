@@ -32,10 +32,7 @@ export function useFileOperations(
   const createFileNote = useCallback(
     async (content: string, filePath: string): Promise<FileNote | null> => {
       if (isBinaryFile(content)) {
-        await showMessage(
-          'Error',
-          'Failed to open the file. Please check the file format.',
-        );
+        runtime.EventsEmit('logMessage', 'Cannot open: file appears to be binary');
         return null;
       }
 
@@ -61,7 +58,7 @@ export function useFileOperations(
 
       return newFileNote;
     },
-    [showMessage],
+    [],
   );
 
   // ファイルを開く
@@ -154,7 +151,7 @@ export function useFileOperations(
       }
     } catch (error) {
       console.error('Failed to save file:', error);
-      showMessage('Error', 'Failed to save the file.');
+      runtime.EventsEmit('logMessage', 'Save As failed — check permissions or try a different location');
     }
   };
 
@@ -175,7 +172,7 @@ export function useFileOperations(
       await handleSaveFileNotes(updatedFileNotes);
     } catch (error) {
       console.error('Failed to save file:', error);
-      showMessage('Error', 'Failed to save the file.');
+      runtime.EventsEmit('logMessage', 'Save failed — changes still in editor');
     }
   };
 

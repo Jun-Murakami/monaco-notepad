@@ -24,6 +24,18 @@ func computeContentHash(note *Note) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
+func isConflictCopyTitle(title string) bool {
+	return strings.Contains(strings.ToLower(title), "conflict copy")
+}
+
+func computeConflictCopyDedupHash(note *Note) string {
+	h := sha256.New()
+	// Archived と FolderID は含めない。conflict copy は元ノートと異なる
+	// archived 状態やフォルダに配置されることがあるため、内容の同一性のみで判定する。
+	fmt.Fprintf(h, "%s\n%s", note.Content, note.Language)
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
 // ノート関連のローカル操作を提供するインターフェース
 type NoteService interface {
 	ListNotes() ([]Note, error)                             // 全てのノートのリストを返す
@@ -46,9 +58,16 @@ type NoteService interface {
 
 // NoteServiceの実装
 type noteService struct {
-	notesDir string
-	noteList *NoteList
-	logger   AppLogger
+	notesDir               string
+	noteList               *NoteList
+	logger                 AppLogger
+	pendingIntegrityIssues []IntegrityIssue
+}
+
+type conflictCopyResolution struct {
+	deleted []string
+	kept    []string
+	changed bool
 }
 
 // 新しいnoteServiceインスタンスを作成
@@ -1043,12 +1062,22 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		return false, err
 	}
 
+	var issues []IntegrityIssue
+	var repairLogs []string
+	logRepair := func(format string, args ...interface{}) {
+		message := fmt.Sprintf(format, args...)
+		repairLogs = append(repairLogs, message)
+		if s.logger != nil {
+			s.logger.Info("Integrity repair: %s", message)
+		}
+	}
+
 	noteIDSet := make(map[string]bool)
 	for _, metadata := range s.noteList.Notes {
 		noteIDSet[metadata.ID] = true
 	}
 
-	// 1. 孤立物理ファイルをnoteListに復活
+	// 1. 孤立物理ファイルを検出（ユーザー確認が必要）
 	physicalNotes := make(map[string]bool)
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != ".json" {
@@ -1058,35 +1087,54 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		physicalNotes[noteID] = true
 
 		if !noteIDSet[noteID] {
-			note, loadErr := s.LoadNote(noteID)
-			if loadErr != nil {
-				s.logInfo("Integrity check: failed to load orphan file %s (skipped)", noteID)
-				continue
+			title := noteID
+			if note, loadErr := s.LoadNote(noteID); loadErr == nil && note.Title != "" {
+				title = note.Title
 			}
-			s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
-				ID:            note.ID,
-				Title:         note.Title,
-				ContentHeader: note.ContentHeader,
-				Language:      note.Language,
-				ModifiedTime:  note.ModifiedTime,
-				Archived:      note.Archived,
+			issues = append(issues, IntegrityIssue{
+				ID:                "orphan_file:" + noteID,
+				Kind:              "orphan_file",
+				Severity:          "warn",
+				NeedsUserDecision: true,
+				NoteIDs:           []string{noteID},
+				Summary:           fmt.Sprintf("Unknown file: \"%s\"", title),
+				FixOptions: []IntegrityFixOption{
+					{
+						ID:          "restore",
+						Label:       "Restore",
+						Description: "Restore",
+						Params:      map[string]string{"noteId": noteID},
+					},
+					{
+						ID:          "delete",
+						Label:       "Delete",
+						Description: "Delete",
+						Params:      map[string]string{"noteId": noteID},
+					},
+				},
 			})
-			s.logInfo("Integrity check: restored note \"%s\"", note.Title)
-			changed = true
 		}
 	}
 
-	// 2. 物理ファイルが無いリストエントリを除去
-	var validNotes []NoteMetadata
-	for _, metadata := range s.noteList.Notes {
-		if physicalNotes[metadata.ID] {
+	// 2. 物理ファイルが無いリストエントリをサイレント除外
+	missingFileIDs := make(map[string]bool)
+	{
+		var validNotes []NoteMetadata
+		removedCount := 0
+		for _, metadata := range s.noteList.Notes {
+			if !physicalNotes[metadata.ID] {
+				missingFileIDs[metadata.ID] = true
+				removedCount++
+				changed = true
+				continue
+			}
 			validNotes = append(validNotes, metadata)
-		} else {
-			s.logInfo("Integrity check: removed note \"%s\" from list (file missing)", metadata.Title)
-			changed = true
+		}
+		s.noteList.Notes = validNotes
+		if removedCount > 0 {
+			logRepair("Removed %d notes with missing files", removedCount)
 		}
 	}
-	s.noteList.Notes = validNotes
 
 	// 有効なノートID・フォルダIDのセットを構築（archived状態別）
 	activeNoteIDs := make(map[string]bool)
@@ -1112,9 +1160,11 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	topLevelSeen := make(map[string]bool)
 	{
 		var cleaned []TopLevelItem
+		removedCount := 0
 		for _, item := range s.noteList.TopLevelOrder {
 			key := item.Type + ":" + item.ID
 			if topLevelSeen[key] {
+				removedCount++
 				changed = true
 				continue
 			}
@@ -1124,19 +1174,25 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 				topLevelSeen[key] = true
 				cleaned = append(cleaned, item)
 			} else {
+				removedCount++
 				changed = true
 			}
 		}
 		s.noteList.TopLevelOrder = cleaned
+		if removedCount > 0 {
+			logRepair("TopLevelOrder: removed %d invalid/duplicate", removedCount)
+		}
 	}
 
 	// 4. ArchivedTopLevelOrder: アーカイブ済みノート/フォルダのみ保持
 	archivedSeen := make(map[string]bool)
 	{
 		var cleaned []TopLevelItem
+		removedCount := 0
 		for _, item := range s.noteList.ArchivedTopLevelOrder {
 			key := item.Type + ":" + item.ID
 			if archivedSeen[key] {
+				removedCount++
 				changed = true
 				continue
 			}
@@ -1146,15 +1202,22 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 				archivedSeen[key] = true
 				cleaned = append(cleaned, item)
 			} else {
+				removedCount++
 				changed = true
 			}
 		}
 		s.noteList.ArchivedTopLevelOrder = cleaned
+		if removedCount > 0 {
+			logRepair("ArchivedTopLevelOrder: removed %d invalid/duplicate", removedCount)
+		}
 	}
 
 	// 5. アクティブノート/フォルダがTopLevelOrderに存在しなければ追加
 	for id := range activeNoteIDs {
 		if !topLevelSeen["note:"+id] {
+			if missingFileIDs[id] {
+				continue
+			}
 			inFolder := false
 			for _, m := range s.noteList.Notes {
 				if m.ID == id && m.FolderID != "" {
@@ -1163,7 +1226,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 				}
 			}
 			if !inFolder {
-				s.logInfo("Integrity check: adding missing note %s to TopLevelOrder", id)
+				logRepair("TopLevelOrder: added missing note %s", id)
 				s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "note", ID: id})
 				changed = true
 			}
@@ -1171,7 +1234,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	}
 	for id := range activeFolderIDs {
 		if !topLevelSeen["folder:"+id] {
-			s.logInfo("Integrity check: adding missing folder %s to TopLevelOrder", id)
+			logRepair("TopLevelOrder: added missing folder %s", id)
 			s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "folder", ID: id})
 			changed = true
 		}
@@ -1180,6 +1243,9 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	// 6. アーカイブノート/フォルダがArchivedTopLevelOrderに存在しなければ追加
 	for id := range archivedNoteIDs {
 		if !archivedSeen["note:"+id] {
+			if missingFileIDs[id] {
+				continue
+			}
 			inArchivedFolder := false
 			for _, m := range s.noteList.Notes {
 				if m.ID == id && m.FolderID != "" && archivedFolderIDs[m.FolderID] {
@@ -1188,6 +1254,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 				}
 			}
 			if !inArchivedFolder {
+				logRepair("ArchivedTopLevelOrder: added missing note %s", id)
 				s.noteList.ArchivedTopLevelOrder = append(s.noteList.ArchivedTopLevelOrder, TopLevelItem{Type: "note", ID: id})
 				changed = true
 			}
@@ -1195,17 +1262,386 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	}
 	for id := range archivedFolderIDs {
 		if !archivedSeen["folder:"+id] {
+			logRepair("ArchivedTopLevelOrder: added missing folder %s", id)
 			s.noteList.ArchivedTopLevelOrder = append(s.noteList.ArchivedTopLevelOrder, TopLevelItem{Type: "folder", ID: id})
 			changed = true
 		}
 	}
 
+	// 6.5. 未来のModifiedTimeを検出（ユーザー確認が必要）
+	futureThreshold := time.Now().Add(2 * time.Minute)
+	for _, metadata := range s.noteList.Notes {
+		parsedTime, parseErr := time.Parse(time.RFC3339, metadata.ModifiedTime)
+		if parseErr != nil {
+			continue
+		}
+		if parsedTime.After(futureThreshold) {
+			issues = append(issues, IntegrityIssue{
+				ID:                "future_time:" + metadata.ID,
+				Kind:              "future_modified_time",
+				Severity:          "warn",
+				NeedsUserDecision: true,
+				NoteIDs:           []string{metadata.ID},
+				Summary:           fmt.Sprintf("Future modified time: %s", metadata.ID),
+				FixOptions: []IntegrityFixOption{
+					{
+						ID:          "normalize",
+						Label:       "Normalize",
+						Description: "Set to now",
+						Params:      map[string]string{"noteId": metadata.ID},
+					},
+					{
+						ID:          "keep",
+						Label:       "Keep",
+						Description: "Keep as-is",
+						Params:      map[string]string{"noteId": metadata.ID},
+					},
+				},
+			})
+		}
+	}
+
+	// 7. ContentHash が空のノートは再計算（ファイルが存在する場合のみ）
+	for i, metadata := range s.noteList.Notes {
+		if metadata.ContentHash != "" {
+			continue
+		}
+		note, loadErr := s.LoadNote(metadata.ID)
+		if loadErr != nil {
+			s.logConsole("Integrity check: skipping hash rebuild for %s (file missing)", metadata.ID)
+			continue
+		}
+		newHash := computeContentHash(note)
+		if newHash == "" {
+			continue
+		}
+		s.noteList.Notes[i].ContentHash = newHash
+		logRepair("ContentHash: rebuilt %s", metadata.ID)
+		changed = true
+	}
+
+	// 8. conflict copy の自動解決（重複ハッシュのみ削除）
+	resolution := s.autoResolveConflictCopies()
+	if resolution.changed {
+		changed = true
+	}
+
 	if changed {
-		s.logInfo("Integrity check: repaired display order")
+		if len(repairLogs) == 0 {
+			s.logInfo("Integrity check: repaired note list")
+		}
 		if saveErr := s.saveNoteList(); saveErr != nil {
 			return changed, saveErr
 		}
 	}
 
+	if len(issues) > 0 {
+		s.logInfo("Integrity check: %d issue(s) need confirmation", len(issues))
+		s.pendingIntegrityIssues = issues
+	} else {
+		s.pendingIntegrityIssues = nil
+	}
+
 	return changed, nil
+}
+
+// pendingの整合性問題を取り出す（1回限り）
+func (s *noteService) DrainPendingIntegrityIssues() []IntegrityIssue {
+	if len(s.pendingIntegrityIssues) == 0 {
+		return nil
+	}
+	issues := s.pendingIntegrityIssues
+	s.pendingIntegrityIssues = nil
+	return issues
+}
+
+// conflict copy を自動解決する（同一ハッシュの重複のみ削除）
+func (s *noteService) autoResolveConflictCopies() conflictCopyResolution {
+	result := conflictCopyResolution{}
+	if s.noteList == nil || len(s.noteList.Notes) == 0 {
+		return result
+	}
+
+	type noteInfo struct {
+		id         string
+		hash       string
+		title      string
+		modifiedAt time.Time
+		isConflict bool
+	}
+
+	noteInfos := make([]noteInfo, 0, len(s.noteList.Notes))
+	for _, metadata := range s.noteList.Notes {
+		hash := ""
+		note, err := s.LoadNote(metadata.ID)
+		if err == nil {
+			hash = computeConflictCopyDedupHash(note)
+		}
+		modifiedAt, _ := time.Parse(time.RFC3339, metadata.ModifiedTime)
+		noteInfos = append(noteInfos, noteInfo{
+			id:         metadata.ID,
+			hash:       hash,
+			title:      metadata.Title,
+			modifiedAt: modifiedAt,
+			isConflict: isConflictCopyTitle(metadata.Title),
+		})
+	}
+
+	notesByHash := make(map[string][]noteInfo)
+	for _, info := range noteInfos {
+		if info.hash == "" {
+			continue
+		}
+		notesByHash[info.hash] = append(notesByHash[info.hash], info)
+	}
+
+	deleteIDs := make(map[string]string)
+	keepIDs := make(map[string]bool)
+
+	for _, group := range notesByHash {
+		if len(group) == 1 {
+			if group[0].isConflict {
+				keepIDs[group[0].id] = true
+			}
+			continue
+		}
+
+		var nonConflict []noteInfo
+		var conflicts []noteInfo
+		for _, info := range group {
+			if info.isConflict {
+				conflicts = append(conflicts, info)
+			} else {
+				nonConflict = append(nonConflict, info)
+			}
+		}
+
+		if len(conflicts) == 0 {
+			continue
+		}
+
+		var keeper *noteInfo
+		if len(nonConflict) > 0 {
+			best := nonConflict[0]
+			for i := 1; i < len(nonConflict); i++ {
+				if nonConflict[i].modifiedAt.After(best.modifiedAt) {
+					best = nonConflict[i]
+				}
+			}
+			keeper = &best
+		} else {
+			best := conflicts[0]
+			for i := 1; i < len(conflicts); i++ {
+				if conflicts[i].modifiedAt.After(best.modifiedAt) {
+					best = conflicts[i]
+				}
+			}
+			keeper = &best
+			keepIDs[keeper.id] = true
+		}
+
+		for _, conflict := range conflicts {
+			if keeper != nil && conflict.id == keeper.id {
+				continue
+			}
+			if deleteIDs[conflict.id] == "" {
+				duplicateOf := ""
+				if keeper != nil {
+					duplicateOf = keeper.id
+				}
+				deleteIDs[conflict.id] = duplicateOf
+			}
+		}
+	}
+
+	if len(deleteIDs) == 0 && len(keepIDs) == 0 {
+		return result
+	}
+
+	if s.logger != nil {
+		for id, duplicateOf := range deleteIDs {
+			if duplicateOf != "" {
+				s.logger.Info("Auto-resolve conflict copy: deleted %s (duplicate of %s)", id, duplicateOf)
+			} else {
+				s.logger.Info("Auto-resolve conflict copy: deleted %s (duplicate)", id)
+			}
+		}
+		for id := range keepIDs {
+			if _, deleted := deleteIDs[id]; deleted {
+				continue
+			}
+			s.logger.Info("Auto-resolve conflict copy: kept %s (unique content)", id)
+		}
+	}
+
+	if len(deleteIDs) == 0 {
+		return result
+	}
+
+	// ファイル削除 + noteListから除去
+	for id := range deleteIDs {
+		notePath := filepath.Join(s.notesDir, id+".json")
+		if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
+			s.logConsole("Auto-resolve conflict copy: failed to delete file %s: %v", id, err)
+		}
+		s.removeFromTopLevelOrder(id)
+		s.removeFromArchivedTopLevelOrder(id)
+		result.deleted = append(result.deleted, id)
+		result.changed = true
+	}
+
+	if result.changed {
+		var remaining []NoteMetadata
+		for _, metadata := range s.noteList.Notes {
+			if _, shouldDelete := deleteIDs[metadata.ID]; shouldDelete {
+				continue
+			}
+			remaining = append(remaining, metadata)
+		}
+		s.noteList.Notes = remaining
+	}
+
+	for id := range keepIDs {
+		result.kept = append(result.kept, id)
+	}
+
+	return result
+}
+
+// 整合性修復の選択を適用する ------------------------------------------------------------
+func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (IntegrityRepairSummary, error) {
+	summary := IntegrityRepairSummary{}
+	if len(selections) == 0 {
+		return summary, nil
+	}
+
+	noteIDSet := make(map[string]bool)
+	for _, metadata := range s.noteList.Notes {
+		noteIDSet[metadata.ID] = true
+	}
+
+	logApply := func(message string) {
+		summary.Messages = append(summary.Messages, message)
+		if s.logger != nil {
+			s.logger.Info("Integrity repair: %s", message)
+		}
+	}
+
+	now := time.Now().Format(time.RFC3339)
+
+	for _, selection := range selections {
+		parts := strings.SplitN(selection.IssueID, ":", 2)
+		if len(parts) != 2 {
+			summary.Skipped++
+			continue
+		}
+		issueKind := parts[0]
+		noteID := parts[1]
+
+		switch issueKind {
+		case "orphan_file":
+			switch selection.FixID {
+			case "restore":
+				if noteIDSet[noteID] {
+					summary.Skipped++
+					continue
+				}
+				note, loadErr := s.LoadNote(noteID)
+				if loadErr != nil {
+					summary.Errors++
+					s.logConsole("Integrity repair: failed to load orphan file %s: %v", noteID, loadErr)
+					continue
+				}
+
+				order := 0
+				if len(s.noteList.Notes) > 0 {
+					minOrder := s.noteList.Notes[0].Order
+					for _, metadata := range s.noteList.Notes {
+						if metadata.Order < minOrder {
+							minOrder = metadata.Order
+						}
+					}
+					order = minOrder - 1
+				}
+
+				s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
+					ID:            note.ID,
+					Title:         note.Title,
+					ContentHeader: note.ContentHeader,
+					Language:      note.Language,
+					ModifiedTime:  note.ModifiedTime,
+					Archived:      note.Archived,
+					ContentHash:   computeContentHash(note),
+					Order:         order,
+					FolderID:      note.FolderID,
+				})
+
+				if note.FolderID == "" && !note.Archived {
+					s.ensureTopLevelOrder()
+					s.noteList.TopLevelOrder = append([]TopLevelItem{{Type: "note", ID: note.ID}}, s.noteList.TopLevelOrder...)
+				} else if note.Archived {
+					s.ensureArchivedTopLevelOrder()
+					s.noteList.ArchivedTopLevelOrder = append(
+						s.noteList.ArchivedTopLevelOrder,
+						TopLevelItem{Type: "note", ID: note.ID},
+					)
+				}
+
+				noteIDSet[noteID] = true
+				logApply(fmt.Sprintf("Unknown file restored: %s", noteID))
+				summary.Applied++
+
+			case "delete":
+				notePath := filepath.Join(s.notesDir, noteID+".json")
+				if rmErr := os.Remove(notePath); rmErr != nil {
+					summary.Errors++
+					s.logConsole("Integrity repair: failed to delete file %s: %v", noteID, rmErr)
+					continue
+				}
+				logApply(fmt.Sprintf("Unknown file deleted: %s", noteID))
+				summary.Applied++
+
+			default:
+				summary.Skipped++
+			}
+
+		case "future_time":
+			if selection.FixID != "normalize" {
+				summary.Skipped++
+				continue
+			}
+			note, loadErr := s.LoadNote(noteID)
+			if loadErr != nil {
+				summary.Errors++
+				s.logConsole("Integrity repair: failed to load note %s for time normalization: %v", noteID, loadErr)
+				continue
+			}
+			note.ModifiedTime = now
+			if err := s.SaveNoteFromSync(note); err != nil {
+				summary.Errors++
+				s.logConsole("Integrity repair: failed to save note %s after time normalization: %v", noteID, err)
+				continue
+			}
+			for i := range s.noteList.Notes {
+				if s.noteList.Notes[i].ID == noteID {
+					s.noteList.Notes[i].ModifiedTime = now
+					break
+				}
+			}
+			logApply(fmt.Sprintf("Modified time normalized: %s", noteID))
+			summary.Applied++
+
+		default:
+			summary.Skipped++
+		}
+	}
+
+	if summary.Applied > 0 {
+		s.noteList.LastSync = time.Now()
+		if err := s.saveNoteList(); err != nil {
+			return summary, err
+		}
+	}
+
+	return summary, nil
 }

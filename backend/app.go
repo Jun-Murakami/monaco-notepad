@@ -198,9 +198,8 @@ func (a *App) DomReady(ctx context.Context) {
 		<-authService.GetFrontendReadyChan()
 		a.logger.Console("Frontend ready - initializing Google Drive...")
 		if err := driveService.InitializeDrive(); err != nil {
-			a.logger.Error(err, "Error initializing drive service")
+			a.logger.Error(err, "Drive: initialization failed")
 			wailsRuntime.EventsEmit(ctx, "drive:status", "offline")
-			wailsRuntime.EventsEmit(ctx, "drive:error", "Google Drive is not connected")
 		}
 	}()
 
@@ -240,6 +239,11 @@ func (a *App) NotifyFrontendReady() {
 		a.driveService.NotifyFrontendReady()
 	} else {
 		a.logger.Console("Warning: driveService is nil") // デバッグログ
+	}
+	if a.noteService != nil {
+		if issues := a.noteService.DrainPendingIntegrityIssues(); len(issues) > 0 {
+			a.logger.NotifyIntegrityIssues(a.ctx.ctx, issues)
+		}
 	}
 }
 
@@ -292,6 +296,18 @@ func (a *App) SaveNote(note *Note, action string) error {
 		a.logger.Console("SaveNote: skipping upload - driveService=%v, isConnected=%v", a.driveService != nil, a.driveService != nil && a.driveService.IsConnected())
 	}
 	return nil
+}
+
+// 整合性修復の選択を適用する ------------------------------------------------------------
+func (a *App) ApplyIntegrityFixes(selections []IntegrityFixSelection) (IntegrityRepairSummary, error) {
+	summary, err := a.noteService.ApplyIntegrityFixes(selections)
+	if err != nil {
+		return summary, err
+	}
+	if summary.Applied > 0 {
+		a.logger.NotifyFrontendSyncedAndReload(a.ctx.ctx)
+	}
+	return summary, nil
 }
 
 // ノートリストを保存する ------------------------------------------------------------
@@ -673,7 +689,7 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 	// ファイルの内容を読み込む
 	content, err := a.fileService.OpenFile(filePath)
 	if err != nil {
-		return a.logger.Error(err, "error opening file from external")
+		return a.logger.Error(err, "Failed to open file")
 	}
 
 	// フロントエンドにファイルオープンイベントを送信

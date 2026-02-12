@@ -151,7 +151,7 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 		token = newToken
 	}
 
-	a.logger.Info("Successfully validated saved token")
+	a.logger.Info("Drive: token validated")
 
 	// 初期化処理
 	return true, a.initializeGoogleDrive(token)
@@ -271,7 +271,7 @@ func (a *authService) LogoutDrive() error {
 	// 少し待機してポートが完全に解放されるのを待つ
 	time.Sleep(1 * time.Second)
 
-	a.logger.Info("Logged out from Google Drive")
+	a.logger.Info("Drive: disconnected")
 	return nil
 }
 
@@ -305,7 +305,7 @@ func (a *authService) HandleOfflineTransition(err error) error {
 // handleTemporaryOffline はトークンを保持したまま一時的にオフラインにする
 func (a *authService) handleTemporaryOffline(err error) {
 	if err != nil {
-		a.logger.Error(err, fmt.Sprintf("Temporary offline: %v", err))
+		a.logger.Error(err, "Drive: offline (will retry)")
 	}
 	a.driveSync.SetConnected(false)
 	a.logger.NotifyDriveStatus(a.ctx, "offline")
@@ -313,9 +313,6 @@ func (a *authService) handleTemporaryOffline(err error) {
 
 // handleFullOfflineTransition は完全なオフライン遷移を実行
 func (a *authService) handleFullOfflineTransition(err error) {
-	// エラーメッセージをログに記録
-	errMsg := fmt.Sprintf("Drive error: %v", err)
-
 	// トークンファイルを削除
 	tokenFile := filepath.Join(a.appDataDir, "token.json")
 	if err := os.Remove(tokenFile); err != nil && !os.IsNotExist(err) {
@@ -334,8 +331,8 @@ func (a *authService) handleFullOfflineTransition(err error) {
 	a.driveSync.SetConnected(false)
 
 	// フロントエンドに通知
-	if err != nil || errMsg != "" {
-		a.logger.Error(err, errMsg)
+	if err != nil {
+		a.logger.Error(err, "Drive: connection error")
 	}
 	a.logger.NotifyDriveStatus(a.ctx, "offline")
 }
@@ -349,14 +346,14 @@ func (a *authService) initializeDriveService(token *oauth2.Token) error {
 	client := oauth2.NewClient(a.ctx, tokenSource)
 	srv, err := drive.NewService(a.ctx, option.WithHTTPClient(client))
 	if err != nil {
-		return a.logger.Error(err, "unable to retrieve Drive client")
+		return a.logger.Error(err, "Drive: failed to initialize client")
 	}
 
-	a.logger.Info("Drive service initialized")
+	a.logger.Info("Drive: service initialized")
 
 	// driveSync の各フィールドを初期化する前に nil チェックを行う
 	if a.driveSync == nil {
-		return a.logger.Error(nil, "driveSync is not initialized")
+		return a.logger.Error(nil, "Drive: sync not initialized")
 	}
 
 	a.driveSync.service = srv
@@ -412,7 +409,7 @@ func (a *authService) CancelLoginDrive() error {
 		if err := a.driveSync.server.Shutdown(ctx); err != nil {
 			// 既に閉じられているコネクションのエラーは無視
 			if !strings.Contains(err.Error(), "use of closed network connection") {
-				a.logger.Error(err, fmt.Sprintf("Error shutting down auth server: %v", err))
+				a.logger.Console("Error shutting down auth server: %v", err)
 			}
 		}
 		a.driveSync.server = nil
@@ -424,7 +421,7 @@ func (a *authService) CancelLoginDrive() error {
 			// 既に閉じられているコネクションのエラーは無視
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				a.logger.Console("Error closing listener: %v", err)
-				return a.logger.Error(err, fmt.Sprintf("Error closing listener: %v", err))
+				return err
 			}
 		}
 		a.driveSync.listener = nil

@@ -103,17 +103,16 @@ describe('useInitialize', () => {
   const mockHandleSaveAsFile = vi.fn();
   const mockHandleSelectNextAnyNote = vi.fn();
   const mockHandleSelectPreviousAnyNote = vi.fn();
+  const mockShowMessage = vi.fn().mockResolvedValue(true);
   const mockRestorePaneNotes = vi.fn();
   const mockSetCurrentFileNote = vi.fn();
 
   beforeEach(() => {
-    console.log('beforeEach: テストの初期化を開始');
     vi.clearAllMocks();
     vi.useFakeTimers();
     isInitialized = false;
 
     // モックの実装を設定
-    console.log('beforeEach: モックの設定を開始');
     (runtime.Environment as unknown as MockFunction).mockResolvedValue({
       platform: 'windows',
     });
@@ -128,14 +127,8 @@ describe('useInitialize', () => {
       undefined,
     );
     (runtime.EventsOn as unknown as MockFunction).mockImplementation(
-      (event: string, _callback: () => void) => {
-        console.log(`EventsOn called with event: ${event}`);
-        return () => {
-          console.log(`EventsOff called for event: ${event}`);
-        };
-      },
+      (_event: string, _callback: () => void) => () => {},
     );
-    console.log('beforeEach: モックの設定完了');
   });
 
   afterEach(() => {
@@ -164,6 +157,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockShowMessage,
         mockRestorePaneNotes,
       ),
     );
@@ -202,7 +196,6 @@ describe('useInitialize', () => {
   });
 
   it('バックエンド準備完了イベントを処理すること', async () => {
-    console.log('テスト開始: バックエンド準備完了イベント');
     const _hook = renderHook(() =>
       useInitialize(
         mockSetNotes,
@@ -223,10 +216,10 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockShowMessage,
         mockRestorePaneNotes,
       ),
     );
-    console.log('フックのレンダリング完了');
 
     await act(async () => {
       await Promise.resolve();
@@ -258,6 +251,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockShowMessage,
         mockRestorePaneNotes,
       ),
     );
@@ -310,7 +304,6 @@ describe('useInitialize', () => {
   });
 
   it('ノートリストが空の場合に新規ノートを作成すること', async () => {
-    console.log('テスト開始: 空のノートリスト');
     (ListNotes as unknown as MockFunction).mockResolvedValue(null);
     (LoadFileNotes as unknown as MockFunction).mockResolvedValue([]);
 
@@ -334,6 +327,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockShowMessage,
         mockRestorePaneNotes,
       ),
     );
@@ -350,7 +344,6 @@ describe('useInitialize', () => {
   });
 
   it('エラー発生時に適切に処理すること', async () => {
-    console.log('テスト開始: エラー処理');
     (ListNotes as unknown as MockFunction).mockRejectedValue(
       new Error('Failed to load notes'),
     );
@@ -376,6 +369,7 @@ describe('useInitialize', () => {
         mockHandleSaveAsFile,
         mockHandleSelectNextAnyNote,
         mockHandleSelectPreviousAnyNote,
+        mockShowMessage,
         mockRestorePaneNotes,
       ),
     );

@@ -1,5 +1,12 @@
 import { vi } from 'vitest';
 
+const originalGetComputedStyle = window.getComputedStyle;
+Object.defineProperty(window, 'getComputedStyle', {
+  configurable: true,
+  value: (element: Element, pseudo?: string | null) =>
+    originalGetComputedStyle(element),
+});
+
 // monaco-editorのモックを設定
 vi.mock('monaco-editor', () => ({
   default: {},

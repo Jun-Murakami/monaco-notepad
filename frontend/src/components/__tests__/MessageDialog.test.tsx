@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import { MessageDialog } from '../MessageDialog';
@@ -34,10 +35,12 @@ describe('MessageDialog', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 
-  it('ツーボタンモードで、両方のボタンが表示されること', () => {
-    render(
-      <MessageDialog {...defaultProps} isOpen={true} isTwoButton={true} />,
-    );
+  it('ツーボタンモードで、両方のボタンが表示されること', async () => {
+    await act(async () => {
+      render(
+        <MessageDialog {...defaultProps} isOpen={true} isTwoButton={true} />,
+      );
+    });
 
     expect(
       screen.getByRole('button', { name: defaultProps.primaryButtonText }),
@@ -47,34 +50,38 @@ describe('MessageDialog', () => {
     ).toBeInTheDocument();
   });
 
-  it('カスタムボタンテキストが正しく表示されること', () => {
-    render(
-      <MessageDialog
-        {...defaultProps}
-        isOpen={true}
-        isTwoButton={true}
-        primaryButtonText="はい"
-        secondaryButtonText="いいえ"
-      />,
-    );
+  it('カスタムボタンテキストが正しく表示されること', async () => {
+    await act(async () => {
+      render(
+        <MessageDialog
+          {...defaultProps}
+          isOpen={true}
+          isTwoButton={true}
+          primaryButtonText="はい"
+          secondaryButtonText="いいえ"
+        />,
+      );
+    });
 
     expect(screen.getByRole('button', { name: 'はい' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'いいえ' })).toBeInTheDocument();
   });
 
-  it('Closeボタンクリック時にonResultがtrueで呼ばれること', () => {
+  it('Closeボタンクリック時にonResultがtrueで呼ばれること', async () => {
     render(<MessageDialog {...defaultProps} isOpen={true} />);
+    const user = userEvent.setup();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(defaultProps.onResult).toHaveBeenCalledWith(true);
   });
 
-  it('Cancelボタンクリック時にonResultがfalseで呼ばれること', () => {
+  it('Cancelボタンクリック時にonResultがfalseで呼ばれること', async () => {
     render(
       <MessageDialog {...defaultProps} isOpen={true} isTwoButton={true} />,
     );
+    const user = userEvent.setup();
 
-    fireEvent.click(
+    await user.click(
       screen.getByRole('button', { name: defaultProps.secondaryButtonText }),
     );
     expect(defaultProps.onResult).toHaveBeenCalledWith(false);

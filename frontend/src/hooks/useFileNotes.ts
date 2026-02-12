@@ -44,7 +44,7 @@ export const useFileNotes = ({
         if (!exists) {
           const shouldKeep = await showMessage(
             'File not found',
-            'The file has been deleted or moved. Do you want to keep the content in the editor?',
+            'This file was moved or deleted. Keep the content as an unsaved buffer?',
             true,
             'Keep',
             'Discard',
@@ -97,11 +97,11 @@ export const useFileNotes = ({
         );
         if (isModified) {
           const shouldReload = await showMessage(
-            'File has been modified outside of the app',
-            'Do you want to reload the file?',
+            'File changed externally',
+            'This file was modified outside the app. Reload? (Unsaved editor changes will be lost)',
             true,
             'Reload',
-            'Keep current state',
+            'Keep current',
           );
 
           if (shouldReload) {
@@ -230,8 +230,8 @@ export const useFileNotes = ({
       // ファイルが変更されている場合は、保存するかどうかを確認
       if (fileNote && fileNote.content !== fileNote.originalContent) {
         const shouldClose = await showMessage(
-          'File has unsaved changes',
-          'Do you want to discard the changes and close the file?',
+          'Unsaved changes',
+          'Discard changes and close the file?',
           true,
           'Discard',
           'Cancel',

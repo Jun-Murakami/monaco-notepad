@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { LoadSettings, SaveSettings } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
 import type { Settings } from '../../types';
@@ -37,12 +37,19 @@ describe('useEditorSettings フック', () => {
     markdownPreviewOnLeft: false,
   };
 
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     (LoadSettings as unknown as Mock).mockResolvedValue(mockSettings);
     (runtime.Environment as unknown as Mock).mockResolvedValue({
       platform: 'windows',
     });
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   describe('初期化処理', () => {

@@ -14,6 +14,7 @@ import (
 type AppLogger interface {
 	NotifyDriveStatus(ctx context.Context, status string)                // ドライブステータスの通知
 	NotifyFrontendSyncedAndReload(ctx context.Context)                   // フロントエンドの変更通知
+	NotifyIntegrityIssues(ctx context.Context, issues []IntegrityIssue)  // 整合性修復の確認が必要な通知
 	Console(format string, args ...interface{})                          // コンソール出力
 	Info(format string, args ...interface{})                             // 情報メッセージ出力
 	Error(err error, format string, args ...interface{}) error           // エラーメッセージ出力
@@ -100,6 +101,13 @@ func (l *appLoggerImpl) NotifyFrontendSyncedAndReload(ctx context.Context) {
 	}
 }
 
+// 整合性修復の確認が必要な通知
+func (l *appLoggerImpl) NotifyIntegrityIssues(ctx context.Context, issues []IntegrityIssue) {
+	if !l.isTestMode {
+		wailsRuntime.EventsEmit(l.ctx, "notes:integrity-issues", issues)
+	}
+}
+
 // ----------------------------------------------------------------
 // ログメッセージの通知
 // ----------------------------------------------------------------
@@ -139,7 +147,7 @@ func (l *appLoggerImpl) Error(err error, format string, args ...interface{}) err
 	return err
 }
 
-// ErrorWithNotify はエラーメッセージをコンソールとフロントエンドに出力し、さらにフロントエンドにエラー通知を送信
+// ErrorWithNotify はエラーメッセージをコンソールに出力し、フロントエンドにダイアログ通知を送信（ステータスバーには送らない）
 func (l *appLoggerImpl) ErrorWithNotify(err error, format string, args ...interface{}) error {
 	if err == nil {
 		return nil
@@ -150,8 +158,7 @@ func (l *appLoggerImpl) ErrorWithNotify(err error, format string, args ...interf
 		errorMessage := fmt.Sprintf("%s: %s", message, err.Error())
 		fmt.Println(errorMessage)
 		l.writeToLog(errorMessage)
-		l.sendLogMessage(errorMessage)
-		wailsRuntime.EventsEmit(l.ctx, "drive:error", err.Error())
+		wailsRuntime.EventsEmit(l.ctx, "drive:error", message)
 	}
 	return err
 }

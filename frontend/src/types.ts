@@ -40,6 +40,37 @@ export type NoteList = {
 	lastSyncClientId?: string;
 };
 
+export type IntegrityFixOption = {
+	id: string;
+	label: string;
+	description: string;
+	params?: Record<string, string>;
+};
+
+export type IntegrityIssue = {
+	id: string;
+	kind: string;
+	severity: 'info' | 'warn' | 'error';
+	needsUserDecision: boolean;
+	noteIds?: string[];
+	folderIds?: string[];
+	summary: string;
+	autoFix?: IntegrityFixOption;
+	fixOptions?: IntegrityFixOption[];
+};
+
+export type IntegrityFixSelection = {
+	issueId: string;
+	fixId: string;
+};
+
+export type IntegrityRepairSummary = {
+	applied: number;
+	skipped: number;
+	errors: number;
+	messages?: string[];
+};
+
 // ファイルノートの型
 export type FileNote = {
   id: string;

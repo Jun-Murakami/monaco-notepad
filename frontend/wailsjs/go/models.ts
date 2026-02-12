@@ -52,6 +52,38 @@ export namespace backend {
 	        this.archived = source["archived"];
 	    }
 	}
+	export class IntegrityFixSelection {
+	    issueId: string;
+	    fixId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IntegrityFixSelection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.issueId = source["issueId"];
+	        this.fixId = source["fixId"];
+	    }
+	}
+	export class IntegrityRepairSummary {
+	    applied: number;
+	    skipped: number;
+	    errors: number;
+	    messages?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new IntegrityRepairSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.applied = source["applied"];
+	        this.skipped = source["skipped"];
+	        this.errors = source["errors"];
+	        this.messages = source["messages"];
+	    }
+	}
 	export class Note {
 	    id: string;
 	    title: string;

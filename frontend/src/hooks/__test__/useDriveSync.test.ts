@@ -41,9 +41,13 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
 
 describe('useDriveSync', () => {
   const mockShowMessage = vi.fn();
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockShowMessage.mockReset();
     mockShowMessage.mockResolvedValue(true);
     eventHandlers = {};
@@ -51,6 +55,8 @@ describe('useDriveSync', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    consoleErrorSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
     vi.useRealTimers();
   });
 
@@ -106,8 +112,8 @@ describe('useDriveSync', () => {
     });
 
     expect(mockShowMessage).toHaveBeenCalledWith(
-      'Error',
-      'Google authentication failed: Error: Auth failed',
+      'Sign-in failed',
+      'Could not authenticate with Google. Please try again.\n\nDetails: Error: Auth failed',
     );
     expect(result.current.syncStatus).toBe('offline');
   });
@@ -155,8 +161,8 @@ describe('useDriveSync', () => {
     });
 
     expect(mockShowMessage).toHaveBeenCalledWith(
-      'Sync Error',
-      'Failed to synchronize with Google Drive: Error: Sync failed',
+      'Sync failed',
+      'Could not sync with Google Drive. Notes are safe locally.\n\nDetails: Error: Sync failed',
     );
   });
 
@@ -233,7 +239,7 @@ describe('useDriveSync', () => {
       await vi.runAllTimersAsync();
     });
 
-    expect(mockShowMessage).toHaveBeenCalledWith('Drive error', 'Test error');
+    expect(mockShowMessage).toHaveBeenCalledWith('Drive sync error', 'Test error');
   });
 
   it('ログインのキャンセルが正しく機能すること', async () => {

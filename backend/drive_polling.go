@@ -37,7 +37,7 @@ func (p *DrivePollingService) WaitForFrontendAndStartSync() {
 	}
 
 	time.Sleep(1 * time.Second)
-	p.logger.Info("Starting polling service...")
+	p.logger.Info("Drive: polling started")
 	p.StartPolling()
 }
 
@@ -56,23 +56,23 @@ func (p *DrivePollingService) StartPolling() {
 	defer ticker.Stop()
 
 	if err := p.driveService.driveSync.RefreshFileIDCache(p.ctx); err != nil {
-		p.logger.Error(err, "Failed to refresh file ID cache")
+		p.logger.Error(err, "Drive: failed to refresh file cache")
 	}
 
-	p.logger.Info("Checking cloud files...")
+	p.logger.Info("Drive: checking cloud files...")
 	_, notesID := p.driveService.auth.GetDriveSync().FolderIDs()
 	files, err := p.driveService.driveSync.ListFiles(p.ctx, notesID)
 	if err != nil {
-		p.logger.Error(err, "Failed to list files in notes folder")
+		p.logger.Error(err, "Drive: failed to list files in notes folder")
 	}
 
-	p.logger.Info("Checking for duplicate note files...")
+	p.logger.Info("Drive: checking for duplicates...")
 	if err := p.driveService.driveSync.RemoveDuplicateNoteFiles(p.ctx, files); err != nil {
-		p.logger.Error(err, "Failed to clean duplicate note files")
+		p.logger.Error(err, "Drive: failed to clean duplicate files")
 	}
 
 	if err := p.driveService.performInitialSync(); err != nil {
-		p.logger.Error(err, "Error during initial sync")
+		p.logger.Error(err, "Drive: initial sync failed")
 	}
 
 	p.initChangeToken()
@@ -99,7 +99,7 @@ func (p *DrivePollingService) StartPolling() {
 					ticker.Reset(reconnectDelay)
 					continue
 				}
-				p.logger.Info("Reconnected to Google Drive")
+				p.logger.Info("Drive: reconnected")
 				p.logger.NotifyDriveStatus(p.ctx, "synced")
 				reconnectDelay = reconnectBaseDelay
 				interval = initialInterval
@@ -118,12 +118,12 @@ func (p *DrivePollingService) StartPolling() {
 
 			hasChanges, syncErr := p.checkForChanges()
 			if syncErr != nil {
-				p.logger.ErrorWithNotify(syncErr, "Failed to sync with Drive")
+				p.logger.Error(syncErr, "Drive: sync failed")
 				interval = initialInterval
 			} else if hasChanges {
 				p.driveService.forceNextSync = true
 				if err := p.driveService.SyncNotes(); err != nil {
-					p.logger.ErrorWithNotify(err, "Failed to sync with Drive")
+					p.logger.Error(err, "Drive: sync failed")
 					interval = initialInterval
 				} else if p.driveService.lastSyncResult != nil && p.driveService.lastSyncResult.HasChanges() {
 					if !p.driveService.IsTestMode() {
@@ -157,7 +157,7 @@ func (p *DrivePollingService) initChangeToken() {
 	}
 	token, err := p.driveService.driveOps.GetStartPageToken()
 	if err != nil {
-		p.logger.Error(err, "Failed to get initial change page token, falling back to full sync")
+		p.logger.Error(err, "Drive: failed to get change token, falling back to full sync")
 		return
 	}
 	p.changePageToken = token
@@ -187,7 +187,7 @@ func (p *DrivePollingService) checkForChanges() (bool, error) {
 
 	result, err := p.driveService.driveOps.ListChanges(p.changePageToken)
 	if err != nil {
-		p.logger.Error(err, "Changes API failed, falling back to full sync")
+		p.logger.Error(err, "Drive: changes API failed, falling back to full sync")
 		p.changePageToken = ""
 		return true, nil
 	}
@@ -262,7 +262,7 @@ func (p *DrivePollingService) isSelfNoteListChange(changes []*drive.Change, root
 
 	noteList, err := p.driveService.driveSync.DownloadNoteList(p.ctx, noteListID)
 	if err != nil {
-		p.logger.Error(err, "Failed to download noteList for self-change check")
+		p.logger.Error(err, "Drive: failed to download note list for change check")
 		return false
 	}
 	if noteList.LastSyncClientID == "" {

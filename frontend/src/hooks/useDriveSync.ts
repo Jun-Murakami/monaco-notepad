@@ -110,7 +110,7 @@ export const useDriveSync = (
 
   const handleDriveErrorRef = useRef((_error: string) => {});
   handleDriveErrorRef.current = (error: string) => {
-    showMessage('Drive error', error);
+		showMessage('Drive sync error', error);
     console.error('Drive error:', error);
   };
 
@@ -140,7 +140,7 @@ export const useDriveSync = (
       await AuthorizeDrive();
     } catch (error) {
       console.error('Google authentication error:', error);
-      showMessage('Error', `Google authentication failed: ${error}`);
+		showMessage('Sign-in failed', `Could not authenticate with Google. Please try again.\n\nDetails: ${error}`);
       setSyncStatus('offline');
     }
   }, [showMessage]);
@@ -155,17 +155,16 @@ export const useDriveSync = (
       }
 
       // 通常のログアウト処理（確認あり）
-      const result = await showMessage(
-        'Logout from Google Drive',
-        'Are you sure you want to logout?',
-        true,
-      );
+		const result = await showMessage(
+			'Disconnect from Google Drive?',
+			'Syncing will stop. Your notes remain saved locally.',
+			true,
+		);
       if (result) {
         await LogoutDrive();
       }
     } catch (error) {
-      console.error('Logout error:', error);
-      showMessage('Error', `Logout failed: ${error}`);
+		console.error('Logout error:', error);
     }
   }, [showMessage, syncStatus]);
 
@@ -179,10 +178,10 @@ export const useDriveSync = (
         setSyncStatus('synced');
       } catch (error) {
         console.error('Manual sync error:', error);
-        showMessage(
-          'Sync Error',
-          `Failed to synchronize with Google Drive: ${error}`,
-        );
+		showMessage(
+			'Sync failed',
+			`Could not sync with Google Drive. Notes are safe locally.\n\nDetails: ${error}`,
+		);
       }
     }
   }, [showMessage, syncStatus]);

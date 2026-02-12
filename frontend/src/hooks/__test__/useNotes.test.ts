@@ -94,8 +94,12 @@ describe('useNotes', () => {
   });
 
   describe('基本機能', () => {
-    it('初期状態が正しく設定されていること', () => {
+    it('初期状態が正しく設定されていること', async () => {
       const { result } = renderHook(() => useNotes());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
 
       expect(result.current.notes).toEqual([]);
       expect(result.current.currentNote).toBeNull();
@@ -783,6 +787,10 @@ describe('useNotes', () => {
 
     it('toggleFolderCollapseがフォルダの折りたたみ状態を切り替えること', async () => {
       const { result } = renderHook(() => useNotes());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
 
       act(() => {
         result.current.toggleFolderCollapse('folder-1');

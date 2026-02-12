@@ -111,6 +111,41 @@ type SyncResult struct {
 	Errors         int
 }
 
+// ノートリスト整合性チェックの問題
+type IntegrityIssue struct {
+	ID                string               `json:"id"`
+	Kind              string               `json:"kind"`
+	Severity          string               `json:"severity"`
+	NeedsUserDecision bool                 `json:"needsUserDecision"`
+	NoteIDs           []string             `json:"noteIds,omitempty"`
+	FolderIDs         []string             `json:"folderIds,omitempty"`
+	Summary           string               `json:"summary"`
+	AutoFix           *IntegrityFixOption  `json:"autoFix,omitempty"`
+	FixOptions        []IntegrityFixOption `json:"fixOptions,omitempty"`
+}
+
+// 整合性修復の選択肢
+type IntegrityFixOption struct {
+	ID          string            `json:"id"`
+	Label       string            `json:"label"`
+	Description string            `json:"description"`
+	Params      map[string]string `json:"params,omitempty"`
+}
+
+// ユーザーが選択した修復
+type IntegrityFixSelection struct {
+	IssueID string `json:"issueId"`
+	FixID   string `json:"fixId"`
+}
+
+// 修復結果のサマリー
+type IntegrityRepairSummary struct {
+	Applied  int      `json:"applied"`
+	Skipped  int      `json:"skipped"`
+	Errors   int      `json:"errors"`
+	Messages []string `json:"messages,omitempty"`
+}
+
 func (r *SyncResult) HasChanges() bool {
 	return r.Uploaded > 0 || r.Downloaded > 0 || r.Deleted > 0 || r.ConflictMerges > 0 || r.Errors > 0
 }
@@ -119,15 +154,15 @@ func (r *SyncResult) Summary() string {
 	if !r.HasChanges() {
 		return ""
 	}
-	s := "Sync complete:"
+	s := "Drive: sync complete —"
 	if r.Uploaded > 0 {
-		s += fmt.Sprintf(" ↑%d", r.Uploaded)
+		s += fmt.Sprintf(" ↑%d uploaded", r.Uploaded)
 	}
 	if r.Downloaded > 0 {
-		s += fmt.Sprintf(" ↓%d", r.Downloaded)
+		s += fmt.Sprintf(" ↓%d downloaded", r.Downloaded)
 	}
 	if r.Deleted > 0 {
-		s += fmt.Sprintf(" 🗑%d", r.Deleted)
+		s += fmt.Sprintf(" 🗑%d deleted", r.Deleted)
 	}
 	if r.ConflictMerges > 0 {
 		s += fmt.Sprintf(" ⚡%d conflicts merged", r.ConflictMerges)

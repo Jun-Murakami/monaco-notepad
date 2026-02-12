@@ -47,7 +47,9 @@ export const MessageDialog = ({
       disableRestoreFocus
     >
       <DialogTitle id="message-dialog-title">{title}</DialogTitle>
-      <DialogContent id="message-dialog-description">{message}</DialogContent>
+      <DialogContent id="message-dialog-description" sx={{ whiteSpace: 'pre-line' }}>
+        {message}
+      </DialogContent>
       <DialogActions>
         {isTwoButton && (
           <Button onClick={() => handleClose(false)} autoFocus={!isTwoButton}>

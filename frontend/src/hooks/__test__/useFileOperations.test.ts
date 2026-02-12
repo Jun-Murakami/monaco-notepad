@@ -21,6 +21,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
 vi.mock('../../../wailsjs/runtime', () => ({
   EventsOn: vi.fn().mockReturnValue(() => {}),
   EventsOff: vi.fn(),
+  EventsEmit: vi.fn(),
   OnFileDrop: vi.fn(),
   OnFileDropOff: vi.fn(),
 }));
@@ -82,10 +83,12 @@ describe('useFileOperations', () => {
   const mockHandleSelecAnyNote = vi.fn();
   const mockShowMessage = vi.fn();
   const mockHandleSaveFileNotes = vi.fn();
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mockShowMessage.mockResolvedValue(true);
     (GetModifiedTime as unknown as Mock).mockResolvedValue(
       new Date().toISOString(),
@@ -94,6 +97,7 @@ describe('useFileOperations', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    consoleErrorSpy.mockRestore();
     vi.useRealTimers();
   });
 
@@ -170,17 +174,17 @@ describe('useFileOperations', () => {
       (OpenFile as unknown as Mock).mockResolvedValue(binaryContent);
       (isBinaryFile as unknown as Mock).mockReturnValueOnce(true);
 
-      await act(async () => {
-        await result.current.handleOpenFile();
-        await vi.runAllTimersAsync();
-      });
+       await act(async () => {
+         await result.current.handleOpenFile();
+         await vi.runAllTimersAsync();
+       });
 
-      expect(OpenFile).toHaveBeenCalledWith('/path/to/binary.exe');
-      expect(mockShowMessage).toHaveBeenCalledWith(
-        'Error',
-        'Failed to open the file. Please check the file format.',
-      );
-      expect(mockSetFileNotes).not.toHaveBeenCalled();
+       expect(OpenFile).toHaveBeenCalledWith('/path/to/binary.exe');
+       expect(vi.mocked(runtime.EventsEmit)).toHaveBeenCalledWith(
+         'logMessage',
+         'Cannot open: file appears to be binary',
+       );
+       expect(mockSetFileNotes).not.toHaveBeenCalled();
     });
   });
 
@@ -227,16 +231,16 @@ describe('useFileOperations', () => {
         ),
       );
 
-      (SaveFile as unknown as Mock).mockRejectedValue(new Error('Save failed'));
+       (SaveFile as unknown as Mock).mockRejectedValue(new Error('Save failed'));
 
-      await act(async () => {
-        await result.current.handleSaveFile(mockFileNote);
-      });
+       await act(async () => {
+         await result.current.handleSaveFile(mockFileNote);
+       });
 
-      expect(mockShowMessage).toHaveBeenCalledWith(
-        'Error',
-        'Failed to save the file.',
-      );
+       expect(vi.mocked(runtime.EventsEmit)).toHaveBeenCalledWith(
+         'logMessage',
+         expect.stringContaining('Save failed — changes still in editor'),
+       );
     });
   });
 
@@ -286,19 +290,19 @@ describe('useFileOperations', () => {
         ),
       );
 
-      (SelectSaveFileUri as unknown as Mock).mockResolvedValue(
-        '/path/to/saved.txt',
-      );
-      (SaveFile as unknown as Mock).mockRejectedValue(new Error('Save failed'));
+       (SelectSaveFileUri as unknown as Mock).mockResolvedValue(
+         '/path/to/saved.txt',
+       );
+       (SaveFile as unknown as Mock).mockRejectedValue(new Error('Save failed'));
 
-      await act(async () => {
-        await result.current.handleSaveAsFile();
-      });
+       await act(async () => {
+         await result.current.handleSaveAsFile();
+       });
 
-      expect(mockShowMessage).toHaveBeenCalledWith(
-        'Error',
-        'Failed to save the file.',
-      );
+       expect(vi.mocked(runtime.EventsEmit)).toHaveBeenCalledWith(
+         'logMessage',
+         expect.stringContaining('Save As failed'),
+       );
     });
   });
 
@@ -455,18 +459,18 @@ describe('useFileOperations', () => {
         ),
       );
 
-      (SaveFile as unknown as Mock).mockRejectedValue(
-        new Error('Failed to save file'),
-      );
+       (SaveFile as unknown as Mock).mockRejectedValue(
+         new Error('Failed to save file'),
+       );
 
-      await act(async () => {
-        await result.current.handleSaveAsFile();
-      });
+       await act(async () => {
+         await result.current.handleSaveAsFile();
+       });
 
-      expect(mockShowMessage).toHaveBeenCalledWith(
-        'Error',
-        'Failed to save the file.',
-      );
+       expect(vi.mocked(runtime.EventsEmit)).toHaveBeenCalledWith(
+         'logMessage',
+         expect.stringContaining('Save As failed'),
+       );
     });
 
     it('空のファイルパスが選択された場合、処理が中断されること', async () => {
@@ -575,19 +579,19 @@ describe('useFileOperations', () => {
         ),
       );
 
-      const binaryContent = '\x00\x01\x02\x03';
-      (OpenFile as unknown as Mock).mockResolvedValue(binaryContent);
-      (isBinaryFile as unknown as Mock).mockReturnValueOnce(true);
+       const binaryContent = '\x00\x01\x02\x03';
+       (OpenFile as unknown as Mock).mockResolvedValue(binaryContent);
+       (isBinaryFile as unknown as Mock).mockReturnValueOnce(true);
 
-      await act(async () => {
-        await result.current.handleFileDrop('/path/to/binary.exe');
-      });
+       await act(async () => {
+         await result.current.handleFileDrop('/path/to/binary.exe');
+       });
 
-      expect(mockShowMessage).toHaveBeenCalledWith(
-        'Error',
-        'Failed to open the file. Please check the file format.',
-      );
-      expect(mockSetFileNotes).not.toHaveBeenCalled();
+       expect(vi.mocked(runtime.EventsEmit)).toHaveBeenCalledWith(
+         'logMessage',
+         'Cannot open: file appears to be binary',
+       );
+       expect(mockSetFileNotes).not.toHaveBeenCalled();
     });
   });
 });

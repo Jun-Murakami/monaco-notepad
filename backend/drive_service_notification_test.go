@@ -205,8 +205,8 @@ func TestCreateNote_StatusNotification_SyncingToSynced(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder.AssertDriveStatusSequence(t, []string{"syncing", "synced"})
-	recorder.AssertInfoContains(t, "Creating note:")
-	recorder.AssertInfoContains(t, "Note created:")
+	recorder.AssertInfoContains(t, "Drive: uploading ")
+	recorder.AssertInfoContains(t, "Drive: uploaded ")
 }
 
 func TestUpdateNote_StatusNotification_SyncingToSynced(t *testing.T) {
@@ -237,8 +237,8 @@ func TestUpdateNote_StatusNotification_SyncingToSynced(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder.AssertDriveStatusSequence(t, []string{"syncing", "synced"})
-	recorder.AssertInfoContains(t, "Updating note:")
-	recorder.AssertInfoContains(t, "Note updated:")
+	recorder.AssertInfoContains(t, "Drive: updating ")
+	recorder.AssertInfoContains(t, "Drive: updated ")
 }
 
 func TestDeleteNoteDrive_StatusNotification_SyncingToSynced(t *testing.T) {
@@ -268,8 +268,8 @@ func TestDeleteNoteDrive_StatusNotification_SyncingToSynced(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder.AssertDriveStatusSequence(t, []string{"syncing", "synced"})
-	recorder.AssertInfoContains(t, "Deleting note:")
-	recorder.AssertInfoContains(t, "Deleted note from cloud:")
+	recorder.AssertInfoContains(t, "Drive: deleting note ")
+	recorder.AssertInfoContains(t, "Drive: deleted note from cloud")
 }
 
 func TestCreateNote_Error_NoSyncedNotification(t *testing.T) {
@@ -351,7 +351,7 @@ func TestSyncNotes_WithChanges_NotificationSequence(t *testing.T) {
 	require.NotEmpty(t, statuses)
 	assert.Equal(t, "syncing", statuses[0])
 	assert.Equal(t, "synced", statuses[len(statuses)-1])
-	recorder.AssertInfoContains(t, "Starting sync with Drive...")
+	recorder.AssertInfoContains(t, "Drive: syncing...")
 	assert.GreaterOrEqual(t, recorder.syncedReloadCount(), 1)
 }
 
