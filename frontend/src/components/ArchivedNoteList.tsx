@@ -45,7 +45,11 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import {
+  observeElementOffset,
+  useVirtualizer,
+  type Virtualizer,
+} from '@tanstack/react-virtual';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
@@ -54,6 +58,20 @@ import dayjs from '../utils/dayjs';
 import { ArchivedNoteContentDialog } from './ArchivedNoteContentDialog';
 import { NotePreviewPopper } from './NotePreviewPopper';
 import 'simplebar-react/dist/simplebar.min.css';
+
+const observeElementOffsetThrottled = <T extends Element>(
+  instance: Virtualizer<T, Element>,
+  cb: (offset: number, isScrolling: boolean) => void,
+) => {
+  let rafId = 0;
+  return observeElementOffset(instance, (offset, isScrolling) => {
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      cb(offset, isScrolling);
+    });
+  });
+};
 
 interface ArchivedNoteListProps {
   notes: Note[];
@@ -92,61 +110,87 @@ const DroppableZone: React.FC<{
 const SortableWrapper: React.FC<{
   id: string;
   children: React.ReactNode;
-  dropIndicator?: 'top' | 'bottom' | null;
-  indentedIndicator?: boolean;
-  insetIndicator?: boolean;
-}> = memo(
-  ({ id, children, dropIndicator, indentedIndicator, insetIndicator }) => {
-    const { attributes, listeners, setNodeRef, isDragging } = useSortable({
-      id,
-    });
-    const insetPx = insetIndicator ? 8 : 0;
-    const indentPx = indentedIndicator ? 12 : 0;
-    const leftPx = insetPx + indentPx;
+}> = memo(({ id, children }) => {
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+    id,
+  });
 
-    return (
-      <Box
-        ref={setNodeRef}
-        style={{ opacity: isDragging ? 0.3 : 1 }}
-        {...attributes}
-        {...listeners}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
-        }}
-        sx={{ position: 'relative' }}
-      >
-        {dropIndicator === 'top' && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 0,
-              left: leftPx,
-              right: insetPx,
-              height: 2,
-              bgcolor: 'primary.main',
-              zIndex: 1,
-            }}
-          />
-        )}
-        {children}
-        {dropIndicator === 'bottom' && (
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: 0,
-              left: leftPx,
-              right: insetPx,
-              height: 2,
-              bgcolor: 'primary.main',
-              zIndex: 1,
-            }}
-          />
-        )}
-      </Box>
-    );
-  },
-);
+  return (
+    <Box
+      ref={setNodeRef}
+      style={{ opacity: isDragging ? 0.3 : 1 }}
+      {...attributes}
+      {...listeners}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
+      }}
+    >
+      {children}
+    </Box>
+  );
+});
+
+const DropIndicatorOverlay: React.FC<{
+  virtualizer: Virtualizer<HTMLElement, Element>;
+  flatItems: string[];
+  isTestEnv: boolean;
+  activeDragId: string | null;
+  getDropIndicator: (id: string) => 'top' | 'bottom' | null;
+  boundaryIndented: boolean;
+  precedingFolderIds: Map<string, string>;
+  lastFolderNoteIds: Map<string, string>;
+}> = ({
+  virtualizer,
+  flatItems,
+  isTestEnv,
+  activeDragId,
+  getDropIndicator,
+  boundaryIndented,
+  precedingFolderIds,
+  lastFolderNoteIds,
+}) => {
+  if (isTestEnv || !activeDragId) return null;
+  const visibleRows = virtualizer.getVirtualItems();
+  const target = visibleRows.find((row) => {
+    const id = flatItems[row.index];
+    if (!id) return false;
+    return getDropIndicator(id) !== null;
+  });
+  if (!target) return null;
+  const targetId = flatItems[target.index];
+  const indicator = targetId ? getDropIndicator(targetId) : null;
+  if (!targetId || !indicator) return null;
+
+  const isAtBoundary =
+    boundaryIndented &&
+    ((indicator === 'top' && precedingFolderIds.has(targetId)) ||
+      (indicator === 'bottom' && lastFolderNoteIds.has(targetId)));
+  const isFolderNote = targetId.startsWith('folder-note:');
+  const isLastFolderNoteBoundary =
+    indicator === 'bottom' && lastFolderNoteIds.has(targetId);
+  const indented = isFolderNote
+    ? isLastFolderNoteBoundary
+      ? boundaryIndented
+      : true
+    : isAtBoundary;
+  const insetPx = 8;
+  const leftPx = insetPx + (indented ? 12 : 0);
+
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: indicator === 'top' ? target.start : target.start + target.size,
+        left: leftPx,
+        right: insetPx,
+        height: 2,
+        bgcolor: 'primary.main',
+        zIndex: 1,
+      }}
+    />
+  );
+};
 
 const getNoteTitle = (note: Note): { text: string; isFallback: boolean } => {
   if (note.title.trim()) return { text: note.title, isFallback: false };
@@ -309,10 +353,22 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     if (rafIdRef.current) return;
     rafIdRef.current = requestAnimationFrame(() => {
       rafIdRef.current = 0;
-      setDragIndicatorState({
-        overId: lastOverIdRef.current,
-        boundaryIndented: lastBoundaryIndented.current,
-        insertAbove: lastInsertAbove.current,
+      setDragIndicatorState((prev) => {
+        const nextOverId = lastOverIdRef.current;
+        const nextIndented = lastBoundaryIndented.current;
+        const nextAbove = lastInsertAbove.current;
+        if (
+          prev.overId === nextOverId &&
+          prev.boundaryIndented === nextIndented &&
+          prev.insertAbove === nextAbove
+        ) {
+          return prev;
+        }
+        return {
+          overId: nextOverId,
+          boundaryIndented: nextIndented,
+          insertAbove: nextAbove,
+        };
       });
     });
   }, []);
@@ -524,6 +580,8 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     estimateSize: () => 52,
     initialRect: { width: 0, height: 800 },
     overscan: 8,
+    useFlushSync: false,
+    observeElementOffset: observeElementOffsetThrottled,
   });
 
   const virtualRows = isTestEnv
@@ -1391,14 +1449,18 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                       width: '100%',
                     }}
                   >
+                    <DropIndicatorOverlay
+                      virtualizer={virtualizer}
+                      flatItems={flatItems}
+                      isTestEnv={isTestEnv}
+                      activeDragId={activeDragId}
+                      getDropIndicator={getDropIndicator}
+                      boundaryIndented={boundaryIndented}
+                      precedingFolderIds={precedingFolderIds}
+                      lastFolderNoteIds={lastFolderNoteIds}
+                    />
                     {virtualRows.map((row) => {
                       const id = row.id;
-                      const indicator = getDropIndicator(id);
-                      const isAtBoundary =
-                        boundaryIndented &&
-                        ((indicator === 'top' && precedingFolderIds.has(id)) ||
-                          (indicator === 'bottom' &&
-                            lastFolderNoteIds.has(id)));
 
                       let content: React.ReactNode = null;
 
@@ -1406,17 +1468,8 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                         const noteId = id.slice('folder-note:'.length);
                         const note = noteMap.get(noteId);
                         if (!note) return null;
-                        const isLastBoundary =
-                          indicator === 'bottom' && lastFolderNoteIds.has(id);
                         content = (
-                          <SortableWrapper
-                            id={id}
-                            dropIndicator={indicator}
-                            indentedIndicator={
-                              isLastBoundary ? boundaryIndented : true
-                            }
-                            insetIndicator
-                          >
+                          <SortableWrapper id={id}>
                             <Box
                               sx={(theme) => ({
                                 mx: 1,
@@ -1445,12 +1498,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                           const note = noteMap.get(parsed.id);
                           if (!note) return null;
                           content = (
-                            <SortableWrapper
-                              id={id}
-                              dropIndicator={indicator}
-                              indentedIndicator={isAtBoundary}
-                              insetIndicator
-                            >
+                            <SortableWrapper id={id}>
                               <Box sx={{ mx: 1 }}>
                                 <ArchivedNoteItem
                                   note={note}
@@ -1469,12 +1517,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                           const folder = folderMap.get(parsed.id);
                           if (!folder) return null;
                           content = (
-                            <SortableWrapper
-                              id={id}
-                              dropIndicator={indicator}
-                              indentedIndicator={isAtBoundary}
-                              insetIndicator
-                            >
+                            <SortableWrapper id={id}>
                               <Box sx={{ mx: 1 }}>
                                 <DroppableZone id={`folder-drop:${folder.id}`}>
                                   {renderFolderHeader(folder)}

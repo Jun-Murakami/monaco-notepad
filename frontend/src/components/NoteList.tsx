@@ -47,12 +47,31 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import {
+  observeElementOffset,
+  useVirtualizer,
+  type Virtualizer,
+} from '@tanstack/react-virtual';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
 import dayjs from '../utils/dayjs';
 import { NotePreviewPopper } from './NotePreviewPopper';
+
+// スクロールイベントを RAF で間引く observeElementOffset
+const observeElementOffsetThrottled = <T extends Element>(
+  instance: Virtualizer<T, Element>,
+  cb: (offset: number, isScrolling: boolean) => void,
+) => {
+  let rafId = 0;
+  return observeElementOffset(instance, (offset, isScrolling) => {
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      cb(offset, isScrolling);
+    });
+  });
+};
 
 const getNoteTitle = (
   note: Note | FileNote,
@@ -477,81 +496,139 @@ const DroppableZone: React.FC<{
 const SortableWrapper: React.FC<{
   id: string;
   children: React.ReactNode;
-  dropIndicator?: 'top' | 'bottom' | null;
-  indentedIndicator?: boolean;
-  insetIndicator?: boolean;
   staticMode?: boolean;
-}> = memo(
-  ({
-    id,
-    children,
-    dropIndicator,
-    indentedIndicator,
-    insetIndicator,
-    staticMode,
-  }) => {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({ id });
+}> = memo(({ id, children, staticMode }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
 
-    const style = staticMode
-      ? { opacity: isDragging ? 0.3 : 1 }
-      : { transform: CSS.Transform.toString(transform), transition };
+  const style = staticMode
+    ? { opacity: isDragging ? 0.3 : 1 }
+    : { transform: CSS.Transform.toString(transform), transition };
 
-    const handlePointerDown: React.PointerEventHandler = (e) => {
-      e.stopPropagation();
-      (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
-    };
+  const handlePointerDown: React.PointerEventHandler = (e) => {
+    e.stopPropagation();
+    (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
+  };
 
-    const insetPx = insetIndicator ? 8 : 0;
-    const indentPx = indentedIndicator ? 12 : 0;
-    const leftPx = insetPx + indentPx;
+  return (
+    <Box
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onPointerDown={handlePointerDown}
+    >
+      {children}
+    </Box>
+  );
+});
 
-    return (
-      <Box
-        ref={setNodeRef}
-        style={style}
-        {...attributes}
-        {...listeners}
-        onPointerDown={handlePointerDown}
-        sx={{ position: 'relative' }}
-      >
-        {dropIndicator === 'top' && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 0,
-              left: leftPx,
-              right: insetPx,
-              height: 2,
-              bgcolor: 'primary.main',
-              zIndex: 1,
-            }}
-          />
-        )}
-        {children}
-        {dropIndicator === 'bottom' && (
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: 0,
-              left: leftPx,
-              right: insetPx,
-              height: 2,
-              bgcolor: 'primary.main',
-              zIndex: 1,
-            }}
-          />
-        )}
-      </Box>
-    );
-  },
-);
+const FolderDropIndicatorOverlay: React.FC<{
+  virtualizer: Virtualizer<HTMLElement, Element>;
+  flatItems: string[];
+  isTestEnv: boolean;
+  activeDragId: string | null;
+  getDropIndicator: (id: string) => 'top' | 'bottom' | null;
+  boundaryIndented: boolean;
+  precedingFolderIds: Map<string, string>;
+  lastFolderNoteIds: Map<string, string>;
+}> = ({
+  virtualizer,
+  flatItems,
+  isTestEnv,
+  activeDragId,
+  getDropIndicator,
+  boundaryIndented,
+  precedingFolderIds,
+  lastFolderNoteIds,
+}) => {
+  if (isTestEnv || !activeDragId) return null;
+  const visibleRows = virtualizer.getVirtualItems();
+  const target = visibleRows.find((row) => {
+    const id = flatItems[row.index];
+    if (!id) return false;
+    return getDropIndicator(id) !== null;
+  });
+  if (!target) return null;
+  const targetId = flatItems[target.index];
+  const indicator = targetId ? getDropIndicator(targetId) : null;
+  if (!targetId || !indicator) return null;
+
+  const isAtBoundary =
+    boundaryIndented &&
+    ((indicator === 'top' && precedingFolderIds.has(targetId)) ||
+      (indicator === 'bottom' && lastFolderNoteIds.has(targetId)));
+  const isFolderNote = targetId.startsWith('folder-note:');
+  const isLastFolderNoteBoundary =
+    indicator === 'bottom' && lastFolderNoteIds.has(targetId);
+  const indented = isFolderNote
+    ? isLastFolderNoteBoundary
+      ? boundaryIndented
+      : true
+    : isAtBoundary;
+  const insetPx = 8;
+  const leftPx = insetPx + (indented ? 12 : 0);
+
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: indicator === 'top' ? target.start : target.start + target.size,
+        left: leftPx,
+        right: insetPx,
+        height: 2,
+        bgcolor: 'primary.main',
+        zIndex: 1,
+      }}
+    />
+  );
+};
+
+const FlatDropIndicatorOverlay: React.FC<{
+  virtualizer: Virtualizer<HTMLElement, Element>;
+  activeNotes: Note[] | FileNote[];
+  isTestEnv: boolean;
+  activeDragId: string | null;
+  overId: string | null;
+  insertAbove: boolean;
+}> = ({
+  virtualizer,
+  activeNotes,
+  isTestEnv,
+  activeDragId,
+  overId,
+  insertAbove,
+}) => {
+  if (isTestEnv || !activeDragId || !overId || activeDragId === overId) {
+    return null;
+  }
+
+  const visibleRows = virtualizer.getVirtualItems();
+  const target = visibleRows.find(
+    (row) => activeNotes[row.index]?.id === overId,
+  );
+  if (!target) return null;
+
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: insertAbove ? target.start : target.start + target.size,
+        left: 8,
+        right: 8,
+        height: 2,
+        bgcolor: 'primary.main',
+        zIndex: 1,
+      }}
+    />
+  );
+};
 
 interface FolderHeaderProps {
   folder: Folder;
@@ -1021,15 +1098,27 @@ export const NoteList: React.FC<NoteListProps> = ({
     return listEl;
   }, [listElement]);
 
-  // ref の最新値を1つの setState にまとめて flush する
+  // ref の最新値を1つの setState にまとめて flush する（変化がなければスキップ）
   const scheduleDragIndicatorFlush = useCallback(() => {
     if (rafIdRef.current) return;
     rafIdRef.current = requestAnimationFrame(() => {
       rafIdRef.current = 0;
-      setDragIndicatorState({
-        overId: lastOverIdRef.current,
-        boundaryIndented: lastBoundaryIndented.current,
-        insertAbove: lastInsertAbove.current,
+      setDragIndicatorState((prev) => {
+        const nextOverId = lastOverIdRef.current;
+        const nextIndented = lastBoundaryIndented.current;
+        const nextAbove = lastInsertAbove.current;
+        if (
+          prev.overId === nextOverId &&
+          prev.boundaryIndented === nextIndented &&
+          prev.insertAbove === nextAbove
+        ) {
+          return prev;
+        }
+        return {
+          overId: nextOverId,
+          boundaryIndented: nextIndented,
+          insertAbove: nextAbove,
+        };
       });
     });
   }, []);
@@ -1643,6 +1732,8 @@ export const NoteList: React.FC<NoteListProps> = ({
     estimateSize: () => 52,
     initialRect: { width: 0, height: 800 },
     overscan: 8,
+    useFlushSync: false,
+    observeElementOffset: observeElementOffsetThrottled,
   });
 
   const flatModeVirtualizer = useVirtualizer({
@@ -1651,6 +1742,8 @@ export const NoteList: React.FC<NoteListProps> = ({
     estimateSize: () => 52,
     initialRect: { width: 0, height: 800 },
     overscan: 8,
+    useFlushSync: false,
+    observeElementOffset: observeElementOffsetThrottled,
   });
 
   if (hasFolders) {
@@ -1693,13 +1786,18 @@ export const NoteList: React.FC<NoteListProps> = ({
                 width: '100%',
               }}
             >
+              <FolderDropIndicatorOverlay
+                virtualizer={hasFoldersVirtualizer}
+                flatItems={flatItems}
+                isTestEnv={isTestEnv}
+                activeDragId={activeDragId}
+                getDropIndicator={getDropIndicator}
+                boundaryIndented={boundaryIndented}
+                precedingFolderIds={precedingFolderIds}
+                lastFolderNoteIds={lastFolderNoteIds}
+              />
               {folderRows.map((row) => {
                 const id = row.id;
-                const indicator = getDropIndicator(id);
-                const isAtBoundary =
-                  boundaryIndented &&
-                  ((indicator === 'top' && precedingFolderIds.has(id)) ||
-                    (indicator === 'bottom' && lastFolderNoteIds.has(id)));
 
                 let content: React.ReactNode = null;
 
@@ -1707,19 +1805,9 @@ export const NoteList: React.FC<NoteListProps> = ({
                   const noteId = id.slice('folder-note:'.length);
                   const note = noteMap.get(noteId);
                   if (!note) return null;
-                  const isLastBoundary =
-                    indicator === 'bottom' && lastFolderNoteIds.has(id);
                   const isLastInFolder = lastFolderNoteIds.has(id);
                   content = (
-                    <SortableWrapper
-                      id={id}
-                      dropIndicator={indicator}
-                      indentedIndicator={
-                        isLastBoundary ? boundaryIndented : true
-                      }
-                      insetIndicator
-                      staticMode
-                    >
+                    <SortableWrapper id={id} staticMode>
                       <Box
                         sx={{
                           mx: 1,
@@ -1755,13 +1843,7 @@ export const NoteList: React.FC<NoteListProps> = ({
                     const note = noteMap.get(parsed.id);
                     if (!note) return null;
                     content = (
-                      <SortableWrapper
-                        id={id}
-                        dropIndicator={indicator}
-                        indentedIndicator={isAtBoundary}
-                        insetIndicator
-                        staticMode
-                      >
+                      <SortableWrapper id={id} staticMode>
                         <Box sx={{ mx: 1 }}>
                           {renderNoteItem(note, !!activeDragId)}
                         </Box>
@@ -1777,13 +1859,7 @@ export const NoteList: React.FC<NoteListProps> = ({
                     );
                     const isDraggingThis = activeDragId === id;
                     content = (
-                      <SortableWrapper
-                        id={id}
-                        dropIndicator={indicator}
-                        indentedIndicator={isAtBoundary}
-                        insetIndicator
-                        staticMode
-                      >
+                      <SortableWrapper id={id} staticMode>
                         <Box
                           sx={{
                             mx: 1,
@@ -1955,6 +2031,14 @@ export const NoteList: React.FC<NoteListProps> = ({
                   width: '100%',
                 }}
               >
+                <FlatDropIndicatorOverlay
+                  virtualizer={flatModeVirtualizer}
+                  activeNotes={activeNotes}
+                  isTestEnv={isTestEnv}
+                  activeDragId={activeDragId}
+                  overId={overId}
+                  insertAbove={insertAbove}
+                />
                 {flatRows.map((row) => {
                   const note = row.note;
                   if (!note) return null;

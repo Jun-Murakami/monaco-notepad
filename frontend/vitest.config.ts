@@ -44,9 +44,10 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
-      all: true,
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      // Vitest v4では coverage.all が型定義から削除されているため、
+      // include/exclude でカバレッジ対象ファイルを明示的に制御する。
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
         'src/**/*.d.ts',
