@@ -1031,6 +1031,19 @@ export const NoteList: React.FC<NoteListProps> = ({
     return map;
   }, [topLevelOrder, collapsedFolders, activeNotes]);
 
+  const firstFolderNoteByFolderId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of topLevelOrder) {
+      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
+        const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === item.id);
+        if (folderNotes.length > 0) {
+          map.set(item.id, `folder-note:${folderNotes[0].id}`);
+        }
+      }
+    }
+    return map;
+  }, [topLevelOrder, collapsedFolders, activeNotes]);
+
   // folderId → 最後のfolder-note IDの逆引き ----
   const lastFolderNoteByFolderId = useMemo(() => {
     const map = new Map<string, string>();
@@ -1122,6 +1135,31 @@ export const NoteList: React.FC<NoteListProps> = ({
     if (target instanceof HTMLElement) {
       const el = target.closest('[role="button"]') ?? target;
       const rect = el.getBoundingClientRect();
+      const activator = event.activatorEvent;
+      // dnd-kit の activatorEvent は union/unknown を含むため、
+      // clientX/clientY の存在だけでなく「数値型であること」まで確認してから使う。
+      const hasPointerCoordinates = (
+        value: unknown,
+      ): value is { clientX: number; clientY: number } => {
+        if (!value || typeof value !== 'object') {
+          return false;
+        }
+        const pointer = value as { clientX?: unknown; clientY?: unknown };
+        return (
+          typeof pointer.clientX === 'number' &&
+          typeof pointer.clientY === 'number'
+        );
+      };
+      // 掴んだ位置を維持してゴーストを表示する（中央固定だと左右判定の体感が悪化する）
+      if (hasPointerCoordinates(activator)) {
+        const offsetX = activator.clientX - rect.left;
+        const offsetY = activator.clientY - rect.top;
+        dragGhostOffsetRef.current = {
+          x: Math.max(0, Math.min(offsetX, rect.width)),
+          y: Math.max(0, Math.min(offsetY, rect.height)),
+        };
+        return;
+      }
       dragGhostOffsetRef.current = {
         x: rect.width / 2,
         y: rect.height / 2,
@@ -1143,7 +1181,8 @@ export const NoteList: React.FC<NoteListProps> = ({
     if (overId && (overId.startsWith('folder-note:') || overId.startsWith('folder-tail:'))) {
       const rect = overRectRef.current;
       if (rect) {
-        return clientX > rect.left + 24;
+        // フォルダ内/末尾では少し左に寄せただけで「外に出す」判定へ切り替える
+        return clientX > rect.left + 96;
       }
     }
     const listEl = listRef.current;
@@ -1157,14 +1196,9 @@ export const NoteList: React.FC<NoteListProps> = ({
   const handleDragOverWithFolders = useCallback(
     (event: DragOverEvent) => {
       const newOverId = event.over ? (event.over.id as string) : null;
-      const now = Date.now();
-      const prev = lastOverIdRef.current;
-      if (newOverId !== prev) {
-        if (now - overIdTimestampRef.current < 80 && prev !== null && newOverId !== null) {
-          return;
-        }
+      if (newOverId !== lastOverIdRef.current) {
         lastOverIdRef.current = newOverId;
-        overIdTimestampRef.current = now;
+        overIdTimestampRef.current = Date.now();
       }
       if (newOverId && isBoundaryTarget(newOverId)) {
         lastBoundaryIndented.current = getBoundaryIndented(pointerXRef.current, newOverId);
@@ -1226,6 +1260,15 @@ export const NoteList: React.FC<NoteListProps> = ({
     if (id.startsWith('note:')) return id.slice('note:'.length);
     return null;
   }, []);
+
+  const getFolderIdForNoteId = useCallback(
+    (noteId: string | null): string | null => {
+      if (!noteId) return null;
+      const note = (activeNotes as Note[]).find((n) => n.id === noteId);
+      return note?.folderId ?? null;
+    },
+    [activeNotes],
+  );
 
   const getTopLevelIndex = useCallback(
     (id: string): number => {
@@ -1455,7 +1498,9 @@ export const NoteList: React.FC<NoteListProps> = ({
 
       // 外部ノートをフォルダ内ノートの間にドロップ ----
       if (dropId.startsWith('folder-note:')) {
-        if (!lastBoundaryIndented.current) return;
+        if (!lastBoundaryIndented.current && !activeId.startsWith('folder-note:')) {
+          return;
+        }
         const noteId = extractNoteId(activeId);
         if (!noteId) return;
         const overNoteId = dropId.slice('folder-note:'.length);
@@ -1537,11 +1582,42 @@ export const NoteList: React.FC<NoteListProps> = ({
         if (targetFolderIdForBoundary) {
           const noteId = extractNoteId(activeId);
           if (noteId) {
-            const draggedNote = (activeNotes as Note[]).find((n) => n.id === noteId);
-            if (draggedNote && (draggedNote.folderId || '') !== targetFolderIdForBoundary) {
-              const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === targetFolderIdForBoundary);
+            const draggedNote = (activeNotes as Note[]).find(
+              (n) => n.id === noteId,
+            );
+            if (
+              draggedNote &&
+              draggedNote.folderId &&
+              draggedNote.folderId === targetFolderIdForBoundary &&
+              dropId.startsWith('folder:')
+            ) {
+              const prepared = prepareFolderInsert(
+                noteId,
+                targetFolderIdForBoundary,
+                0,
+              );
+              if (!prepared) return;
+              onReorder?.(prepared.newNotes);
+              try {
+                await UpdateNoteOrder(noteId, prepared.insertIndex);
+              } catch (error) {
+                console.error('Failed to update note order:', error);
+              }
+              return;
+            }
+            if (
+              draggedNote &&
+              (draggedNote.folderId || '') !== targetFolderIdForBoundary
+            ) {
+              const folderNotes = (activeNotes as Note[]).filter(
+                (n) => n.folderId === targetFolderIdForBoundary,
+              );
               const insertPosInFolder = folderNotes.length;
-              const prepared = prepareFolderInsert(noteId, targetFolderIdForBoundary, insertPosInFolder);
+              const prepared = prepareFolderInsert(
+                noteId,
+                targetFolderIdForBoundary,
+                insertPosInFolder,
+              );
               if (!prepared) return;
               onReorder?.(prepared.newNotes);
               onMoveNoteToFolder?.(noteId, targetFolderIdForBoundary);
@@ -1637,6 +1713,11 @@ export const NoteList: React.FC<NoteListProps> = ({
           const folderId = overId.slice('folder-drop:'.length);
           if (itemId === `folder:${folderId}`) return 'top';
         }
+        if (boundaryIndented && extractNoteId(activeDragId)) {
+          const folderId = overId.slice('folder-drop:'.length);
+          const firstId = firstFolderNoteByFolderId.get(folderId);
+          if (firstId && itemId === firstId) return 'top';
+        }
         return null;
       }
       if (overId.startsWith('folder-tail:')) {
@@ -1648,7 +1729,20 @@ export const NoteList: React.FC<NoteListProps> = ({
         }
         return null;
       }
+      if (overId.startsWith('folder:') && boundaryIndented) {
+        const folderId = overId.slice('folder:'.length);
+        const activeNoteId = extractNoteId(activeDragId);
+        if (getFolderIdForNoteId(activeNoteId) === folderId) {
+          if (itemId === overId) return 'top';
+        }
+        return null;
+      }
       if (lastFolderNoteIds.has(overId) && isLastFolderNoteBoundary(overId)) {
+        // フォルダ内ノート同士の並び替え時は、表示と実際の挿入判定を一致させる
+        if (activeDragId.startsWith('folder-note:')) {
+          if (itemId === overId) return insertAbove ? 'top' : 'bottom';
+          return null;
+        }
         if (itemId === overId) return 'bottom';
         return null;
       }
@@ -1667,9 +1761,11 @@ export const NoteList: React.FC<NoteListProps> = ({
     [
       activeDragId,
       overId,
+      getFolderIdForNoteId,
       isLastFolderNoteBoundary,
       lastFolderNoteIds,
       lastFolderNoteByFolderId,
+      firstFolderNoteByFolderId,
       boundaryIndented,
       extractNoteId,
       insertAbove,
@@ -1838,18 +1934,6 @@ export const NoteList: React.FC<NoteListProps> = ({
                               onAutoEditDone={onEditingFolderDone}
                             />
                           </DroppableZone>
-                          {overId === `folder-drop:${folder.id}` &&
-                            activeDragId &&
-                            extractNoteId(activeDragId) &&
-                            boundaryIndented && (
-                              <Box
-                                sx={(theme) => ({
-                                  height: 2,
-                                  bgcolor: 'primary.main',
-                                  ml: theme.spacing(1.5),
-                                })}
-                              />
-                            )}
                         </Box>
                       </SortableWrapper>
                     );

@@ -358,7 +358,10 @@ func (s *noteService) CreateFolder(name string) (*Folder, error) {
 
 	s.ensureTopLevelOrder()
 	s.noteList.Folders = append(s.noteList.Folders, *folder)
-	s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "folder", ID: folder.ID})
+	s.noteList.TopLevelOrder = append(
+		[]TopLevelItem{{Type: "folder", ID: folder.ID}},
+		s.noteList.TopLevelOrder...,
+	)
 
 	if err := s.saveNoteList(); err != nil {
 		return nil, err
