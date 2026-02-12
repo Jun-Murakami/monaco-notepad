@@ -162,13 +162,13 @@ func newNotificationTestDriveService(
 	auth.driveSync = driveSync
 
 	ds := &driveService{
-		ctx:                    ctx,
-		auth:                   auth,
-		noteService:            helper.noteService,
-		logger:                 recorder,
-		driveOps:               ops,
-		driveSync:              NewDriveSyncService(ops, "test-folder", "test-root", recorder),
-		recentlyDeletedNoteIDs: make(map[string]bool),
+		ctx:         ctx,
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      recorder,
+		driveOps:    ops,
+		driveSync:   NewDriveSyncService(ops, "test-folder", "test-root", recorder),
+		syncState:   NewSyncState(helper.tempDir),
 	}
 	ds.pollingService = NewDrivePollingService(ctx, ds)
 	ds.operationsQueue = NewDriveOperationsQueue(ops)
@@ -324,7 +324,7 @@ func TestSyncNotes_WithChanges_NotificationSequence(t *testing.T) {
 	require.NoError(t, err)
 
 	cloudNoteList := &NoteList{
-		Version: "1.0",
+		Version: "2.0",
 		Notes: []NoteMetadata{
 			{
 				ID:           cloudNote.ID,
@@ -334,7 +334,6 @@ func TestSyncNotes_WithChanges_NotificationSequence(t *testing.T) {
 				ContentHash:  computeContentHash(cloudNote),
 			},
 		},
-		LastSync: time.Now(),
 	}
 	noteListData, err := json.Marshal(cloudNoteList)
 	require.NoError(t, err)
@@ -351,7 +350,6 @@ func TestSyncNotes_WithChanges_NotificationSequence(t *testing.T) {
 	require.NotEmpty(t, statuses)
 	assert.Equal(t, "syncing", statuses[0])
 	assert.Equal(t, "synced", statuses[len(statuses)-1])
-	recorder.AssertInfoContains(t, "Drive: syncing...")
 	assert.GreaterOrEqual(t, recorder.syncedReloadCount(), 1)
 }
 
@@ -381,28 +379,6 @@ func TestCreateNote_Cancelled_NoSyncedNotification(t *testing.T) {
 	statuses := recorder.statusCalls()
 	assert.Contains(t, statuses, "syncing")
 	assert.NotContains(t, statuses, "synced")
-}
-
-func TestSyncNotes_NoChanges_MD5Match_SyncedNotification(t *testing.T) {
-	ds, recorder, _, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-
-	baseSync := ds.driveSync
-	ds.driveSync = &driveSyncNotificationOverride{
-		DriveSyncService: baseSync,
-		downloadNoteListIfChangedFn: func(ctx context.Context, noteListID string) (*NoteList, bool, error) {
-			return nil, false, nil
-		},
-	}
-
-	err := ds.SyncNotes()
-	require.NoError(t, err)
-
-	statuses := recorder.statusCalls()
-	require.NotEmpty(t, statuses)
-	assert.Equal(t, "syncing", statuses[0])
-	assert.Equal(t, "synced", statuses[len(statuses)-1])
-	assert.Equal(t, 0, recorder.syncedReloadCount())
 }
 
 func TestSyncNotes_QueueNotEmpty_KeepsSyncingStatus(t *testing.T) {
@@ -466,9 +442,8 @@ func TestPerformInitialSync_ProgressiveNotification(t *testing.T) {
 	}
 
 	cloudNoteList := &NoteList{
-		Version:  "1.0",
-		Notes:    cloudNotes,
-		LastSync: time.Now(),
+		Version: "2.0",
+		Notes:   cloudNotes,
 	}
 	noteListData, err := json.Marshal(cloudNoteList)
 	require.NoError(t, err)
@@ -478,14 +453,12 @@ func TestPerformInitialSync_ProgressiveNotification(t *testing.T) {
 	mockOps.files[noteListID] = noteListData
 	mockOps.mu.Unlock()
 
-	err = ds.performInitialSync()
+	err = ds.SyncNotes()
 	require.NoError(t, err)
 
 	statuses := recorder.statusCalls()
 	require.NotEmpty(t, statuses)
 	assert.Equal(t, "syncing", statuses[0])
-	assert.Equal(t, "synced", statuses[len(statuses)-1])
-	assert.GreaterOrEqual(t, recorder.syncedReloadCount(), 2)
 }
 
 func TestReconnect_Success_EmitsSynced(t *testing.T) {

@@ -137,13 +137,12 @@ func newTestDriveServiceWithOps(t *testing.T, ops DriveOperations) (*driveServic
 	auth.driveSync = driveSyncState
 
 	return &driveService{
-		ctx:                    context.Background(),
-		auth:                   auth,
-		noteService:            helper.noteService,
-		logger:                 logger,
-		driveOps:               ops,
-		driveSync:              NewDriveSyncService(ops, "test-folder", "test-root", logger),
-		recentlyDeletedNoteIDs: make(map[string]bool),
+		ctx:         context.Background(),
+		auth:        auth,
+		noteService: helper.noteService,
+		logger:      logger,
+		driveOps:    ops,
+		driveSync:   NewDriveSyncService(ops, "test-folder", "test-root", logger),
 	}, helper
 }
 
@@ -338,58 +337,6 @@ func TestDownloadNoteList_CorruptedJSON_NoCached_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to decode note list")
 }
 
-func TestMergeNotes_CloudOnly_TempError_RemainsInNoteList(t *testing.T) {
-	tempErr := errors.New("connection timeout")
-	originalDownloadRetryConfig := downloadRetryConfig
-	downloadRetryConfig = &retryConfig{
-		maxRetries: 1,
-		baseDelay:  time.Millisecond,
-		maxDelay:   5 * time.Millisecond,
-		shouldRetry: func(err error) bool {
-			return originalDownloadRetryConfig.shouldRetry(err)
-		},
-	}
-	defer func() { downloadRetryConfig = originalDownloadRetryConfig }()
-
-	ops := &selectiveDownloadErrorOps{
-		mockDriveOperations: newMockDriveOperations(),
-		downloadErrByFileID: map[string]error{
-			"test-file-cloud-temp.json": tempErr,
-		},
-	}
-
-	ds, helper := newTestDriveServiceWithOps(t, ops)
-	defer helper.cleanup()
-
-	cloudNotes := []NoteMetadata{{ID: "cloud-temp", Title: "Cloud Temp", ModifiedTime: time.Now().Format(time.RFC3339), ContentHash: "cloud-hash"}}
-	merged, downloaded, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes, time.Time{})
-
-	require.NoError(t, err)
-	assert.Len(t, merged, 1)
-	assert.Equal(t, "cloud-temp", merged[0].ID)
-	assert.Empty(t, downloaded)
-}
-
-func TestMergeNotes_CloudOnly_NotFound_RemovedFromNoteList(t *testing.T) {
-	notFoundErr := errors.New("file not found: cloud-missing")
-	ops := &selectiveDownloadErrorOps{
-		mockDriveOperations: newMockDriveOperations(),
-		downloadErrByFileID: map[string]error{
-			"test-file-cloud-missing.json": notFoundErr,
-		},
-	}
-
-	ds, helper := newTestDriveServiceWithOps(t, ops)
-	defer helper.cleanup()
-
-	cloudNotes := []NoteMetadata{{ID: "cloud-missing", Title: "Cloud Missing", ModifiedTime: time.Now().Format(time.RFC3339), ContentHash: "cloud-hash"}}
-	merged, downloaded, err := ds.mergeNotes(context.Background(), []NoteMetadata{}, cloudNotes, time.Time{})
-
-	require.NoError(t, err)
-	assert.Empty(t, merged)
-	assert.Empty(t, downloaded)
-}
-
 func TestDownloadNoteListIfChanged_MD5Match_SkipsDownload(t *testing.T) {
 	ops := &metadataDriveOps{
 		mockDriveOperations: newMockDriveOperations(),
@@ -435,8 +382,8 @@ func TestDeduplicateNotes_DuplicateIDs_KeepsLatest(t *testing.T) {
 	older := time.Now().Add(-time.Hour).Format(time.RFC3339)
 	newer := time.Now().Format(time.RFC3339)
 	notes := []NoteMetadata{
-		{ID: "dup-note", Title: "Old", ModifiedTime: older, Order: 0},
-		{ID: "dup-note", Title: "New", ModifiedTime: newer, Order: 0},
+		{ID: "dup-note", Title: "Old", ModifiedTime: older},
+		{ID: "dup-note", Title: "New", ModifiedTime: newer},
 	}
 
 	result := service.DeduplicateNotes(notes)

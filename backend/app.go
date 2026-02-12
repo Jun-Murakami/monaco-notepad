@@ -55,12 +55,11 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"monaco-notepad/backend/migration"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -100,20 +99,6 @@ func NewApp() *App {
 	}
 }
 
-func (a *App) loadOrCreateClientID() string {
-	clientIDPath := filepath.Join(a.appDataDir, "client_id.txt")
-	if data, err := os.ReadFile(clientIDPath); err == nil {
-		id := strings.TrimSpace(string(data))
-		if id != "" {
-			return id
-		}
-	}
-
-	id := uuid.New().String()
-	_ = os.WriteFile(clientIDPath, []byte(id), 0644)
-	return id
-}
-
 // ------------------------------------------------------------
 // アプリケーション関連の操作
 // ------------------------------------------------------------
@@ -137,8 +122,6 @@ func (a *App) Startup(ctx context.Context) {
 	// ディレクトリの作成
 	os.MkdirAll(a.notesDir, 0755)
 
-	a.clientID = a.loadOrCreateClientID()
-
 	// AppLoggerの初期化
 	a.logger = NewAppLogger(ctx, false, a.appDataDir)
 
@@ -154,6 +137,10 @@ func (a *App) Startup(ctx context.Context) {
 	// FileNoteServiceの初期化
 	a.fileNoteService = NewFileNoteService(a.appDataDir)
 
+	if err := migration.RunIfNeeded(a.appDataDir, a.notesDir); err != nil {
+		a.logger.Console("Warning: migration failed: %v", err)
+	}
+
 	// NoteServiceの初期化 (NoteList読み込みを含む)
 	noteService, err := NewNoteService(a.notesDir, a.logger)
 	if err != nil {
@@ -161,6 +148,12 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 	a.noteService = noteService
+
+	// SyncStateの初期化
+	a.syncState = NewSyncState(a.appDataDir)
+	if err := a.syncState.Load(); err != nil {
+		a.logger.Console("Warning: failed to load sync state: %v", err)
+	}
 }
 
 // フロントエンドにDOMが読み込まれたときに呼び出される関数 ------------------------------------------------------------
@@ -188,7 +181,7 @@ func (a *App) DomReady(ctx context.Context) {
 		credentialsJSON,
 		a.logger,
 		authService,
-		a.clientID,
+		a.syncState,
 	)
 	a.driveService = driveService
 
@@ -277,24 +270,11 @@ func (a *App) SaveNote(note *Note, action string) error {
 		return err
 	}
 
-	// ドライブサービスが初期化されており、接続中の場合はアップロード
-	if a.driveService != nil && a.driveService.IsConnected() {
-		a.logger.Console("SaveNote: uploading to Drive - noteID=%s, action=%s", note.ID, action)
-		noteCopy := *note
-		isCreate := action == "create"
-		go func() {
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
-			if err := a.driveService.SaveNoteAndUpdateList(&noteCopy, isCreate); err != nil {
-				a.logger.Console("SaveNote: upload failed - noteID=%s, err=%v", noteCopy.ID, err)
-				a.authService.HandleOfflineTransition(err)
-				return
-			}
-			a.logger.Console("SaveNote: upload completed - noteID=%s", noteCopy.ID)
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
-		}()
-	} else {
-		a.logger.Console("SaveNote: skipping upload - driveService=%v, isConnected=%v", a.driveService != nil, a.driveService != nil && a.driveService.IsConnected())
+	if a.syncState != nil {
+		a.syncState.MarkNoteDirty(note.ID)
 	}
+
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -313,22 +293,17 @@ func (a *App) ApplyIntegrityFixes(selections []IntegrityFixSelection) (Integrity
 // ノートリストを保存する ------------------------------------------------------------
 func (a *App) SaveNoteList() error {
 	a.logger.Console("SaveNoteList called")
-	// LastSyncを更新
-	a.noteService.noteList.LastSync = time.Now()
 
 	// まずノートサービスでローカルに保存
 	if err := a.noteService.saveNoteList(); err != nil {
 		return err
 	}
 
-	// ドライブサービスが初期化されており、接続中の場合はアップロード
-	if a.driveService != nil && a.driveService.IsConnected() {
-		a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
-		if err := a.driveService.UpdateNoteList(); err != nil {
-			return a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
-		}
-		a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
 	}
+
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -339,29 +314,11 @@ func (a *App) DeleteNote(id string) error {
 		return err
 	}
 
-	// ドライブサービスが初期化されており、接続中の場合は削除
-	if a.driveService != nil {
-		a.driveService.RecordNoteDeletion(id)
+	if a.syncState != nil {
+		a.syncState.MarkNoteDeleted(id)
 	}
-	if a.driveService != nil && a.driveService.IsConnected() {
-		go func() {
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
 
-			// ノートを削除
-			if err := a.driveService.DeleteNoteDrive(id); err != nil {
-				a.authService.HandleOfflineTransition(fmt.Errorf("error deleting note from Drive: %v", err))
-				return
-			}
-
-			// ノートリストをアップロード
-			if err := a.driveService.UpdateNoteList(); err != nil {
-				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
-				return
-			}
-
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
-		}()
-	}
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -377,7 +334,11 @@ func (a *App) UpdateNoteOrder(noteID string, newIndex int) error {
 		return fmt.Errorf("error updating note order: %v", err)
 	}
 
-	a.syncNoteListToDrive()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -393,7 +354,11 @@ func (a *App) CreateFolder(name string) (*Folder, error) {
 		return nil, err
 	}
 
-	a.syncNoteListToDrive()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+
+	a.triggerSyncIfConnected()
 	return folder, nil
 }
 
@@ -403,7 +368,11 @@ func (a *App) RenameFolder(id string, name string) error {
 		return err
 	}
 
-	a.syncNoteListToDrive()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -413,7 +382,11 @@ func (a *App) DeleteFolder(id string) error {
 		return err
 	}
 
-	a.syncNoteListToDrive()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -423,7 +396,11 @@ func (a *App) MoveNoteToFolder(noteID string, folderID string) error {
 		return err
 	}
 
-	a.syncNoteListToDrive()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -442,16 +419,11 @@ func (a *App) UpdateCollapsedFolderIDs(ids []string) error {
 		return err
 	}
 
-	if a.driveService != nil && a.driveService.IsConnected() {
-		go func() {
-			if err := a.driveService.UpdateNoteList(); err != nil {
-				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
-				return
-			}
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
-		}()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
 	}
 
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -461,7 +433,11 @@ func (a *App) UpdateTopLevelOrder(order []TopLevelItem) error {
 		return err
 	}
 
-	a.syncNoteListToDrive()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -470,7 +446,10 @@ func (a *App) ArchiveFolder(id string) error {
 	if err := a.noteService.ArchiveFolder(id); err != nil {
 		return err
 	}
-	a.uploadFolderNotesAndNoteList(id)
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -479,35 +458,11 @@ func (a *App) UnarchiveFolder(id string) error {
 	if err := a.noteService.UnarchiveFolder(id); err != nil {
 		return err
 	}
-	a.uploadFolderNotesAndNoteList(id)
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+	a.triggerSyncIfConnected()
 	return nil
-}
-
-func (a *App) uploadFolderNotesAndNoteList(folderID string) {
-	if a.driveService == nil || !a.driveService.IsConnected() {
-		return
-	}
-	var notes []*Note
-	for _, meta := range a.noteService.noteList.Notes {
-		if meta.FolderID == folderID {
-			if note, err := a.noteService.LoadNote(meta.ID); err == nil {
-				notes = append(notes, note)
-			}
-		}
-	}
-	go func() {
-		a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
-		for _, note := range notes {
-			if err := a.driveService.SaveNoteAndUpdateList(note, false); err != nil {
-				a.logger.Console("Failed to upload note %s: %v", note.ID, err)
-			}
-		}
-		if err := a.driveService.UpdateNoteList(); err != nil {
-			a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
-			return
-		}
-		a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
-	}()
 }
 
 // アーカイブされたフォルダを削除する ------------------------------------------------------------
@@ -519,31 +474,18 @@ func (a *App) DeleteArchivedFolder(id string) error {
 		}
 	}
 
-	if a.driveService != nil && len(noteIDs) > 0 {
-		a.driveService.RecordNoteDeletion(noteIDs...)
+	if a.syncState != nil {
+		for _, noteID := range noteIDs {
+			a.syncState.MarkNoteDeleted(noteID)
+		}
+		a.syncState.MarkDirty()
 	}
 
 	if err := a.noteService.DeleteArchivedFolder(id); err != nil {
 		return err
 	}
 
-	if a.driveService != nil && a.driveService.IsConnected() {
-		go func() {
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "syncing")
-
-			for _, noteID := range noteIDs {
-				if err := a.driveService.DeleteNoteDrive(noteID); err != nil {
-					a.logger.Console("Failed to delete note %s from Drive: %v", noteID, err)
-				}
-			}
-
-			if err := a.driveService.UpdateNoteList(); err != nil {
-				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
-				return
-			}
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
-		}()
-	}
+	a.triggerSyncIfConnected()
 	return nil
 }
 
@@ -557,19 +499,19 @@ func (a *App) UpdateArchivedTopLevelOrder(order []TopLevelItem) error {
 	if err := a.noteService.UpdateArchivedTopLevelOrder(order); err != nil {
 		return err
 	}
-	a.syncNoteListToDrive()
+	if a.syncState != nil {
+		a.syncState.MarkDirty()
+	}
+	a.triggerSyncIfConnected()
 	return nil
 }
 
-// ノートリストをGoogle Driveに同期するヘルパー
-func (a *App) syncNoteListToDrive() {
+func (a *App) triggerSyncIfConnected() {
 	if a.driveService != nil && a.driveService.IsConnected() {
 		go func() {
-			if err := a.driveService.UpdateNoteList(); err != nil {
-				a.authService.HandleOfflineTransition(fmt.Errorf("error uploading note list to Drive: %v", err))
-				return
+			if err := a.driveService.SyncNotes(); err != nil {
+				a.authService.HandleOfflineTransition(err)
 			}
-			a.logger.NotifyDriveStatus(a.ctx.ctx, "synced")
 		}()
 	}
 }

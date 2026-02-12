@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -33,10 +30,6 @@ type DriveSyncService interface {
 	UpdateNoteList(ctx context.Context, noteList *NoteList, noteListID string) error
 	DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error)
 	DownloadNoteListIfChanged(ctx context.Context, noteListID string) (*NoteList, bool, error)
-	// クラウドのノートリストにないノートをリストアップ (ダウンロードオプション付き)
-	ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, files []*drive.File, arrowDownload bool) (*NoteList, error)
-	// クラウドに存在しないファイルをリストから除外して返す
-	ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error)
 	// 重複IDを持つノートを処理し、最新のものだけを保持
 	DeduplicateNotes(notes []NoteMetadata) []NoteMetadata
 
@@ -45,25 +38,20 @@ type DriveSyncService interface {
 
 	// テスト用メソッド ------------------------------------------------------------
 	SetConnected(connected bool)
-	SetInitialSyncCompleted(completed bool)
-	SetCloudNoteList(noteList *NoteList)
 	IsConnected() bool
-	HasCompletedInitialSync() bool
 }
 
 // DriveSyncServiceの実装
 type driveSyncServiceImpl struct {
-	driveOps                DriveOperations
-	notesFolderID           string
-	rootFolderID            string
-	isConnected             bool
-	hasCompletedInitialSync bool
-	cloudNoteList           *NoteList
-	logger                  AppLogger
-	fileIDCache             map[string]string
-	cacheMu                 sync.RWMutex
-	lastNoteListMd5         string
-	cachedNoteList          *NoteList
+	driveOps        DriveOperations
+	notesFolderID   string
+	rootFolderID    string
+	isConnected     bool
+	logger          AppLogger
+	fileIDCache     map[string]string
+	cacheMu         sync.RWMutex
+	lastNoteListMd5 string
+	cachedNoteList  *NoteList
 }
 
 // DriveSyncServiceインスタンスを作成
@@ -487,7 +475,7 @@ func (d *driveSyncServiceImpl) CreateNoteList(
 	// ファイル作成をリトライ付きで実行
 	err = d.withRetry(func() error {
 		_, err := d.driveOps.CreateFile(
-			"noteList.json",
+			"noteList_v2.json",
 			noteListContent,
 			d.rootFolderID,
 			"application/json",
@@ -543,7 +531,7 @@ func (d *driveSyncServiceImpl) DownloadNoteListIfChanged(
 	}
 
 	if meta.Md5Checksum != "" && meta.Md5Checksum == d.lastNoteListMd5 {
-		d.logger.Console("noteList.json unchanged (md5: %s), skipping download", meta.Md5Checksum)
+		d.logger.Console("noteList_v2.json unchanged (md5: %s), skipping download", meta.Md5Checksum)
 		return nil, false, nil
 	}
 
@@ -587,118 +575,20 @@ func (d *driveSyncServiceImpl) DownloadNoteList(
 	return &noteList, nil
 }
 
-// クラウドのnotesフォルダにある不明なノートをリストアップする ------------------------------------------------------------
-func (d *driveSyncServiceImpl) ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, files []*drive.File, arrowDownload bool) (*NoteList, error) {
-	// 実ファイルのノートを反復して不明なノートをリストアップ
-	unknownNotes := make([]NoteMetadata, 0)
-	for _, file := range files {
-		noteID := strings.TrimSuffix(file.Name, ".json")
-		if slices.IndexFunc(cloudNoteList.Notes, func(n NoteMetadata) bool { return n.ID == noteID }) == -1 {
-			var note []byte
-			// 不明なノートのダウンロードをリトライ付きで実行
-			if arrowDownload {
-				err := d.withRetry(func() error {
-					var err error
-					d.logger.Console("Downloading note %s from cloud because it doesn't exist in local", noteID)
-					note, err = d.driveOps.DownloadFile(file.Id)
-					return err
-				}, downloadRetryConfig)
-
-				if err != nil {
-					return nil, fmt.Errorf("failed to download note: %w", err)
-				}
-
-				var parsedNote Note
-				if err := json.Unmarshal(note, &parsedNote); err != nil {
-					return nil, fmt.Errorf("failed to decode note %s: %w", noteID, err)
-				}
-
-				//メタデータのみを抽出
-				metadata := NoteMetadata{
-					ID:            parsedNote.ID,
-					Title:         parsedNote.Title,
-					ContentHeader: parsedNote.ContentHeader,
-					ModifiedTime:  parsedNote.ModifiedTime,
-					Language:      parsedNote.Language,
-					Archived:      parsedNote.Archived,
-				}
-				unknownNotes = append(unknownNotes, metadata)
-			} else {
-				unknownNotes = append(unknownNotes, NoteMetadata{
-					ID: noteID,
-				})
-			}
-		}
-	}
-
-	unknownNotesList := &NoteList{
-		Notes: unknownNotes,
-	}
-
-	return unknownNotesList, nil
-}
-
-// クラウドに存在しないファイルをリストから除外して返す ------------------------------------------------------------
-func (d *driveSyncServiceImpl) ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error) {
-	var files []*drive.File
-
-	// ファイル一覧取得をリトライ付きで実行
-	err := d.withRetry(func() error {
-		var err error
-		files, err = d.driveOps.ListFiles(
-			fmt.Sprintf("'%s' in parents and trashed=false", d.notesFolderID))
-		return err
-	}, listOperationRetryConfig)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to list files in notes folder: %w", err)
-	}
-
-	// 実体ファイルのIDマップを作成（ファイル名から拡張子を除去）
-	existingIDs := make(map[string]bool)
-	for _, file := range files {
-		id := strings.TrimSuffix(file.Name, filepath.Ext(file.Name))
-		existingIDs[id] = true
-	}
-
-	// クラウドノートリストをフィルタリング
-	var filteredNotes []NoteMetadata
-	for _, note := range cloudNoteList.Notes {
-		if existingIDs[note.ID] {
-			filteredNotes = append(filteredNotes, note)
-		}
-	}
-
-	cloudNoteList.Notes = filteredNotes
-
-	return cloudNoteList, nil
-}
-
 // ノートリストをソート（順序を保持しながら重複を排除） ------------------------------------------------------------
 func (d *driveSyncServiceImpl) DeduplicateNotes(notes []NoteMetadata) []NoteMetadata {
-	// IDでグループ化
-	noteMap := make(map[string][]NoteMetadata)
+	result := make([]NoteMetadata, 0, len(notes))
+	indexByID := make(map[string]int, len(notes))
 	for _, note := range notes {
-		noteMap[note.ID] = append(noteMap[note.ID], note)
-	}
-
-	// 重複を排除し、最新のものを保持
-	result := make([]NoteMetadata, 0)
-	for _, noteVersions := range noteMap {
-		latest := noteVersions[0]
-		for _, note := range noteVersions[1:] {
-			if isModifiedTimeAfter(note.ModifiedTime, latest.ModifiedTime) {
-				latest = note
+		if idx, exists := indexByID[note.ID]; exists {
+			if isModifiedTimeAfter(note.ModifiedTime, result[idx].ModifiedTime) {
+				result[idx] = note
 			}
+			continue
 		}
-		result = append(result, latest)
+		indexByID[note.ID] = len(result)
+		result = append(result, note)
 	}
-
-	// Order値でソート
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Order < result[j].Order
-	})
-
 	return result
 }
 
@@ -707,18 +597,6 @@ func (d *driveSyncServiceImpl) SetConnected(connected bool) {
 	d.isConnected = connected
 }
 
-func (d *driveSyncServiceImpl) SetInitialSyncCompleted(completed bool) {
-	d.hasCompletedInitialSync = completed
-}
-
-func (d *driveSyncServiceImpl) SetCloudNoteList(noteList *NoteList) {
-	d.cloudNoteList = noteList
-}
-
 func (d *driveSyncServiceImpl) IsConnected() bool {
 	return d.isConnected
-}
-
-func (d *driveSyncServiceImpl) HasCompletedInitialSync() bool {
-	return d.hasCompletedInitialSync
 }

@@ -54,12 +54,6 @@ func (f *fakeDriveSyncService) DownloadNoteList(ctx context.Context, noteListID 
 func (f *fakeDriveSyncService) DownloadNoteListIfChanged(ctx context.Context, noteListID string) (*NoteList, bool, error) {
 	return f.noteList, true, f.err
 }
-func (f *fakeDriveSyncService) ListUnknownNotes(ctx context.Context, cloudNoteList *NoteList, files []*drive.File, arrowDownload bool) (*NoteList, error) {
-	return cloudNoteList, nil
-}
-func (f *fakeDriveSyncService) ListAvailableNotes(cloudNoteList *NoteList) (*NoteList, error) {
-	return cloudNoteList, nil
-}
 func (f *fakeDriveSyncService) DeduplicateNotes(notes []NoteMetadata) []NoteMetadata {
 	return notes
 }
@@ -79,86 +73,41 @@ func (f *fakeDriveSyncService) HasCompletedInitialSync() bool {
 	return true
 }
 
-func TestIsSelfNoteListChange(t *testing.T) {
-	ctx := context.Background()
-	logger := NewAppLogger(ctx, true, t.TempDir())
+func TestHasRelevantChanges(t *testing.T) {
+	rootID := "root-folder"
+	notesID := "notes-folder"
 
-	auth := &authService{
-		driveSync: &DriveSync{
-			cloudNoteList: &NoteList{Version: "1.0", Notes: []NoteMetadata{}},
-		},
-	}
-	auth.driveSync.SetFolderIDs("root-folder", "notes-folder")
-	auth.driveSync.SetNoteListID("noteList-id")
-
-	makePolling := func(noteList *NoteList) *DrivePollingService {
-		ds := &driveService{
-			ctx:            ctx,
-			auth:           auth,
-			driveSync:      &fakeDriveSyncService{noteList: noteList},
-			logger:         logger,
-			clientID:       "client-1",
-			lastSyncResult: nil,
-		}
-		return NewDrivePollingService(ctx, ds)
-	}
-
-	noteListChange := []*drive.Change{
-		{
+	t.Run("json file change is relevant", func(t *testing.T) {
+		changes := []*drive.Change{{
 			File: &drive.File{
 				Id:      "noteList-id",
-				Name:    "noteList.json",
-				Parents: []string{"root-folder"},
+				Name:    "noteList_v2.json",
+				Parents: []string{rootID},
 			},
-		},
-	}
+		}}
+		assert.True(t, hasRelevantChanges(changes, rootID, notesID))
+	})
 
-	otherChange := []*drive.Change{
-		{
-			File: &drive.File{
-				Id:      "noteList-id",
-				Name:    "noteList.json",
-				Parents: []string{"root-folder"},
-			},
-		},
-		{
+	t.Run("note file change is relevant", func(t *testing.T) {
+		changes := []*drive.Change{{
 			File: &drive.File{
 				Id:      "note-1",
 				Name:    "note-1.json",
-				Parents: []string{"notes-folder"},
+				Parents: []string{notesID},
 			},
-		},
-	}
-
-	t.Run("self noteList change is skipped", func(t *testing.T) {
-		polling := makePolling(&NoteList{
-			Version:          "1.0",
-			LastSyncClientID: "client-1",
-		})
-		assert.True(t, polling.isSelfNoteListChange(noteListChange, "root-folder", "notes-folder"))
+		}}
+		assert.True(t, hasRelevantChanges(changes, rootID, notesID))
 	})
 
-	t.Run("different client is not skipped", func(t *testing.T) {
-		polling := makePolling(&NoteList{
-			Version:          "1.0",
-			LastSyncClientID: "client-2",
-		})
-		assert.False(t, polling.isSelfNoteListChange(noteListChange, "root-folder", "notes-folder"))
-	})
-
-	t.Run("missing client id is not skipped", func(t *testing.T) {
-		polling := makePolling(&NoteList{
-			Version: "1.0",
-		})
-		assert.False(t, polling.isSelfNoteListChange(noteListChange, "root-folder", "notes-folder"))
-	})
-
-	t.Run("other changes are not skipped", func(t *testing.T) {
-		polling := makePolling(&NoteList{
-			Version:          "1.0",
-			LastSyncClientID: "client-1",
-		})
-		assert.False(t, polling.isSelfNoteListChange(otherChange, "root-folder", "notes-folder"))
+	t.Run("unrelated change is not relevant", func(t *testing.T) {
+		changes := []*drive.Change{{
+			File: &drive.File{
+				Id:      "other-file",
+				Name:    "photo.png",
+				Parents: []string{"unrelated-folder"},
+			},
+		}}
+		assert.False(t, hasRelevantChanges(changes, rootID, notesID))
 	})
 }
 

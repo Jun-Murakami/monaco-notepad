@@ -172,19 +172,19 @@ func (d *driveOperationsImpl) GetFileID(fileName string, noteFolderID string, ro
 	}
 
 	// noteFolderIDのバリデーション（ノートファイル用）
-	if strings.Contains(fileName, ".json") && !strings.Contains(fileName, "noteList.json") && noteFolderID == "" {
+	if strings.Contains(fileName, ".json") && !strings.Contains(fileName, "noteList_v2.json") && noteFolderID == "" {
 		return "", fmt.Errorf("noteFolderID is empty for note file")
 	}
 
 	var fixedFileId string
-	if strings.Contains(fileName, "noteList.json") {
-		query := fmt.Sprintf("name='noteList.json' and '%s' in parents and trashed=false", rootFolderID)
+	if strings.Contains(fileName, "noteList_v2.json") {
+		query := fmt.Sprintf("name='noteList_v2.json' and '%s' in parents and trashed=false", rootFolderID)
 		files, err := d.ListFiles(query)
 		if err != nil {
-			return "", fmt.Errorf("failed to list files for noteList.json in root folder %s: %w", rootFolderID, err)
+			return "", fmt.Errorf("failed to list files for noteList_v2.json in root folder %s: %w", rootFolderID, err)
 		}
 		if len(files) == 0 {
-			return "", fmt.Errorf("noteList.json not found in root folder %s", rootFolderID)
+			return "", fmt.Errorf("noteList_v2.json not found in root folder %s", rootFolderID)
 		}
 		fixedFileId = files[0].Id
 	} else if strings.Contains(fileName, ".json") {

@@ -92,7 +92,6 @@ export namespace backend {
 	    language: string;
 	    modifiedTime: string;
 	    archived: boolean;
-	    order: number;
 	    folderId?: string;
 	    syncing?: boolean;
 	
@@ -109,7 +108,6 @@ export namespace backend {
 	        this.language = source["language"];
 	        this.modifiedTime = source["modifiedTime"];
 	        this.archived = source["archived"];
-	        this.order = source["order"];
 	        this.folderId = source["folderId"];
 	        this.syncing = source["syncing"];
 	    }

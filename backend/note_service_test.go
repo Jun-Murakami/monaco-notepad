@@ -225,7 +225,6 @@ func TestUpdateNoteOrder(t *testing.T) {
 
 	// 順序が正しく更新されていることを確認
 	assert.Equal(t, "note3", helper.noteService.noteList.Notes[0].ID)
-	assert.Equal(t, 0, helper.noteService.noteList.Notes[0].Order)
 
 	// アーカイブノートの順序が維持されていることを確認
 	var archivedFound bool
@@ -408,10 +407,9 @@ func TestBackwardCompatNoteListWithoutFolders(t *testing.T) {
 	// 古い形式のnoteList.json（foldersフィールドなし）を直接書き込む
 	oldNoteList := `{
 		"version": "1.0",
-		"notes": [{"id": "old-note", "title": "Old Note", "language": "plaintext", "modifiedTime": "2024-01-01T00:00:00Z"}],
-		"lastSync": "2024-01-01T00:00:00Z"
+		"notes": [{"id": "old-note", "title": "Old Note", "language": "plaintext", "modifiedTime": "2024-01-01T00:00:00Z"}]
 	}`
-	noteListPath := filepath.Join(helper.tempDir, "noteList.json")
+	noteListPath := filepath.Join(helper.tempDir, "noteList_v2.json")
 	err := os.WriteFile(noteListPath, []byte(oldNoteList), 0644)
 	assert.NoError(t, err)
 

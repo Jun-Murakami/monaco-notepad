@@ -68,9 +68,7 @@ func NewAuthService(
 		logger:        logger,
 		frontendReady: make(chan struct{}), // バッファなしチャネル
 		driveSync: &DriveSync{
-			cloudNoteList:           &NoteList{Version: "1.0", Notes: []NoteMetadata{}},
-			isConnected:             false,
-			hasCompletedInitialSync: false,
+			isConnected: false,
 		},
 		initialized: false,
 	}
@@ -326,7 +324,6 @@ func (a *authService) handleFullOfflineTransition(err error) {
 	}
 
 	// 認証状態をリセット
-	a.driveSync.hasCompletedInitialSync = false
 	a.driveSync.service = nil
 	a.driveSync.SetConnected(false)
 

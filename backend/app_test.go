@@ -101,11 +101,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 		notesFolderID: "test-folder",
 		rootFolderID:  "test-root",
 		isConnected:   true,
-		cloudNoteList: &NoteList{
-			Version: "1.0",
-			Notes:   []NoteMetadata{},
-		},
-		mutex: sync.RWMutex{},
+		mutex:         sync.RWMutex{},
 		config: &oauth2.Config{
 			ClientID:     "test-client-id",
 			ClientSecret: "test-client-secret",
@@ -126,7 +122,7 @@ func setupAppTest(t *testing.T) *appTestHelper {
 		credentials,
 		app.logger,
 		authService,
-		"test-client-id",
+		NewSyncState(app.appDataDir),
 	)
 
 	// DriveOpsの初期化を追加
@@ -397,7 +393,7 @@ func TestUpdateCollapsedFolderIDs(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"folder-a", "folder-b"}, helper.app.GetCollapsedFolderIDs())
 
-	noteListPath := filepath.Join(helper.app.appDataDir, "noteList.json")
+	noteListPath := filepath.Join(helper.app.appDataDir, "noteList_v2.json")
 	data, readErr := os.ReadFile(noteListPath)
 	assert.NoError(t, readErr)
 

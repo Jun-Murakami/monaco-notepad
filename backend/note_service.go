@@ -13,10 +13,9 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentVersion = "1.0"
+const CurrentVersion = "2.0"
 
 // computeContentHash はノートの安定フィールドのみからハッシュを計算する
-// ModifiedTime, Order, ContentHeader は除外（タイムスタンプ更新のみでの不要同期を防止）
 func computeContentHash(note *Note) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%v\n%s",
@@ -75,7 +74,7 @@ func NewNoteService(notesDir string, logger AppLogger) (*noteService, error) {
 	service := &noteService{
 		notesDir: notesDir,
 		noteList: &NoteList{
-			Version: "1.0",
+			Version: CurrentVersion,
 			Notes:   []NoteMetadata{},
 		},
 		logger: logger,
@@ -106,7 +105,6 @@ func (s *noteService) ListNotes() ([]Note, error) {
 				ContentHeader: metadata.ContentHeader,
 				Language:      metadata.Language,
 				ModifiedTime:  metadata.ModifiedTime,
-				Order:         metadata.Order,
 				Archived:      true,
 				FolderID:      metadata.FolderID,
 			})
@@ -122,7 +120,6 @@ func (s *noteService) ListNotes() ([]Note, error) {
 					ContentHeader: metadata.ContentHeader,
 					Language:      metadata.Language,
 					ModifiedTime:  metadata.ModifiedTime,
-					Order:         metadata.Order,
 					Archived:      false,
 					FolderID:      metadata.FolderID,
 					Syncing:       true,
@@ -130,15 +127,9 @@ func (s *noteService) ListNotes() ([]Note, error) {
 				continue
 			}
 			notes = append(notes, *note)
-			notes[len(notes)-1].Order = metadata.Order
 			notes[len(notes)-1].FolderID = metadata.FolderID
 		}
 	}
-
-	// ノートの順序をOrderの値で並べ直す
-	sort.Slice(notes, func(i, j int) bool {
-		return notes[i].Order < notes[j].Order
-	})
 
 	return notes, nil
 }
@@ -180,12 +171,10 @@ func (s *noteService) SaveNote(note *Note) error {
 	}
 
 	found := false
-	var order int
 
 	// 既存のノートを探す
 	for i, metadata := range s.noteList.Notes {
 		if metadata.ID == note.ID {
-			order = metadata.Order
 			// 既存のメタデータを更新（FolderIDは既存の値を保持）
 			s.noteList.Notes[i] = NoteMetadata{
 				ID:            note.ID,
@@ -195,7 +184,6 @@ func (s *noteService) SaveNote(note *Note) error {
 				ModifiedTime:  note.ModifiedTime,
 				Archived:      note.Archived,
 				ContentHash:   contentHash,
-				Order:         order,
 				FolderID:      metadata.FolderID,
 			}
 			found = true
@@ -204,18 +192,6 @@ func (s *noteService) SaveNote(note *Note) error {
 	}
 
 	if !found {
-		// 新規ノートの場合、最小の順序値-1を設定（リストの先頭に追加）
-		order = 0
-		if len(s.noteList.Notes) > 0 {
-			minOrder := s.noteList.Notes[0].Order
-			for _, metadata := range s.noteList.Notes {
-				if metadata.Order < minOrder {
-					minOrder = metadata.Order
-				}
-			}
-			order = minOrder - 1
-		}
-
 		s.ensureTopLevelOrder()
 
 		s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
@@ -226,7 +202,6 @@ func (s *noteService) SaveNote(note *Note) error {
 			ModifiedTime:  note.ModifiedTime,
 			Archived:      note.Archived,
 			ContentHash:   contentHash,
-			Order:         order,
 		})
 
 		if note.FolderID == "" && !note.Archived {
@@ -236,9 +211,6 @@ func (s *noteService) SaveNote(note *Note) error {
 
 	// 保存前にローカルノートリストの重複削除を実施
 	s.deduplicateNoteList()
-
-	s.noteList.LastSync = time.Now()
-
 	return s.saveNoteList()
 }
 
@@ -259,8 +231,6 @@ func (s *noteService) DeleteNote(id string) error {
 	s.noteList.Notes = updatedNotes
 	s.ensureTopLevelOrder()
 	s.removeFromTopLevelOrder(id)
-
-	s.noteList.LastSync = time.Now()
 
 	return s.saveNoteList()
 }
@@ -284,73 +254,17 @@ func (s *noteService) DeleteNoteFromSync(id string) error {
 	return nil
 }
 
-// MergeConflictContent はコンフリクト発生時に、クラウド版とローカル版の内容を
-// Git風のコンフリクトマーカーで結合した文字列を返す。
-// 新しいノートは作成せず、既存ノートの内容を上書きする方式。
-func MergeConflictContent(cloudContent, localContent, cloudTime, localTime string) string {
-	return fmt.Sprintf("<<<<<<< Cloud (%s)\n%s\n=======\n%s\n>>>>>>> Local (%s)",
-		cloudTime, cloudContent, localContent, localTime)
-}
-
-// CreateConflictCopy はローカルノートのコンフリクトコピーを作成する。
-// 新しいIDを生成し、タイトルに "(競合コピー YYYY-MM-DD HH:MM)" を付与。
-// TopLevelOrderでは元ノートの直後に配置する。
-// Deprecated: MergeConflictContent によるノート内マージ方式に移行済み。
-func (s *noteService) CreateConflictCopy(originalNote *Note) (*Note, error) {
-	newID := uuid.New().String()
-	timestamp := time.Now().Format("2006-01-02 15:04")
-	copyNote := &Note{
-		ID:            newID,
-		Title:         originalNote.Title + " (conflict copy " + timestamp + ")",
-		Content:       originalNote.Content,
-		ContentHeader: originalNote.ContentHeader,
-		Language:      originalNote.Language,
-		ModifiedTime:  originalNote.ModifiedTime,
-		Archived:      originalNote.Archived,
-		FolderID:      originalNote.FolderID,
+func (s *noteService) buildNoteMetadata(note *Note) NoteMetadata {
+	return NoteMetadata{
+		ID:            note.ID,
+		Title:         note.Title,
+		ContentHeader: note.ContentHeader,
+		Language:      note.Language,
+		ModifiedTime:  note.ModifiedTime,
+		Archived:      note.Archived,
+		ContentHash:   computeContentHash(note),
+		FolderID:      note.FolderID,
 	}
-
-	data, err := json.MarshalIndent(copyNote, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal conflict copy: %w", err)
-	}
-
-	contentHash := computeContentHash(copyNote)
-
-	notePath := filepath.Join(s.notesDir, newID+".json")
-	if err := os.WriteFile(notePath, data, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write conflict copy: %w", err)
-	}
-
-	meta := NoteMetadata{
-		ID:            newID,
-		Title:         copyNote.Title,
-		ContentHeader: copyNote.ContentHeader,
-		Language:      copyNote.Language,
-		ModifiedTime:  copyNote.ModifiedTime,
-		Archived:      copyNote.Archived,
-		ContentHash:   contentHash,
-		FolderID:      originalNote.FolderID,
-	}
-	s.noteList.Notes = append(s.noteList.Notes, meta)
-
-	originalIdx := -1
-	for i, item := range s.noteList.TopLevelOrder {
-		if item.Type == "note" && item.ID == originalNote.ID {
-			originalIdx = i
-			break
-		}
-	}
-	newItem := TopLevelItem{Type: "note", ID: newID}
-	if originalIdx >= 0 {
-		s.noteList.TopLevelOrder = append(
-			s.noteList.TopLevelOrder[:originalIdx+1],
-			append([]TopLevelItem{newItem}, s.noteList.TopLevelOrder[originalIdx+1:]...)...)
-	} else {
-		s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, newItem)
-	}
-
-	return copyNote, nil
 }
 
 // アーカイブされたノートの完全なデータを読み込む ------------------------------------------------------------
@@ -394,15 +308,8 @@ func (s *noteService) UpdateNoteOrder(noteID string, newIndex int) error {
 	}
 	activeNotes = append(activeNotes[:newIndex], append([]NoteMetadata{note}, activeNotes[newIndex:]...)...)
 
-	// 順序を振り直す（1ずつ増加）
-	for i := range activeNotes {
-		activeNotes[i].Order = i
-	}
-
 	// アクティブノートとアーカイブノートを結合
 	s.noteList.Notes = append(activeNotes, archivedNotes...)
-
-	s.noteList.LastSync = time.Now()
 
 	return s.saveNoteList()
 }
@@ -421,7 +328,6 @@ func (s *noteService) CreateFolder(name string) (*Folder, error) {
 	s.ensureTopLevelOrder()
 	s.noteList.Folders = append(s.noteList.Folders, *folder)
 	s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "folder", ID: folder.ID})
-	s.noteList.LastSync = time.Now()
 
 	if err := s.saveNoteList(); err != nil {
 		return nil, err
@@ -438,7 +344,6 @@ func (s *noteService) RenameFolder(id string, name string) error {
 	for i, folder := range s.noteList.Folders {
 		if folder.ID == id {
 			s.noteList.Folders[i].Name = name
-			s.noteList.LastSync = time.Now()
 			return s.saveNoteList()
 		}
 	}
@@ -470,7 +375,6 @@ func (s *noteService) DeleteFolder(id string) error {
 	s.noteList.Folders = updatedFolders
 	s.ensureTopLevelOrder()
 	s.removeFromTopLevelOrder(id)
-	s.noteList.LastSync = time.Now()
 	return s.saveNoteList()
 }
 
@@ -501,7 +405,6 @@ func (s *noteService) MoveNoteToFolder(noteID string, folderID string) error {
 				s.noteList.TopLevelOrder = append(s.noteList.TopLevelOrder, TopLevelItem{Type: "note", ID: noteID})
 			}
 
-			s.noteList.LastSync = time.Now()
 			return s.saveNoteList()
 		}
 	}
@@ -527,7 +430,6 @@ func (s *noteService) GetTopLevelOrder() []TopLevelItem {
 // トップレベルの表示順序を更新する ------------------------------------------------------------
 func (s *noteService) UpdateTopLevelOrder(order []TopLevelItem) error {
 	s.noteList.TopLevelOrder = order
-	s.noteList.LastSync = time.Now()
 	return s.saveNoteList()
 }
 
@@ -626,7 +528,6 @@ func (s *noteService) ArchiveFolder(id string) error {
 		s.noteList.ArchivedTopLevelOrder...,
 	)
 
-	s.noteList.LastSync = time.Now()
 	return s.saveNoteList()
 }
 
@@ -676,7 +577,6 @@ func (s *noteService) UnarchiveFolder(id string) error {
 		TopLevelItem{Type: "folder", ID: id},
 	)
 
-	s.noteList.LastSync = time.Now()
 	return s.saveNoteList()
 }
 
@@ -724,7 +624,6 @@ func (s *noteService) DeleteArchivedFolder(id string) error {
 	s.removeFromArchivedTopLevelOrder(id)
 	s.removeFromTopLevelOrder(id)
 
-	s.noteList.LastSync = time.Now()
 	return s.saveNoteList()
 }
 
@@ -739,7 +638,6 @@ func (s *noteService) GetArchivedTopLevelOrder() []TopLevelItem {
 // アーカイブされたアイテムの表示順序を更新する ------------------------------------------------------------
 func (s *noteService) UpdateArchivedTopLevelOrder(order []TopLevelItem) error {
 	s.noteList.ArchivedTopLevelOrder = order
-	s.noteList.LastSync = time.Now()
 	return s.saveNoteList()
 }
 
@@ -847,7 +745,7 @@ func (s *noteService) deduplicateNoteList() {
 
 // ノートリストをJSONファイルから読み込む ------------------------------------------------------------
 func (s *noteService) loadNoteList() error {
-	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
+	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList_v2.json")
 
 	if _, err := os.Stat(noteListPath); os.IsNotExist(err) {
 		s.logInfo("Note list not found, creating new one")
@@ -927,7 +825,6 @@ func (s *noteService) isNoteListEqual(a, b []NoteMetadata) bool {
 			sortedA[i].ModifiedTime != sortedB[i].ModifiedTime ||
 			sortedA[i].Archived != sortedB[i].Archived ||
 			sortedA[i].ContentHash != sortedB[i].ContentHash ||
-			sortedA[i].Order != sortedB[i].Order ||
 			sortedA[i].FolderID != sortedB[i].FolderID {
 			return false
 		}
@@ -963,10 +860,8 @@ func (s *noteService) resolveMetadataConflicts() error {
 			Language:      note.Language,
 			ModifiedTime:  note.ModifiedTime,
 			Archived:      note.Archived,
-			// ContentHash, Order, FolderIDはノートリストの値を保持
-			ContentHash: listMetadata.ContentHash,
-			Order:       listMetadata.Order,
-			FolderID:    listMetadata.FolderID,
+			ContentHash:   listMetadata.ContentHash,
+			FolderID:      listMetadata.FolderID,
 		}
 
 		// メタデータの競合を解決
@@ -1011,14 +906,10 @@ func (s *noteService) resolveMetadata(listMetadata, fileMetadata NoteMetadata) N
 	if isModifiedTimeAfter(listMetadata.ModifiedTime, fileMetadata.ModifiedTime) {
 		return listMetadata
 	} else if isModifiedTimeAfter(fileMetadata.ModifiedTime, listMetadata.ModifiedTime) {
-		// ファイルの方が新しい場合はファイルのメタデータを採用（OrderとContentHashは保持）
-		fileMetadata.Order = listMetadata.Order
 		fileMetadata.ContentHash = listMetadata.ContentHash
 		return fileMetadata
 	}
 
-	// ModifiedTimeが同じ場合はファイルのメタデータを優先（OrderとContentHashは保持）
-	fileMetadata.Order = listMetadata.Order
 	fileMetadata.ContentHash = listMetadata.ContentHash
 	return fileMetadata
 }
@@ -1033,7 +924,7 @@ func (s *noteService) saveNoteList() error {
 		return err
 	}
 
-	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList.json")
+	noteListPath := filepath.Join(filepath.Dir(s.notesDir), "noteList_v2.json")
 	return os.WriteFile(noteListPath, data, 0644)
 }
 
@@ -1553,17 +1444,6 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 					continue
 				}
 
-				order := 0
-				if len(s.noteList.Notes) > 0 {
-					minOrder := s.noteList.Notes[0].Order
-					for _, metadata := range s.noteList.Notes {
-						if metadata.Order < minOrder {
-							minOrder = metadata.Order
-						}
-					}
-					order = minOrder - 1
-				}
-
 				s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
 					ID:            note.ID,
 					Title:         note.Title,
@@ -1572,7 +1452,6 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 					ModifiedTime:  note.ModifiedTime,
 					Archived:      note.Archived,
 					ContentHash:   computeContentHash(note),
-					Order:         order,
 					FolderID:      note.FolderID,
 				})
 
@@ -1637,7 +1516,6 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 	}
 
 	if summary.Applied > 0 {
-		s.noteList.LastSync = time.Now()
 		if err := s.saveNoteList(); err != nil {
 			return summary, err
 		}
