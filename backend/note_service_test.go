@@ -378,6 +378,28 @@ func TestFolderIDPreservedOnSave(t *testing.T) {
 	}
 }
 
+func TestArchivedNoteClearsFolderIDOnSave(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("ArchiveTarget")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "archivable-note", Title: "Archivable", Content: "content"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	assert.NoError(t, helper.noteService.MoveNoteToFolder("archivable-note", folder.ID))
+
+	note.Archived = true
+	assert.NoError(t, helper.noteService.SaveNote(note))
+
+	for _, m := range helper.noteService.noteList.Notes {
+		if m.ID == "archivable-note" {
+			assert.True(t, m.Archived)
+			assert.Empty(t, m.FolderID, "ノート単体のアーカイブ時はFolderIDが解除されるべき")
+		}
+	}
+}
+
 // TestListNotesWithFolderID はListNotesがFolderIDを返すことをテストします
 func TestListNotesWithFolderID(t *testing.T) {
 	helper := setupNoteTest(t)
@@ -713,6 +735,12 @@ func TestValidateIntegrity_CleansTopLevelOrder(t *testing.T) {
 
 	assert.Equal(t, 1, len(helper.noteService.noteList.TopLevelOrder))
 	assert.Equal(t, "n1", helper.noteService.noteList.TopLevelOrder[0].ID)
+
+	repairs := helper.noteService.DrainPendingIntegrityRepairs()
+	if assert.NotEmpty(t, repairs) {
+		assert.Contains(t, repairs[0], "TopLevelOrder")
+	}
+	assert.Empty(t, helper.noteService.DrainPendingIntegrityRepairs(), "Drainは1回限りであるべき")
 }
 
 func TestValidateIntegrity_NoChangeWhenConsistent(t *testing.T) {
@@ -725,6 +753,7 @@ func TestValidateIntegrity_NoChangeWhenConsistent(t *testing.T) {
 	changed, err := helper.noteService.ValidateIntegrity()
 	assert.NoError(t, err)
 	assert.False(t, changed)
+	assert.Empty(t, helper.noteService.DrainPendingIntegrityRepairs())
 }
 
 func TestValidateIntegrity_MovesArchivedNotesFromTopLevelToArchived(t *testing.T) {
@@ -897,6 +926,48 @@ func TestValidateIntegrity_ReproducesUserBug_ArchivedNotesNotShown(t *testing.T)
 		id := fmt.Sprintf("archived-%d", i)
 		assert.True(t, archivedInOrder[id], "アーカイブノート %s がArchivedTopLevelOrderに存在すべき", id)
 	}
+}
+
+func TestValidateIntegrity_MovesArchivedNotesOutOfActiveFolder(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	folder, err := helper.noteService.CreateFolder("ActiveFolder")
+	assert.NoError(t, err)
+
+	note := &Note{ID: "n1", Title: "Note1", Content: "c"}
+	assert.NoError(t, helper.noteService.SaveNote(note))
+	assert.NoError(t, helper.noteService.MoveNoteToFolder(note.ID, folder.ID))
+
+	for i := range helper.noteService.noteList.Notes {
+		if helper.noteService.noteList.Notes[i].ID == note.ID {
+			helper.noteService.noteList.Notes[i].Archived = true
+		}
+	}
+	helper.noteService.noteList.ArchivedTopLevelOrder = []TopLevelItem{}
+
+	changed, err := helper.noteService.ValidateIntegrity()
+	assert.NoError(t, err)
+	assert.True(t, changed)
+
+	foundNote := false
+	for _, metadata := range helper.noteService.noteList.Notes {
+		if metadata.ID != note.ID {
+			continue
+		}
+		foundNote = true
+		assert.True(t, metadata.Archived)
+		assert.Empty(t, metadata.FolderID, "アーカイブノートが非アーカイブフォルダを参照してはならない")
+	}
+	assert.True(t, foundNote)
+
+	foundInArchivedOrder := false
+	for _, item := range helper.noteService.noteList.ArchivedTopLevelOrder {
+		if item.Type == "note" && item.ID == note.ID {
+			foundInArchivedOrder = true
+		}
+	}
+	assert.True(t, foundInArchivedOrder, "未分類化されたアーカイブノートはArchivedTopLevelOrderに含まれるべき")
 }
 
 func TestValidateIntegrity_FutureModifiedTimeRequiresConfirmation(t *testing.T) {

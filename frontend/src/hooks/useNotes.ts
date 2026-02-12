@@ -268,6 +268,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         archived: true,
         content: content,
         contentHeader,
+        folderId: undefined,
       };
 
       setNotes((prev) => prev.map((n) => (n.id === noteId ? archivedNote : n)));

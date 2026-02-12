@@ -15,6 +15,7 @@ type SyncState struct {
 	LastSyncedDriveTs  string            `json:"lastSyncedDriveTs"`
 	DirtyNoteIDs       map[string]bool   `json:"dirtyNoteIDs"`
 	DeletedNoteIDs     map[string]bool   `json:"deletedNoteIDs"`
+	DeletedFolderIDs   map[string]bool   `json:"deletedFolderIDs"`
 	LastSyncedNoteHash map[string]string `json:"lastSyncedNoteHash"`
 
 	mu       sync.Mutex `json:"-"`
@@ -28,6 +29,7 @@ func NewSyncState(appDataDir string) *SyncState {
 		LastSyncedDriveTs:  "",
 		DirtyNoteIDs:       make(map[string]bool),
 		DeletedNoteIDs:     make(map[string]bool),
+		DeletedFolderIDs:   make(map[string]bool),
 		LastSyncedNoteHash: make(map[string]string),
 		filePath:           filepath.Join(appDataDir, "sync_state.json"),
 	}
@@ -56,6 +58,7 @@ func (s *SyncState) Load() error {
 	s.LastSyncedDriveTs = loaded.LastSyncedDriveTs
 	s.DirtyNoteIDs = loaded.DirtyNoteIDs
 	s.DeletedNoteIDs = loaded.DeletedNoteIDs
+	s.DeletedFolderIDs = loaded.DeletedFolderIDs
 	s.LastSyncedNoteHash = loaded.LastSyncedNoteHash
 	s.ensureMapsLocked()
 
@@ -101,6 +104,17 @@ func (s *SyncState) MarkDirty() {
 	_ = s.saveLocked()
 }
 
+func (s *SyncState) MarkFolderDeleted(folderID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.revision++
+	s.Dirty = true
+	s.ensureMapsLocked()
+	s.DeletedFolderIDs[folderID] = true
+	_ = s.saveLocked()
+}
+
 func (s *SyncState) ClearDirty(driveTs string, noteHashes map[string]string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -129,6 +143,7 @@ func (s *SyncState) clearDirtyLocked(driveTs string, noteHashes map[string]strin
 	s.Dirty = false
 	s.DirtyNoteIDs = make(map[string]bool)
 	s.DeletedNoteIDs = make(map[string]bool)
+	s.DeletedFolderIDs = make(map[string]bool)
 	s.LastSyncedDriveTs = driveTs
 	s.LastSyncedNoteHash = make(map[string]string, len(noteHashes))
 	for k, v := range noteHashes {
@@ -164,7 +179,7 @@ func (s *SyncState) GetDirtySnapshot() (dirtyNoteIDs map[string]bool, deletedNot
 }
 
 // GetDirtySnapshotWithRevision は dirty スナップショットと同時に revision を返す
-func (s *SyncState) GetDirtySnapshotWithRevision() (dirtyNoteIDs map[string]bool, deletedNoteIDs map[string]bool, lastSyncedNoteHash map[string]string, revision uint64) {
+func (s *SyncState) GetDirtySnapshotWithRevision() (dirtyNoteIDs map[string]bool, deletedNoteIDs map[string]bool, deletedFolderIDs map[string]bool, lastSyncedNoteHash map[string]string, revision uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -175,6 +190,10 @@ func (s *SyncState) GetDirtySnapshotWithRevision() (dirtyNoteIDs map[string]bool
 	deletedNoteIDs = make(map[string]bool, len(s.DeletedNoteIDs))
 	for id := range s.DeletedNoteIDs {
 		deletedNoteIDs[id] = true
+	}
+	deletedFolderIDs = make(map[string]bool, len(s.DeletedFolderIDs))
+	for id := range s.DeletedFolderIDs {
+		deletedFolderIDs[id] = true
 	}
 	lastSyncedNoteHash = make(map[string]string, len(s.LastSyncedNoteHash))
 	for k, v := range s.LastSyncedNoteHash {
@@ -190,6 +209,7 @@ func (s *SyncState) resetLocked(dirty bool) {
 	s.LastSyncedDriveTs = ""
 	s.DirtyNoteIDs = make(map[string]bool)
 	s.DeletedNoteIDs = make(map[string]bool)
+	s.DeletedFolderIDs = make(map[string]bool)
 	s.LastSyncedNoteHash = make(map[string]string)
 }
 
@@ -199,6 +219,9 @@ func (s *SyncState) ensureMapsLocked() {
 	}
 	if s.DeletedNoteIDs == nil {
 		s.DeletedNoteIDs = make(map[string]bool)
+	}
+	if s.DeletedFolderIDs == nil {
+		s.DeletedFolderIDs = make(map[string]bool)
 	}
 	if s.LastSyncedNoteHash == nil {
 		s.LastSyncedNoteHash = make(map[string]string)

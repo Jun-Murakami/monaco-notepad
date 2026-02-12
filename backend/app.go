@@ -260,6 +260,10 @@ func (a *App) NotifyFrontendReady() {
 			}
 		}
 
+		if repairs := a.noteService.DrainPendingIntegrityRepairs(); len(repairs) > 0 {
+			a.logger.Info("Integrity check: auto-repaired local data (%d change(s))", len(repairs))
+		}
+
 		if issues := a.noteService.DrainPendingIntegrityIssues(); len(issues) > 0 {
 			a.logger.NotifyIntegrityIssues(a.ctx.ctx, issues)
 		}
@@ -409,7 +413,7 @@ func (a *App) DeleteFolder(id string) error {
 	}
 
 	if a.syncState != nil {
-		a.syncState.MarkDirty()
+		a.syncState.MarkFolderDeleted(id)
 	}
 
 	a.triggerSyncIfConnected()
@@ -500,15 +504,15 @@ func (a *App) DeleteArchivedFolder(id string) error {
 		}
 	}
 
+	if err := a.noteService.DeleteArchivedFolder(id); err != nil {
+		return err
+	}
+
 	if a.syncState != nil {
 		for _, noteID := range noteIDs {
 			a.syncState.MarkNoteDeleted(noteID)
 		}
-		a.syncState.MarkDirty()
-	}
-
-	if err := a.noteService.DeleteArchivedFolder(id); err != nil {
-		return err
+		a.syncState.MarkFolderDeleted(id)
 	}
 
 	a.triggerSyncIfConnected()

@@ -402,3 +402,23 @@ func TestUpdateCollapsedFolderIDs(t *testing.T) {
 	assert.NoError(t, unmarshalErr)
 	assert.Equal(t, []string{"folder-a", "folder-b"}, persisted.CollapsedFolderIDs)
 }
+
+func TestNotifyFrontendReady_EmitsAutoRepairStatusMessage(t *testing.T) {
+	helper := setupAppTest(t)
+	defer helper.cleanup()
+
+	recorder := newNotificationRecorder(context.Background(), helper.tempDir)
+	helper.app.logger = recorder
+	helper.app.noteService.logger = recorder
+	helper.app.driveService = nil
+
+	helper.app.noteService.pendingIntegrityRepairs = []string{
+		"TopLevelOrder: removed 2 invalid/duplicate",
+		"Archived notes moved out of active folders: 1",
+	}
+
+	helper.app.NotifyFrontendReady()
+
+	recorder.AssertInfoContains(t, "Integrity check: auto-repaired local data (2 change(s))")
+	assert.Empty(t, helper.app.noteService.DrainPendingIntegrityRepairs(), "NotifyFrontendReady後に未通知修復ログは残らないべき")
+}

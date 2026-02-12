@@ -57,11 +57,12 @@ type NoteService interface {
 
 // NoteServiceの実装
 type noteService struct {
-	notesDir               string
-	noteList               *NoteList
-	logger                 AppLogger
-	pendingIntegrityIssues []IntegrityIssue
-	recoveryApplied        string // 復旧方法: "", "backup", "rebuild"
+	notesDir                string
+	noteList                *NoteList
+	logger                  AppLogger
+	pendingIntegrityIssues  []IntegrityIssue
+	pendingIntegrityRepairs []string
+	recoveryApplied         string // 復旧方法: "", "backup", "rebuild"
 }
 
 type conflictCopyResolution struct {
@@ -189,7 +190,13 @@ func (s *noteService) SaveNote(note *Note) error {
 	// 既存のノートを探す
 	for i, metadata := range s.noteList.Notes {
 		if metadata.ID == note.ID {
-			// 既存のメタデータを更新（FolderIDは既存の値を保持）
+			updatedFolderID := metadata.FolderID
+			// ノート単体のアーカイブ時はフォルダ紐付けを解除する
+			if note.Archived {
+				updatedFolderID = ""
+			}
+
+			// 既存のメタデータを更新（ノート単体のアーカイブ時はFolderIDを解除）
 			s.noteList.Notes[i] = NoteMetadata{
 				ID:            note.ID,
 				Title:         note.Title,
@@ -198,7 +205,7 @@ func (s *noteService) SaveNote(note *Note) error {
 				ModifiedTime:  note.ModifiedTime,
 				Archived:      note.Archived,
 				ContentHash:   contentHash,
-				FolderID:      metadata.FolderID,
+				FolderID:      updatedFolderID,
 			}
 			found = true
 			break
@@ -1322,6 +1329,33 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		}
 	}
 
+	// 6.2. アーカイブノートが非アーカイブフォルダを参照していれば未分類化
+	{
+		fixedCount := 0
+		for i, metadata := range s.noteList.Notes {
+			if !metadata.Archived || metadata.FolderID == "" {
+				continue
+			}
+			if !activeFolderIDs[metadata.FolderID] {
+				continue
+			}
+
+			s.noteList.Notes[i].FolderID = ""
+			if !archivedSeen["note:"+metadata.ID] {
+				s.noteList.ArchivedTopLevelOrder = append(
+					s.noteList.ArchivedTopLevelOrder,
+					TopLevelItem{Type: "note", ID: metadata.ID},
+				)
+				archivedSeen["note:"+metadata.ID] = true
+			}
+			fixedCount++
+			changed = true
+		}
+		if fixedCount > 0 {
+			logRepair("Archived notes moved out of active folders: %d", fixedCount)
+		}
+	}
+
 	// 6.5. 未来のModifiedTimeを検出（ユーザー確認が必要）
 	futureThreshold := time.Now().Add(2 * time.Minute)
 	for _, metadata := range s.noteList.Notes {
@@ -1408,11 +1442,16 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 
 	if changed {
 		if len(repairLogs) == 0 {
-			s.logInfo("Integrity check: repaired note list")
+			message := "Integrity check: repaired note list"
+			s.logInfo(message)
+			repairLogs = append(repairLogs, message)
 		}
 		if saveErr := s.saveNoteList(); saveErr != nil {
 			return changed, saveErr
 		}
+		s.pendingIntegrityRepairs = append([]string(nil), repairLogs...)
+	} else {
+		s.pendingIntegrityRepairs = nil
 	}
 
 	if len(issues) > 0 {
@@ -1433,6 +1472,16 @@ func (s *noteService) DrainPendingIntegrityIssues() []IntegrityIssue {
 	issues := s.pendingIntegrityIssues
 	s.pendingIntegrityIssues = nil
 	return issues
+}
+
+// 起動時に発生した自動修復ログを取り出す（1回限り）
+func (s *noteService) DrainPendingIntegrityRepairs() []string {
+	if len(s.pendingIntegrityRepairs) == 0 {
+		return nil
+	}
+	repairs := append([]string(nil), s.pendingIntegrityRepairs...)
+	s.pendingIntegrityRepairs = nil
+	return repairs
 }
 
 // conflict copy を自動解決する（同一ハッシュの重複のみ削除）

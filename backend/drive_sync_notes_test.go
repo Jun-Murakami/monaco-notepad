@@ -27,6 +27,40 @@ func (o *syncTestDriveOps) GetFileMetadata(fileID string) (*drive.File, error) {
 	return f, nil
 }
 
+type flakySyncTestDriveOps struct {
+	*syncTestDriveOps
+	failCreateFor map[string]bool
+}
+
+func (o *flakySyncTestDriveOps) CreateFile(name string, content []byte, rootFolderID string, mimeType string) (string, error) {
+	if o.failCreateFor != nil && o.failCreateFor[name] {
+		return "", fmt.Errorf("simulated create failure for %s", name)
+	}
+	return o.syncTestDriveOps.CreateFile(name, content, rootFolderID, mimeType)
+}
+
+type hookSyncTestDriveOps struct {
+	*syncTestDriveOps
+	onCreateFile func(name string)
+}
+
+func (o *hookSyncTestDriveOps) CreateFile(name string, content []byte, rootFolderID string, mimeType string) (string, error) {
+	if o.onCreateFile != nil {
+		o.onCreateFile(name)
+	}
+	return o.syncTestDriveOps.CreateFile(name, content, rootFolderID, mimeType)
+}
+
+func rebindDriveServiceOps(ds *driveService, ops DriveOperations) {
+	if ds.operationsQueue != nil {
+		ds.operationsQueue.Cleanup()
+	}
+	ds.operationsQueue = NewDriveOperationsQueue(ops)
+	ds.driveOps = ds.operationsQueue
+	rootID, notesID := ds.auth.GetDriveSync().FolderIDs()
+	ds.driveSync = NewDriveSyncService(ds.driveOps, notesID, rootID, ds.logger)
+}
+
 func newSyncTestDriveService(t *testing.T) (*driveService, *syncTestDriveOps, func()) {
 	t.Helper()
 
@@ -182,6 +216,91 @@ func TestSyncNotes_CaseA_PushLocalChanges(t *testing.T) {
 	assert.Empty(t, ds.syncState.DirtyNoteIDs)
 }
 
+func TestSyncNotes_CaseA_PushLocalChanges_FailedUploadKeepsDirtyAndSkipsNoteListUpdate(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	flakyOps := &flakySyncTestDriveOps{
+		syncTestDriveOps: ops,
+		failCreateFor: map[string]bool{
+			"note1.json": true,
+		},
+	}
+	rebindDriveServiceOps(ds, flakyOps)
+
+	note := &Note{ID: "note1", Title: "note1", Content: "local content", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(note))
+	ds.syncState.MarkNoteDirty(note.ID)
+
+	const ts = "2025-01-01T00:00:00Z"
+	flakyOps.fixedModifiedTime = ts
+	ds.syncState.LastSyncedDriveTs = ts
+
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	putCloudNoteList(t, ops, noteListID, &NoteList{Version: CurrentVersion, Notes: []NoteMetadata{}})
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	ops.mu.RLock()
+	_, noteExists := ops.files["test-file-note1.json"]
+	ops.mu.RUnlock()
+	assert.False(t, noteExists)
+
+	cloudNoteList := cloudNoteListFromMock(t, ops, noteListID)
+	assert.Empty(t, cloudNoteList.Notes, "アップロード失敗時はcloud noteListを更新しない")
+
+	assert.True(t, ds.syncState.IsDirty(), "アップロード失敗時はdirtyを保持する")
+	assert.True(t, ds.syncState.DirtyNoteIDs["note1"])
+}
+
+func TestSyncNotes_CaseA_PushLocalChanges_RevisionChangedSkipsCloudNoteListUpdate(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	hookOps := &hookSyncTestDriveOps{syncTestDriveOps: ops}
+	rebindDriveServiceOps(ds, hookOps)
+
+	note1 := &Note{ID: "note1", Title: "note1", Content: "local content", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(note1))
+	ds.syncState.MarkNoteDirty(note1.ID)
+
+	const ts = "2025-01-01T00:00:00Z"
+	hookOps.fixedModifiedTime = ts
+	ds.syncState.LastSyncedDriveTs = ts
+
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	putCloudNoteList(t, ops, noteListID, &NoteList{Version: CurrentVersion, Notes: []NoteMetadata{}})
+
+	injected := false
+	hookOps.onCreateFile = func(name string) {
+		if injected || name != "note1.json" {
+			return
+		}
+		injected = true
+		note2 := &Note{ID: "note2", Title: "note2", Content: "new during sync", Language: "plaintext"}
+		require.NoError(t, ds.noteService.SaveNote(note2))
+		ds.syncState.MarkNoteDirty(note2.ID)
+	}
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	ops.mu.RLock()
+	_, note1Exists := ops.files["test-file-note1.json"]
+	_, note2Exists := ops.files["test-file-note2.json"]
+	ops.mu.RUnlock()
+	assert.True(t, note1Exists)
+	assert.False(t, note2Exists)
+
+	cloudNoteList := cloudNoteListFromMock(t, ops, noteListID)
+	assert.Empty(t, cloudNoteList.Notes, "revision変化時はcloud noteList更新を次回同期へ延期する")
+
+	assert.True(t, ds.syncState.IsDirty())
+	assert.True(t, ds.syncState.DirtyNoteIDs["note1"])
+	assert.True(t, ds.syncState.DirtyNoteIDs["note2"])
+}
+
 func TestSyncNotes_CaseA_PushDeletedNotes(t *testing.T) {
 	ds, ops, cleanup := newSyncTestDriveService(t)
 	defer cleanup()
@@ -260,6 +379,36 @@ func TestSyncNotes_CaseB_PullNewNote(t *testing.T) {
 	assert.Equal(t, "from cloud", loaded.Content)
 	require.Len(t, ds.noteService.noteList.Notes, 1)
 	assert.Equal(t, "cloud-note-1", ds.noteService.noteList.Notes[0].ID)
+	assert.False(t, ds.syncState.IsDirty())
+}
+
+func TestSyncNotes_CaseB_PullMissingCloudNote_RepairsCloudNoteList(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	putCloudNoteList(t, ops, noteListID, &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{{
+			ID:           "dangling-note",
+			Title:        "dangling",
+			Language:     "plaintext",
+			ModifiedTime: "2025-01-02T00:00:00Z",
+			ContentHash:  "dangling-hash",
+		}},
+		TopLevelOrder: []TopLevelItem{{Type: "note", ID: "dangling-note"}},
+	})
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	cloudAfter := cloudNoteListFromMock(t, ops, noteListID)
+	assert.Empty(t, cloudAfter.Notes)
+	assert.Empty(t, cloudAfter.TopLevelOrder)
+	assert.Empty(t, ds.noteService.noteList.Notes)
 	assert.False(t, ds.syncState.IsDirty())
 }
 
@@ -494,6 +643,78 @@ func TestSyncNotes_CaseC_DeleteAndEdit(t *testing.T) {
 	assert.False(t, exists)
 
 	assert.Empty(t, ds.noteService.noteList.Notes)
+	assert.False(t, ds.syncState.IsDirty())
+}
+
+func TestSyncNotes_CaseC_DeleteArchivedFolder_KeepLocalDeletion(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	deletedFolderID := "f-archived-local-deleted"
+	cloudKeepFolderID := "f-archived-cloud-keep"
+	ds.noteService.noteList.Folders = []Folder{
+		{ID: deletedFolderID, Name: "LocalDeleted", Archived: true},
+	}
+	ds.noteService.noteList.ArchivedTopLevelOrder = []TopLevelItem{
+		{Type: "folder", ID: deletedFolderID},
+	}
+	require.NoError(t, ds.noteService.saveNoteList())
+
+	// ローカルでアーカイブフォルダを削除
+	require.NoError(t, ds.noteService.DeleteArchivedFolder(deletedFolderID))
+	ds.syncState.MarkFolderDeleted(deletedFolderID)
+
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloudNoteList := &NoteList{
+		Version: CurrentVersion,
+		Notes:   []NoteMetadata{},
+		Folders: []Folder{
+			{ID: deletedFolderID, Name: "CloudStillHasIt", Archived: true},
+			{ID: cloudKeepFolderID, Name: "CloudKeep", Archived: true},
+		},
+		ArchivedTopLevelOrder: []TopLevelItem{
+			{Type: "folder", ID: deletedFolderID},
+			{Type: "folder", ID: cloudKeepFolderID},
+		},
+	}
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), cloudNoteList)
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	foundDeletedFolder := false
+	foundKeepFolder := false
+	for _, f := range ds.noteService.noteList.Folders {
+		if f.ID == deletedFolderID {
+			foundDeletedFolder = true
+		}
+		if f.ID == cloudKeepFolderID {
+			foundKeepFolder = true
+		}
+	}
+	assert.False(t, foundDeletedFolder)
+	assert.True(t, foundKeepFolder)
+
+	archivedOrderHasDeleted := false
+	for _, item := range ds.noteService.noteList.ArchivedTopLevelOrder {
+		if item.Type == "folder" && item.ID == deletedFolderID {
+			archivedOrderHasDeleted = true
+			break
+		}
+	}
+	assert.False(t, archivedOrderHasDeleted)
+
+	cloudAfter := cloudNoteListFromMock(t, ops, ds.auth.GetDriveSync().NoteListID())
+	cloudHasDeleted := false
+	for _, f := range cloudAfter.Folders {
+		if f.ID == deletedFolderID {
+			cloudHasDeleted = true
+			break
+		}
+	}
+	assert.False(t, cloudHasDeleted)
 	assert.False(t, ds.syncState.IsDirty())
 }
 
