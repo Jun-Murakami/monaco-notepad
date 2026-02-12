@@ -19,6 +19,7 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
+    "@tanstack/react-virtual": "^3.13.18",
     "@wailsio/runtime": "^3.0.0-alpha.79",
     "allotment": "^1.20.5",
     "dayjs": "^1.11.19",

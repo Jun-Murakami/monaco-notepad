@@ -45,6 +45,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
@@ -275,6 +276,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   onMoveNoteToFolder,
   isDarkMode,
 }) => {
+  const isTestEnv = import.meta.env.MODE === 'test';
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     new Set(),
   );
@@ -293,6 +295,10 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   const pointerYRef = useRef<number>(0);
   const overRectRef = useRef<{ top: number; height: number } | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const simpleBarScrollRef = useRef<HTMLDivElement>(null);
+  const [listElement, setListElement] = useState<HTMLUListElement | null>(null);
+  const [simpleBarScrollElement, setSimpleBarScrollElement] =
+    useState<HTMLDivElement | null>(null);
   const lastBoundaryIndented = useRef(false);
   const lastInsertAbove = useRef(false);
   const lastOverIdRef = useRef<string | null>(null);
@@ -487,6 +493,52 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     noteMap,
     folderMap,
   ]);
+
+  const handleListRef = useCallback((node: HTMLUListElement | null) => {
+    listRef.current = node;
+    setListElement(node);
+  }, []);
+
+  const handleSimpleBarScrollRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      simpleBarScrollRef.current = node;
+      setSimpleBarScrollElement(node);
+    },
+    [],
+  );
+
+  const getScrollElement = useCallback((): HTMLElement | null => {
+    if (simpleBarScrollElement) return simpleBarScrollElement;
+    const listEl = listElement;
+    if (!listEl) return null;
+    const simpleBarScrollEl = listEl.closest('.simplebar-content-wrapper');
+    if (simpleBarScrollEl instanceof HTMLElement) {
+      return simpleBarScrollEl;
+    }
+    return listEl;
+  }, [listElement, simpleBarScrollElement]);
+
+  const virtualizer = useVirtualizer({
+    count: flatItems.length,
+    getScrollElement,
+    estimateSize: () => 52,
+    initialRect: { width: 0, height: 800 },
+    overscan: 8,
+  });
+
+  const virtualRows = isTestEnv
+    ? flatItems.map((id, index) => ({
+        id,
+        key: `${id}-${index}`,
+        index,
+        start: 0,
+      }))
+    : virtualizer.getVirtualItems().map((virtualRow) => ({
+        id: flatItems[virtualRow.index],
+        key: `${flatItems[virtualRow.index]}-${virtualRow.key}`,
+        index: virtualRow.index,
+        start: virtualRow.start,
+      }));
 
   const folderAwareCollision: CollisionDetection = useCallback((args) => {
     const activeId = args.active.id as string;
@@ -1301,6 +1353,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
       ) : (
         <SimpleBar
           style={{ maxHeight: '100%', width: '100%', overflowX: 'hidden' }}
+          scrollableNodeProps={{ ref: handleSimpleBarScrollRef }}
         >
           <Box
             sx={{
@@ -1310,7 +1363,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
             }}
           >
             <List
-              ref={listRef}
+              ref={handleListRef}
               sx={{
                 width: '100%',
                 maxWidth: 640,
@@ -1331,113 +1384,140 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                   items={flatItems}
                   strategy={verticalListSortingStrategy}
                 >
-                  {flatItems.map((id) => {
-                    const indicator = getDropIndicator(id);
-                    const isAtBoundary =
-                      boundaryIndented &&
-                      ((indicator === 'top' && precedingFolderIds.has(id)) ||
-                        (indicator === 'bottom' && lastFolderNoteIds.has(id)));
+                  <Box
+                    sx={{
+                      height: isTestEnv ? 'auto' : virtualizer.getTotalSize(),
+                      position: isTestEnv ? 'static' : 'relative',
+                      width: '100%',
+                    }}
+                  >
+                    {virtualRows.map((row) => {
+                      const id = row.id;
+                      const indicator = getDropIndicator(id);
+                      const isAtBoundary =
+                        boundaryIndented &&
+                        ((indicator === 'top' && precedingFolderIds.has(id)) ||
+                          (indicator === 'bottom' &&
+                            lastFolderNoteIds.has(id)));
 
-                    if (id.startsWith('folder-note:')) {
-                      const noteId = id.slice('folder-note:'.length);
-                      const note = noteMap.get(noteId);
-                      if (!note) return null;
-                      const isLastBoundary =
-                        indicator === 'bottom' && lastFolderNoteIds.has(id);
-                      return (
-                        <SortableWrapper
-                          key={id}
-                          id={id}
-                          dropIndicator={indicator}
-                          indentedIndicator={
-                            isLastBoundary ? boundaryIndented : true
-                          }
-                          insetIndicator
-                        >
-                          <Box
-                            sx={(theme) => ({
-                              mx: 1,
-                              borderLeft: `${theme.spacing(1.5)} solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
-                              backgroundColor:
-                                theme.palette.mode === 'dark'
-                                  ? 'rgba(255,255,255,0.04)'
-                                  : 'rgba(0,0,0,0.04)',
-                            })}
+                      let content: React.ReactNode = null;
+
+                      if (id.startsWith('folder-note:')) {
+                        const noteId = id.slice('folder-note:'.length);
+                        const note = noteMap.get(noteId);
+                        if (!note) return null;
+                        const isLastBoundary =
+                          indicator === 'bottom' && lastFolderNoteIds.has(id);
+                        content = (
+                          <SortableWrapper
+                            id={id}
+                            dropIndicator={indicator}
+                            indentedIndicator={
+                              isLastBoundary ? boundaryIndented : true
+                            }
+                            insetIndicator
                           >
-                            <ArchivedNoteItem
-                              note={note}
-                              indented
-                              onUnarchive={onUnarchive}
-                              onDelete={onDelete}
-                              onSelect={handleSelectNote}
-                              isDragging={!!activeDragId}
-                            />
-                          </Box>
-                        </SortableWrapper>
-                      );
-                    }
+                            <Box
+                              sx={(theme) => ({
+                                mx: 1,
+                                borderLeft: `${theme.spacing(1.5)} solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
+                                backgroundColor:
+                                  theme.palette.mode === 'dark'
+                                    ? 'rgba(255,255,255,0.04)'
+                                    : 'rgba(0,0,0,0.04)',
+                              })}
+                            >
+                              <ArchivedNoteItem
+                                note={note}
+                                indented
+                                onUnarchive={onUnarchive}
+                                onDelete={onDelete}
+                                onSelect={handleSelectNote}
+                                isDragging={!!activeDragId}
+                              />
+                            </Box>
+                          </SortableWrapper>
+                        );
+                      } else {
+                        const parsed = parseTopLevelId(id);
 
-                    const parsed = parseTopLevelId(id);
-
-                    if (parsed?.type === 'note') {
-                      const note = noteMap.get(parsed.id);
-                      if (!note) return null;
-                      return (
-                        <SortableWrapper
-                          key={id}
-                          id={id}
-                          dropIndicator={indicator}
-                          indentedIndicator={isAtBoundary}
-                          insetIndicator
-                        >
-                          <Box sx={{ mx: 1 }}>
-                            <ArchivedNoteItem
-                              note={note}
-                              indented={false}
-                              onUnarchive={onUnarchive}
-                              onDelete={onDelete}
-                              onSelect={handleSelectNote}
-                              isDragging={!!activeDragId}
-                            />
-                          </Box>
-                        </SortableWrapper>
-                      );
-                    }
-
-                    if (parsed?.type === 'folder') {
-                      const folder = folderMap.get(parsed.id);
-                      if (!folder) return null;
-                      return (
-                        <SortableWrapper
-                          key={id}
-                          id={id}
-                          dropIndicator={indicator}
-                          indentedIndicator={isAtBoundary}
-                          insetIndicator
-                        >
-                          <Box sx={{ mx: 1 }}>
-                            <DroppableZone id={`folder-drop:${folder.id}`}>
-                              {renderFolderHeader(folder)}
-                            </DroppableZone>
-                            {overId === `folder-drop:${folder.id}` &&
-                              activeDragId &&
-                              extractNoteId(activeDragId) &&
-                              boundaryIndented && (
-                                <Box
-                                  sx={(theme) => ({
-                                    height: 2,
-                                    bgcolor: 'primary.main',
-                                    ml: theme.spacing(1.5),
-                                  })}
+                        if (parsed?.type === 'note') {
+                          const note = noteMap.get(parsed.id);
+                          if (!note) return null;
+                          content = (
+                            <SortableWrapper
+                              id={id}
+                              dropIndicator={indicator}
+                              indentedIndicator={isAtBoundary}
+                              insetIndicator
+                            >
+                              <Box sx={{ mx: 1 }}>
+                                <ArchivedNoteItem
+                                  note={note}
+                                  indented={false}
+                                  onUnarchive={onUnarchive}
+                                  onDelete={onDelete}
+                                  onSelect={handleSelectNote}
+                                  isDragging={!!activeDragId}
                                 />
-                              )}
-                          </Box>
-                        </SortableWrapper>
-                      );
-                    }
+                              </Box>
+                            </SortableWrapper>
+                          );
+                        }
 
-                    return null;
-                  })}
+                        if (parsed?.type === 'folder') {
+                          const folder = folderMap.get(parsed.id);
+                          if (!folder) return null;
+                          content = (
+                            <SortableWrapper
+                              id={id}
+                              dropIndicator={indicator}
+                              indentedIndicator={isAtBoundary}
+                              insetIndicator
+                            >
+                              <Box sx={{ mx: 1 }}>
+                                <DroppableZone id={`folder-drop:${folder.id}`}>
+                                  {renderFolderHeader(folder)}
+                                </DroppableZone>
+                                {overId === `folder-drop:${folder.id}` &&
+                                  activeDragId &&
+                                  extractNoteId(activeDragId) &&
+                                  boundaryIndented && (
+                                    <Box
+                                      sx={(theme) => ({
+                                        height: 2,
+                                        bgcolor: 'primary.main',
+                                        ml: theme.spacing(1.5),
+                                      })}
+                                    />
+                                  )}
+                              </Box>
+                            </SortableWrapper>
+                          );
+                        }
+                      }
+
+                      if (!content) return null;
+
+                      return (
+                        <Box
+                          key={row.key}
+                          data-index={isTestEnv ? undefined : row.index}
+                          ref={
+                            isTestEnv ? undefined : virtualizer.measureElement
+                          }
+                          sx={{
+                            position: isTestEnv ? 'relative' : 'absolute',
+                            top: isTestEnv ? undefined : row.start,
+                            left: 0,
+                            width: '100%',
+                          }}
+                        >
+                          {content}
+                        </Box>
+                      );
+                    })}
+                  </Box>
                 </SortableContext>
 
                 <DroppableZone id="unfiled-bottom">
