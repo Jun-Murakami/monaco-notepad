@@ -13,18 +13,19 @@ import (
 
 // アプリケーションのメインの構造体
 type App struct {
-	ctx             *Context         // アプリケーションのコンテキスト
-	appDataDir      string           // アプリケーションデータディレクトリのパス
-	notesDir        string           // ノートファイル保存ディレクトリのパス
-	authService     AuthService      // Google Drive認証サービス
-	noteService     *noteService     // ノート操作サービス
-	driveService    DriveService     // Google Drive操作サービス (インターフェースで受けるよう変更)
-	settingsService *settingsService // 設定操作サービス
-	fileService     *fileService     // ファイル操作サービス
-	fileNoteService *fileNoteService // ファイルノート操作サービス
-	syncState       *SyncState       // 同期状態管理（dirtyフラグ方式）
-	frontendReady   chan struct{}    // フロントエンドの準備完了を通知するチャネル
-	logger          AppLogger        // アプリケーションのロガー
+	ctx              *Context         // アプリケーションのコンテキスト
+	appDataDir       string           // アプリケーションデータディレクトリのパス
+	notesDir         string           // ノートファイル保存ディレクトリのパス
+	authService      AuthService      // Google Drive認証サービス
+	noteService      *noteService     // ノート操作サービス
+	driveService     DriveService     // Google Drive操作サービス (インターフェースで受けるよう変更)
+	settingsService  *settingsService // 設定操作サービス
+	fileService      *fileService     // ファイル操作サービス
+	fileNoteService  *fileNoteService // ファイルノート操作サービス
+	syncState        *SyncState       // 同期状態管理（dirtyフラグ方式）
+	migrationMessage string           // マイグレーション結果メッセージ（フロントエンド準備後に通知）
+	frontendReady    chan struct{}    // フロントエンドの準備完了を通知するチャネル
+	logger           AppLogger        // アプリケーションのロガー
 }
 
 // アプリケーションのコンテキストを管理

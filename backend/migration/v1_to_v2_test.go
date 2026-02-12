@@ -175,8 +175,9 @@ func TestMigration_RunIfNeeded_AlreadyMigrated(t *testing.T) {
 	originalV2 := `{"version":"2.0","notes":[{"id":"keep","title":"keep","contentHeader":"h","language":"markdown","modifiedTime":"2026-01-01T00:00:00Z","archived":false,"contentHash":"keep-hash"}]}`
 	require.NoError(t, os.WriteFile(v2Path, []byte(originalV2), 0o644))
 
-	err := RunIfNeeded(tempDir, notesDir)
+	migrated, err := RunIfNeeded(tempDir, notesDir)
 	require.NoError(t, err)
+	assert.False(t, migrated)
 
 	after := readJSONFile(t, v2Path)
 	assert.JSONEq(t, originalV2, string(after))
@@ -187,8 +188,9 @@ func TestMigration_RunIfNeeded_FreshInstall(t *testing.T) {
 	notesDir := filepath.Join(tempDir, "notes")
 	require.NoError(t, os.MkdirAll(notesDir, 0o755))
 
-	err := RunIfNeeded(tempDir, notesDir)
+	migrated, err := RunIfNeeded(tempDir, notesDir)
 	require.NoError(t, err)
+	assert.False(t, migrated)
 
 	_, err = os.Stat(filepath.Join(tempDir, "noteList_v2.json"))
 	assert.True(t, os.IsNotExist(err))
@@ -213,8 +215,9 @@ func TestMigration_RunIfNeeded_V1Exists(t *testing.T) {
 	}
 	writeV1NoteList(t, v1Path, v1)
 
-	err := RunIfNeeded(tempDir, notesDir)
+	migrated, err := RunIfNeeded(tempDir, notesDir)
 	require.NoError(t, err)
+	assert.True(t, migrated)
 
 	v2Path := filepath.Join(tempDir, "noteList_v2.json")
 	_, err = os.Stat(v2Path)

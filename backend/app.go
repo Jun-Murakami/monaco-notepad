@@ -137,8 +137,12 @@ func (a *App) Startup(ctx context.Context) {
 	// FileNoteServiceの初期化
 	a.fileNoteService = NewFileNoteService(a.appDataDir)
 
-	if err := migration.RunIfNeeded(a.appDataDir, a.notesDir); err != nil {
+	migrated, err := migration.RunIfNeeded(a.appDataDir, a.notesDir)
+	if err != nil {
 		a.logger.Console("Warning: migration failed: %v", err)
+	} else if migrated {
+		a.migrationMessage = "noteList v1 → v2 migration completed"
+		a.logger.Console(a.migrationMessage)
 	}
 
 	// NoteServiceの初期化 (NoteList読み込みを含む)
@@ -232,6 +236,10 @@ func (a *App) NotifyFrontendReady() {
 		a.driveService.NotifyFrontendReady()
 	} else {
 		a.logger.Console("Warning: driveService is nil") // デバッグログ
+	}
+	if a.migrationMessage != "" {
+		a.logger.Info(a.migrationMessage)
+		a.migrationMessage = ""
 	}
 	if a.noteService != nil {
 		if issues := a.noteService.DrainPendingIntegrityIssues(); len(issues) > 0 {
