@@ -51,6 +51,18 @@ func (o *hookSyncTestDriveOps) CreateFile(name string, content []byte, rootFolde
 	return o.syncTestDriveOps.CreateFile(name, content, rootFolderID, mimeType)
 }
 
+type hookDownloadSyncTestDriveOps struct {
+	*syncTestDriveOps
+	onDownloadFile func(fileID string)
+}
+
+func (o *hookDownloadSyncTestDriveOps) DownloadFile(fileID string) ([]byte, error) {
+	if o.onDownloadFile != nil {
+		o.onDownloadFile(fileID)
+	}
+	return o.syncTestDriveOps.DownloadFile(fileID)
+}
+
 func rebindDriveServiceOps(ds *driveService, ops DriveOperations) {
 	if ds.operationsQueue != nil {
 		ds.operationsQueue.Cleanup()
@@ -412,6 +424,56 @@ func TestSyncNotes_CaseB_PullMissingCloudNote_RepairsCloudNoteList(t *testing.T)
 	assert.False(t, ds.syncState.IsDirty())
 }
 
+func TestSyncNotes_CaseB_PullCloudChanges_LocalChangeDuringPullIsNotDeleted(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	hookOps := &hookDownloadSyncTestDriveOps{syncTestDriveOps: ops}
+	rebindDriveServiceOps(ds, hookOps)
+
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloudNote := &Note{
+		ID:           "cloud-note-1",
+		Title:        "cloud",
+		Content:      "from cloud",
+		Language:     "plaintext",
+		ModifiedTime: "2025-01-02T00:00:00Z",
+	}
+	putCloudNote(t, ops, cloudNote)
+	noteListID := ds.auth.GetDriveSync().NoteListID()
+	putCloudNoteList(t, ops, noteListID, &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{{
+			ID:           cloudNote.ID,
+			Title:        cloudNote.Title,
+			Language:     cloudNote.Language,
+			ModifiedTime: cloudNote.ModifiedTime,
+			ContentHash:  "abc123",
+		}},
+	})
+
+	injected := false
+	hookOps.onDownloadFile = func(fileID string) {
+		if injected || fileID != "test-file-cloud-note-1.json" {
+			return
+		}
+		injected = true
+		note := &Note{ID: "local-new", Title: "local-new", Content: "local", Language: "plaintext"}
+		require.NoError(t, ds.noteService.SaveNote(note))
+		ds.syncState.MarkNoteDirty(note.ID)
+	}
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	_, loadErr := ds.noteService.LoadNote("local-new")
+	require.NoError(t, loadErr, "同期中に作成したローカルノートは削除されてはならない")
+	assert.True(t, ds.syncState.IsDirty(), "同期中のローカル変更はdirtyのまま維持されるべき")
+	assert.True(t, ds.syncState.DirtyNoteIDs["local-new"])
+}
+
 func TestSyncNotes_CaseB_PullUpdatedNote(t *testing.T) {
 	ds, ops, cleanup := newSyncTestDriveService(t)
 	defer cleanup()
@@ -566,6 +628,119 @@ func TestSyncNotes_CaseC_CloudWins(t *testing.T) {
 	updated := mustLoadLocalNote(t, ds, "note1")
 	assert.Equal(t, "cloud-edit", updated.Content)
 	assert.False(t, ds.syncState.IsDirty())
+}
+
+func TestSyncNotes_CaseC_Conflict_LocalChangeDuringResolveIsNotDeleted(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	hookOps := &hookDownloadSyncTestDriveOps{syncTestDriveOps: ops}
+	rebindDriveServiceOps(ds, hookOps)
+
+	local := &Note{ID: "note1", Title: "note1", Content: "local-edit", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(local))
+	require.NoError(t, ds.noteService.SaveNoteFromSync(&Note{
+		ID:           "note1",
+		Title:        "note1",
+		Content:      "local-edit",
+		Language:     "plaintext",
+		ModifiedTime: "2025-01-01T00:00:00Z",
+	}))
+	ds.syncState.MarkNoteDirty("note1")
+	ds.syncState.LastSyncedNoteHash["note1"] = "original-hash"
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloud := &Note{ID: "note1", Title: "note1", Content: "cloud-edit", Language: "plaintext", ModifiedTime: "2025-01-02T00:00:00Z"}
+	putCloudNote(t, ops, cloud)
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{{
+			ID:           "note1",
+			Title:        "note1",
+			Language:     "plaintext",
+			ModifiedTime: "2025-01-02T00:00:00Z",
+			ContentHash:  "different-hash",
+		}},
+	})
+
+	injected := false
+	hookOps.onDownloadFile = func(fileID string) {
+		if injected || fileID != "test-file-note1.json" {
+			return
+		}
+		injected = true
+		note := &Note{ID: "local-new", Title: "local-new", Content: "local", Language: "plaintext"}
+		require.NoError(t, ds.noteService.SaveNote(note))
+		ds.syncState.MarkNoteDirty(note.ID)
+	}
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	_, loadErr := ds.noteService.LoadNote("local-new")
+	require.NoError(t, loadErr, "競合解決中に作成したローカルノートは削除されてはならない")
+	assert.True(t, ds.syncState.IsDirty())
+	assert.True(t, ds.syncState.DirtyNoteIDs["local-new"])
+}
+
+func TestSyncNotes_CaseC_Conflict_LocalNewNoteUploadFailureKeepsMetadata(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	flakyOps := &flakySyncTestDriveOps{
+		syncTestDriveOps: ops,
+		failCreateFor: map[string]bool{
+			"local-new.json": true,
+		},
+	}
+	rebindDriveServiceOps(ds, flakyOps)
+
+	localNew := &Note{ID: "local-new", Title: "local-new", Content: "local", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(localNew))
+	ds.syncState.MarkNoteDirty(localNew.ID)
+
+	flakyOps.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloudNote := &Note{
+		ID:           "cloud-note-1",
+		Title:        "cloud",
+		Content:      "from cloud",
+		Language:     "plaintext",
+		ModifiedTime: "2025-01-02T00:00:00Z",
+	}
+	putCloudNote(t, ops, cloudNote)
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{{
+			ID:           cloudNote.ID,
+			Title:        cloudNote.Title,
+			Language:     cloudNote.Language,
+			ModifiedTime: cloudNote.ModifiedTime,
+			ContentHash:  computeContentHash(cloudNote),
+		}},
+		TopLevelOrder: []TopLevelItem{{Type: "note", ID: cloudNote.ID}},
+	})
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	_, loadErr := ds.noteService.LoadNote(localNew.ID)
+	require.NoError(t, loadErr)
+
+	assert.True(t, noteListHasNoteID(ds.noteService.noteList, localNew.ID), "アップロード失敗時もローカル新規ノートのメタデータは保持する")
+	assert.True(t, ds.syncState.IsDirty())
+	assert.True(t, ds.syncState.DirtyNoteIDs[localNew.ID])
+
+	foundTopLevel := false
+	for _, item := range ds.noteService.noteList.TopLevelOrder {
+		if item.Type == "note" && item.ID == localNew.ID {
+			foundTopLevel = true
+			break
+		}
+	}
+	assert.True(t, foundTopLevel, "アップロード失敗時もローカル新規ノートの表示順は保持する")
 }
 
 func TestSyncNotes_CaseC_LocalNewerWins(t *testing.T) {

@@ -568,6 +568,13 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 		cloudMap[n.ID] = n
 	}
 
+	_, _, _, _, latestRevision := s.syncState.GetDirtySnapshotWithRevision()
+	if latestRevision != snapshotRevision {
+		s.logger.Info("Drive: local changes arrived during pull; deferring cloud apply to next sync")
+		s.pollingService.RefreshChangeToken()
+		return nil
+	}
+
 	for _, localNote := range s.noteService.noteList.Notes {
 		if _, exists := cloudMap[localNote.ID]; !exists {
 			s.logger.Info("Removing local note %s (deleted on another device)", localNote.ID)
@@ -751,6 +758,13 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		cloudMap[n.ID] = n
 	}
 
+	_, _, _, _, latestRevision := s.syncState.GetDirtySnapshotWithRevision()
+	if latestRevision != snapshotRevision {
+		s.logger.Info("Drive: local changes arrived during conflict resolution; deferring local merge to next sync")
+		s.pollingService.RefreshChangeToken()
+		return nil
+	}
+
 	for _, localNote := range s.noteService.noteList.Notes {
 		if _, inCloud := cloudMap[localNote.ID]; !inCloud && !dirtyIDs[localNote.ID] && !deletedIDs[localNote.ID] {
 			s.logger.Info("Removing local note %s (deleted on another device)", localNote.ID)
@@ -803,7 +817,11 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 		if dirtyIDs[cn.ID] {
 			if !dirtySynced[cn.ID] {
-				mergedNotes = append(mergedNotes, cn)
+				if localMeta, ok := localMap[cn.ID]; ok {
+					mergedNotes = append(mergedNotes, localMeta)
+				} else {
+					mergedNotes = append(mergedNotes, cn)
+				}
 				continue
 			}
 			if note, err := s.noteService.LoadNote(cn.ID); err == nil {
@@ -819,6 +837,25 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	for id := range dirtyIDs {
 		if !cloudNoteSet[id] && !deletedIDs[id] {
 			if !dirtySynced[id] {
+				if localMeta, ok := localMap[id]; ok {
+					mergedNotes = append(mergedNotes, localMeta)
+					if localMeta.FolderID == "" {
+						targetOrder := &s.noteService.noteList.TopLevelOrder
+						if localMeta.Archived {
+							targetOrder = &s.noteService.noteList.ArchivedTopLevelOrder
+						}
+						found := false
+						for _, item := range *targetOrder {
+							if item.ID == id && item.Type == "note" {
+								found = true
+								break
+							}
+						}
+						if !found {
+							*targetOrder = append(*targetOrder, TopLevelItem{Type: "note", ID: id})
+						}
+					}
+				}
 				continue
 			}
 			if note, err := s.noteService.LoadNote(id); err == nil {
