@@ -32,7 +32,10 @@ export function useFileOperations(
   const createFileNote = useCallback(
     async (content: string, filePath: string): Promise<FileNote | null> => {
       if (isBinaryFile(content)) {
-        runtime.EventsEmit('logMessage', 'Cannot open: file appears to be binary');
+        runtime.EventsEmit(
+          'logMessage',
+          'Cannot open: file appears to be binary',
+        );
         return null;
       }
 
@@ -151,7 +154,10 @@ export function useFileOperations(
       }
     } catch (error) {
       console.error('Failed to save file:', error);
-      runtime.EventsEmit('logMessage', 'Save As failed — check permissions or try a different location');
+      runtime.EventsEmit(
+        'logMessage',
+        'Save As failed — check permissions or try a different location',
+      );
     }
   };
 

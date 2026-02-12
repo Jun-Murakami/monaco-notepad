@@ -1,5 +1,13 @@
 import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  vi,
+} from 'vitest';
 import { SaveNote } from '../../../wailsjs/go/backend/App';
 import type { Note } from '../../types';
 import { useSplitEditor } from '../useSplitEditor';
@@ -79,10 +87,14 @@ describe('useSplitEditor', () => {
     expect(setNotes).toHaveBeenCalled();
 
     // サイドバー反映用の state updater が「右ノートIDのみ」更新していることを検証する。
-    const updater = (setNotes as Mock).mock.calls[0][0] as (prev: Note[]) => Note[];
+    const updater = (setNotes as Mock).mock.calls[0][0] as (
+      prev: Note[],
+    ) => Note[];
     const updated = updater([leftNote, rightNote]);
     expect(updated.find((n) => n.id === leftNote.id)?.title).toBe('Left title');
-    expect(updated.find((n) => n.id === rightNote.id)?.title).toBe('Right updated');
+    expect(updated.find((n) => n.id === rightNote.id)?.title).toBe(
+      'Right updated',
+    );
   });
 
   it('右ペインタイトルの連続入力で最後の値がデバウンス保存されること', async () => {

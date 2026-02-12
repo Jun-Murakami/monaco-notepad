@@ -1,5 +1,5 @@
 import { Box, Paper, Popper, Typography } from '@mui/material';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 interface NotePreviewPopperProps {
   content: string | undefined;
@@ -14,6 +14,19 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
   disabled,
   children,
 }) => {
+  // ドラッグ中など disabled 時は DOM ラッパーごとバイパスして children だけ返す
+  if (disabled) return <>{children}</>;
+
+  return (
+    <NotePreviewPopperInner content={content} anchorX={anchorX}>
+      {children}
+    </NotePreviewPopperInner>
+  );
+};
+
+const NotePreviewPopperInner: React.FC<
+  Omit<NotePreviewPopperProps, 'disabled'>
+> = ({ content, anchorX, children }) => {
   const [open, setOpen] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
   const mouseYRef = useRef(0);
@@ -27,18 +40,7 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
     return containerRef.current?.getBoundingClientRect().right ?? 0;
   }, [anchorX]);
 
-  useEffect(() => {
-    if (disabled) {
-      if (hoverTimerRef.current) {
-        window.clearTimeout(hoverTimerRef.current);
-        hoverTimerRef.current = null;
-      }
-      setOpen(false);
-    }
-  }, [disabled]);
-
   const handleMouseEnter = useCallback(() => {
-    if (disabled) return;
     hoverTimerRef.current = window.setTimeout(() => {
       const x = getAnchorX();
       virtualAnchorRef.current = {
@@ -46,7 +48,7 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
       };
       setOpen(true);
     }, 0);
-  }, [getAnchorX, disabled]);
+  }, [getAnchorX]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -84,7 +86,7 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
-      {open && !disabled && previewLines && (
+      {open && previewLines && (
         <Popper
           open
           anchorEl={virtualAnchorRef.current as unknown as HTMLElement}

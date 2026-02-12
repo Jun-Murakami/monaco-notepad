@@ -45,7 +45,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { Folder, Note, TopLevelItem } from '../types';
@@ -94,54 +94,58 @@ const SortableWrapper: React.FC<{
   dropIndicator?: 'top' | 'bottom' | null;
   indentedIndicator?: boolean;
   insetIndicator?: boolean;
-}> = ({ id, children, dropIndicator, indentedIndicator, insetIndicator }) => {
-  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id });
-  const insetPx = insetIndicator ? 8 : 0;
-  const indentPx = indentedIndicator ? 12 : 0;
-  const leftPx = insetPx + indentPx;
+}> = memo(
+  ({ id, children, dropIndicator, indentedIndicator, insetIndicator }) => {
+    const { attributes, listeners, setNodeRef, isDragging } = useSortable({
+      id,
+    });
+    const insetPx = insetIndicator ? 8 : 0;
+    const indentPx = indentedIndicator ? 12 : 0;
+    const leftPx = insetPx + indentPx;
 
-  return (
-    <Box
-      ref={setNodeRef}
-      style={{ opacity: isDragging ? 0.3 : 1 }}
-      {...attributes}
-      {...listeners}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
-      }}
-      sx={{ position: 'relative' }}
-    >
-      {dropIndicator === 'top' && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: leftPx,
-            right: insetPx,
-            height: 2,
-            bgcolor: 'primary.main',
-            zIndex: 1,
-          }}
-        />
-      )}
-      {children}
-      {dropIndicator === 'bottom' && (
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 0,
-            left: leftPx,
-            right: insetPx,
-            height: 2,
-            bgcolor: 'primary.main',
-            zIndex: 1,
-          }}
-        />
-      )}
-    </Box>
-  );
-};
+    return (
+      <Box
+        ref={setNodeRef}
+        style={{ opacity: isDragging ? 0.3 : 1 }}
+        {...attributes}
+        {...listeners}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
+        }}
+        sx={{ position: 'relative' }}
+      >
+        {dropIndicator === 'top' && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: leftPx,
+              right: insetPx,
+              height: 2,
+              bgcolor: 'primary.main',
+              zIndex: 1,
+            }}
+          />
+        )}
+        {children}
+        {dropIndicator === 'bottom' && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 0,
+              left: leftPx,
+              right: insetPx,
+              height: 2,
+              bgcolor: 'primary.main',
+              zIndex: 1,
+            }}
+          />
+        )}
+      </Box>
+    );
+  },
+);
 
 const getNoteTitle = (note: Note): { text: string; isFallback: boolean } => {
   if (note.title.trim()) return { text: note.title, isFallback: false };
@@ -153,6 +157,109 @@ const getNoteTitle = (note: Note): { text: string; isFallback: boolean } => {
   }
   return { text: 'Empty Note', isFallback: true };
 };
+
+interface ArchivedNoteItemProps {
+  note: Note;
+  indented: boolean;
+  onUnarchive: (noteId: string) => void;
+  onDelete: (noteId: string) => void;
+  onSelect: (note: Note) => void;
+  isDragging?: boolean;
+}
+
+const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
+  ({ note, indented, onUnarchive, onDelete, onSelect, isDragging }) => {
+    const titleInfo = getNoteTitle(note);
+    const actionButtonSx = { width: 28, height: 28 };
+    return (
+      <NotePreviewPopper
+        content={note.content || note.contentHeader || undefined}
+        disabled={isDragging}
+      >
+        <ListItemButton
+          onClick={() => onSelect(note)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            px: indented ? 3 : 2,
+            py: 0.75,
+            minHeight: 44,
+            borderBottom: 1,
+            borderColor: 'divider',
+            '&:hover .archive-action': { opacity: 1 },
+          }}
+        >
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography
+              noWrap
+              variant="body2"
+              sx={{
+                fontSize: '0.875rem',
+                fontStyle: titleInfo.isFallback ? 'italic' : 'normal',
+                opacity: titleInfo.isFallback ? 0.6 : 1,
+              }}
+            >
+              {titleInfo.text}
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ fontSize: '0.75rem' }}
+              color="text.secondary"
+            >
+              {dayjs(note.modifiedTime).format('L HH:mm')}
+            </Typography>
+          </Box>
+          <Box
+            sx={{ display: 'flex', gap: 1, flexShrink: 0 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Tooltip title="Restore" arrow>
+              <IconButton
+                className="archive-action"
+                onClick={() => onUnarchive(note.id)}
+                color="primary"
+                size="small"
+                onPointerDown={(e) => e.stopPropagation()}
+                sx={{
+                  ...actionButtonSx,
+                  opacity: 0,
+                  transition: 'opacity 0.2s',
+                  '&:hover': {
+                    backgroundColor: 'primary.main',
+                    color: 'primary.contrastText',
+                  },
+                }}
+              >
+                <Unarchive />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete" arrow>
+              <IconButton
+                className="archive-action"
+                onClick={() => onDelete(note.id)}
+                color="error"
+                size="small"
+                onPointerDown={(e) => e.stopPropagation()}
+                sx={{
+                  ...actionButtonSx,
+                  opacity: 0,
+                  transition: 'opacity 0.2s',
+                  '&:hover': {
+                    backgroundColor: 'error.main',
+                    color: 'error.contrastText',
+                  },
+                }}
+              >
+                <DeleteForever />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </ListItemButton>
+      </NotePreviewPopper>
+    );
+  },
+);
 
 export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   notes,
@@ -173,17 +280,36 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   );
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
+  const [dragIndicatorState, setDragIndicatorState] = useState<{
+    overId: string | null;
+    boundaryIndented: boolean;
+    insertAbove: boolean;
+  }>({ overId: null, boundaryIndented: false, insertAbove: false });
+  const overId = dragIndicatorState.overId;
+  const boundaryIndented = dragIndicatorState.boundaryIndented;
+  const insertAbove = dragIndicatorState.insertAbove;
+
   const pointerXRef = useRef<number>(0);
   const pointerYRef = useRef<number>(0);
   const overRectRef = useRef<{ top: number; height: number } | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const [boundaryIndented, setBoundaryIndented] = useState(false);
   const lastBoundaryIndented = useRef(false);
-  const [insertAbove, setInsertAbove] = useState(false);
   const lastInsertAbove = useRef(false);
   const lastOverIdRef = useRef<string | null>(null);
   const overIdTimestampRef = useRef(0);
+  const rafIdRef = useRef<number>(0);
+
+  const scheduleDragIndicatorFlush = useCallback(() => {
+    if (rafIdRef.current) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = 0;
+      setDragIndicatorState({
+        overId: lastOverIdRef.current,
+        boundaryIndented: lastBoundaryIndented.current,
+        insertAbove: lastInsertAbove.current,
+      });
+    });
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -345,11 +471,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
       if (item.type === 'folder' && !folderMap.has(item.id)) continue;
       const itemId = toTopLevelId(item);
       items.push(itemId);
-      if (
-        item.type === 'folder' &&
-        !collapsedFolders.has(item.id) &&
-        activeDragId !== itemId
-      ) {
+      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
         const fNotes = folderNoteMap.get(item.id) || [];
         for (const note of fNotes) {
           items.push(`folder-note:${note.id}`);
@@ -361,7 +483,6 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     archivedTopLevelOrder,
     toTopLevelId,
     collapsedFolders,
-    activeDragId,
     folderNoteMap,
     noteMap,
     folderMap,
@@ -438,7 +559,6 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         lastOverIdRef.current = newOverId;
         overIdTimestampRef.current = now;
       }
-      setOverId(newOverId);
       if (newOverId && isBoundaryTarget(newOverId)) {
         const listEl = listRef.current;
         if (listEl) {
@@ -446,7 +566,6 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           const relativeX = pointerXRef.current - rect.left;
           const indented = relativeX > 120;
           lastBoundaryIndented.current = indented;
-          setBoundaryIndented(indented);
         }
       }
       if (event.over) {
@@ -455,18 +574,20 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         const centerY = overRect.top + overRect.height / 2;
         const above = pointerYRef.current < centerY;
         lastInsertAbove.current = above;
-        setInsertAbove(above);
       }
+      scheduleDragIndicatorFlush();
     },
-    [isBoundaryTarget],
+    [isBoundaryTarget, scheduleDragIndicatorFlush],
   );
 
   useEffect(() => {
     if (!activeDragId) return;
+    const isBoundary = isBoundaryTarget;
     const handlePointerMove = (e: PointerEvent) => {
       pointerXRef.current = e.clientX;
       pointerYRef.current = e.clientY;
-      if (overId && isBoundaryTarget(overId)) {
+      let changed = false;
+      if (lastOverIdRef.current && isBoundary(lastOverIdRef.current)) {
         const listEl = listRef.current;
         if (listEl) {
           const rect = listEl.getBoundingClientRect();
@@ -474,23 +595,26 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           const indented = relativeX > 120;
           if (indented !== lastBoundaryIndented.current) {
             lastBoundaryIndented.current = indented;
-            setBoundaryIndented(indented);
+            changed = true;
           }
         }
       }
-      if (overId && overRectRef.current) {
+      if (lastOverIdRef.current && overRectRef.current) {
         const centerY =
           overRectRef.current.top + overRectRef.current.height / 2;
         const above = e.clientY < centerY;
         if (above !== lastInsertAbove.current) {
           lastInsertAbove.current = above;
-          setInsertAbove(above);
+          changed = true;
         }
+      }
+      if (changed) {
+        scheduleDragIndicatorFlush();
       }
     };
     document.addEventListener('pointermove', handlePointerMove);
     return () => document.removeEventListener('pointermove', handlePointerMove);
-  }, [activeDragId, overId, isBoundaryTarget]);
+  }, [activeDragId, isBoundaryTarget, scheduleDragIndicatorFlush]);
 
   const getTopLevelIndex = useCallback(
     (id: string): number => {
@@ -515,7 +639,15 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       setActiveDragId(null);
-      setOverId(null);
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      setDragIndicatorState({
+        overId: null,
+        boundaryIndented: false,
+        insertAbove: false,
+      });
       overRectRef.current = null;
       lastOverIdRef.current = null;
       overIdTimestampRef.current = 0;
@@ -933,97 +1065,9 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
     [getNextNote, onDelete],
   );
 
-  const actionButtonSx = { width: 28, height: 28 };
-
-  const renderNoteItem = (note: Note, indented: boolean) => {
-    const titleInfo = getNoteTitle(note);
-    return (
-      <NotePreviewPopper
-        content={note.content || note.contentHeader || undefined}
-      >
-        <ListItemButton
-          onClick={() => setSelectedNote(note)}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            px: indented ? 3 : 2,
-            py: 0.75,
-            minHeight: 44,
-            borderBottom: 1,
-            borderColor: 'divider',
-            '&:hover .archive-action': { opacity: 1 },
-          }}
-        >
-          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-            <Typography
-              noWrap
-              variant="body2"
-              sx={{
-                fontSize: '0.875rem',
-                fontStyle: titleInfo.isFallback ? 'italic' : 'normal',
-                opacity: titleInfo.isFallback ? 0.6 : 1,
-              }}
-            >
-              {titleInfo.text}
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ fontSize: '0.75rem' }}
-              color="text.secondary"
-            >
-              {dayjs(note.modifiedTime).format('L HH:mm')}
-            </Typography>
-          </Box>
-          <Box
-            sx={{ display: 'flex', gap: 1, flexShrink: 0 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Tooltip title="Restore" arrow>
-              <IconButton
-                className="archive-action"
-                onClick={() => onUnarchive(note.id)}
-                color="primary"
-                size="small"
-                onPointerDown={(e) => e.stopPropagation()}
-                sx={{
-                  ...actionButtonSx,
-                  opacity: 0,
-                  transition: 'opacity 0.2s',
-                  '&:hover': {
-                    backgroundColor: 'primary.main',
-                    color: 'primary.contrastText',
-                  },
-                }}
-              >
-                <Unarchive />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Delete" arrow>
-              <IconButton
-                className="archive-action"
-                onClick={() => onDelete(note.id)}
-                color="error"
-                size="small"
-                onPointerDown={(e) => e.stopPropagation()}
-                sx={{
-                  ...actionButtonSx,
-                  opacity: 0,
-                  transition: 'opacity 0.2s',
-                  '&:hover': {
-                    backgroundColor: 'error.main',
-                    color: 'error.contrastText',
-                  },
-                }}
-              >
-                <DeleteForever />
-              </IconButton>
-            </Tooltip>
-          </Box>
-        </ListItemButton>
-      </NotePreviewPopper>
-    );
-  };
+  const handleSelectNote = useCallback((note: Note) => {
+    setSelectedNote(note);
+  }, []);
 
   const renderFolderHeader = (folder: Folder) => {
     const isCollapsed = collapsedFolders.has(folder.id);
@@ -1320,7 +1364,14 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                                   : 'rgba(0,0,0,0.04)',
                             })}
                           >
-                            {renderNoteItem(note, true)}
+                            <ArchivedNoteItem
+                              note={note}
+                              indented
+                              onUnarchive={onUnarchive}
+                              onDelete={onDelete}
+                              onSelect={handleSelectNote}
+                              isDragging={!!activeDragId}
+                            />
                           </Box>
                         </SortableWrapper>
                       );
@@ -1340,7 +1391,14 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                           insetIndicator
                         >
                           <Box sx={{ mx: 1 }}>
-                            {renderNoteItem(note, false)}
+                            <ArchivedNoteItem
+                              note={note}
+                              indented={false}
+                              onUnarchive={onUnarchive}
+                              onDelete={onDelete}
+                              onSelect={handleSelectNote}
+                              isDragging={!!activeDragId}
+                            />
                           </Box>
                         </SortableWrapper>
                       );
@@ -1387,108 +1445,107 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                 </DroppableZone>
 
                 <DragOverlay dropAnimation={null}>
-                  {activeDragId
-                    ? (() => {
-                        const fnId = activeDragId.startsWith('folder-note:')
-                          ? activeDragId.slice('folder-note:'.length)
-                          : null;
-                        if (fnId) {
-                          const note = noteMap.get(fnId);
-                          if (note) {
-                            const titleInfo = getNoteTitle(note);
-                            return (
-                              <Box
+                  {activeDragId &&
+                    (() => {
+                      const fnId = activeDragId.startsWith('folder-note:')
+                        ? activeDragId.slice('folder-note:'.length)
+                        : null;
+                      if (fnId) {
+                        const note = noteMap.get(fnId);
+                        if (note) {
+                          const titleInfo = getNoteTitle(note);
+                          return (
+                            <Box
+                              sx={{
+                                backgroundColor: 'background.paper',
+                                boxShadow: 3,
+                                px: 2,
+                                py: 1,
+                                opacity: 0.7,
+                              }}
+                            >
+                              <Typography
+                                noWrap
+                                variant="body2"
                                 sx={{
-                                  backgroundColor: 'background.paper',
-                                  boxShadow: 3,
-                                  px: 2,
-                                  py: 1,
-                                  opacity: 0.7,
+                                  fontStyle: titleInfo.isFallback
+                                    ? 'italic'
+                                    : 'normal',
+                                  opacity: titleInfo.isFallback ? 0.6 : 1,
                                 }}
                               >
-                                <Typography
-                                  noWrap
-                                  variant="body2"
-                                  sx={{
-                                    fontStyle: titleInfo.isFallback
-                                      ? 'italic'
-                                      : 'normal',
-                                    opacity: titleInfo.isFallback ? 0.6 : 1,
-                                  }}
-                                >
-                                  {titleInfo.text}
-                                </Typography>
-                              </Box>
-                            );
-                          }
+                                {titleInfo.text}
+                              </Typography>
+                            </Box>
+                          );
                         }
-                        const parsed = parseTopLevelId(activeDragId);
-                        if (parsed?.type === 'note') {
-                          const note = noteMap.get(parsed.id);
-                          if (note) {
-                            const titleInfo = getNoteTitle(note);
-                            return (
-                              <Box
+                      }
+                      const parsed = parseTopLevelId(activeDragId);
+                      if (parsed?.type === 'note') {
+                        const note = noteMap.get(parsed.id);
+                        if (note) {
+                          const titleInfo = getNoteTitle(note);
+                          return (
+                            <Box
+                              sx={{
+                                backgroundColor: 'background.paper',
+                                boxShadow: 3,
+                                px: 2,
+                                py: 1,
+                                opacity: 0.7,
+                              }}
+                            >
+                              <Typography
+                                noWrap
+                                variant="body2"
                                 sx={{
-                                  backgroundColor: 'background.paper',
-                                  boxShadow: 3,
-                                  px: 2,
-                                  py: 1,
-                                  opacity: 0.7,
+                                  fontStyle: titleInfo.isFallback
+                                    ? 'italic'
+                                    : 'normal',
+                                  opacity: titleInfo.isFallback ? 0.6 : 1,
                                 }}
                               >
-                                <Typography
-                                  noWrap
-                                  variant="body2"
-                                  sx={{
-                                    fontStyle: titleInfo.isFallback
-                                      ? 'italic'
-                                      : 'normal',
-                                    opacity: titleInfo.isFallback ? 0.6 : 1,
-                                  }}
-                                >
-                                  {titleInfo.text}
-                                </Typography>
-                              </Box>
-                            );
-                          }
+                                {titleInfo.text}
+                              </Typography>
+                            </Box>
+                          );
                         }
-                        if (parsed?.type === 'folder') {
-                          const folder = folderMap.get(parsed.id);
-                          if (folder) {
-                            return (
-                              <Box
+                      }
+                      if (parsed?.type === 'folder') {
+                        const folder = folderMap.get(parsed.id);
+                        if (folder) {
+                          return (
+                            <Box
+                              sx={{
+                                backgroundColor: 'action.disabledBackground',
+                                boxShadow: 3,
+                                px: 2,
+                                py: 0.5,
+                                opacity: 0.7,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                              }}
+                            >
+                              <FolderIcon
                                 sx={{
-                                  backgroundColor: 'action.disabledBackground',
-                                  boxShadow: 3,
-                                  px: 2,
-                                  py: 0.5,
-                                  opacity: 0.7,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 1,
+                                  width: 18,
+                                  height: 18,
+                                  color: 'text.secondary',
                                 }}
+                              />
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
                               >
-                                <FolderIcon
-                                  sx={{
-                                    width: 18,
-                                    height: 18,
-                                    color: 'text.secondary',
-                                  }}
-                                />
-                                <Typography
-                                  variant="body2"
-                                  color="text.secondary"
-                                >
-                                  {folder.name}
-                                </Typography>
-                              </Box>
-                            );
-                          }
+                                {folder.name}
+                              </Typography>
+                            </Box>
+                          );
                         }
-                        return null;
-                      })()
-                    : null}
+                      }
+                      return null;
+                    })()}
                 </DragOverlay>
               </DndContext>
             </List>

@@ -77,7 +77,7 @@ describe('useFileNotes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mockProps.showMessage.mockResolvedValue(true);
   });
 
@@ -353,7 +353,7 @@ describe('useFileNotes', () => {
     it('ファイルの変更チェックに失敗した場合、エラーを適切に処理すること', async () => {
       const consoleSpy = vi
         .spyOn(console, 'error')
-        .mockImplementation(() => { });
+        .mockImplementation(() => {});
       const { result } = renderHook(() => useFileNotes(mockProps));
       const error = new Error('チェックエラー');
       mockCheckFileExists.mockResolvedValue(true);

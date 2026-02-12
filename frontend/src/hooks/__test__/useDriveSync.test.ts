@@ -239,7 +239,10 @@ describe('useDriveSync', () => {
       await vi.runAllTimersAsync();
     });
 
-    expect(mockShowMessage).toHaveBeenCalledWith('Drive sync error', 'Test error');
+    expect(mockShowMessage).toHaveBeenCalledWith(
+      'Drive sync error',
+      'Test error',
+    );
   });
 
   it('ログインのキャンセルが正しく機能すること', async () => {

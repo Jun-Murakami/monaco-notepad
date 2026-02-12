@@ -1,5 +1,5 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -11,27 +11,27 @@ export default defineConfig({
           'monaco-editor': ['monaco-editor'],
           'monaco-workers': [
             'monaco-editor/esm/vs/editor/editor.worker',
-            'monaco-editor/esm/vs/language/typescript/ts.worker'
-          ]
-        }
-      }
-    }
+            'monaco-editor/esm/vs/language/typescript/ts.worker',
+          ],
+        },
+      },
+    },
   },
   optimizeDeps: {
     include: [
       'monaco-editor',
       'monaco-editor/esm/vs/editor/editor.worker',
-      'monaco-editor/esm/vs/language/typescript/ts.worker'
+      'monaco-editor/esm/vs/language/typescript/ts.worker',
     ],
-    exclude: ['fsevents']
+    exclude: ['fsevents'],
   },
   server: {
     fs: {
       strict: true,
-      allow: ['..']
+      allow: ['..'],
     },
     hmr: {
-      host: 'localhost'
-    }
-  }
-})
+      host: 'localhost',
+    },
+  },
+});

@@ -20,81 +20,81 @@ export const EraseIcon = (props: SvgIconProps) => (
 );
 
 export const MarkdownIcon = (props: SvgIconProps) => (
-	<SvgIcon {...props} viewBox="0 0 24 24">
-		<title>Markdown Preview</title>
-		<rect
-			x="2"
-			y="3"
-			width="20"
-			height="18"
-			rx="2"
-			ry="2"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.8"
-		/>
-		<text
-			x="12"
-			y="16"
-			textAnchor="middle"
-			fill="currentColor"
-			fontSize="11"
-			fontWeight="bold"
-			fontFamily="Arial, sans-serif"
-			style={{ userSelect: 'none' }}
-		>
-			MD
-		</text>
-	</SvgIcon>
+  <SvgIcon {...props} viewBox="0 0 24 24">
+    <title>Markdown Preview</title>
+    <rect
+      x="2"
+      y="3"
+      width="20"
+      height="18"
+      rx="2"
+      ry="2"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    />
+    <text
+      x="12"
+      y="16"
+      textAnchor="middle"
+      fill="currentColor"
+      fontSize="11"
+      fontWeight="bold"
+      fontFamily="Arial, sans-serif"
+      style={{ userSelect: 'none' }}
+    >
+      MD
+    </text>
+  </SvgIcon>
 );
 
 export const SplitEditorIcon = (props: SvgIconProps) => (
-	<SvgIcon {...props} viewBox="0 0 24 24">
-		<title>Split Editor</title>
-		<rect
-			x="2"
-			y="3"
-			width="20"
-			height="18"
-			rx="2"
-			ry="2"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="1.8"
-		/>
-		<line
-			x1="12"
-			y1="3"
-			x2="12"
-			y2="21"
-			stroke="currentColor"
-			strokeWidth="1.8"
-		/>
-		<text
-			x="7"
-			y="16"
-			textAnchor="middle"
-			fill="currentColor"
-			fontSize="11"
-			fontWeight="bold"
-			fontFamily="Arial, sans-serif"
-			style={{ userSelect: 'none' }}
-		>
-			1
-		</text>
-		<text
-			x="17"
-			y="16"
-			textAnchor="middle"
-			fill="currentColor"
-			fontSize="11"
-			fontWeight="bold"
-			fontFamily="Arial, sans-serif"
-			style={{ userSelect: 'none' }}
-		>
-			2
-		</text>
-	</SvgIcon>
+  <SvgIcon {...props} viewBox="0 0 24 24">
+    <title>Split Editor</title>
+    <rect
+      x="2"
+      y="3"
+      width="20"
+      height="18"
+      rx="2"
+      ry="2"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    />
+    <line
+      x1="12"
+      y1="3"
+      x2="12"
+      y2="21"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    />
+    <text
+      x="7"
+      y="16"
+      textAnchor="middle"
+      fill="currentColor"
+      fontSize="11"
+      fontWeight="bold"
+      fontFamily="Arial, sans-serif"
+      style={{ userSelect: 'none' }}
+    >
+      1
+    </text>
+    <text
+      x="17"
+      y="16"
+      textAnchor="middle"
+      fill="currentColor"
+      fontSize="11"
+      fontWeight="bold"
+      fontFamily="Arial, sans-serif"
+      style={{ userSelect: 'none' }}
+    >
+      2
+    </text>
+  </SvgIcon>
 );
 
 export const GoogleDriveIcon = (props: SvgIconProps) => (

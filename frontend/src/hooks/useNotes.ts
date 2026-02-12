@@ -22,7 +22,13 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
-import type { EditorPane, FileNote, Folder, Note, TopLevelItem } from '../types';
+import type {
+  EditorPane,
+  FileNote,
+  Folder,
+  Note,
+  TopLevelItem,
+} from '../types';
 
 interface UseNotesOptions {
   onNotesReloaded?: React.RefObject<((notes: Note[]) => void) | null>;
@@ -32,7 +38,8 @@ interface UseNotesOptions {
 }
 
 export const useNotes = (options: UseNotesOptions = {}) => {
-  const { onNotesReloaded, isSplit, focusedPane, openNoteInSplitPane } = options;
+  const { onNotesReloaded, isSplit, focusedPane, openNoteInSplitPane } =
+    options;
   const [notes, setNotes] = useState<Note[]>([]);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [showArchived, setShowArchived] = useState(false);

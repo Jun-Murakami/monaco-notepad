@@ -1,7 +1,17 @@
 import { Logout, Settings } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
-import { Box, CircularProgress, Divider, IconButton, List, ListItem, Popover, Tooltip, Typography } from '@mui/material';
+import {
+  Box,
+  CircularProgress,
+  Divider,
+  IconButton,
+  List,
+  ListItem,
+  Popover,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import { keyframes } from '@mui/system';
 import type { editor, IDisposable } from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -41,7 +51,11 @@ interface EditorStatusBarProps {
   onToggleSplit: () => void;
   onToggleMarkdownPreview: () => void;
   onSettings: () => void;
-  showMessage: (title: string, message: string, isTwoButton?: boolean) => Promise<boolean>;
+  showMessage: (
+    title: string,
+    message: string,
+    isTwoButton?: boolean,
+  ) => Promise<boolean>;
 }
 
 export const EditorStatusBar = ({
@@ -54,8 +68,15 @@ export const EditorStatusBar = ({
   onSettings,
   showMessage,
 }: EditorStatusBarProps) => {
-  const { syncStatus, isHoveringSync, setIsHoveringSync, isHoverLocked, handleGoogleAuth, handleLogout, handleSyncNow } =
-    useDriveSync(showMessage);
+  const {
+    syncStatus,
+    isHoveringSync,
+    setIsHoveringSync,
+    isHoverLocked,
+    handleGoogleAuth,
+    handleLogout,
+    handleSyncNow,
+  } = useDriveSync(showMessage);
   const [logMessage, setLogMessage] = useState<string>('');
   const [opacity, setOpacity] = useState<number>(1);
   const logTimeoutRef = useRef<number | null>(null);
@@ -89,7 +110,9 @@ export const EditorStatusBar = ({
       const end = `${selection.endLineNumber}.${selection.endColumn}`;
       info.push(`Select: [ ${start} -> ${end} ]`);
     } else if (position) {
-      info.push(`Cursor Position: [ Line ${position.lineNumber}, Col ${position.column} ]`);
+      info.push(
+        `Cursor Position: [ Line ${position.lineNumber}, Col ${position.column} ]`,
+      );
     }
 
     return info;
@@ -172,21 +195,30 @@ export const EditorStatusBar = ({
         position: 'relative',
       }}
     >
-      <Box sx={{ display: 'flex', width: 220, flexShrink: 0, textAlign: 'left' }}>
-        <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
+      <Box
+        sx={{ display: 'flex', width: 220, flexShrink: 0, textAlign: 'left' }}
+      >
+        <Typography variant="caption" component="div" sx={{ mx: 2 }} noWrap>
           {info[0]}
         </Typography>
-        <Typography variant='caption' component='div' sx={{ mx: 2 }} noWrap>
+        <Typography variant="caption" component="div" sx={{ mx: 2 }} noWrap>
           {info[1]}
         </Typography>
       </Box>
 
-      <Box sx={{ display: 'flex', textAlign: 'left', width: 280, flexShrink: 0 }}>
-        <Divider orientation='vertical' flexItem />
-        <Typography variant='caption' component='div' sx={{ mx: 4, width: '100%' }} noWrap>
+      <Box
+        sx={{ display: 'flex', textAlign: 'left', width: 280, flexShrink: 0 }}
+      >
+        <Divider orientation="vertical" flexItem />
+        <Typography
+          variant="caption"
+          component="div"
+          sx={{ mx: 4, width: '100%' }}
+          noWrap
+        >
           {info[2]}
         </Typography>
-        <Divider orientation='vertical' flexItem sx={{ right: 0 }} />
+        <Divider orientation="vertical" flexItem sx={{ right: 0 }} />
       </Box>
 
       <Box
@@ -199,7 +231,15 @@ export const EditorStatusBar = ({
         }}
       >
         <VersionUp />
-        <Tooltip title={messageHistoryRef.current.length > 0 ? 'Open Notification History' : ''} arrow placement='top'>
+        <Tooltip
+          title={
+            messageHistoryRef.current.length > 0
+              ? 'Open Notification History'
+              : ''
+          }
+          arrow
+          placement="top"
+        >
           <Box
             onClick={(e) => {
               if (messageHistoryRef.current.length > 0) {
@@ -208,7 +248,8 @@ export const EditorStatusBar = ({
               }
             }}
             sx={{
-              cursor: messageHistoryRef.current.length > 0 ? 'pointer' : 'default',
+              cursor:
+                messageHistoryRef.current.length > 0 ? 'pointer' : 'default',
               flexGrow: 1,
               minWidth: 0,
               py: 0.5,
@@ -222,7 +263,7 @@ export const EditorStatusBar = ({
             }}
           >
             <Typography
-              variant='caption'
+              variant="caption"
               sx={{
                 mx: 4,
                 color: 'text.secondary',
@@ -253,7 +294,11 @@ export const EditorStatusBar = ({
           zIndex: 1,
         }}
       >
-        <Tooltip title={isSplit ? 'Close Split' : 'Split Editor'} arrow placement='top'>
+        <Tooltip
+          title={isSplit ? 'Close Split' : 'Split Editor'}
+          arrow
+          placement="top"
+        >
           <span>
             <IconButton
               sx={{ fontSize: 16, width: 28, height: 28 }}
@@ -265,7 +310,11 @@ export const EditorStatusBar = ({
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title={isMarkdownPreview ? 'Close Preview' : 'Markdown Preview'} arrow placement='top'>
+        <Tooltip
+          title={isMarkdownPreview ? 'Close Preview' : 'Markdown Preview'}
+          arrow
+          placement="top"
+        >
           <IconButton
             sx={{ fontSize: 16, width: 28, height: 28 }}
             onClick={onToggleMarkdownPreview}
@@ -277,23 +326,23 @@ export const EditorStatusBar = ({
 
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           {syncStatus === 'synced' ? (
-            <Tooltip title='Sync now!' arrow placement='top'>
+            <Tooltip title="Sync now!" arrow placement="top">
               <IconButton
                 onClick={handleSyncNow}
-                size='small'
+                size="small"
                 sx={{ width: 28, height: 28 }}
                 onMouseEnter={() => !isHoverLocked && setIsHoveringSync(true)}
                 onMouseLeave={() => setIsHoveringSync(false)}
               >
                 {isHoveringSync ? (
-                  <CloudSyncIcon color='primary' sx={{ fontSize: 22 }} />
+                  <CloudSyncIcon color="primary" sx={{ fontSize: 22 }} />
                 ) : (
-                  <CloudDoneIcon color='primary' sx={{ fontSize: 20 }} />
+                  <CloudDoneIcon color="primary" sx={{ fontSize: 20 }} />
                 )}
               </IconButton>
             </Tooltip>
           ) : syncStatus === 'syncing' ? (
-            <Tooltip title='Syncing...' arrow placement='top'>
+            <Tooltip title="Syncing..." arrow placement="top">
               <Box
                 sx={{
                   animation: `${fadeAnimation} 1.5s ease-in-out infinite`,
@@ -306,25 +355,38 @@ export const EditorStatusBar = ({
               </Box>
             </Tooltip>
           ) : (
-            syncStatus === 'logging in' && <CircularProgress size={18} sx={{ mx: 0.5 }} />
+            syncStatus === 'logging in' && (
+              <CircularProgress size={18} sx={{ mx: 0.5 }} />
+            )
           )}
         </Box>
         {syncStatus === 'offline' ? (
-          <Tooltip title='Connect to Google Drive' arrow placement='top'>
-            <IconButton sx={{ width: 28, height: 28 }} onClick={handleGoogleAuth}>
+          <Tooltip title="Connect to Google Drive" arrow placement="top">
+            <IconButton
+              sx={{ width: 28, height: 28 }}
+              onClick={handleGoogleAuth}
+            >
               <GoogleDriveIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>
         ) : (
-          <Tooltip title={syncStatus === 'logging in' ? 'Cancel' : 'Logout'} arrow placement='top'>
+          <Tooltip
+            title={syncStatus === 'logging in' ? 'Cancel' : 'Logout'}
+            arrow
+            placement="top"
+          >
             <span>
-              <IconButton disabled={syncStatus === 'syncing'} onClick={handleLogout} sx={{ width: 28, height: 28 }}>
+              <IconButton
+                disabled={syncStatus === 'syncing'}
+                onClick={handleLogout}
+                sx={{ width: 28, height: 28 }}
+              >
                 <Logout sx={{ fontSize: 18 }} />
               </IconButton>
             </span>
           </Tooltip>
         )}
-        <Tooltip title='Settings' arrow placement='top'>
+        <Tooltip title="Settings" arrow placement="top">
           <IconButton sx={{ width: 28, height: 28 }} onClick={onSettings}>
             <Settings sx={{ fontSize: 18 }} />
           </IconButton>
@@ -343,15 +405,18 @@ export const EditorStatusBar = ({
               width: historyWidth,
               maxWidth: 'none',
               overflow: 'hidden',
-              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
-                backgroundColor: 'text.secondary',
-              },
+              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before':
+                {
+                  backgroundColor: 'text.secondary',
+                },
             },
           },
         }}
       >
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant='subtitle2'>Notification History ({messageHistoryRef.current.length})</Typography>
+          <Typography variant="subtitle2">
+            Notification History ({messageHistoryRef.current.length})
+          </Typography>
         </Box>
         <SimpleBar
           style={{
@@ -370,7 +435,7 @@ export const EditorStatusBar = ({
                 }}
               >
                 <Typography
-                  variant='caption'
+                  variant="caption"
                   sx={{
                     color: 'text.disabled',
                     mr: 1.5,
@@ -380,7 +445,10 @@ export const EditorStatusBar = ({
                 >
                   {formatTime(entry.timestamp)}
                 </Typography>
-                <Typography variant='caption' sx={{ color: 'text.secondary', wordBreak: 'break-word' }}>
+                <Typography
+                  variant="caption"
+                  sx={{ color: 'text.secondary', wordBreak: 'break-word' }}
+                >
                   {entry.message}
                 </Typography>
               </ListItem>

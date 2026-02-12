@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  ApplyIntegrityFixes,
   GetArchivedTopLevelOrder,
   GetTopLevelOrder,
   ListFolders,
   ListNotes,
   LoadFileNotes,
   NotifyFrontendReady,
-  ApplyIntegrityFixes,
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { getSupportedLanguages, type LanguageInfo } from '../lib/monaco';
-import type { FileNote, Folder, IntegrityFixSelection, IntegrityIssue, Note, TopLevelItem } from '../types';
+import type {
+  FileNote,
+  Folder,
+  IntegrityFixSelection,
+  IntegrityIssue,
+  Note,
+  TopLevelItem,
+} from '../types';
 
 export const useInitialize = (
   setNotes: (notes: Note[]) => void,
@@ -31,7 +38,13 @@ export const useInitialize = (
   handleSaveAsFile: () => Promise<void>,
   handleSelectNextAnyNote: () => Promise<void>,
   handleSelectPreviousAnyNote: () => Promise<void>,
-  showMessage: (title: string, message: string, isTwoButton?: boolean, primaryButtonText?: string, secondaryButtonText?: string) => Promise<boolean>,
+  showMessage: (
+    title: string,
+    message: string,
+    isTwoButton?: boolean,
+    primaryButtonText?: string,
+    secondaryButtonText?: string,
+  ) => Promise<boolean>,
   restorePaneNotes: (notes: Note[], fileNotes: FileNote[]) => void,
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
@@ -112,7 +125,11 @@ export const useInitialize = (
       const selections: IntegrityFixSelection[] = [];
 
       for (const issue of issues) {
-        if (!issue.needsUserDecision || !issue.fixOptions || issue.fixOptions.length < 2) {
+        if (
+          !issue.needsUserDecision ||
+          !issue.fixOptions ||
+          issue.fixOptions.length < 2
+        ) {
           continue;
         }
 

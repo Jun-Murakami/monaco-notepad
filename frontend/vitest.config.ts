@@ -1,44 +1,44 @@
-import { defineConfig, type Plugin } from 'vitest/config';
 import path from 'node:path';
+import { defineConfig, type Plugin } from 'vitest/config';
 
 // Vite plugin to handle ?worker imports in test environment
 function workerImportPlugin(): Plugin {
-	return {
-		name: 'mock-worker-imports',
-		enforce: 'pre',
-		resolveId(id) {
-			if (id.endsWith('?worker')) {
-				return `\0mock-worker:${id}`;
-			}
-		},
-		load(id) {
-			if (id.startsWith('\0mock-worker:')) {
-				return 'export default class MockWorker { postMessage() {} terminate() {} }';
-			}
-		},
-	};
+  return {
+    name: 'mock-worker-imports',
+    enforce: 'pre',
+    resolveId(id) {
+      if (id.endsWith('?worker')) {
+        return `\0mock-worker:${id}`;
+      }
+    },
+    load(id) {
+      if (id.startsWith('\0mock-worker:')) {
+        return 'export default class MockWorker { postMessage() {} terminate() {} }';
+      }
+    },
+  };
 }
 
 // Vite plugin to handle monaco-themes JSON imports in test environment
 function monacoThemesPlugin(): Plugin {
-	return {
-		name: 'mock-monaco-themes',
-		enforce: 'pre',
-		resolveId(id) {
-			if (id.includes('monaco-themes/themes/') && id.endsWith('.json')) {
-				return `\0mock-theme:${id}`;
-			}
-		},
-		load(id) {
-			if (id.startsWith('\0mock-theme:')) {
-				return 'export default { base: "vs", inherit: true, rules: [], colors: {} }';
-			}
-		},
-	};
+  return {
+    name: 'mock-monaco-themes',
+    enforce: 'pre',
+    resolveId(id) {
+      if (id.includes('monaco-themes/themes/') && id.endsWith('.json')) {
+        return `\0mock-theme:${id}`;
+      }
+    },
+    load(id) {
+      if (id.startsWith('\0mock-theme:')) {
+        return 'export default { base: "vs", inherit: true, rules: [], colors: {} }';
+      }
+    },
+  };
 }
 
 export default defineConfig({
-	plugins: [workerImportPlugin(), monacoThemesPlugin()],
+  plugins: [workerImportPlugin(), monacoThemesPlugin()],
   test: {
     environment: 'jsdom',
     globals: true,
@@ -59,16 +59,19 @@ export default defineConfig({
       optimizer: {
         web: {
           include: ['@mui/*'],
-        }
+        },
       },
-      interopDefault: true
+      interopDefault: true,
     },
-    setupFiles: ['./src/test/setup.ts']
+    setupFiles: ['./src/test/setup.ts'],
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'monaco-editor': path.resolve(__dirname, './node_modules/monaco-editor/esm/vs/editor/editor.api.js'),
+      'monaco-editor': path.resolve(
+        __dirname,
+        './node_modules/monaco-editor/esm/vs/editor/editor.api.js',
+      ),
     },
   },
-}); 
+});
