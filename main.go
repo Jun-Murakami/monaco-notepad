@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/wailsapp/wails/v2"
@@ -19,6 +20,8 @@ import (
 var assets embed.FS
 
 func main() {
+	applyMacWindowClosePatch()
+
 	// Create an instance of the app structure
 	app := backend.NewApp()
 
@@ -32,6 +35,8 @@ func main() {
 		Height:    768,
 		MinWidth:  720,
 		MinHeight: 480,
+		// macOSでは閉じるボタンでアプリを終了せず、Dockに残す
+		HideWindowOnClose: runtime.GOOS == "darwin",
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
