@@ -133,3 +133,39 @@ func TestSyncState_MultipleMarkNoteDirty(t *testing.T) {
 	assert.True(t, state.DirtyNoteIDs["note3"])
 	assert.Len(t, state.DirtyNoteIDs, 3)
 }
+
+func TestSyncState_ClearDirtyIfUnchanged_SkipsWhenRevisionChanged(t *testing.T) {
+	state := NewSyncState(t.TempDir())
+	state.MarkNoteDirty("note1")
+
+	_, _, _, revision := state.GetDirtySnapshotWithRevision()
+
+	// スナップショット取得後に新しい変更が入るケース
+	state.MarkNoteDirty("note2")
+
+	cleared := state.ClearDirtyIfUnchanged(revision, "2026-01-01T00:00:00Z", map[string]string{
+		"note1": "hash1",
+		"note2": "hash2",
+	})
+
+	assert.False(t, cleared)
+	assert.True(t, state.IsDirty())
+	assert.True(t, state.DirtyNoteIDs["note1"])
+	assert.True(t, state.DirtyNoteIDs["note2"])
+}
+
+func TestSyncState_ClearDirtyIfUnchanged_ClearsWhenRevisionSame(t *testing.T) {
+	state := NewSyncState(t.TempDir())
+	state.MarkNoteDirty("note1")
+
+	_, _, _, revision := state.GetDirtySnapshotWithRevision()
+
+	cleared := state.ClearDirtyIfUnchanged(revision, "2026-01-01T00:00:00Z", map[string]string{
+		"note1": "hash1",
+	})
+
+	assert.True(t, cleared)
+	assert.False(t, state.IsDirty())
+	assert.Empty(t, state.DirtyNoteIDs)
+	assert.Equal(t, "hash1", state.LastSyncedNoteHash["note1"])
+}

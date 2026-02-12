@@ -19,6 +19,7 @@ type SyncState struct {
 
 	mu       sync.Mutex `json:"-"`
 	filePath string     `json:"-"`
+	revision uint64     `json:"-"`
 }
 
 func NewSyncState(appDataDir string) *SyncState {
@@ -72,6 +73,7 @@ func (s *SyncState) MarkNoteDirty(noteID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.revision++
 	s.Dirty = true
 	s.ensureMapsLocked()
 	s.DirtyNoteIDs[noteID] = true
@@ -82,6 +84,7 @@ func (s *SyncState) MarkNoteDeleted(noteID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.revision++
 	s.Dirty = true
 	s.ensureMapsLocked()
 	s.DeletedNoteIDs[noteID] = true
@@ -93,6 +96,7 @@ func (s *SyncState) MarkDirty() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.revision++
 	s.Dirty = true
 	_ = s.saveLocked()
 }
@@ -101,6 +105,27 @@ func (s *SyncState) ClearDirty(driveTs string, noteHashes map[string]string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.revision++
+	s.clearDirtyLocked(driveTs, noteHashes)
+	_ = s.saveLocked()
+}
+
+// ClearDirtyIfUnchanged は、スナップショット取得後に状態更新が無い場合のみ dirty をクリアする
+// 戻り値が false の場合は、同期中に新しい更新が入ったため dirty を保持して次回同期へ回す
+func (s *SyncState) ClearDirtyIfUnchanged(snapshotRevision uint64, driveTs string, noteHashes map[string]string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.revision != snapshotRevision {
+		return false
+	}
+	s.revision++
+	s.clearDirtyLocked(driveTs, noteHashes)
+	_ = s.saveLocked()
+	return true
+}
+
+func (s *SyncState) clearDirtyLocked(driveTs string, noteHashes map[string]string) {
 	s.Dirty = false
 	s.DirtyNoteIDs = make(map[string]bool)
 	s.DeletedNoteIDs = make(map[string]bool)
@@ -109,7 +134,6 @@ func (s *SyncState) ClearDirty(driveTs string, noteHashes map[string]string) {
 	for k, v := range noteHashes {
 		s.LastSyncedNoteHash[k] = v
 	}
-	_ = s.saveLocked()
 }
 
 func (s *SyncState) IsDirty() bool {
@@ -135,6 +159,28 @@ func (s *SyncState) GetDirtySnapshot() (dirtyNoteIDs map[string]bool, deletedNot
 	for k, v := range s.LastSyncedNoteHash {
 		lastSyncedNoteHash[k] = v
 	}
+
+	return
+}
+
+// GetDirtySnapshotWithRevision は dirty スナップショットと同時に revision を返す
+func (s *SyncState) GetDirtySnapshotWithRevision() (dirtyNoteIDs map[string]bool, deletedNoteIDs map[string]bool, lastSyncedNoteHash map[string]string, revision uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	dirtyNoteIDs = make(map[string]bool, len(s.DirtyNoteIDs))
+	for id := range s.DirtyNoteIDs {
+		dirtyNoteIDs[id] = true
+	}
+	deletedNoteIDs = make(map[string]bool, len(s.DeletedNoteIDs))
+	for id := range s.DeletedNoteIDs {
+		deletedNoteIDs[id] = true
+	}
+	lastSyncedNoteHash = make(map[string]string, len(s.LastSyncedNoteHash))
+	for k, v := range s.LastSyncedNoteHash {
+		lastSyncedNoteHash[k] = v
+	}
+	revision = s.revision
 
 	return
 }

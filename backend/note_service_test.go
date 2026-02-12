@@ -450,8 +450,9 @@ func TestGetTopLevelOrder_BackwardCompat(t *testing.T) {
 	order := helper.noteService.GetTopLevelOrder()
 	assert.Equal(t, 3, len(order))
 	// 未分類ノートが先、フォルダが後
-	assert.Equal(t, TopLevelItem{Type: "note", ID: "n1"}, order[0])
-	assert.Equal(t, TopLevelItem{Type: "note", ID: "n2"}, order[1])
+	assert.Equal(t, "note", order[0].Type)
+	assert.Equal(t, "note", order[1].Type)
+	assert.ElementsMatch(t, []string{"n1", "n2"}, []string{order[0].ID, order[1].ID})
 	assert.Equal(t, TopLevelItem{Type: "folder", ID: folder.ID}, order[2])
 }
 

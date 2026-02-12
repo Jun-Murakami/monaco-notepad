@@ -407,7 +407,7 @@ func (s *driveService) SyncNotes() error {
 }
 
 func (s *driveService) pushLocalChanges() error {
-	dirtyIDs, deletedIDs, _ := s.syncState.GetDirtySnapshot()
+	dirtyIDs, deletedIDs, _, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
 
 	for id := range dirtyIDs {
 		note, err := s.noteService.LoadNote(id)
@@ -471,7 +471,9 @@ func (s *driveService) pushLocalChanges() error {
 	for _, n := range s.noteService.noteList.Notes {
 		noteHashes[n.ID] = n.ContentHash
 	}
-	s.syncState.ClearDirty(driveTs, noteHashes)
+	if !s.syncState.ClearDirtyIfUnchanged(snapshotRevision, driveTs, noteHashes) {
+		s.logger.Console("Sync state changed during push; retaining dirty flags for next sync")
+	}
 
 	s.pollingService.RefreshChangeToken()
 	s.notifySyncComplete()
@@ -480,6 +482,8 @@ func (s *driveService) pushLocalChanges() error {
 }
 
 func (s *driveService) pullCloudChanges(noteListID string) error {
+	_, _, _, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
+
 	cloudNoteList, err := s.driveSync.DownloadNoteList(s.ctx, noteListID)
 	if err != nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to download note list: %w", err))
@@ -549,7 +553,9 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 	for _, n := range cloudNoteList.Notes {
 		noteHashes[n.ID] = n.ContentHash
 	}
-	s.syncState.ClearDirty(driveTs, noteHashes)
+	if !s.syncState.ClearDirtyIfUnchanged(snapshotRevision, driveTs, noteHashes) {
+		s.logger.Console("Sync state changed during pull; retaining dirty flags for next sync")
+	}
 
 	s.notifySyncComplete()
 	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
@@ -557,6 +563,8 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 }
 
 func (s *driveService) resolveConflict(noteListID string) error {
+	_, _, _, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
+
 	cloudNoteList, err := s.driveSync.DownloadNoteList(s.ctx, noteListID)
 	if err != nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to download note list: %w", err))
@@ -716,7 +724,9 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	for _, n := range s.noteService.noteList.Notes {
 		noteHashes[n.ID] = n.ContentHash
 	}
-	s.syncState.ClearDirty(driveTs, noteHashes)
+	if !s.syncState.ClearDirtyIfUnchanged(snapshotRevision, driveTs, noteHashes) {
+		s.logger.Console("Sync state changed during conflict resolution; retaining dirty flags for next sync")
+	}
 
 	s.pollingService.RefreshChangeToken()
 	s.notifySyncComplete()
