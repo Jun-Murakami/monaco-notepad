@@ -168,6 +168,40 @@ func TestPolling_Disconnected_ReconnectSuccess(t *testing.T) {
 	polling.StopPolling()
 }
 
+func TestPolling_WaitForFrontend_StartsWithInitialSync(t *testing.T) {
+	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	seedCloudNoteListFile(t, ds, rawOps)
+	ds.auth.frontendReady = make(chan struct{})
+
+	polling := NewDrivePollingService(context.Background(), ds)
+	go func() {
+		polling.WaitForFrontendAndStartSync()
+	}()
+
+	close(ds.auth.frontendReady)
+
+	deadline := time.Now().Add(3 * time.Second)
+	foundSyncing := false
+	for time.Now().Before(deadline) {
+		statuses := recorder.statusCalls()
+		for _, s := range statuses {
+			if s == "syncing" {
+				foundSyncing = true
+				break
+			}
+		}
+		if foundSyncing {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	polling.StopPolling()
+	assert.True(t, foundSyncing, "起動時に初回SyncNotesが呼ばれ、syncing通知が行われるべき")
+}
+
 func TestPolling_Disconnected_ReconnectFail_Backoff(t *testing.T) {
 	base := 10 * time.Second
 	factor := 1.5

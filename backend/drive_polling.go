@@ -32,8 +32,10 @@ func (p *DrivePollingService) WaitForFrontendAndStartSync() {
 	<-p.driveService.auth.GetFrontendReadyChan()
 	p.logger.Console("Frontend ready signal received - starting sync...")
 
-	if !p.driveService.IsTestMode() {
-		p.logger.NotifyDriveStatus(p.ctx, "synced")
+	// 起動時点より前に発生したクラウド差分を取りこぼさないため、
+	// ポーリング開始前に必ず一度フル同期判定を実行する
+	if err := p.driveService.SyncNotes(); err != nil {
+		p.logger.Error(err, "Drive: initial sync failed")
 	}
 
 	time.Sleep(1 * time.Second)

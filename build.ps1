@@ -10,7 +10,7 @@ wails build -ldflags "-X 'monaco-notepad/backend.Version=$version'" -platform wi
 # ビルド成功時にメッセージを表示
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build completed successfully!"
-    Write-Host "Output: build/bin/Monaco Notepad.exe"
+    Write-Host "Output: build/bin/MonacoNotepad-win64-installer-$version.exe"
 } else {
     Write-Host "Build failed with exit code $LASTEXITCODE"
 } 
