@@ -5,55 +5,6 @@ import dayjs from 'dayjs';
 import type { FileNote, Folder, Note } from '../../types';
 import { NoteList } from '../NoteList';
 
-// DnD-kitのモック
-vi.mock('@dnd-kit/core', () => ({
-  ...vi.importActual('@dnd-kit/core'),
-  DndContext: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DragOverlay: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  useSensor: () => null,
-  useSensors: () => null,
-  useDroppable: () => ({
-    setNodeRef: () => null,
-    isOver: false,
-  }),
-  PointerSensor: function MockPointerSensor() {
-    return {
-      activate: () => {},
-      deactivate: () => {},
-    };
-  },
-  KeyboardSensor: function MockKeyboardSensor() {
-    return {
-      activate: () => {},
-      deactivate: () => {},
-    };
-  },
-  restrictToVerticalAxis: () => {},
-  restrictToParentElement: () => {},
-}));
-
-vi.mock('@dnd-kit/sortable', () => ({
-  ...vi.importActual('@dnd-kit/sortable'),
-  SortableContext: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  useSortable: () => ({
-    attributes: {},
-    listeners: {},
-    setNodeRef: () => null,
-    transform: null,
-    transition: null,
-    isDragging: false,
-  }),
-  verticalListSortingStrategy: {},
-  arrayMove: (array: unknown[], _from: number, _to: number) => array,
-  sortableKeyboardCoordinates: () => ({}),
-}));
-
 describe('NoteList', () => {
   const mockNotes: Note[] = [
     {
@@ -257,13 +208,13 @@ describe('NoteList', () => {
   it('ノートリストが空の場合、リストが空であることを確認', () => {
     render(<NoteList {...defaultProps} notes={[]} />);
     const list = screen.getByRole('list');
-    expect(list.children[0].children[0]).toBeEmptyDOMElement();
+    expect(list.querySelectorAll('.MuiListItemButton-root').length).toBe(0);
   });
 
   it('ファイルモードでファイルリストが空の場合、リストが空であることを確認', () => {
     render(<NoteList {...defaultFileProps} notes={[]} />);
     const list = screen.getByRole('list');
-    expect(list.children[0].children[0]).toBeEmptyDOMElement();
+    expect(list.querySelectorAll('.MuiListItemButton-root').length).toBe(0);
   });
 
   describe('フォルダ機能', () => {

@@ -1,26 +1,18 @@
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import {
-  type CollisionDetection,
-  closestCenter,
-  DndContext,
-  type DragEndEvent,
-  type DragOverEvent,
-  DragOverlay,
-  type DragStartEvent,
-  KeyboardSensor,
-  PointerSensor,
-  pointerWithin,
-  useDroppable,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
+  draggable,
+  dropTargetForElements,
+  monitorForElements,
+} from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { pointerOutsideOfPreview } from '@atlaskit/pragmatic-drag-and-drop/element/pointer-outside-of-preview';
+import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview';
+import { reorder } from '@atlaskit/pragmatic-drag-and-drop/reorder';
 import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+  attachClosestEdge,
+  type Edge,
+  extractClosestEdge,
+} from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { getReorderDestinationIndex } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/get-reorder-destination-index';
 import {
   Archive,
   ChevronRight,
@@ -46,8 +38,15 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import { observeElementOffset, useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
@@ -65,22 +64,9 @@ const detectTargetPane = (x: number, y: number): 'left' | 'right' | null => {
   return null;
 };
 
-// スクロールイベントを RAF で間引く observeElementOffset
-const observeElementOffsetThrottled = <T extends Element>(
-  instance: Virtualizer<T, Element>,
-  cb: (offset: number, isScrolling: boolean) => void,
-) => {
-  let rafId = 0;
-  return observeElementOffset(instance, (offset, isScrolling) => {
-    if (rafId) return;
-    rafId = requestAnimationFrame(() => {
-      rafId = 0;
-      cb(offset, isScrolling);
-    });
-  });
-};
-
-const getNoteTitle = (note: Note | FileNote): { text: string; isFallback: boolean } => {
+const getNoteTitle = (
+  note: Note | FileNote,
+): { text: string; isFallback: boolean } => {
   if ('filePath' in note) {
     return { text: note.fileName, isFallback: false };
   }
@@ -108,6 +94,16 @@ const getNoteTitle = (note: Note | FileNote): { text: string; isFallback: boolea
     isFallback: true,
   };
 };
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
+
+const DRAG_ITEM_KEY = Symbol('note-list-drag-item');
+const DROP_TARGET_KEY = Symbol('note-list-drop-target');
+
+const FOLDER_BOUNDARY_INDENT_THRESHOLD = 96;
+const INDENT_INDICATOR_OFFSET = 12;
+const INDICATOR_INSET = 8;
 
 interface NoteListProps {
   notes: Note[] | FileNote[];
@@ -184,17 +180,19 @@ const NoteItem: React.FC<NoteItemProps> = memo(
       mouseY: number;
     } | null>(null);
 
-    const isFileNote = (note: Note | FileNote): note is FileNote => {
-      return 'filePath' in note;
-    };
-
+    const isFileNote = (value: Note | FileNote): value is FileNote =>
+      'filePath' in value;
     const isSyncing = !isFileNote(note) && !!(note as Note).syncing;
 
     const handleContextMenu = (event: React.MouseEvent) => {
       if (isSyncing) return;
       event.preventDefault();
       event.stopPropagation();
-      setContextMenu(contextMenu === null ? { mouseX: event.clientX + 2, mouseY: event.clientY - 6 } : null);
+      setContextMenu(
+        contextMenu === null
+          ? { mouseX: event.clientX + 2, mouseY: event.clientY - 6 }
+          : null,
+      );
     };
 
     const handleCloseContextMenu = () => {
@@ -239,19 +237,28 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               }),
               ...(currentNote?.id !== note.id &&
                 note.id === secondarySelectedNoteId && {
-                  backgroundColor: alpha(theme.palette.secondary.main, theme.palette.mode === 'dark' ? 0.16 : 0.16),
+                  backgroundColor: alpha(
+                    theme.palette.secondary.main,
+                    theme.palette.mode === 'dark' ? 0.16 : 0.16,
+                  ),
                   '&:hover': {
-                    backgroundColor: alpha(theme.palette.secondary.main, theme.palette.mode === 'dark' ? 0.24 : 0.24),
+                    backgroundColor: alpha(
+                      theme.palette.secondary.main,
+                      theme.palette.mode === 'dark' ? 0.24 : 0.24,
+                    ),
                   },
                 }),
             }}
           >
             <Typography
               noWrap
-              variant='body2'
+              variant="body2"
               sx={{
                 width: '100%',
-                fontStyle: isFileModified?.(note.id) || noteTitle.isFallback ? 'italic' : 'normal',
+                fontStyle:
+                  isFileModified?.(note.id) || noteTitle.isFallback
+                    ? 'italic'
+                    : 'normal',
                 opacity: noteTitle.isFallback ? 0.6 : 1,
               }}
             >
@@ -269,9 +276,12 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               {noteTitle.text}
             </Typography>
             <Typography
-              variant='caption'
+              variant="caption"
               sx={{
-                color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.20)' : 'rgba(0, 0, 0, 0.20)',
+                color:
+                  theme.palette.mode === 'dark'
+                    ? 'rgba(255, 255, 255, 0.20)'
+                    : 'rgba(0, 0, 0, 0.20)',
                 width: '100%',
                 textAlign: 'right',
               }}
@@ -281,15 +291,22 @@ const NoteItem: React.FC<NoteItemProps> = memo(
           </ListItemButton>
           {isFileMode ? (
             <>
-              <Tooltip title={`Save (${cmdKey} + S)`} arrow placement='bottom'>
+              <Tooltip title={`Save (${cmdKey} + S)`} arrow placement="bottom">
                 <span style={{ position: 'absolute', right: 72, top: 8 }}>
                   <IconButton
-                    className='action-button'
-                    disabled={!isFileModified?.(note.id) || (isFileNote(note) && note.filePath === '')}
+                    className="action-button"
+                    disabled={
+                      !isFileModified?.(note.id) ||
+                      (isFileNote(note) && note.filePath === '')
+                    }
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (isFileNote(note) && isFileModified?.(note.id) && onSaveFile) {
+                      if (
+                        isFileNote(note) &&
+                        isFileModified?.(note.id) &&
+                        onSaveFile
+                      ) {
                         await onSaveFile(note);
                       }
                     }}
@@ -309,10 +326,10 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title='Convert to Note' arrow placement='bottom'>
+              <Tooltip title="Convert to Note" arrow placement="bottom">
                 <span style={{ position: 'absolute', right: 40, top: 8 }}>
                   <IconButton
-                    className='action-button'
+                    className="action-button"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={async (e) => {
                       e.stopPropagation();
@@ -336,10 +353,10 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title={`Close (${cmdKey} + W)`} arrow placement='bottom'>
+              <Tooltip title={`Close (${cmdKey} + W)`} arrow placement="bottom">
                 <span style={{ position: 'absolute', right: 8, top: 8 }}>
                   <IconButton
-                    className='action-button'
+                    className="action-button"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={async (e) => {
                       e.stopPropagation();
@@ -366,10 +383,14 @@ const NoteItem: React.FC<NoteItemProps> = memo(
             </>
           ) : (
             onArchive && (
-              <Tooltip title={`Archive (${cmdKey} + W)`} arrow placement='bottom'>
+              <Tooltip
+                title={`Archive (${cmdKey} + W)`}
+                arrow
+                placement="bottom"
+              >
                 <span style={{ position: 'absolute', right: 8, top: 8 }}>
                   <IconButton
-                    className='action-button'
+                    className="action-button"
                     aria-label={`Archive (${cmdKey} + W)`}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={async (e) => {
@@ -382,7 +403,6 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                       width: 26,
                       height: 26,
                       backgroundColor: 'background.default',
-                      // ホバー時はプライマリ背景＋前景は text.primary で反転させない
                       '&:hover': {
                         backgroundColor: 'primary.main',
                         color: 'text.primary',
@@ -398,8 +418,12 @@ const NoteItem: React.FC<NoteItemProps> = memo(
           <Menu
             open={contextMenu !== null}
             onClose={handleCloseContextMenu}
-            anchorReference='anchorPosition'
-            anchorPosition={contextMenu !== null ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+            anchorReference="anchorPosition"
+            anchorPosition={
+              contextMenu !== null
+                ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+                : undefined
+            }
             sx={{ zIndex: 1400 }}
             slotProps={{ paper: { sx: { minWidth: 0 } } }}
           >
@@ -412,10 +436,17 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               }}
               sx={{ py: 0.25, fontSize: '0.75rem' }}
             >
-              <Typography variant='caption' color='text.secondary' sx={{ mr: 0.5 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mr: 0.5 }}
+              >
                 Open in
               </Typography>
-              <Typography variant='caption' sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+              <Typography
+                variant="caption"
+                sx={{ fontWeight: 'bold', color: 'primary.main' }}
+              >
                 1: Left Pane
               </Typography>
             </MenuItem>
@@ -428,10 +459,17 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               }}
               sx={{ py: 0.25, fontSize: '0.75rem' }}
             >
-              <Typography variant='caption' color='text.secondary' sx={{ mr: 0.5 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mr: 0.5 }}
+              >
                 Open in
               </Typography>
-              <Typography variant='caption' sx={{ fontWeight: 'bold', color: 'secondary.main' }}>
+              <Typography
+                variant="caption"
+                sx={{ fontWeight: 'bold', color: 'secondary.main' }}
+              >
                 2: Right Pane
               </Typography>
             </MenuItem>
@@ -441,133 +479,6 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     );
   },
 );
-
-const DroppableZone: React.FC<{
-  id: string;
-  children: React.ReactNode;
-}> = ({ id, children }) => {
-  const { setNodeRef, isOver } = useDroppable({ id });
-  return (
-    <Box
-      ref={setNodeRef}
-      sx={{
-        bgcolor: isOver ? 'action.hover' : 'transparent',
-        transition: 'background-color 0.2s',
-        minHeight: 4,
-      }}
-    >
-      {children}
-    </Box>
-  );
-};
-
-const SortableWrapper: React.FC<{
-  id: string;
-  children: React.ReactNode;
-  staticMode?: boolean;
-}> = memo(({ id, children, staticMode }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-
-  const style = staticMode ? { opacity: isDragging ? 0.3 : 1 } : { transform: CSS.Transform.toString(transform), transition };
-
-  const handlePointerDown: React.PointerEventHandler = (e) => {
-    e.stopPropagation();
-    (listeners?.onPointerDown as (e: React.PointerEvent) => void)?.(e);
-  };
-
-  return (
-    <Box ref={setNodeRef} style={style} {...attributes} {...listeners} onPointerDown={handlePointerDown}>
-      {children}
-    </Box>
-  );
-});
-
-const FolderDropIndicatorOverlay: React.FC<{
-  virtualizer: Virtualizer<HTMLElement, Element>;
-  flatItems: string[];
-  isTestEnv: boolean;
-  activeDragId: string | null;
-  getDropIndicator: (id: string) => 'top' | 'bottom' | null;
-  boundaryIndented: boolean;
-  precedingFolderIds: Map<string, string>;
-  lastFolderNoteIds: Map<string, string>;
-}> = ({
-  virtualizer,
-  flatItems,
-  isTestEnv,
-  activeDragId,
-  getDropIndicator,
-  boundaryIndented,
-  precedingFolderIds,
-  lastFolderNoteIds,
-}) => {
-  if (isTestEnv || !activeDragId) return null;
-  const visibleRows = virtualizer.getVirtualItems();
-  const target = visibleRows.find((row) => {
-    const id = flatItems[row.index];
-    if (!id) return false;
-    return getDropIndicator(id) !== null;
-  });
-  if (!target) return null;
-  const targetId = flatItems[target.index];
-  const indicator = targetId ? getDropIndicator(targetId) : null;
-  if (!targetId || !indicator) return null;
-
-  const isAtBoundary =
-    boundaryIndented &&
-    ((indicator === 'top' && precedingFolderIds.has(targetId)) || (indicator === 'bottom' && lastFolderNoteIds.has(targetId)));
-  const isFolderNote = targetId.startsWith('folder-note:');
-  const isFolderTail = targetId.startsWith('folder-tail:');
-  const isLastFolderNoteBoundary = indicator === 'bottom' && lastFolderNoteIds.has(targetId);
-  const indented = isFolderNote ? (isLastFolderNoteBoundary ? boundaryIndented : true) : isFolderTail ? true : isAtBoundary;
-  const insetPx = 8;
-  const leftPx = insetPx + (indented ? 12 : 0);
-
-  return (
-    <Box
-      sx={{
-        position: 'absolute',
-        top: indicator === 'top' ? target.start : target.start + target.size,
-        left: leftPx,
-        right: insetPx,
-        height: 2,
-        bgcolor: 'primary.main',
-        zIndex: 1,
-      }}
-    />
-  );
-};
-
-const FlatDropIndicatorOverlay: React.FC<{
-  virtualizer: Virtualizer<HTMLElement, Element>;
-  activeNotes: Note[] | FileNote[];
-  isTestEnv: boolean;
-  activeDragId: string | null;
-  overId: string | null;
-  insertAbove: boolean;
-}> = ({ virtualizer, activeNotes, isTestEnv, activeDragId, overId, insertAbove }) => {
-  if (isTestEnv || !activeDragId || !overId || activeDragId === overId) {
-    return null;
-  }
-
-  const visibleRows = virtualizer.getVirtualItems();
-  const target = visibleRows.find((row) => activeNotes[row.index]?.id === overId);
-  if (!target) return null;
-
-  return (
-    <Box
-      sx={{
-        position: 'absolute',
-        top: insertAbove ? target.start : target.start + target.size,
-        left: 8,
-        right: 8,
-        height: 2,
-        bgcolor: 'primary.main',
-        zIndex: 1,
-      }}
-    />
-  );
-};
 
 interface FolderHeaderProps {
   folder: Folder;
@@ -598,7 +509,6 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
   const [editValue, setEditValue] = useState(folder.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 新規作成直後に自動で編集モードに入る
   useEffect(() => {
     if (autoEdit) {
       setEditValue(folder.name);
@@ -637,7 +547,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
       }}
     >
       <IconButton
-        size='small'
+        size="small"
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
@@ -652,15 +562,21 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
         }}
       >
         {isCollapsed ? (
-          <ChevronRight sx={{ width: 16, height: 16, color: 'text.secondary' }} />
+          <ChevronRight
+            sx={{ width: 16, height: 16, color: 'text.secondary' }}
+          />
         ) : (
           <ExpandMore sx={{ width: 16, height: 16, color: 'text.secondary' }} />
         )}
       </IconButton>
       {isCollapsed ? (
-        <FolderIcon sx={{ width: 16, height: 16, color: 'text.secondary', mr: 0.5 }} />
+        <FolderIcon
+          sx={{ width: 16, height: 16, color: 'text.secondary', mr: 0.5 }}
+        />
       ) : (
-        <FolderOpen sx={{ width: 16, height: 16, color: 'text.secondary', mr: 0.5 }} />
+        <FolderOpen
+          sx={{ width: 16, height: 16, color: 'text.secondary', mr: 0.5 }}
+        />
       )}
       {isEditing ? (
         <InputBase
@@ -684,8 +600,8 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
         />
       ) : (
         <Typography
-          variant='body2'
-          color='text.secondary'
+          variant="body2"
+          color="text.secondary"
           noWrap
           sx={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}
           onDoubleClick={handleStartEdit}
@@ -693,15 +609,15 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
           {folder.name}
         </Typography>
       )}
-      <Typography variant='caption' color='text.disabled' sx={{ mx: 0.5 }}>
+      <Typography variant="caption" color="text.disabled" sx={{ mx: 0.5 }}>
         {noteCount}
       </Typography>
       {!isEditing && (
         <>
-          <Tooltip title='Rename' arrow>
+          <Tooltip title="Rename" arrow>
             <IconButton
-              className='folder-action'
-              size='small'
+              className="folder-action"
+              size="small"
               onClick={(e) => {
                 e.stopPropagation();
                 handleStartEdit();
@@ -719,14 +635,16 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
                 },
               }}
             >
-              <DriveFileRenameOutline sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <DriveFileRenameOutline
+                sx={{ fontSize: 18, color: 'text.secondary' }}
+              />
             </IconButton>
           </Tooltip>
           {isEmpty ? (
-            <Tooltip title='Delete' arrow>
+            <Tooltip title="Delete" arrow>
               <IconButton
-                className='folder-action'
-                size='small'
+                className="folder-action"
+                size="small"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete();
@@ -747,10 +665,10 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
               </IconButton>
             </Tooltip>
           ) : (
-            <Tooltip title='Archive' arrow>
+            <Tooltip title="Archive" arrow>
               <IconButton
-                className='folder-action'
-                size='small'
+                className="folder-action"
+                size="small"
                 onClick={(e) => {
                   e.stopPropagation();
                   onArchive();
@@ -773,6 +691,378 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
           )}
         </>
       )}
+    </Box>
+  );
+};
+
+type DragData =
+  | {
+      kind: 'note';
+      noteId: string;
+    }
+  | {
+      kind: 'folder';
+      folderId: string;
+    };
+
+type NativePreviewState = {
+  item: DragData;
+  container: HTMLElement;
+  width: number;
+};
+
+type DropRowKind =
+  | 'flat-note'
+  | 'top-note'
+  | 'folder'
+  | 'folder-note'
+  | 'folder-tail'
+  | 'unfiled-bottom';
+
+type DropData = {
+  kind: DropRowKind;
+  rowId: string;
+  noteId?: string;
+  folderId?: string;
+  topLevelIndex?: number;
+  isLastInFolder?: boolean;
+};
+
+type HoverState = {
+  target: DropData;
+  edge: Edge | null;
+  boundaryIndented: boolean;
+  indicatorTop: number;
+  indicatorIndented: boolean;
+};
+
+type ActiveDragState = {
+  item: DragData;
+  pointer: { x: number; y: number };
+  hover: HoverState | null;
+};
+
+type DisplayRow =
+  | {
+      kind: 'flat-note';
+      rowId: string;
+      note: Note | FileNote;
+    }
+  | {
+      kind: 'top-note';
+      rowId: string;
+      note: Note;
+      topLevelIndex: number;
+    }
+  | {
+      kind: 'folder';
+      rowId: string;
+      folder: Folder;
+      topLevelIndex: number;
+      noteCount: number;
+      isCollapsed: boolean;
+    }
+  | {
+      kind: 'folder-note';
+      rowId: string;
+      note: Note;
+      folderId: string;
+      topLevelIndex: number;
+      isLastInFolder: boolean;
+    }
+  | {
+      kind: 'folder-tail';
+      rowId: string;
+      folderId: string;
+      topLevelIndex: number;
+    }
+  | {
+      kind: 'unfiled-bottom';
+      rowId: 'unfiled-bottom';
+    };
+
+const isSameTopLevelOrder = (a: TopLevelItem[], b: TopLevelItem[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]?.type !== b[i]?.type || a[i]?.id !== b[i]?.id) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const removeTopLevelNote = (
+  order: TopLevelItem[],
+  noteId: string,
+): TopLevelItem[] =>
+  order.filter((item) => !(item.type === 'note' && item.id === noteId));
+
+const insertTopLevelNote = (
+  order: TopLevelItem[],
+  noteId: string,
+  index: number,
+): TopLevelItem[] => {
+  const without = removeTopLevelNote(order, noteId);
+  const insertAt = clamp(index, 0, without.length);
+  without.splice(insertAt, 0, { type: 'note', id: noteId });
+  return without;
+};
+
+const moveTopLevelItem = (
+  order: TopLevelItem[],
+  itemType: 'note' | 'folder',
+  itemId: string,
+  insertIndex: number,
+): TopLevelItem[] => {
+  const currentIndex = order.findIndex(
+    (item) => item.type === itemType && item.id === itemId,
+  );
+  if (currentIndex === -1) return order;
+  const moving = order[currentIndex];
+  const without = order.filter((_, index) => index !== currentIndex);
+  const safeIndex = clamp(insertIndex, 0, without.length);
+  without.splice(safeIndex, 0, moving);
+  return without;
+};
+
+const readDragData = (
+  data: Record<string | symbol, unknown>,
+): DragData | null => {
+  const value = data[DRAG_ITEM_KEY];
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<DragData>;
+  if (candidate.kind === 'note' && typeof candidate.noteId === 'string') {
+    return { kind: 'note', noteId: candidate.noteId };
+  }
+  if (candidate.kind === 'folder' && typeof candidate.folderId === 'string') {
+    return { kind: 'folder', folderId: candidate.folderId };
+  }
+  return null;
+};
+
+const readDropData = (
+  data: Record<string | symbol, unknown>,
+): DropData | null => {
+  const value = data[DROP_TARGET_KEY];
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<DropData>;
+  if (typeof candidate.kind !== 'string' || typeof candidate.rowId !== 'string')
+    return null;
+  return candidate as DropData;
+};
+
+const canDropOnTarget = (dragData: DragData, dropData: DropData): boolean => {
+  if (dragData.kind === 'folder') {
+    return (
+      dropData.kind === 'folder' ||
+      dropData.kind === 'top-note' ||
+      dropData.kind === 'unfiled-bottom'
+    );
+  }
+
+  if (
+    dropData.kind === 'flat-note' ||
+    dropData.kind === 'top-note' ||
+    dropData.kind === 'folder-note'
+  ) {
+    return dropData.noteId !== dragData.noteId;
+  }
+
+  return (
+    dropData.kind === 'folder' ||
+    dropData.kind === 'folder-tail' ||
+    dropData.kind === 'unfiled-bottom'
+  );
+};
+
+const computeBoundaryIndented = (
+  dropData: DropData,
+  edge: Edge | null,
+  clientX: number,
+  element: Element,
+): boolean => {
+  const rect = element.getBoundingClientRect();
+  if (dropData.kind === 'folder-note') {
+    if (dropData.isLastInFolder && edge === 'bottom') {
+      return clientX > rect.left + FOLDER_BOUNDARY_INDENT_THRESHOLD;
+    }
+    return true;
+  }
+  if (dropData.kind === 'folder-tail') {
+    return clientX > rect.left + FOLDER_BOUNDARY_INDENT_THRESHOLD;
+  }
+  if (dropData.kind === 'folder' && edge === 'bottom') {
+    return clientX > rect.left + FOLDER_BOUNDARY_INDENT_THRESHOLD;
+  }
+  return false;
+};
+
+const computeIndicatorIndented = (
+  dropData: DropData,
+  edge: Edge | null,
+  boundaryIndented: boolean,
+): boolean => {
+  if (dropData.kind === 'folder-note') {
+    if (dropData.isLastInFolder && edge === 'bottom') {
+      return boundaryIndented;
+    }
+    return true;
+  }
+  if (dropData.kind === 'folder-tail') {
+    return boundaryIndented;
+  }
+  if (dropData.kind === 'folder' && edge === 'bottom') {
+    return boundaryIndented;
+  }
+  return false;
+};
+
+const isDropEdge = (value: Edge | null): value is 'top' | 'bottom' =>
+  value === 'top' || value === 'bottom';
+
+const moveNoteWithinActiveList = (
+  activeNotes: Note[],
+  noteId: string,
+  targetFolderId: string,
+  positionInFolder: number,
+): {
+  newActive: Note[];
+  insertIndex: number;
+} | null => {
+  const source = activeNotes.find((note) => note.id === noteId);
+  if (!source) return null;
+
+  const notesWithout = activeNotes.filter((note) => note.id !== noteId);
+  const sourceIndex = activeNotes.findIndex((note) => note.id === noteId);
+  const normalizedFolderId = targetFolderId || '';
+
+  const targetPositions: number[] = [];
+  notesWithout.forEach((note, index) => {
+    if ((note.folderId ?? '') === normalizedFolderId) {
+      targetPositions.push(index);
+    }
+  });
+
+  let insertIndex = sourceIndex;
+  if (targetPositions.length === 0) {
+    insertIndex = clamp(sourceIndex, 0, notesWithout.length);
+  } else if (positionInFolder <= 0) {
+    insertIndex = targetPositions[0];
+  } else if (positionInFolder >= targetPositions.length) {
+    insertIndex = targetPositions[targetPositions.length - 1] + 1;
+  } else {
+    insertIndex = targetPositions[positionInFolder];
+  }
+
+  const moved: Note =
+    (source.folderId ?? '') === normalizedFolderId
+      ? source
+      : {
+          ...source,
+          folderId: normalizedFolderId || undefined,
+        };
+
+  const newActive = [
+    ...notesWithout.slice(0, insertIndex),
+    moved,
+    ...notesWithout.slice(insertIndex),
+  ];
+  return { newActive, insertIndex };
+};
+
+const PragmaticRow: React.FC<{
+  isTestEnv: boolean;
+  dragData?: DragData;
+  dropData: DropData;
+  isDragSource?: boolean;
+  onNativePreviewChange?: (preview: NativePreviewState | null) => void;
+  children: React.ReactNode;
+  sx?: ComponentProps<typeof Box>['sx'];
+}> = ({
+  isTestEnv,
+  dragData,
+  dropData,
+  isDragSource,
+  onNativePreviewChange,
+  children,
+  sx,
+}) => {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isTestEnv) return;
+    const element = rowRef.current;
+    if (!element) return;
+
+    const cleanups: Array<() => void> = [];
+
+    cleanups.push(
+      dropTargetForElements({
+        element,
+        canDrop: ({ source }) => {
+          const drag = readDragData(source.data);
+          if (!drag) return false;
+          return canDropOnTarget(drag, dropData);
+        },
+        getData: ({ input, element: targetElement }) => {
+          const baseData = {
+            [DROP_TARGET_KEY]: dropData,
+          } as Record<string | symbol, unknown>;
+
+          if (dropData.kind === 'unfiled-bottom') {
+            return baseData;
+          }
+
+          const allowedEdges: Edge[] =
+            dropData.kind === 'folder-tail' ? ['top'] : ['top', 'bottom'];
+          return attachClosestEdge(baseData, {
+            input,
+            element: targetElement,
+            allowedEdges,
+          });
+        },
+      }),
+    );
+
+    if (dragData) {
+      cleanups.push(
+        draggable({
+          element,
+          getInitialData: () =>
+            ({
+              [DRAG_ITEM_KEY]: dragData,
+            }) as Record<string | symbol, unknown>,
+          onGenerateDragPreview: ({ nativeSetDragImage }) => {
+            setCustomNativeDragPreview({
+              nativeSetDragImage,
+              getOffset: pointerOutsideOfPreview({ x: '12px', y: '8px' }),
+              render: ({ container }) => {
+                onNativePreviewChange?.({
+                  item: dragData,
+                  container,
+                  width: element.getBoundingClientRect().width,
+                });
+                return () => onNativePreviewChange?.(null);
+              },
+            });
+          },
+        }),
+      );
+    }
+
+    return combine(...cleanups);
+  }, [dragData, dropData, isTestEnv, onNativePreviewChange]);
+
+  return (
+    <Box
+      ref={rowRef}
+      data-note-list-row-id={dropData.rowId}
+      sx={{
+        opacity: isDragSource ? 0.35 : 1,
+        ...sx,
+      }}
+    >
+      {children}
     </Box>
   );
 };
@@ -804,55 +1094,179 @@ export const NoteList: React.FC<NoteListProps> = ({
   onOpenInPane,
   canSplit,
 }) => {
-  const activeNotes = isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived);
-  const archivedNotes = useMemo(() => (isFileMode ? [] : (notes as Note[]).filter((note) => note.archived)), [isFileMode, notes]);
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
+  const isTestEnv = import.meta.env.MODE === 'test';
+  const listContentRef = useRef<HTMLDivElement>(null);
+  const [nativePreview, setNativePreview] = useState<NativePreviewState | null>(
+    null,
+  );
+  const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null);
+
+  const activeNotes = useMemo(
+    () =>
+      isFileMode ? notes : (notes as Note[]).filter((note) => !note.archived),
+    [isFileMode, notes],
+  );
+  const archivedNotes = useMemo(
+    () => (isFileMode ? [] : (notes as Note[]).filter((note) => note.archived)),
+    [isFileMode, notes],
   );
 
-  const folderAwareCollision: CollisionDetection = useCallback((args) => {
-    const activeId = args.active.id as string;
-    const isDraggingFolder = activeId.startsWith('folder:');
-    const pointerCollisions = pointerWithin(args);
-    if (pointerCollisions.length > 0 && !isDraggingFolder) {
-      const preferred = pointerCollisions.find((c) => {
-        const id = c.id as string;
-        return (
-          id.startsWith('folder-drop:') ||
-          id.startsWith('folder-tail:') ||
-          id.startsWith('folder-note:') ||
-          id === 'unfiled-bottom'
-        );
-      });
-      if (preferred) return [preferred];
+  const activeFolders = useMemo(
+    () => (isFileMode ? [] : folders.filter((folder) => !folder.archived)),
+    [folders, isFileMode],
+  );
+
+  const isFolderMode = !isFileMode && activeFolders.length > 0;
+
+  const normalizedTopLevelOrder = useMemo(() => {
+    if (!isFolderMode) return [];
+    const unfiledNoteMap = new Map(
+      (activeNotes as Note[])
+        .filter((note) => !note.folderId)
+        .map((note) => [note.id, note]),
+    );
+    const folderMap = new Map(
+      activeFolders.map((folder) => [folder.id, folder]),
+    );
+    const result: TopLevelItem[] = [];
+    const seen = new Set<string>();
+
+    for (const item of topLevelOrder) {
+      const key = `${item.type}:${item.id}`;
+      if (seen.has(key)) continue;
+      if (item.type === 'folder' && folderMap.has(item.id)) {
+        result.push(item);
+        seen.add(key);
+      }
+      if (item.type === 'note' && unfiledNoteMap.has(item.id)) {
+        result.push(item);
+        seen.add(key);
+      }
     }
-    const results = closestCenter(args).filter((c) => (c.id as string) !== activeId);
-    if (isDraggingFolder) {
-      const filtered = results.filter((c) => {
-        const id = c.id as string;
-        return (
-          !id.startsWith('folder-drop:') &&
-          !id.startsWith('folder-tail:') &&
-          !id.startsWith('folder-note:') &&
-          id !== 'unfiled-bottom'
-        );
-      });
-      if (filtered.length > 0) return filtered;
+
+    for (const folder of activeFolders) {
+      const key = `folder:${folder.id}`;
+      if (!seen.has(key)) {
+        result.push({ type: 'folder', id: folder.id });
+        seen.add(key);
+      }
     }
-    return results;
-  }, []);
+
+    for (const note of activeNotes as Note[]) {
+      if (note.folderId) continue;
+      const key = `note:${note.id}`;
+      if (!seen.has(key)) {
+        result.push({ type: 'note', id: note.id });
+        seen.add(key);
+      }
+    }
+
+    return result;
+  }, [activeFolders, activeNotes, isFolderMode, topLevelOrder]);
+
+  const folderMap = useMemo(
+    () => new Map(activeFolders.map((folder) => [folder.id, folder])),
+    [activeFolders],
+  );
+
+  const folderNotesMap = useMemo(() => {
+    const map = new Map<string, Note[]>();
+    if (!isFolderMode) return map;
+    for (const folder of activeFolders) {
+      map.set(
+        folder.id,
+        (activeNotes as Note[]).filter((note) => note.folderId === folder.id),
+      );
+    }
+    return map;
+  }, [activeFolders, activeNotes, isFolderMode]);
+
+  const noteMap = useMemo(
+    () => new Map(activeNotes.map((note) => [note.id, note])),
+    [activeNotes],
+  );
+
+  const rows = useMemo<DisplayRow[]>(() => {
+    if (!isFolderMode) {
+      return activeNotes.map((note) => ({
+        kind: 'flat-note',
+        rowId: `flat-note:${note.id}`,
+        note,
+      }));
+    }
+
+    const result: DisplayRow[] = [];
+    normalizedTopLevelOrder.forEach((item, index) => {
+      if (item.type === 'note') {
+        const note = noteMap.get(item.id) as Note | undefined;
+        if (!note) return;
+        result.push({
+          kind: 'top-note',
+          rowId: `top-note:${note.id}`,
+          note,
+          topLevelIndex: index,
+        });
+        return;
+      }
+
+      const folder = folderMap.get(item.id);
+      if (!folder) return;
+      const notesInFolder = folderNotesMap.get(folder.id) ?? [];
+      const isCollapsed = collapsedFolders.has(folder.id);
+
+      result.push({
+        kind: 'folder',
+        rowId: `folder:${folder.id}`,
+        folder,
+        topLevelIndex: index,
+        noteCount: notesInFolder.length,
+        isCollapsed,
+      });
+
+      if (!isCollapsed) {
+        notesInFolder.forEach((note, folderIndex) => {
+          result.push({
+            kind: 'folder-note',
+            rowId: `folder-note:${note.id}`,
+            note,
+            folderId: folder.id,
+            topLevelIndex: index,
+            isLastInFolder: folderIndex === notesInFolder.length - 1,
+          });
+        });
+        if (notesInFolder.length > 0) {
+          result.push({
+            kind: 'folder-tail',
+            rowId: `folder-tail:${folder.id}`,
+            folderId: folder.id,
+            topLevelIndex: index,
+          });
+        }
+      }
+    });
+
+    result.push({ kind: 'unfiled-bottom', rowId: 'unfiled-bottom' });
+    return result;
+  }, [
+    activeNotes,
+    collapsedFolders,
+    folderMap,
+    folderNotesMap,
+    isFolderMode,
+    normalizedTopLevelOrder,
+    noteMap,
+  ]);
+
+  const handleNativePreviewChange = useCallback(
+    (preview: NativePreviewState | null) => {
+      setNativePreview(preview);
+    },
+    [],
+  );
 
   const renderNoteItem = useCallback(
     (note: Note | FileNote, isDraggingAny: boolean) => (
       <NoteItem
-        key={note.id}
         note={note}
         currentNote={currentNote}
         onNoteSelect={onNoteSelect}
@@ -871,1244 +1285,737 @@ export const NoteList: React.FC<NoteListProps> = ({
       />
     ),
     [
+      canSplit,
       currentNote,
-      onNoteSelect,
-      onArchive,
-      onConvertToNote,
-      onSaveFile,
       isFileMode,
-      onCloseFile,
       isFileModified,
+      onArchive,
+      onCloseFile,
+      onConvertToNote,
+      onNoteSelect,
+      onOpenInPane,
+      onSaveFile,
       platform,
       secondarySelectedNoteId,
-      onOpenInPane,
-      canSplit,
     ],
   );
 
-  const handleDragEndFlat = useCallback(
-    async (event: DragEndEvent) => {
-      const { active, over } = event;
+  const resolveHoverState = useCallback(
+    (
+      currentLocation: {
+        input: { clientX: number; clientY: number };
+        dropTargets: Array<{
+          element: Element;
+          data: Record<string | symbol, unknown>;
+        }>;
+      },
+      dragItem: DragData,
+    ): HoverState | null => {
+      const matched = currentLocation.dropTargets.find((target) =>
+        readDropData(target.data),
+      );
+      if (!matched) return null;
+      const dropData = readDropData(matched.data);
+      if (!dropData) return null;
+      if (!canDropOnTarget(dragItem, dropData)) return null;
 
-      const pane = detectTargetPane(pointerXRef.current, pointerYRef.current);
-      if (pane) {
-        const note = activeNotes.find((n) => n.id === active.id);
-        if (note) {
-          if (onOpenInPane) {
-            onOpenInPane(note, pane);
-          } else {
-            await onNoteSelect(note);
-          }
-          return;
-        }
+      if (dragItem.kind === 'note' && dropData.noteId === dragItem.noteId) {
+        return null;
+      }
+      if (
+        dragItem.kind === 'folder' &&
+        dropData.folderId === dragItem.folderId &&
+        dropData.kind === 'folder'
+      ) {
+        return null;
       }
 
-      if (!over || active.id === over.id) return;
+      const rawEdge = extractClosestEdge(matched.data);
+      const edge: Edge | null =
+        dropData.kind === 'unfiled-bottom' ? 'top' : rawEdge;
+      const boundaryIndented = computeBoundaryIndented(
+        dropData,
+        edge,
+        currentLocation.input.clientX,
+        matched.element,
+      );
+      const indicatorIndented = computeIndicatorIndented(
+        dropData,
+        edge,
+        boundaryIndented,
+      );
 
-      const oldIndex = activeNotes.findIndex((note) => note.id === active.id);
-      const newIndex = activeNotes.findIndex((note) => note.id === over.id);
+      const contentEl = listContentRef.current;
+      if (!contentEl) return null;
+      const contentRect = contentEl.getBoundingClientRect();
+      const rowRect = matched.element.getBoundingClientRect();
+      const y = edge === 'bottom' ? rowRect.bottom : rowRect.top;
 
-      if (isFileMode) {
-        const newFileNotes = arrayMove(activeNotes as FileNote[], oldIndex, newIndex);
-        onReorder?.(newFileNotes);
-        await SaveFileNotes(newFileNotes);
-      } else {
-        const archivedNotes = (notes as Note[]).filter((note) => note.archived);
-        const newActiveNotes = arrayMove(activeNotes as Note[], oldIndex, newIndex);
-        const newNotes = [...newActiveNotes, ...archivedNotes];
-        onReorder?.(newNotes);
-
-        try {
-          await UpdateNoteOrder(active.id as string, newIndex);
-        } catch (error) {
-          console.error('Failed to update note order:', error);
-        }
-      }
-    },
-    [activeNotes, isFileMode, notes, onReorder, onNoteSelect, onOpenInPane],
-  );
-
-  // トップレベルアイテムのID生成ヘルパー ----
-  const toTopLevelId = useCallback((item: TopLevelItem) => `${item.type}:${item.id}`, []);
-
-  const parseTopLevelId = useCallback((id: string): TopLevelItem | null => {
-    const idx = id.indexOf(':');
-    if (idx === -1) return null;
-    const type = id.slice(0, idx) as 'note' | 'folder';
-    return { type, id: id.slice(idx + 1) };
-  }, []);
-
-  const getGlobalInsertIndexForFolderPosition = useCallback(
-    (notesWithout: Note[], folderId: string, posInFolder: number, fallbackIndex: number) => {
-      const folderPositions: number[] = [];
-      notesWithout.forEach((note, index) => {
-        if (note.folderId === folderId) folderPositions.push(index);
-      });
-
-      if (folderPositions.length === 0) {
-        const safeFallback = Math.max(0, Math.min(fallbackIndex, notesWithout.length));
-        return safeFallback;
-      }
-
-      if (posInFolder <= 0) return folderPositions[0];
-      if (posInFolder >= folderPositions.length) {
-        return folderPositions[folderPositions.length - 1] + 1;
-      }
-      return folderPositions[posInFolder];
+      return {
+        target: dropData,
+        edge,
+        boundaryIndented,
+        indicatorIndented,
+        indicatorTop: y - contentRect.top,
+      };
     },
     [],
   );
 
-  const buildNotesWithInsert = useCallback(
-    (notesWithout: Note[], movedNote: Note, insertIndex: number) => {
-      const safeIndex = Math.max(0, Math.min(insertIndex, notesWithout.length));
-      const newActive = [...notesWithout.slice(0, safeIndex), movedNote, ...notesWithout.slice(safeIndex)];
-      return {
-        newActive,
-        newNotes: [...newActive, ...archivedNotes],
-      };
+  const moveNoteIntoFolder = useCallback(
+    async (
+      noteId: string,
+      targetFolderId: string,
+      positionInFolder: number,
+      sourceFolderId: string,
+    ) => {
+      const moved = moveNoteWithinActiveList(
+        activeNotes as Note[],
+        noteId,
+        targetFolderId,
+        positionInFolder,
+      );
+      if (!moved) return;
+      onReorder?.([...moved.newActive, ...archivedNotes]);
+
+      if (sourceFolderId !== targetFolderId) {
+        onMoveNoteToFolder?.(noteId, targetFolderId);
+      }
+
+      const withoutTop = removeTopLevelNote(normalizedTopLevelOrder, noteId);
+      if (!isSameTopLevelOrder(withoutTop, normalizedTopLevelOrder)) {
+        onUpdateTopLevelOrder?.(withoutTop);
+      }
+
+      try {
+        await UpdateNoteOrder(noteId, moved.insertIndex);
+      } catch (error) {
+        console.error('Failed to update note order:', error);
+      }
     },
-    [archivedNotes],
+    [
+      activeNotes,
+      archivedNotes,
+      normalizedTopLevelOrder,
+      onMoveNoteToFolder,
+      onReorder,
+      onUpdateTopLevelOrder,
+    ],
   );
 
-  const prepareFolderInsert = useCallback(
-    (noteId: string, targetFolderId: string, posInFolder: number) => {
-      const activeList = activeNotes as Note[];
-      const note = activeList.find((n) => n.id === noteId);
-      if (!note) return null;
-      const notesWithout = activeList.filter((n) => n.id !== noteId);
-      const oldGlobalIndex = activeList.findIndex((n) => n.id === noteId);
-      const insertIndex = getGlobalInsertIndexForFolderPosition(notesWithout, targetFolderId, posInFolder, oldGlobalIndex);
-      const movedNote =
-        (note.folderId || '') === targetFolderId
-          ? note
-          : ({
-              ...note,
-              folderId: targetFolderId || undefined,
-            } as Note);
-      const { newNotes } = buildNotesWithInsert(notesWithout, movedNote, insertIndex);
-      return { insertIndex, newNotes, movedNote };
+  const moveNoteToTopLevel = useCallback(
+    (noteId: string, insertIndex: number, sourceFolderId: string) => {
+      const nextOrder = insertTopLevelNote(
+        normalizedTopLevelOrder,
+        noteId,
+        insertIndex,
+      );
+      if (!isSameTopLevelOrder(nextOrder, normalizedTopLevelOrder)) {
+        onUpdateTopLevelOrder?.(nextOrder);
+      }
+      if (sourceFolderId) {
+        onMoveNoteToFolder?.(noteId, '');
+      }
     },
-    [activeNotes, buildNotesWithInsert, getGlobalInsertIndexForFolderPosition],
+    [normalizedTopLevelOrder, onMoveNoteToFolder, onUpdateTopLevelOrder],
   );
 
-  const precedingFolderIds = useMemo(() => {
-    const map = new Map<string, string>();
-    for (let i = 1; i < topLevelOrder.length; i++) {
-      const prev = topLevelOrder[i - 1];
-      if (prev.type === 'folder' && !collapsedFolders.has(prev.id)) {
-        const hasNotes = (activeNotes as Note[]).some((n) => n.folderId === prev.id);
-        if (hasNotes) {
-          map.set(toTopLevelId(topLevelOrder[i]), prev.id);
+  const handleFolderModeDrop = useCallback(
+    async (dragItem: DragData, hover: HoverState) => {
+      if (dragItem.kind === 'folder') {
+        if (
+          hover.target.kind !== 'folder' &&
+          hover.target.kind !== 'top-note' &&
+          hover.target.kind !== 'unfiled-bottom'
+        ) {
+          return;
         }
+
+        const baseOrder = normalizedTopLevelOrder;
+        if (baseOrder.length === 0) return;
+
+        let insertIndex = baseOrder.length;
+        if (hover.target.kind !== 'unfiled-bottom') {
+          const targetIndex = hover.target.topLevelIndex ?? -1;
+          if (targetIndex === -1) return;
+          const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+          insertIndex = edge === 'bottom' ? targetIndex + 1 : targetIndex;
+        }
+
+        const nextOrder = moveTopLevelItem(
+          baseOrder,
+          'folder',
+          dragItem.folderId,
+          insertIndex,
+        );
+        if (!isSameTopLevelOrder(nextOrder, baseOrder)) {
+          onUpdateTopLevelOrder?.(nextOrder);
+        }
+        return;
       }
-    }
-    return map;
-  }, [topLevelOrder, toTopLevelId, collapsedFolders, activeNotes]);
 
-  const expandedFolderWithNotesIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of topLevelOrder) {
-      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
-        if ((activeNotes as Note[]).some((n) => n.folderId === item.id)) {
-          set.add(toTopLevelId(item));
+      const note = (activeNotes as Note[]).find(
+        (value) => value.id === dragItem.noteId,
+      );
+      if (!note) return;
+      const sourceFolderId = note.folderId ?? '';
+
+      switch (hover.target.kind) {
+        case 'unfiled-bottom': {
+          moveNoteToTopLevel(
+            dragItem.noteId,
+            normalizedTopLevelOrder.length,
+            sourceFolderId,
+          );
+          return;
         }
+        case 'top-note': {
+          const targetIndex = hover.target.topLevelIndex ?? -1;
+          if (targetIndex === -1) return;
+          const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+          const insertIndex = edge === 'bottom' ? targetIndex + 1 : targetIndex;
+          moveNoteToTopLevel(dragItem.noteId, insertIndex, sourceFolderId);
+          return;
+        }
+        case 'folder': {
+          const targetIndex = hover.target.topLevelIndex ?? -1;
+          const targetFolderId = hover.target.folderId ?? '';
+          if (targetIndex === -1 || !targetFolderId) return;
+          const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+          if (edge === 'top') {
+            moveNoteToTopLevel(dragItem.noteId, targetIndex, sourceFolderId);
+            return;
+          }
+          if (!hover.boundaryIndented) {
+            moveNoteToTopLevel(
+              dragItem.noteId,
+              targetIndex + 1,
+              sourceFolderId,
+            );
+            return;
+          }
+          const targetFolderNotes = folderNotesMap.get(targetFolderId) ?? [];
+          await moveNoteIntoFolder(
+            dragItem.noteId,
+            targetFolderId,
+            targetFolderNotes.length,
+            sourceFolderId,
+          );
+          return;
+        }
+        case 'folder-tail': {
+          const targetFolderId = hover.target.folderId ?? '';
+          const targetIndex = hover.target.topLevelIndex ?? -1;
+          if (!targetFolderId || targetIndex === -1) return;
+          if (!hover.boundaryIndented) {
+            moveNoteToTopLevel(
+              dragItem.noteId,
+              targetIndex + 1,
+              sourceFolderId,
+            );
+            return;
+          }
+          const targetFolderNotes = folderNotesMap.get(targetFolderId) ?? [];
+          await moveNoteIntoFolder(
+            dragItem.noteId,
+            targetFolderId,
+            targetFolderNotes.length,
+            sourceFolderId,
+          );
+          return;
+        }
+        case 'folder-note': {
+          const targetFolderId = hover.target.folderId ?? '';
+          const targetTopIndex = hover.target.topLevelIndex ?? -1;
+          if (!targetFolderId || targetTopIndex === -1) return;
+          const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+          if (
+            hover.target.isLastInFolder &&
+            edge === 'bottom' &&
+            !hover.boundaryIndented
+          ) {
+            moveNoteToTopLevel(
+              dragItem.noteId,
+              targetTopIndex + 1,
+              sourceFolderId,
+            );
+            return;
+          }
+
+          const targetFolderNotes = folderNotesMap.get(targetFolderId) ?? [];
+          const overIndex = targetFolderNotes.findIndex(
+            (value) => value.id === hover.target.noteId,
+          );
+          if (overIndex === -1) return;
+
+          let insertPos = edge === 'bottom' ? overIndex + 1 : overIndex;
+          if (sourceFolderId === targetFolderId) {
+            const startIndex = targetFolderNotes.findIndex(
+              (value) => value.id === dragItem.noteId,
+            );
+            if (startIndex !== -1) {
+              insertPos = getReorderDestinationIndex({
+                startIndex,
+                indexOfTarget: overIndex,
+                closestEdgeOfTarget: edge,
+                axis: 'vertical',
+              });
+            }
+          }
+
+          await moveNoteIntoFolder(
+            dragItem.noteId,
+            targetFolderId,
+            insertPos,
+            sourceFolderId,
+          );
+          return;
+        }
+        default:
+          return;
       }
-    }
-    return set;
-  }, [topLevelOrder, toTopLevelId, collapsedFolders, activeNotes]);
+    },
+    [
+      activeNotes,
+      folderNotesMap,
+      moveNoteIntoFolder,
+      moveNoteToTopLevel,
+      normalizedTopLevelOrder,
+      onUpdateTopLevelOrder,
+    ],
+  );
 
-  const lastFolderNoteIds = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of topLevelOrder) {
-      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
-        const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === item.id);
-        if (folderNotes.length > 0) {
-          map.set(`folder-note:${folderNotes[folderNotes.length - 1].id}`, item.id);
-        }
-      }
-    }
-    return map;
-  }, [topLevelOrder, collapsedFolders, activeNotes]);
+  const handleFlatModeDrop = useCallback(
+    async (dragItem: DragData, hover: HoverState) => {
+      if (dragItem.kind !== 'note') return;
+      if (hover.target.kind !== 'flat-note') return;
+      const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
 
-  const firstFolderNoteByFolderId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of topLevelOrder) {
-      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
-        const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === item.id);
-        if (folderNotes.length > 0) {
-          map.set(item.id, `folder-note:${folderNotes[0].id}`);
-        }
-      }
-    }
-    return map;
-  }, [topLevelOrder, collapsedFolders, activeNotes]);
+      const sourceIndex = activeNotes.findIndex(
+        (note) => note.id === dragItem.noteId,
+      );
+      const targetIndex = activeNotes.findIndex(
+        (note) => note.id === hover.target.noteId,
+      );
+      if (sourceIndex === -1 || targetIndex === -1) return;
 
-  // folderId → 最後のfolder-note IDの逆引き ----
-  const lastFolderNoteByFolderId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const [fnId, folderId] of lastFolderNoteIds) {
-      map.set(folderId, fnId);
-    }
-    return map;
-  }, [lastFolderNoteIds]);
-
-  // DnDハンドラ: topLevelOrder対応 ----
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  // ドラッグ中のインジケータ描画用 state（RAF でバッチ更新）
-  const [dragIndicatorState, setDragIndicatorState] = useState<{
-    overId: string | null;
-    boundaryIndented: boolean;
-    insertAbove: boolean;
-  }>({ overId: null, boundaryIndented: false, insertAbove: false });
-  const overId = dragIndicatorState.overId;
-  const boundaryIndented = dragIndicatorState.boundaryIndented;
-  const insertAbove = dragIndicatorState.insertAbove;
-
-  const pointerXRef = useRef<number>(0);
-  const pointerYRef = useRef<number>(0);
-  const overRectRef = useRef<{
-    top: number;
-    height: number;
-    left: number;
-  } | null>(null);
-  const listRef = useRef<HTMLUListElement>(null);
-  const [listElement, setListElement] = useState<HTMLUListElement | null>(null);
-  const lastBoundaryIndented = useRef(false);
-  const lastInsertAbove = useRef(false);
-  const lastOverIdRef = useRef<string | null>(null);
-  const overIdTimestampRef = useRef(0);
-  const rafIdRef = useRef<number>(0);
-  // ポータルゴースト用: ドラッグ開始時のポインタとアイテム左上の差分
-  const dragGhostOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const dragGhostRef = useRef<HTMLDivElement>(null);
-
-  const handleListRef = useCallback((node: HTMLUListElement | null) => {
-    listRef.current = node;
-    setListElement(node);
-  }, []);
-
-  const getScrollElement = useCallback((): HTMLElement | null => {
-    const listEl = listElement;
-    if (!listEl) return null;
-    const simpleBarScrollEl = listEl.closest('.simplebar-content-wrapper');
-    if (simpleBarScrollEl instanceof HTMLElement) {
-      return simpleBarScrollEl;
-    }
-    return listEl;
-  }, [listElement]);
-
-  // ref の最新値を1つの setState にまとめて flush する（変化がなければスキップ）
-  const scheduleDragIndicatorFlush = useCallback(() => {
-    if (rafIdRef.current) return;
-    rafIdRef.current = requestAnimationFrame(() => {
-      rafIdRef.current = 0;
-      setDragIndicatorState((prev) => {
-        const nextOverId = lastOverIdRef.current;
-        const nextIndented = lastBoundaryIndented.current;
-        const nextAbove = lastInsertAbove.current;
-        if (prev.overId === nextOverId && prev.boundaryIndented === nextIndented && prev.insertAbove === nextAbove) {
-          return prev;
-        }
-        return {
-          overId: nextOverId,
-          boundaryIndented: nextIndented,
-          insertAbove: nextAbove,
-        };
+      const destinationIndex = getReorderDestinationIndex({
+        startIndex: sourceIndex,
+        indexOfTarget: targetIndex,
+        closestEdgeOfTarget: edge,
+        axis: 'vertical',
       });
-    });
-  }, []);
+      if (destinationIndex === sourceIndex) return;
+
+      if (isFileMode) {
+        const reordered = reorder({
+          list: activeNotes as FileNote[],
+          startIndex: sourceIndex,
+          finishIndex: destinationIndex,
+        });
+        onReorder?.(reordered);
+        await SaveFileNotes(reordered);
+        return;
+      }
+
+      const reorderedActive = reorder({
+        list: activeNotes as Note[],
+        startIndex: sourceIndex,
+        finishIndex: destinationIndex,
+      });
+      onReorder?.([...reorderedActive, ...archivedNotes]);
+      try {
+        await UpdateNoteOrder(dragItem.noteId, destinationIndex);
+      } catch (error) {
+        console.error('Failed to update note order:', error);
+      }
+    },
+    [activeNotes, archivedNotes, isFileMode, onReorder],
+  );
 
   useEffect(() => {
-    if (!activeDragId) return;
+    if (isTestEnv) return;
+
+    return monitorForElements({
+      canMonitor: ({ source }) => readDragData(source.data) !== null,
+      onDragStart: ({ source, location }) => {
+        const dragItem = readDragData(source.data);
+        if (!dragItem) return;
+        const hover = resolveHoverState(location.current, dragItem);
+
+        setActiveDrag({
+          item: dragItem,
+          pointer: {
+            x: location.current.input.clientX,
+            y: location.current.input.clientY,
+          },
+          hover,
+        });
+      },
+      onDrag: ({ location }) => {
+        setActiveDrag((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pointer: {
+              x: location.current.input.clientX,
+              y: location.current.input.clientY,
+            },
+            hover: resolveHoverState(location.current, prev.item),
+          };
+        });
+      },
+      onDropTargetChange: ({ location }) => {
+        setActiveDrag((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            pointer: {
+              x: location.current.input.clientX,
+              y: location.current.input.clientY,
+            },
+            hover: resolveHoverState(location.current, prev.item),
+          };
+        });
+      },
+      onDrop: ({ source, location }) => {
+        const dragItem = readDragData(source.data);
+        if (!dragItem) {
+          setActiveDrag(null);
+          setNativePreview(null);
+          return;
+        }
+
+        const pane = detectTargetPane(
+          location.current.input.clientX,
+          location.current.input.clientY,
+        );
+        if (pane && dragItem.kind === 'note') {
+          const note = activeNotes.find(
+            (value) => value.id === dragItem.noteId,
+          );
+          if (note) {
+            if (onOpenInPane) {
+              onOpenInPane(note, pane);
+            } else {
+              void onNoteSelect(note);
+            }
+          }
+          setActiveDrag(null);
+          setNativePreview(null);
+          return;
+        }
+
+        const hover = resolveHoverState(location.current, dragItem);
+        if (!hover) {
+          setActiveDrag(null);
+          setNativePreview(null);
+          return;
+        }
+
+        if (isFolderMode) {
+          void handleFolderModeDrop(dragItem, hover);
+        } else {
+          void handleFlatModeDrop(dragItem, hover);
+        }
+
+        setActiveDrag(null);
+        setNativePreview(null);
+      },
+    });
+  }, [
+    activeNotes,
+    handleFlatModeDrop,
+    handleFolderModeDrop,
+    isFolderMode,
+    onNoteSelect,
+    onOpenInPane,
+    resolveHoverState,
+  ]);
+
+  useEffect(() => {
+    if (!activeDrag) return;
     const style = document.createElement('style');
     style.textContent = '* { cursor: grabbing !important; }';
     document.head.appendChild(style);
     return () => {
       style.remove();
     };
-  }, [activeDragId]);
+  }, [activeDrag]);
 
-  const handleDragStartWithFolders = useCallback((event: DragStartEvent) => {
-    setActiveDragId(event.active.id as string);
-    const target = event.activatorEvent.target;
-    if (target instanceof HTMLElement) {
-      const el = target.closest('[role="button"]') ?? target;
-      const rect = el.getBoundingClientRect();
-      const activator = event.activatorEvent;
-      // dnd-kit の activatorEvent は union/unknown を含むため、
-      // clientX/clientY の存在だけでなく「数値型であること」まで確認してから使う。
-      const hasPointerCoordinates = (
-        value: unknown,
-      ): value is { clientX: number; clientY: number } => {
-        if (!value || typeof value !== 'object') {
-          return false;
-        }
-        const pointer = value as { clientX?: unknown; clientY?: unknown };
-        return (
-          typeof pointer.clientX === 'number' &&
-          typeof pointer.clientY === 'number'
-        );
-      };
-      // 掴んだ位置を維持してゴーストを表示する（中央固定だと左右判定の体感が悪化する）
-      if (hasPointerCoordinates(activator)) {
-        const offsetX = activator.clientX - rect.left;
-        const offsetY = activator.clientY - rect.top;
-        dragGhostOffsetRef.current = {
-          x: Math.max(0, Math.min(offsetX, rect.width)),
-          y: Math.max(0, Math.min(offsetY, rect.height)),
-        };
-        return;
-      }
-      dragGhostOffsetRef.current = {
-        x: rect.width / 2,
-        y: rect.height / 2,
-      };
-    }
-  }, []);
-
-  const isBoundaryTarget = useCallback(
-    (id: string) => {
-      if (id.startsWith('folder-drop:')) return true;
-      if (id.startsWith('folder-tail:')) return true;
-      if (lastFolderNoteIds.has(id)) return true;
-      return precedingFolderIds.has(id) || expandedFolderWithNotesIds.has(id);
-    },
-    [precedingFolderIds, expandedFolderWithNotesIds, lastFolderNoteIds],
-  );
-
-  const getBoundaryIndented = useCallback((clientX: number, overId: string | null) => {
-    if (overId && (overId.startsWith('folder-note:') || overId.startsWith('folder-tail:'))) {
-      const rect = overRectRef.current;
-      if (rect) {
-        // フォルダ内/末尾では少し左に寄せただけで「外に出す」判定へ切り替える
-        return clientX > rect.left + 96;
-      }
-    }
-    const listEl = listRef.current;
-    if (listEl) {
-      const rect = listEl.getBoundingClientRect();
-      return clientX - rect.left > 120;
-    }
-    return false;
-  }, []);
-
-  const handleDragOverWithFolders = useCallback(
-    (event: DragOverEvent) => {
-      const newOverId = event.over ? (event.over.id as string) : null;
-      if (newOverId !== lastOverIdRef.current) {
-        lastOverIdRef.current = newOverId;
-        overIdTimestampRef.current = Date.now();
-      }
-      if (newOverId && isBoundaryTarget(newOverId)) {
-        lastBoundaryIndented.current = getBoundaryIndented(pointerXRef.current, newOverId);
-      }
-      // ポインタY座標によるドロップ方向判定 ----
-      if (event.over) {
-        const overRect = event.over.rect;
-        overRectRef.current = {
-          top: overRect.top,
-          height: overRect.height,
-          left: overRect.left,
-        };
-        const centerY = overRect.top + overRect.height / 2;
-        const above = pointerYRef.current < centerY;
-        lastInsertAbove.current = above;
-      }
-      scheduleDragIndicatorFlush();
-    },
-    [isBoundaryTarget, scheduleDragIndicatorFlush],
-  );
-
-  useEffect(() => {
-    if (!activeDragId) return;
-    const isBoundary = isBoundaryTarget;
-    const handlePointerMove = (e: PointerEvent) => {
-      pointerXRef.current = e.clientX;
-      pointerYRef.current = e.clientY;
-      const ghost = dragGhostRef.current;
-      if (ghost) {
-        ghost.style.left = `${e.clientX - dragGhostOffsetRef.current.x}px`;
-        ghost.style.top = `${e.clientY - dragGhostOffsetRef.current.y}px`;
-      }
-      let changed = false;
-      if (lastOverIdRef.current && isBoundary(lastOverIdRef.current)) {
-        const indented = getBoundaryIndented(e.clientX, lastOverIdRef.current);
-        if (indented !== lastBoundaryIndented.current) {
-          lastBoundaryIndented.current = indented;
-          changed = true;
-        }
-      }
-      if (lastOverIdRef.current && overRectRef.current) {
-        const centerY = overRectRef.current.top + overRectRef.current.height / 2;
-        const above = e.clientY < centerY;
-        if (above !== lastInsertAbove.current) {
-          lastInsertAbove.current = above;
-          changed = true;
-        }
-      }
-      if (changed) {
-        scheduleDragIndicatorFlush();
-      }
-    };
-    document.addEventListener('pointermove', handlePointerMove);
-    return () => document.removeEventListener('pointermove', handlePointerMove);
-  }, [activeDragId, isBoundaryTarget, scheduleDragIndicatorFlush]);
-
-  const extractNoteId = useCallback((id: string): string | null => {
-    if (id.startsWith('folder-note:')) return id.slice('folder-note:'.length);
-    if (id.startsWith('note:')) return id.slice('note:'.length);
-    return null;
-  }, []);
-
-  const getFolderIdForNoteId = useCallback(
-    (noteId: string | null): string | null => {
-      if (!noteId) return null;
-      const note = (activeNotes as Note[]).find((n) => n.id === noteId);
-      return note?.folderId ?? null;
-    },
-    [activeNotes],
-  );
-
-  const getTopLevelIndex = useCallback(
-    (id: string): number => {
-      const idx = topLevelOrder.findIndex((item) => toTopLevelId(item) === id);
-      if (idx !== -1) return idx;
-      if (id.startsWith('folder-note:')) {
-        const noteId = id.slice('folder-note:'.length);
-        const note = (activeNotes as Note[]).find((n) => n.id === noteId);
-        if (note?.folderId) {
-          return topLevelOrder.findIndex((item) => item.type === 'folder' && item.id === note.folderId);
-        }
-      }
-      return -1;
-    },
-    [topLevelOrder, toTopLevelId, activeNotes],
-  );
-
-  const flatItems = useMemo(() => {
-    const items: string[] = [];
-    for (const item of topLevelOrder) {
-      const itemId = toTopLevelId(item);
-      items.push(itemId);
-      if (item.type === 'folder' && !collapsedFolders.has(item.id)) {
-        const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === item.id);
-        for (const note of folderNotes) {
-          items.push(`folder-note:${note.id}`);
-        }
-        if (folderNotes.length > 0) {
-          items.push(`folder-tail:${item.id}`);
-        }
-      }
-    }
-    return items;
-  }, [topLevelOrder, toTopLevelId, collapsedFolders, activeNotes]);
-
-  const handleDragEndWithFolders = useCallback(
-    async (event: DragEndEvent) => {
-      setActiveDragId(null);
-      if (rafIdRef.current) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = 0;
-      }
-      setDragIndicatorState({
-        overId: null,
-        boundaryIndented: false,
-        insertAbove: false,
-      });
-      overRectRef.current = null;
-      lastOverIdRef.current = null;
-      overIdTimestampRef.current = 0;
-      const { active, over, delta } = event;
-
-      if (Math.abs(delta.x) < 5 && Math.abs(delta.y) < 5) {
-        const parsed = parseTopLevelId(active.id as string);
-        if (parsed?.type === 'folder') {
-          onToggleFolderCollapse?.(parsed.id);
-          return;
-        }
-      }
-
-      const pane = detectTargetPane(pointerXRef.current, pointerYRef.current);
-      if (pane) {
-        const noteId = extractNoteId(active.id as string);
-        if (noteId) {
-          const note = (activeNotes as Note[]).find((n) => n.id === noteId);
-          if (note) {
-            if (onOpenInPane) {
-              onOpenInPane(note, pane);
-            } else {
-              await onNoteSelect(note);
-            }
-            return;
-          }
-        }
-      }
-
-      if (!over) return;
-
-      const activeId = active.id as string;
-      const dropId = over.id as string;
-      const isFolderNoteActive = activeId.startsWith('folder-note:');
-
-      // フォルダヘッダーへのドロップ ----
-      if (dropId.startsWith('folder-drop:')) {
-        const targetFolderId = dropId.slice('folder-drop:'.length);
-        const noteId = extractNoteId(activeId);
-        if (noteId) {
-          const draggedNote = (activeNotes as Note[]).find((n) => n.id === noteId);
-          if (!draggedNote) return;
-
-          if (!lastBoundaryIndented.current) {
-            if (draggedNote.folderId) {
-              onMoveNoteToFolder?.(noteId, '');
-            }
-            const folderSortId = `folder:${targetFolderId}`;
-            const newOrder = topLevelOrder.filter((item) => !(item.type === 'note' && item.id === noteId));
-            const folderIdx = newOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
-            newOrder.splice(folderIdx, 0, { type: 'note', id: noteId });
-            onUpdateTopLevelOrder?.(newOrder);
-            return;
-          }
-
-          const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === targetFolderId);
-          const insertPosInFolder = folderNotes.length;
-          const prepared = prepareFolderInsert(noteId, targetFolderId, insertPosInFolder);
-          if (!prepared) return;
-          onReorder?.(prepared.newNotes);
-          onMoveNoteToFolder?.(noteId, targetFolderId);
-          try {
-            await UpdateNoteOrder(noteId, prepared.insertIndex);
-          } catch (error) {
-            console.error('Failed to update note order:', error);
-          }
-          return;
-        }
-        if (parseTopLevelId(activeId)?.type === 'folder') return;
-        return;
-      }
-
-      // 未分類ゾーンにドロップした場合 ----
-      if (dropId === 'unfiled-bottom') {
-        const noteId = extractNoteId(activeId);
-        if (noteId) {
-          const draggedNote = (activeNotes as Note[]).find((n) => n.id === noteId);
-          if (draggedNote?.folderId) {
-            onMoveNoteToFolder?.(noteId, '');
-          }
-        }
-        return;
-      }
-
-      // フォルダ末尾ゾーンにドロップ ----
-      if (dropId.startsWith('folder-tail:')) {
-        const targetFolderId = dropId.slice('folder-tail:'.length);
-        const noteId = extractNoteId(activeId);
-        if (!noteId) return;
-        if (!lastBoundaryIndented.current) {
-          if ((activeNotes as Note[]).some((n) => n.id === noteId)) {
-            onMoveNoteToFolder?.(noteId, '');
-          }
-          const folderSortId = `folder:${targetFolderId}`;
-          const newOrder = topLevelOrder.filter((item) => toTopLevelId(item) !== activeId);
-          const folderIdx = newOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
-          if (folderIdx !== -1) {
-            newOrder.splice(folderIdx + 1, 0, { type: 'note', id: noteId });
-            onUpdateTopLevelOrder?.(newOrder);
-          }
-          return;
-        }
-        const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === targetFolderId);
-        const insertPosInFolder = folderNotes.length;
-        const prepared = prepareFolderInsert(noteId, targetFolderId, insertPosInFolder);
-        if (!prepared) return;
-        onReorder?.(prepared.newNotes);
-        onMoveNoteToFolder?.(noteId, targetFolderId);
-        try {
-          await UpdateNoteOrder(noteId, prepared.insertIndex);
-        } catch (error) {
-          console.error('Failed to update note order:', error);
-        }
-        return;
-      }
-
-      // フォルダ内ノートの並び替え（folder-note: プレフィクス同士） ----
-      if (isFolderNoteActive && dropId.startsWith('folder-note:')) {
-        const activeNoteId = activeId.slice('folder-note:'.length);
-        const overNoteId = dropId.slice('folder-note:'.length);
-        if (activeNoteId === overNoteId) return;
-
-        const activeNote = (activeNotes as Note[]).find((n) => n.id === activeNoteId);
-        const overNote = (activeNotes as Note[]).find((n) => n.id === overNoteId);
-        if (!activeNote || !overNote) return;
-
-        if (activeNote.folderId && activeNote.folderId === overNote.folderId) {
-          const boundaryFolderIdSame = lastFolderNoteIds.get(dropId);
-          if (boundaryFolderIdSame && !lastBoundaryIndented.current) {
-            onMoveNoteToFolder?.(activeNoteId, '');
-            const folderSortId = `folder:${boundaryFolderIdSame}`;
-            const newOrder = [...topLevelOrder];
-            const folderIdx = newOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
-            newOrder.splice(folderIdx + 1, 0, {
-              type: 'note',
-              id: activeNoteId,
-            });
-            onUpdateTopLevelOrder?.(newOrder);
-            return;
-          }
-
-          const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === activeNote.folderId);
-          const oldIndex = folderNotes.findIndex((n) => n.id === activeNoteId);
-          const overIndex = folderNotes.findIndex((n) => n.id === overNoteId);
-          const newIndex =
-            lastInsertAbove.current && overIndex > oldIndex
-              ? overIndex - 1
-              : !lastInsertAbove.current && overIndex < oldIndex
-                ? overIndex + 1
-                : overIndex;
-
-          const prepared = prepareFolderInsert(activeNoteId, activeNote.folderId, newIndex);
-          if (!prepared) return;
-          onReorder?.(prepared.newNotes);
-
-          try {
-            await UpdateNoteOrder(activeNoteId, prepared.insertIndex);
-          } catch (error) {
-            console.error('Failed to update note order:', error);
-          }
-        } else if (overNote.folderId && activeNote.folderId !== overNote.folderId) {
-          const targetFolderId = overNote.folderId;
-          const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === targetFolderId);
-          const overPosInFolder = folderNotes.findIndex((n) => n.id === overNoteId);
-          const insertPos = lastInsertAbove.current ? overPosInFolder : overPosInFolder + 1;
-
-          const prepared = prepareFolderInsert(activeNoteId, targetFolderId, insertPos);
-          if (!prepared) return;
-          onReorder?.(prepared.newNotes);
-          onMoveNoteToFolder?.(activeNoteId, targetFolderId);
-
-          try {
-            await UpdateNoteOrder(activeNoteId, prepared.insertIndex);
-          } catch (error) {
-            console.error('Failed to update note order:', error);
-          }
-        }
-        return;
-      }
-
-      // 外部ノートをフォルダ内ノートの間にドロップ ----
-      if (dropId.startsWith('folder-note:')) {
-        if (!lastBoundaryIndented.current && !activeId.startsWith('folder-note:')) {
-          return;
-        }
-        const noteId = extractNoteId(activeId);
-        if (!noteId) return;
-        const overNoteId = dropId.slice('folder-note:'.length);
-        const overNote = (activeNotes as Note[]).find((n) => n.id === overNoteId);
-        if (!overNote?.folderId) return;
-        const draggedNote = (activeNotes as Note[]).find((n) => n.id === noteId);
-        if (!draggedNote || draggedNote.folderId === overNote.folderId) return;
-
-        const boundaryFolderId = lastFolderNoteIds.get(dropId);
-        if (boundaryFolderId) {
-          const folderSortId = `folder:${boundaryFolderId}`;
-          const aIdx = getTopLevelIndex(activeId);
-          const fIdx = topLevelOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
-          if (aIdx !== -1 && fIdx !== -1) {
-            if (lastBoundaryIndented.current) {
-              if ((draggedNote.folderId || '') !== boundaryFolderId) {
-                // フォルダ内での挿入位置を計算
-                const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === boundaryFolderId);
-                const overPosInFolder = folderNotes.findIndex((n) => n.id === overNoteId);
-                const insertPosInFolder = lastInsertAbove.current ? overPosInFolder : overPosInFolder + 1;
-                const prepared = prepareFolderInsert(noteId, boundaryFolderId, insertPosInFolder);
-                if (!prepared) return;
-                onReorder?.(prepared.newNotes);
-                onMoveNoteToFolder?.(noteId, boundaryFolderId);
-                try {
-                  await UpdateNoteOrder(noteId, prepared.insertIndex);
-                } catch (error) {
-                  console.error('Failed to update note order:', error);
-                }
-              }
-            } else {
-              if (draggedNote.folderId) {
-                onMoveNoteToFolder?.(noteId, '');
-              }
-              const newOrder = topLevelOrder.filter((item) => toTopLevelId(item) !== activeId);
-              const newFolderIdx = newOrder.findIndex((item) => toTopLevelId(item) === folderSortId);
-              newOrder.splice(newFolderIdx + 1, 0, {
-                type: 'note',
-                id: noteId,
-              });
-              onUpdateTopLevelOrder?.(newOrder);
-            }
-            return;
-          }
-        }
-
-        const targetFolderId = overNote.folderId;
-        const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === targetFolderId);
-        const insertAfterTarget = !lastInsertAbove.current;
-        const overPosInFolder = folderNotes.findIndex((n) => n.id === overNoteId);
-        const insertPos = insertAfterTarget ? overPosInFolder + 1 : overPosInFolder;
-
-        const prepared = prepareFolderInsert(noteId, targetFolderId, insertPos);
-        if (!prepared) return;
-        onReorder?.(prepared.newNotes);
-        onMoveNoteToFolder?.(noteId, targetFolderId);
-
-        try {
-          await UpdateNoteOrder(noteId, prepared.insertIndex);
-        } catch (error) {
-          console.error('Failed to update note order:', error);
-        }
-        return;
-      }
-
-      // フォルダ境界の左右判定: インデント側→フォルダ末尾に追加 ----
-      if (lastBoundaryIndented.current) {
-        let targetFolderIdForBoundary: string | undefined;
-
-        const fromBelow = precedingFolderIds.get(dropId);
-        if (fromBelow) {
-          targetFolderIdForBoundary = fromBelow;
-        }
-
-        if (!targetFolderIdForBoundary && expandedFolderWithNotesIds.has(dropId)) {
-          targetFolderIdForBoundary = dropId.slice('folder:'.length);
-        }
-
-        if (targetFolderIdForBoundary) {
-          const noteId = extractNoteId(activeId);
-          if (noteId) {
-            const draggedNote = (activeNotes as Note[]).find(
-              (n) => n.id === noteId,
-            );
-            if (
-              draggedNote &&
-              draggedNote.folderId &&
-              draggedNote.folderId === targetFolderIdForBoundary &&
-              dropId.startsWith('folder:')
-            ) {
-              const prepared = prepareFolderInsert(
-                noteId,
-                targetFolderIdForBoundary,
-                0,
-              );
-              if (!prepared) return;
-              onReorder?.(prepared.newNotes);
-              try {
-                await UpdateNoteOrder(noteId, prepared.insertIndex);
-              } catch (error) {
-                console.error('Failed to update note order:', error);
-              }
-              return;
-            }
-            if (
-              draggedNote &&
-              (draggedNote.folderId || '') !== targetFolderIdForBoundary
-            ) {
-              const folderNotes = (activeNotes as Note[]).filter(
-                (n) => n.folderId === targetFolderIdForBoundary,
-              );
-              const insertPosInFolder = folderNotes.length;
-              const prepared = prepareFolderInsert(
-                noteId,
-                targetFolderIdForBoundary,
-                insertPosInFolder,
-              );
-              if (!prepared) return;
-              onReorder?.(prepared.newNotes);
-              onMoveNoteToFolder?.(noteId, targetFolderIdForBoundary);
-              try {
-                await UpdateNoteOrder(noteId, prepared.insertIndex);
-              } catch (error) {
-                console.error('Failed to update note order:', error);
-              }
-            }
-            return;
-          }
-        }
-      }
-
-      // フォルダ内ノートをトップレベルアイテムにドロップ → フォルダから出す ----
-      if (isFolderNoteActive) {
-        const noteId = extractNoteId(activeId);
-        if (!noteId) return;
-        const draggedNote = (activeNotes as Note[]).find((n) => n.id === noteId);
-        if (!draggedNote?.folderId) return;
-
-        const parsedOver = parseTopLevelId(dropId);
-        if (!parsedOver) return;
-
-        const overIndex = topLevelOrder.findIndex((item) => toTopLevelId(item) === dropId);
-        if (overIndex === -1) return;
-
-        onMoveNoteToFolder?.(noteId, '');
-        const newItem: TopLevelItem = { type: 'note', id: noteId };
-        const newOrder = [...topLevelOrder];
-        const insertIdx = lastInsertAbove.current ? overIndex : overIndex + 1;
-        newOrder.splice(insertIdx, 0, newItem);
-        onUpdateTopLevelOrder?.(newOrder);
-        return;
-      }
-
-      // トップレベルアイテムの並び替え ----
-      if (activeId === dropId) return;
-
-      const parsedActive = parseTopLevelId(activeId);
-      const parsedOver = parseTopLevelId(dropId);
-      if (!parsedActive || !parsedOver) return;
-
-      const oldIndex = topLevelOrder.findIndex((item) => toTopLevelId(item) === activeId);
-      const overIndex = topLevelOrder.findIndex((item) => toTopLevelId(item) === dropId);
-      if (oldIndex === -1 || overIndex === -1) return;
-      const newIndex =
-        lastInsertAbove.current && overIndex > oldIndex
-          ? overIndex - 1
-          : !lastInsertAbove.current && overIndex < oldIndex
-            ? overIndex + 1
-            : overIndex;
-
-      const newOrder = arrayMove(topLevelOrder, oldIndex, newIndex);
-      onUpdateTopLevelOrder?.(newOrder);
-    },
-    [
-      activeNotes,
-      topLevelOrder,
-      onMoveNoteToFolder,
-      onReorder,
-      onUpdateTopLevelOrder,
-      onToggleFolderCollapse,
-      onNoteSelect,
-      onOpenInPane,
-      parseTopLevelId,
-      toTopLevelId,
-      extractNoteId,
-      getTopLevelIndex,
-      precedingFolderIds,
-      expandedFolderWithNotesIds,
-      lastFolderNoteIds,
-      prepareFolderInsert,
-    ],
-  );
-
-  const isLastFolderNoteBoundary = useCallback(
-    (targetId: string): boolean => {
-      if (!activeDragId || activeDragId === targetId) return false;
-      const folderId = lastFolderNoteIds.get(targetId);
-      if (!folderId) return false;
-      const folderSortId = `folder:${folderId}`;
-      return expandedFolderWithNotesIds.has(folderSortId);
-    },
-    [activeDragId, expandedFolderWithNotesIds, lastFolderNoteIds],
-  );
-
-  const getDropIndicator = useCallback(
-    (itemId: string): 'top' | 'bottom' | null => {
-      if (!activeDragId || !overId || activeDragId === itemId) return null;
-      if (overId.startsWith('folder-drop:')) {
-        if (!boundaryIndented && extractNoteId(activeDragId)) {
-          const folderId = overId.slice('folder-drop:'.length);
-          if (itemId === `folder:${folderId}`) return 'top';
-        }
-        if (boundaryIndented && extractNoteId(activeDragId)) {
-          const folderId = overId.slice('folder-drop:'.length);
-          const firstId = firstFolderNoteByFolderId.get(folderId);
-          if (firstId && itemId === firstId) return 'top';
-        }
-        return null;
-      }
-      if (overId.startsWith('folder-tail:')) {
-        const folderId = overId.slice('folder-tail:'.length);
-        if (boundaryIndented) {
-          if (itemId === overId) return 'top';
-        } else {
-          if (itemId === `folder:${folderId}`) return 'bottom';
-        }
-        return null;
-      }
-      if (overId.startsWith('folder:') && boundaryIndented) {
-        const folderId = overId.slice('folder:'.length);
-        const activeNoteId = extractNoteId(activeDragId);
-        if (getFolderIdForNoteId(activeNoteId) === folderId) {
-          if (itemId === overId) return 'top';
-        }
-        return null;
-      }
-      if (lastFolderNoteIds.has(overId) && isLastFolderNoteBoundary(overId)) {
-        // フォルダ内ノート同士の並び替え時は、表示と実際の挿入判定を一致させる
-        if (activeDragId.startsWith('folder-note:')) {
-          if (itemId === overId) return insertAbove ? 'top' : 'bottom';
-          return null;
-        }
-        if (itemId === overId) return 'bottom';
-        return null;
-      }
-      if (overId.startsWith('folder-note:') && !boundaryIndented && !activeDragId.startsWith('folder-note:')) {
-        return null;
-      }
-      if (activeDragId.startsWith('folder:') && overId.startsWith('folder:') && !insertAbove) {
-        const lastFnId = lastFolderNoteByFolderId.get(overId.slice('folder:'.length));
-        if (lastFnId) {
-          return itemId === lastFnId ? 'bottom' : null;
-        }
-      }
-      if (overId !== itemId) return null;
-      return insertAbove ? 'top' : 'bottom';
-    },
-    [
-      activeDragId,
-      overId,
-      getFolderIdForNoteId,
-      isLastFolderNoteBoundary,
-      lastFolderNoteIds,
-      lastFolderNoteByFolderId,
-      firstFolderNoteByFolderId,
-      boundaryIndented,
-      extractNoteId,
-      insertAbove,
-    ],
-  );
-
-  const hasFolders = !isFileMode && folders.length > 0;
-  const isTestEnv = import.meta.env.MODE === 'test';
-
-  const hasFoldersVirtualizer = useVirtualizer({
-    count: flatItems.length,
-    getScrollElement,
-    estimateSize: () => 52,
-    initialRect: { width: 0, height: 800 },
-    overscan: 8,
-    useFlushSync: false,
-    observeElementOffset: observeElementOffsetThrottled,
-  });
-
-  const flatModeVirtualizer = useVirtualizer({
-    count: activeNotes.length,
-    getScrollElement,
-    estimateSize: () => 52,
-    initialRect: { width: 0, height: 800 },
-    overscan: 8,
-    useFlushSync: false,
-    observeElementOffset: observeElementOffsetThrottled,
-  });
-
-  if (hasFolders) {
-    const noteMap = new Map((activeNotes as Note[]).map((n) => [n.id, n]));
-    const folderMap = new Map(folders.map((f) => [f.id, f]));
-    const folderRows = isTestEnv
-      ? flatItems.map((id, index) => ({
-          id,
-          key: `${id}-${index}`,
-          index,
-          start: 0,
-        }))
-      : hasFoldersVirtualizer.getVirtualItems().map((virtualRow) => ({
-          id: flatItems[virtualRow.index],
-          key: `${flatItems[virtualRow.index]}-${virtualRow.key}`,
-          index: virtualRow.index,
-          start: virtualRow.start,
-        }));
-
-    return (
-      <List ref={handleListRef} sx={{ flexGrow: 1, overflow: 'auto' }}>
-        <DndContext
-          sensors={sensors}
-          collisionDetection={folderAwareCollision}
-          onDragStart={handleDragStartWithFolders}
-          onDragOver={handleDragOverWithFolders}
-          onDragEnd={handleDragEndWithFolders}
-        >
-          <SortableContext items={flatItems} strategy={verticalListSortingStrategy}>
-            <Box
-              sx={{
-                height: isTestEnv ? 'auto' : hasFoldersVirtualizer.getTotalSize(),
-                position: isTestEnv ? 'static' : 'relative',
-                width: '100%',
-              }}
-            >
-              <FolderDropIndicatorOverlay
-                virtualizer={hasFoldersVirtualizer}
-                flatItems={flatItems}
-                isTestEnv={isTestEnv}
-                activeDragId={activeDragId}
-                getDropIndicator={getDropIndicator}
-                boundaryIndented={boundaryIndented}
-                precedingFolderIds={precedingFolderIds}
-                lastFolderNoteIds={lastFolderNoteIds}
-              />
-              {folderRows.map((row) => {
-                const id = row.id;
-
-                let content: React.ReactNode = null;
-
-                if (id.startsWith('folder-tail:')) {
-                  content = (
-                    <DroppableZone id={id}>
-                      <Box
-                        sx={(theme) => ({
-                          mx: 1,
-                          height: 0,
-                          backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.03)',
-                          borderRadius: '0 0 4px 4px',
-                        })}
-                      />
-                    </DroppableZone>
-                  );
-                } else if (id.startsWith('folder-note:')) {
-                  const noteId = id.slice('folder-note:'.length);
-                  const note = noteMap.get(noteId);
-                  if (!note) return null;
-                  const isLastInFolder = lastFolderNoteIds.has(id);
-                  content = (
-                    <SortableWrapper id={id} staticMode>
-                      <Box
-                        sx={{
-                          mx: 1,
-                          borderLeft: '1px solid',
-                          borderRight: '1px solid',
-                          borderColor: 'action.disabled',
-                          ...(isLastInFolder && {
-                            borderBottom: '1px solid',
-                            borderBottomColor: 'action.disabled',
-                            borderColor: 'action.disabled',
-                            borderRadius: '0 0 4px 4px',
-                          }),
-                        }}
-                      >
-                        <Box
-                          sx={(theme) => ({
-                            borderLeft: `${theme.spacing(1.5)} solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
-                            backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)',
-                          })}
-                        >
-                          {renderNoteItem(note, !!activeDragId)}
-                        </Box>
-                      </Box>
-                    </SortableWrapper>
-                  );
-                } else {
-                  const parsed = parseTopLevelId(id);
-
-                  if (parsed?.type === 'note') {
-                    const note = noteMap.get(parsed.id);
-                    if (!note) return null;
-                    content = (
-                      <SortableWrapper id={id} staticMode>
-                        <Box sx={{ mx: 1 }}>{renderNoteItem(note, !!activeDragId)}</Box>
-                      </SortableWrapper>
-                    );
-                  }
-
-                  if (parsed?.type === 'folder') {
-                    const folder = folderMap.get(parsed.id);
-                    if (!folder) return null;
-                    const folderNotes = (activeNotes as Note[]).filter((n) => n.folderId === folder.id);
-                    const isDraggingThis = activeDragId === id;
-                    content = (
-                      <SortableWrapper id={id} staticMode>
-                        <Box
-                          sx={{
-                            mx: 1,
-                            border: '1px solid',
-                            borderColor: 'action.disabled',
-                            borderRadius:
-                              folderNotes.length === 0 || collapsedFolders.has(folder.id) || isDraggingThis ? 1 : '4px 4px 0 0',
-                            borderBottomWidth:
-                              folderNotes.length > 0 && !collapsedFolders.has(folder.id) && !isDraggingThis ? 0 : undefined,
-                          }}
-                        >
-                          <DroppableZone id={`folder-drop:${folder.id}`}>
-                            <FolderHeader
-                              folder={folder}
-                              isCollapsed={collapsedFolders.has(folder.id) || isDraggingThis}
-                              onToggle={() => onToggleFolderCollapse?.(folder.id)}
-                              onRename={(name) => onRenameFolder?.(folder.id, name)}
-                              onDelete={() => onDeleteFolder?.(folder.id)}
-                              onArchive={() => onArchiveFolder?.(folder.id)}
-                              isEmpty={folderNotes.length === 0}
-                              noteCount={folderNotes.length}
-                              autoEdit={editingFolderId === folder.id}
-                              onAutoEditDone={onEditingFolderDone}
-                            />
-                          </DroppableZone>
-                        </Box>
-                      </SortableWrapper>
-                    );
-                  }
-                }
-
-                if (!content) return null;
-
-                return (
-                  <Box
-                    key={row.key}
-                    data-index={isTestEnv ? undefined : row.index}
-                    ref={isTestEnv ? undefined : hasFoldersVirtualizer.measureElement}
-                    sx={{
-                      position: isTestEnv ? 'relative' : 'absolute',
-                      top: isTestEnv ? undefined : row.start,
-                      left: 0,
-                      width: '100%',
-                    }}
-                  >
-                    {content}
-                  </Box>
-                );
-              })}
-            </Box>
-          </SortableContext>
-
-          {/* 最下部の未分類ドロップゾーン ---- */}
-          <DroppableZone id='unfiled-bottom'>
-            <Box sx={{ minHeight: 8 }} />
-          </DroppableZone>
-
-          <DragOverlay dropAnimation={null} />
-          {activeDragId &&
-            createPortal(
-              <div
-                ref={dragGhostRef}
-                style={{
-                  position: 'fixed',
-                  left: pointerXRef.current - dragGhostOffsetRef.current.x,
-                  top: pointerYRef.current - dragGhostOffsetRef.current.y,
-                  zIndex: 10000,
-                  pointerEvents: 'none',
-                }}
-              >
-                {(() => {
-                  const fnId = activeDragId.startsWith('folder-note:') ? activeDragId.slice('folder-note:'.length) : null;
-                  if (fnId) {
-                    const note = noteMap.get(fnId);
-                    if (note) return renderNoteItem(note, true);
-                  }
-                  const parsed = parseTopLevelId(activeDragId);
-                  if (parsed?.type === 'note') {
-                    const note = noteMap.get(parsed.id);
-                    if (note) return renderNoteItem(note, true);
-                  }
-                  if (parsed?.type === 'folder') {
-                    const folder = folderMap.get(parsed.id);
-                    if (folder) {
-                      const fNotes = (activeNotes as Note[]).filter((n) => n.folderId === folder.id);
-                      return (
-                        <FolderHeader
-                          folder={folder}
-                          isCollapsed
-                          onToggle={() => {}}
-                          onRename={() => {}}
-                          onDelete={() => {}}
-                          onArchive={() => {}}
-                          isEmpty={fNotes.length === 0}
-                          noteCount={fNotes.length}
-                        />
-                      );
-                    }
-                  }
-                  return null;
-                })()}
-              </div>,
-              document.body,
-            )}
-        </DndContext>
-      </List>
-    );
-  }
+  const indicator = activeDrag?.hover;
 
   return (
-    <List ref={handleListRef} sx={{ flexGrow: 1, overflow: 'auto' }}>
-      <DndContext
-        sensors={sensors}
-        onDragStart={handleDragStartWithFolders}
-        onDragOver={handleDragOverWithFolders}
-        onDragEnd={handleDragEndFlat}
-      >
-        <SortableContext items={activeNotes.map((note) => note.id)} strategy={verticalListSortingStrategy}>
-          {(() => {
-            const flatRows = isTestEnv
-              ? activeNotes.map((note, index) => ({
-                  note,
-                  key: `${note.id}-${index}`,
-                  index,
-                  start: 0,
-                }))
-              : flatModeVirtualizer.getVirtualItems().map((virtualRow) => ({
-                  note: activeNotes[virtualRow.index],
-                  key: `${activeNotes[virtualRow.index]?.id ?? virtualRow.index}-${virtualRow.key}`,
-                  index: virtualRow.index,
-                  start: virtualRow.start,
-                }));
-
-            if (flatRows.length === 0) return null;
-
+    <List sx={{ flexGrow: 1, overflow: 'auto' }}>
+      <Box ref={listContentRef} sx={{ position: 'relative', pb: 0.5 }}>
+        {rows.map((row) => {
+          if (row.kind === 'flat-note') {
+            const isDraggingThis =
+              activeDrag?.item.kind === 'note' &&
+              activeDrag.item.noteId === row.note.id;
+            const dropData: DropData = {
+              kind: 'flat-note',
+              rowId: row.rowId,
+              noteId: row.note.id,
+            };
+            const dragData: DragData | undefined = {
+              kind: 'note',
+              noteId: row.note.id,
+            };
             return (
-              <Box
+              <PragmaticRow
+                key={row.rowId}
+                isTestEnv={isTestEnv}
+                dropData={dropData}
+                dragData={dragData}
+                onNativePreviewChange={handleNativePreviewChange}
+                isDragSource={isDraggingThis}
+                sx={{ mx: 1 }}
+              >
+                {renderNoteItem(row.note, !!activeDrag)}
+              </PragmaticRow>
+            );
+          }
+
+          if (row.kind === 'top-note') {
+            const isDraggingThis =
+              activeDrag?.item.kind === 'note' &&
+              activeDrag.item.noteId === row.note.id;
+            const dropData: DropData = {
+              kind: 'top-note',
+              rowId: row.rowId,
+              noteId: row.note.id,
+              topLevelIndex: row.topLevelIndex,
+            };
+            const dragData: DragData | undefined = row.note.syncing
+              ? undefined
+              : {
+                  kind: 'note',
+                  noteId: row.note.id,
+                };
+            return (
+              <PragmaticRow
+                key={row.rowId}
+                isTestEnv={isTestEnv}
+                dropData={dropData}
+                dragData={dragData}
+                onNativePreviewChange={handleNativePreviewChange}
+                isDragSource={isDraggingThis}
+                sx={{ mx: 1 }}
+              >
+                {renderNoteItem(row.note, !!activeDrag)}
+              </PragmaticRow>
+            );
+          }
+
+          if (row.kind === 'folder') {
+            const isDraggingThis =
+              activeDrag?.item.kind === 'folder' &&
+              activeDrag.item.folderId === row.folder.id;
+            const dropData: DropData = {
+              kind: 'folder',
+              rowId: row.rowId,
+              folderId: row.folder.id,
+              topLevelIndex: row.topLevelIndex,
+            };
+            const dragData: DragData = {
+              kind: 'folder',
+              folderId: row.folder.id,
+            };
+            return (
+              <PragmaticRow
+                key={row.rowId}
+                isTestEnv={isTestEnv}
+                dropData={dropData}
+                dragData={dragData}
+                onNativePreviewChange={handleNativePreviewChange}
+                isDragSource={isDraggingThis}
                 sx={{
-                  height: isTestEnv ? 'auto' : flatModeVirtualizer.getTotalSize(),
-                  position: isTestEnv ? 'static' : 'relative',
-                  width: '100%',
+                  mx: 1,
+                  border: '1px solid',
+                  borderColor: 'action.disabled',
+                  borderRadius:
+                    row.isCollapsed || row.noteCount === 0 || isDraggingThis
+                      ? 1
+                      : '4px 4px 0 0',
+                  borderBottomWidth:
+                    row.noteCount > 0 && !row.isCollapsed && !isDraggingThis
+                      ? 0
+                      : undefined,
                 }}
               >
-                <FlatDropIndicatorOverlay
-                  virtualizer={flatModeVirtualizer}
-                  activeNotes={activeNotes}
-                  isTestEnv={isTestEnv}
-                  activeDragId={activeDragId}
-                  overId={overId}
-                  insertAbove={insertAbove}
+                <FolderHeader
+                  folder={row.folder}
+                  isCollapsed={row.isCollapsed || isDraggingThis}
+                  onToggle={() => onToggleFolderCollapse?.(row.folder.id)}
+                  onRename={(name) => onRenameFolder?.(row.folder.id, name)}
+                  onDelete={() => onDeleteFolder?.(row.folder.id)}
+                  onArchive={() => onArchiveFolder?.(row.folder.id)}
+                  isEmpty={row.noteCount === 0}
+                  noteCount={row.noteCount}
+                  autoEdit={editingFolderId === row.folder.id}
+                  onAutoEditDone={onEditingFolderDone}
                 />
-                {flatRows.map((row) => {
-                  const note = row.note;
+              </PragmaticRow>
+            );
+          }
+
+          if (row.kind === 'folder-note') {
+            const isDraggingThis =
+              activeDrag?.item.kind === 'note' &&
+              activeDrag.item.noteId === row.note.id;
+            const dropData: DropData = {
+              kind: 'folder-note',
+              rowId: row.rowId,
+              noteId: row.note.id,
+              folderId: row.folderId,
+              topLevelIndex: row.topLevelIndex,
+              isLastInFolder: row.isLastInFolder,
+            };
+            const dragData: DragData | undefined = row.note.syncing
+              ? undefined
+              : {
+                  kind: 'note',
+                  noteId: row.note.id,
+                };
+            return (
+              <PragmaticRow
+                key={row.rowId}
+                isTestEnv={isTestEnv}
+                dropData={dropData}
+                dragData={dragData}
+                onNativePreviewChange={handleNativePreviewChange}
+                isDragSource={isDraggingThis}
+                sx={{
+                  mx: 1,
+                  borderLeft: '1px solid',
+                  borderRight: '1px solid',
+                  borderColor: 'action.disabled',
+                }}
+              >
+                <Box
+                  sx={(theme) => ({
+                    borderLeft: `${theme.spacing(1.5)} solid ${
+                      theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.08)'
+                        : 'rgba(0,0,0,0.06)'
+                    }`,
+                    backgroundColor:
+                      theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.04)'
+                        : 'rgba(0,0,0,0.06)',
+                  })}
+                >
+                  {renderNoteItem(row.note, !!activeDrag)}
+                </Box>
+              </PragmaticRow>
+            );
+          }
+
+          if (row.kind === 'folder-tail') {
+            const dropData: DropData = {
+              kind: 'folder-tail',
+              rowId: row.rowId,
+              folderId: row.folderId,
+              topLevelIndex: row.topLevelIndex,
+            };
+            return (
+              <PragmaticRow
+                key={row.rowId}
+                isTestEnv={isTestEnv}
+                dropData={dropData}
+                sx={{ mx: 1, minHeight: 8 }}
+              >
+                <Box
+                  sx={(theme) => ({
+                    height: 2,
+                    borderLeft: '1px solid',
+                    borderRight: '1px solid',
+                    borderColor: 'action.disabled',
+                    borderBottom: '1px solid',
+                    borderBottomColor: 'action.disabled',
+                    borderRadius: '0 0 4px 4px',
+                    backgroundColor:
+                      theme.palette.mode === 'dark'
+                        ? 'rgba(255,255,255,0.02)'
+                        : 'rgba(0,0,0,0.03)',
+                  })}
+                />
+              </PragmaticRow>
+            );
+          }
+
+          return (
+            <PragmaticRow
+              key={row.rowId}
+              isTestEnv={isTestEnv}
+              dropData={{ kind: 'unfiled-bottom', rowId: row.rowId }}
+              sx={{ mx: 1, minHeight: 14 }}
+            >
+              <Box sx={{ minHeight: 14 }} />
+            </PragmaticRow>
+          );
+        })}
+
+        {indicator && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: indicator.indicatorTop,
+              left:
+                INDICATOR_INSET +
+                (indicator.indicatorIndented ? INDENT_INDICATOR_OFFSET : 0),
+              right: INDICATOR_INSET,
+              height: 2,
+              bgcolor: 'primary.main',
+              zIndex: 2,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+      </Box>
+
+      {nativePreview &&
+        createPortal(
+          <Box
+            sx={{
+              px: 1.25,
+              py: 0.75,
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'divider',
+              bgcolor: 'background.paper',
+              boxShadow: 6,
+              maxWidth: 360,
+              width: Math.min(nativePreview.width, 360),
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              color: 'text.primary',
+            }}
+          >
+            {nativePreview.item.kind === 'note'
+              ? (() => {
+                  const note = noteMap.get(nativePreview.item.noteId);
                   if (!note) return null;
                   return (
-                    <Box
-                      key={row.key}
-                      data-index={isTestEnv ? undefined : row.index}
-                      ref={isTestEnv ? undefined : flatModeVirtualizer.measureElement}
-                      sx={{
-                        position: isTestEnv ? 'relative' : 'absolute',
-                        top: isTestEnv ? undefined : row.start,
-                        left: 0,
-                        width: '100%',
-                      }}
-                    >
-                      <Box sx={{ mx: 1 }}>
-                        <SortableWrapper id={note.id} staticMode>
-                          {renderNoteItem(note, !!activeDragId)}
-                        </SortableWrapper>
-                      </Box>
-                    </Box>
+                    <Typography variant="body2" noWrap>
+                      {getNoteTitle(note).text}
+                    </Typography>
                   );
-                })}
-              </Box>
-            );
-          })()}
-        </SortableContext>
-        <DragOverlay dropAnimation={null} />
-        {activeDragId &&
-          createPortal(
-            <div
-              ref={dragGhostRef}
-              style={{
-                position: 'fixed',
-                left: pointerXRef.current - dragGhostOffsetRef.current.x,
-                top: pointerYRef.current - dragGhostOffsetRef.current.y,
-                zIndex: 10000,
-                pointerEvents: 'none',
-              }}
-            >
-              {(() => {
-                const note = activeNotes.find((n) => n.id === activeDragId);
-                if (note) return renderNoteItem(note, true);
-                return null;
-              })()}
-            </div>,
-            document.body,
-          )}
-      </DndContext>
+                })()
+              : (() => {
+                  const folder = folderMap.get(nativePreview.item.folderId);
+                  if (!folder) return null;
+                  return (
+                    <Typography variant="body2" noWrap>
+                      {folder.name}
+                    </Typography>
+                  );
+                })()}
+          </Box>,
+          nativePreview.container,
+        )}
     </List>
   );
 };
