@@ -257,13 +257,13 @@ describe('NoteList', () => {
   it('ノートリストが空の場合、リストが空であることを確認', () => {
     render(<NoteList {...defaultProps} notes={[]} />);
     const list = screen.getByRole('list');
-    expect(list.children[0].children[0]).toBeEmptyDOMElement();
+    expect(list.querySelectorAll('[data-drop-kind="top-note"], [data-drop-kind="folder-note"]').length).toBe(0);
   });
 
   it('ファイルモードでファイルリストが空の場合、リストが空であることを確認', () => {
     render(<NoteList {...defaultFileProps} notes={[]} />);
     const list = screen.getByRole('list');
-    expect(list.children[0].children[0]).toBeEmptyDOMElement();
+    expect(list.querySelectorAll('[data-drop-kind="top-note"], [data-drop-kind="folder-note"]').length).toBe(0);
   });
 
   describe('フォルダ機能', () => {
