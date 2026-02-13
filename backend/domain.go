@@ -84,20 +84,25 @@ type NoteList struct {
 
 // アプリケーションの設定を管理
 type Settings struct {
-	FontFamily            string `json:"fontFamily"`
-	FontSize              int    `json:"fontSize"`
-	IsDarkMode            bool   `json:"isDarkMode"`
-	EditorTheme           string `json:"editorTheme"`
-	WordWrap              string `json:"wordWrap"`
-	Minimap               bool   `json:"minimap"`
-	WindowWidth           int    `json:"windowWidth"`
-	WindowHeight          int    `json:"windowHeight"`
-	WindowX               int    `json:"windowX"`
-	WindowY               int    `json:"windowY"`
-	IsMaximized           bool   `json:"isMaximized"`
-	IsDebug               bool   `json:"isDebug"`
-	EnableConflictBackup  bool   `json:"enableConflictBackup"`
-	MarkdownPreviewOnLeft bool   `json:"markdownPreviewOnLeft"`
+	FontFamily              string  `json:"fontFamily"`
+	FontSize                int     `json:"fontSize"`
+	IsDarkMode              bool    `json:"isDarkMode"`
+	EditorTheme             string  `json:"editorTheme"`
+	WordWrap                string  `json:"wordWrap"`
+	Minimap                 bool    `json:"minimap"`
+	WindowWidth             int     `json:"windowWidth"`
+	WindowHeight            int     `json:"windowHeight"`
+	WindowX                 int     `json:"windowX"`
+	WindowY                 int     `json:"windowY"`
+	IsMaximized             bool    `json:"isMaximized"`
+	IsDebug                 bool    `json:"isDebug"`
+	EnableConflictBackup    bool    `json:"enableConflictBackup"`
+	MarkdownPreviewOnLeft   bool    `json:"markdownPreviewOnLeft"`
+	SidebarWidth            float64 `json:"sidebarWidth,omitempty"`            // サイドバーの幅
+	SplitPaneSize           float64 `json:"splitPaneSize,omitempty"`           // スプリットモード時の左ペインの割合(0-1)
+	MarkdownPreviewPaneSize float64 `json:"markdownPreviewPaneSize,omitempty"` // マークダウンプレビューのペインサイズ割合(0-1)
+	MarkdownPreviewVisible  bool    `json:"markdownPreviewVisible,omitempty"`  // マークダウンプレビューが表示状態か
+	IsSplit                 bool    `json:"isSplit,omitempty"`                 // スプリットモードが有効か
 }
 
 // ノートリスト整合性チェックの問題

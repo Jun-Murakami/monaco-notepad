@@ -44,6 +44,7 @@ import { useInitialize } from './hooks/useInitialize';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import { useNoteSelecter } from './hooks/useNoteSelecter';
 import { useNotes } from './hooks/useNotes';
+import { usePaneSizes } from './hooks/usePaneSizes';
 import { useSplitEditor } from './hooks/useSplitEditor';
 import type { LanguageInfo } from './lib/monaco';
 import { darkTheme, lightTheme } from './lib/theme';
@@ -241,6 +242,31 @@ type SearchMatch = {
 function App() {
   // エディタ設定
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
+
+  // ペインサイズ管理
+  const {
+    sidebarWidth,
+    splitPaneSize,
+    markdownPreviewPaneSize,
+    handleSidebarWidthChange,
+    handleSplitPaneSizeChange,
+    handleMarkdownPreviewPaneSizeChange,
+    scheduleSave: schedulePaneSizeSave,
+    getAllotmentSizes,
+  } = usePaneSizes(editorSettings);
+
+  // ペインサイズを設定に保存するハンドラ
+  const savePaneSizes = useCallback(
+    (sizes: { sidebarWidth: number; splitPaneSize: number; markdownPreviewPaneSize: number }) => {
+      setEditorSettings({
+        ...editorSettings,
+        sidebarWidth: sizes.sidebarWidth,
+        splitPaneSize: sizes.splitPaneSize,
+        markdownPreviewPaneSize: sizes.markdownPreviewPaneSize,
+      });
+    },
+    [setEditorSettings, editorSettings]
+  );
 
   // メッセージダイアログ
   const {
@@ -850,24 +876,32 @@ function App() {
             left: 0,
             right: 0,
             bottom: 0,
-            display: 'flex',
           }}
         >
-          {/* サイドバー */}
-          <Box
-            aria-label='Note List'
-            sx={{
-              width: 242,
-              flexShrink: 0,
-              borderRight: 1,
-              borderColor: 'divider',
-              display: 'flex',
-              flexDirection: 'column',
-              '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
-                backgroundColor: 'text.secondary',
-              },
+          <Allotment
+            onChange={(sizes) => {
+              if (sizes[0]) {
+                handleSidebarWidthChange(sizes[0]);
+                schedulePaneSizeSave(savePaneSizes);
+              }
             }}
           >
+            {/* サイドバー */}
+            <Allotment.Pane preferredSize={sidebarWidth} minSize={242} maxSize={500}>
+              <Box
+                aria-label='Note List'
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  borderRight: 1,
+                  borderColor: 'divider',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
+                    backgroundColor: 'text.secondary',
+                  },
+                }}
+              >
             <AppBar platform={platform} onNew={handleNewNote} onOpen={handleOpenFile} onSave={handleSaveAsFile} />
             <Divider />
             <NoteSearchBox
@@ -1007,17 +1041,20 @@ function App() {
             >
               Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
             </Button>
-          </Box>
+              </Box>
+            </Allotment.Pane>
 
-          {/* エディタ領域 */}
-          <Box
-            sx={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              minWidth: 0,
-            }}
-          >
+            {/* エディタ領域 */}
+            <Allotment.Pane>
+              <Box
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minWidth: 0,
+                }}
+              >
             {showArchived ? (
               <ArchivedNoteList
                 notes={notes}
@@ -1043,7 +1080,26 @@ function App() {
                 isDarkMode={editorSettings.isDarkMode}
               />
             ) : (
-              <Allotment>
+              <Allotment
+                defaultSizes={getAllotmentSizes(isSplit, isMarkdownPreview, editorSettings.markdownPreviewOnLeft)}
+                onChange={(sizes) => {
+                  if (isSplit && sizes.length >= 2) {
+                    const total = sizes[0] + sizes[1];
+                    if (total > 0) {
+                      handleSplitPaneSizeChange(sizes[0] / total);
+                      schedulePaneSizeSave(savePaneSizes);
+                    }
+                  } else if (isMarkdownPreview && sizes.length >= 2) {
+                    const total = sizes[0] + sizes[1];
+                    if (total > 0) {
+                      const isPreviewOnLeft = editorSettings.markdownPreviewOnLeft;
+                      const previewSize = isPreviewOnLeft ? sizes[0] : sizes[1];
+                      handleMarkdownPreviewPaneSizeChange(previewSize / total);
+                      schedulePaneSizeSave(savePaneSizes);
+                    }
+                  }
+                }}
+              >
                 {isMarkdownPreview && editorSettings.markdownPreviewOnLeft && (
                   <Allotment.Pane minSize={200}>
                     <MarkdownPreview editorInstanceRef={leftEditorInstanceRef} />
@@ -1253,6 +1309,8 @@ function App() {
               showMessage={showMessage}
             />
           </Box>
+            </Allotment.Pane>
+          </Allotment>
         </Box>
       </Box>
 

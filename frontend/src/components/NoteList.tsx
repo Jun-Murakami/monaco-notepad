@@ -209,7 +209,6 @@ const NoteItem: React.FC<NoteItemProps> = memo(
       <NotePreviewPopper
         content={'content' in note ? (note.content ?? undefined) : undefined}
         modifiedTime={note.modifiedTime}
-        anchorX={242}
         disabled={contextMenu !== null || isSyncing || !!isDragging}
       >
         <Box

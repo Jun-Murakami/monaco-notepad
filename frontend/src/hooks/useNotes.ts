@@ -69,7 +69,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   notesRef.current = notes;
   topLevelOrderRef.current = topLevelOrder;
   archivedTopLevelOrderRef.current = archivedTopLevelOrder;
-  isSplitModeRef.current = isSplit;
+  isSplitModeRef.current = isSplit ?? false;
 
   // 現在のノートを保存する（refベースで依存なし） ------------------------------------------------------------
   const saveCurrentNote = useCallback(async () => {

@@ -98,6 +98,11 @@ export type Settings = {
   isDebug: boolean;
   enableConflictBackup: boolean;
   markdownPreviewOnLeft: boolean;
+  sidebarWidth?: number;
+  splitPaneSize?: number;
+  markdownPreviewPaneSize?: number;
+  markdownPreviewVisible?: boolean;
+  isSplit?: boolean;
 };
 
 export type EditorPane = 'left' | 'right';

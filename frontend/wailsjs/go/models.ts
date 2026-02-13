@@ -127,6 +127,11 @@ export namespace backend {
 	    isDebug: boolean;
 	    enableConflictBackup: boolean;
 	    markdownPreviewOnLeft: boolean;
+	    sidebarWidth?: number;
+	    splitPaneSize?: number;
+	    markdownPreviewPaneSize?: number;
+	    markdownPreviewVisible?: boolean;
+	    isSplit?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -148,6 +153,11 @@ export namespace backend {
 	        this.isDebug = source["isDebug"];
 	        this.enableConflictBackup = source["enableConflictBackup"];
 	        this.markdownPreviewOnLeft = source["markdownPreviewOnLeft"];
+	        this.sidebarWidth = source["sidebarWidth"];
+	        this.splitPaneSize = source["splitPaneSize"];
+	        this.markdownPreviewPaneSize = source["markdownPreviewPaneSize"];
+	        this.markdownPreviewVisible = source["markdownPreviewVisible"];
+	        this.isSplit = source["isSplit"];
 	    }
 	}
 	export class TopLevelItem {

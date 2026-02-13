@@ -13,15 +13,15 @@ export const AppBar: React.FC<{
     <Box
       sx={{
         display: 'flex',
-        justifyContent: 'center',
+        justifyContent: 'flex-start',
         alignItems: 'center',
         gap: 1,
         p: 1,
       }}
     >
-      <Tooltip title={`New (${commandKey} + N)`} arrow placement="bottom">
+      <Tooltip title={`New (${commandKey} + N)`} arrow placement="bottom" style={{ flex: 1 }}>
         <Button
-          sx={{ fontSize: 12, width: 70, height: 32 }}
+          sx={{ fontSize: 12, height: 32, width: '100%' }}
           startIcon={<NoteAdd sx={{ mr: -0.75 }} />}
           variant="contained"
           onClick={onNew}
@@ -29,9 +29,9 @@ export const AppBar: React.FC<{
           New
         </Button>
       </Tooltip>
-      <Tooltip title={`Open (${commandKey} + O)`} arrow placement="bottom">
+      <Tooltip title={`Open (${commandKey} + O)`} arrow placement="bottom" style={{ flex: 1 }}>
         <Button
-          sx={{ fontSize: 12, width: 70, height: 32 }}
+          sx={{ fontSize: 12, height: 32, width: '100%' }}
           startIcon={<FileOpen sx={{ mr: -0.75 }} />}
           variant="contained"
           onClick={onOpen}
@@ -39,9 +39,9 @@ export const AppBar: React.FC<{
           Open
         </Button>
       </Tooltip>
-      <Tooltip title={`Save as (${commandKey} + S)`} arrow placement="bottom">
+      <Tooltip title={`Save as (${commandKey} + S)`} arrow placement="bottom" style={{ flex: 1 }}>
         <Button
-          sx={{ fontSize: 12, width: 70, height: 32, whiteSpace: 'nowrap' }}
+          sx={{ fontSize: 12, height: 32, width: '100%', whiteSpace: 'nowrap' }}
           startIcon={<Save sx={{ mr: -1 }} />}
           variant="contained"
           onClick={onSave}

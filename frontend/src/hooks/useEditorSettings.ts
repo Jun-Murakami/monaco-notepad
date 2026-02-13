@@ -43,6 +43,11 @@ export const useEditorSettings = () => {
           isDebug: settings.isDebug,
           enableConflictBackup: settings.enableConflictBackup ?? true,
           markdownPreviewOnLeft: settings.markdownPreviewOnLeft ?? false,
+          sidebarWidth: settings.sidebarWidth,
+          splitPaneSize: settings.splitPaneSize,
+          markdownPreviewPaneSize: settings.markdownPreviewPaneSize,
+          markdownPreviewVisible: settings.markdownPreviewVisible,
+          isSplit: settings.isSplit,
         };
 
         // ウィンドウの位置とサイズを復元
