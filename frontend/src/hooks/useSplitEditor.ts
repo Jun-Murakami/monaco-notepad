@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SaveNote } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
-import type { EditorPane, FileNote, Note } from '../types';
+import type { EditorPane, FileNote, Note, TopLevelItem } from '../types';
 
 const STORAGE_KEY = 'splitEditorState';
 
@@ -437,31 +437,178 @@ export const useSplitEditor = ({
     ],
   );
 
-  const syncPaneNotes = useCallback((newNotes: Note[]) => {
-    if (!isSplitRef.current) return;
-    if (leftNoteRef.current && !isLeftModified.current) {
-      const updated = newNotes.find((n) => n.id === leftNoteRef.current?.id);
-      if (
-        updated &&
-        updated.modifiedTime !== leftNoteRef.current.modifiedTime
-      ) {
-        setLeftNote(updated);
-        leftNoteRef.current = updated;
-        pendingLeftContentRef.current = null;
+  const syncPaneNotes = useCallback(
+    (newNotes: Note[], topLevelOrder: TopLevelItem[] = []) => {
+      if (!isSplitRef.current) return;
+
+      const activeNotes = newNotes.filter((note) => !note.archived);
+      const activeNoteMap = new Map(activeNotes.map((note) => [note.id, note]));
+      const orderedActiveNotes: Note[] = [];
+      const seenActiveNoteIDs = new Set<string>();
+
+      for (const item of topLevelOrder) {
+        if (item.type === 'note') {
+          const note = activeNoteMap.get(item.id);
+          if (note && !seenActiveNoteIDs.has(note.id)) {
+            orderedActiveNotes.push(note);
+            seenActiveNoteIDs.add(note.id);
+          }
+          continue;
+        }
+
+        const folderNotes = activeNotes.filter((note) => note.folderId === item.id);
+        for (const note of folderNotes) {
+          if (seenActiveNoteIDs.has(note.id)) continue;
+          orderedActiveNotes.push(note);
+          seenActiveNoteIDs.add(note.id);
+        }
       }
-    }
-    if (rightNoteRef.current && !isRightModified.current) {
-      const updated = newNotes.find((n) => n.id === rightNoteRef.current?.id);
-      if (
-        updated &&
-        updated.modifiedTime !== rightNoteRef.current.modifiedTime
-      ) {
-        setRightNote(updated);
-        rightNoteRef.current = updated;
-        pendingRightContentRef.current = null;
+
+      for (const note of activeNotes) {
+        if (seenActiveNoteIDs.has(note.id)) continue;
+        orderedActiveNotes.push(note);
+        seenActiveNoteIDs.add(note.id);
       }
-    }
-  }, []);
+
+      const clearPaneDirtyState = (pane: 'left' | 'right') => {
+        const timer = pane === 'left' ? leftDebounceTimer : rightDebounceTimer;
+        const modified = pane === 'left' ? isLeftModified : isRightModified;
+        const pendingContent =
+          pane === 'left' ? pendingLeftContentRef : pendingRightContentRef;
+        if (timer.current) {
+          clearTimeout(timer.current);
+          timer.current = null;
+        }
+        modified.current = false;
+        pendingContent.current = null;
+      };
+
+      const setPaneNoteWithoutFile = (pane: 'left' | 'right', note: Note | null) => {
+        if (pane === 'left') {
+          setLeftNote(note);
+          setLeftFileNote(null);
+          leftNoteRef.current = note;
+          leftFileNoteRef.current = null;
+        } else {
+          setRightNote(note);
+          setRightFileNote(null);
+          rightNoteRef.current = note;
+          rightFileNoteRef.current = null;
+        }
+      };
+
+      let changed = false;
+
+      if (leftNoteRef.current && !isLeftModified.current) {
+        const updated = activeNoteMap.get(leftNoteRef.current.id);
+        if (
+          updated &&
+          updated.modifiedTime !== leftNoteRef.current.modifiedTime
+        ) {
+          setLeftNote(updated);
+          leftNoteRef.current = updated;
+          pendingLeftContentRef.current = null;
+          changed = true;
+        }
+      }
+
+      if (rightNoteRef.current && !isRightModified.current) {
+        const updated = activeNoteMap.get(rightNoteRef.current.id);
+        if (
+          updated &&
+          updated.modifiedTime !== rightNoteRef.current.modifiedTime
+        ) {
+          setRightNote(updated);
+          rightNoteRef.current = updated;
+          pendingRightContentRef.current = null;
+          changed = true;
+        }
+      }
+
+      const leftIsMissingOrArchived =
+        !!leftNoteRef.current && !activeNoteMap.has(leftNoteRef.current.id);
+      const rightIsMissingOrArchived =
+        !!rightNoteRef.current && !activeNoteMap.has(rightNoteRef.current.id);
+
+      const usedNoteIDs = new Set<string>();
+      if (leftNoteRef.current && !leftIsMissingOrArchived) {
+        usedNoteIDs.add(leftNoteRef.current.id);
+      }
+      if (rightNoteRef.current && !rightIsMissingOrArchived) {
+        usedNoteIDs.add(rightNoteRef.current.id);
+      }
+
+      const pickTopUnopenedNote = (): Note | null => {
+        for (const note of orderedActiveNotes) {
+          if (!usedNoteIDs.has(note.id)) {
+            return note;
+          }
+        }
+        return null;
+      };
+
+      if (leftIsMissingOrArchived) {
+        clearPaneDirtyState('left');
+        const replacement = pickTopUnopenedNote();
+        setPaneNoteWithoutFile('left', replacement);
+        if (replacement) {
+          usedNoteIDs.add(replacement.id);
+        }
+        changed = true;
+      }
+
+      if (rightIsMissingOrArchived) {
+        clearPaneDirtyState('right');
+        const replacement = pickTopUnopenedNote();
+        setPaneNoteWithoutFile('right', replacement);
+        if (replacement) {
+          usedNoteIDs.add(replacement.id);
+        }
+        changed = true;
+      }
+
+      if (!changed) return;
+
+      const getPaneSelection = (pane: 'left' | 'right') => {
+        if (pane === 'left') {
+          return {
+            note: leftNoteRef.current,
+            file: leftFileNoteRef.current,
+          };
+        }
+        return {
+          note: rightNoteRef.current,
+          file: rightFileNoteRef.current,
+        };
+      };
+
+      let targetPane: EditorPane = focusedPaneRef.current;
+      let targetSelection = getPaneSelection(targetPane);
+      if (!targetSelection.note && !targetSelection.file) {
+        const otherPane: EditorPane = targetPane === 'left' ? 'right' : 'left';
+        const otherSelection = getPaneSelection(otherPane);
+        if (otherSelection.note || otherSelection.file) {
+          targetPane = otherPane;
+          targetSelection = otherSelection;
+          updateFocusedPane(otherPane);
+        }
+      }
+
+      if (targetSelection.file) {
+        setCurrentFileNote(targetSelection.file);
+        setCurrentNote(null);
+      } else if (targetSelection.note) {
+        setCurrentNote(targetSelection.note);
+        setCurrentFileNote(null);
+      } else {
+        setCurrentNote(null);
+        setCurrentFileNote(null);
+      }
+
+      saveSplitState();
+    },
+    [setCurrentNote, setCurrentFileNote, updateFocusedPane, saveSplitState],
+  );
 
   useEffect(() => {
     return () => {

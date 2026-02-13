@@ -31,7 +31,9 @@ import type {
 } from '../types';
 
 interface UseNotesOptions {
-  onNotesReloaded?: React.RefObject<((notes: Note[]) => void) | null>;
+  onNotesReloaded?: React.RefObject<
+    ((notes: Note[], topLevelOrder?: TopLevelItem[]) => void) | null
+  >;
   isSplit?: boolean;
   focusedPane?: EditorPane;
   openNoteInSplitPane?: (note: Note | FileNote, pane: EditorPane) => void;
@@ -59,6 +61,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   const notesRef = useRef<Note[]>([]);
   const topLevelOrderRef = useRef<TopLevelItem[]>([]);
   const archivedTopLevelOrderRef = useRef<TopLevelItem[]>([]);
+  const isSplitModeRef = useRef<boolean>(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ref同期（レンダー時に直接代入）
@@ -66,6 +69,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   notesRef.current = notes;
   topLevelOrderRef.current = topLevelOrder;
   archivedTopLevelOrderRef.current = archivedTopLevelOrder;
+  isSplitModeRef.current = isSplit;
 
   // 現在のノートを保存する（refベースで依存なし） ------------------------------------------------------------
   const saveCurrentNote = useCallback(async () => {
@@ -151,30 +155,63 @@ export const useNotes = (options: UseNotesOptions = {}) => {
           GetCollapsedFolderIDs(),
         ]);
 
+      const nextTopLevelOrder = (rawOrder ?? []).map((item) => ({
+        type: item.type as 'note' | 'folder',
+        id: item.id,
+      }));
+      const nextArchivedTopLevelOrder = (rawArchivedOrder ?? []).map((item) => ({
+        type: item.type as 'note' | 'folder',
+        id: item.id,
+      }));
+      const activeNotes = newNotes.filter((note) => !note.archived);
+      const activeNoteMap = new Map(activeNotes.map((note) => [note.id, note]));
+      const orderedActiveNotes: Note[] = [];
+      const seenActiveNoteIDs = new Set<string>();
+
+      for (const item of nextTopLevelOrder) {
+        if (item.type === 'note') {
+          const note = activeNoteMap.get(item.id);
+          if (note && !seenActiveNoteIDs.has(note.id)) {
+            orderedActiveNotes.push(note);
+            seenActiveNoteIDs.add(note.id);
+          }
+          continue;
+        }
+
+        const folderNotes = activeNotes.filter((note) => note.folderId === item.id);
+        for (const note of folderNotes) {
+          if (seenActiveNoteIDs.has(note.id)) continue;
+          orderedActiveNotes.push(note);
+          seenActiveNoteIDs.add(note.id);
+        }
+      }
+
+      for (const note of activeNotes) {
+        if (seenActiveNoteIDs.has(note.id)) continue;
+        orderedActiveNotes.push(note);
+        seenActiveNoteIDs.add(note.id);
+      }
+
       if (isNoteListChanged(notesRef.current, newNotes)) {
         setNotes(newNotes);
       }
       setFolders(newFolders);
-      setTopLevelOrder(
-        (rawOrder ?? []).map((item) => ({
-          type: item.type as 'note' | 'folder',
-          id: item.id,
-        })),
-      );
-      setArchivedTopLevelOrder(
-        (rawArchivedOrder ?? []).map((item) => ({
-          type: item.type as 'note' | 'folder',
-          id: item.id,
-        })),
-      );
+      setTopLevelOrder(nextTopLevelOrder);
+      setArchivedTopLevelOrder(nextArchivedTopLevelOrder);
       setCollapsedFolders(new Set(collapsedIDs ?? []));
 
-      // 編集中のノートは上書きしない
-      if (currentNoteRef.current && !isNoteModified.current) {
-        const updatedCurrentNote = newNotes.find(
-          (note) => note.id === currentNoteRef.current?.id,
-        );
-        if (updatedCurrentNote) {
+      // Splitモードでは現在ノートの整合はuseSplitEditor側で管理する。
+      if (!isSplitModeRef.current && currentNoteRef.current) {
+        const updatedCurrentNote = activeNoteMap.get(currentNoteRef.current.id);
+        if (!updatedCurrentNote) {
+          const replacement = orderedActiveNotes.find(
+            (note) => note.id !== currentNoteRef.current?.id,
+          );
+          setCurrentNote(replacement ?? null);
+          previousContent.current = replacement?.content || '';
+          pendingContentRef.current = null;
+          isNoteModified.current = false;
+        } else if (!isNoteModified.current) {
           const cur = currentNoteRef.current;
           const changed =
             cur.title !== updatedCurrentNote.title ||
@@ -191,7 +228,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       }
 
       // スプリットモードのペインも同期する
-      onNotesReloaded?.current?.(newNotes);
+      onNotesReloaded?.current?.(newNotes, nextTopLevelOrder);
     };
 
     runtime.EventsOn('notes:reload', reloadHandler);

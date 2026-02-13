@@ -47,7 +47,7 @@ import { useNotes } from './hooks/useNotes';
 import { useSplitEditor } from './hooks/useSplitEditor';
 import type { LanguageInfo } from './lib/monaco';
 import { darkTheme, lightTheme } from './lib/theme';
-import type { FileNote, Note } from './types';
+import type { FileNote, Note, TopLevelItem } from './types';
 
 const scrollbarSx = (theme: Theme) => ({
   '&::-webkit-scrollbar': { width: 7 },
@@ -254,7 +254,9 @@ function App() {
     secondaryButtonText,
   } = useMessageDialog();
 
-  const onNotesReloadedRef = useRef<((notes: Note[]) => void) | null>(null);
+  const onNotesReloadedRef = useRef<
+    ((notes: Note[], topLevelOrder?: TopLevelItem[]) => void) | null
+  >(null);
   const isSplitRef = useRef<boolean>(false);
   const focusedPaneRef = useRef<'left' | 'right'>('left');
   const openNoteInPaneRef = useRef<((note: Note | FileNote, pane: 'left' | 'right') => void) | null>(null);

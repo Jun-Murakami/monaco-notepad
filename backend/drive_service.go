@@ -923,6 +923,9 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	}
 	s.noteService.noteList.Folders = filteredFolders
 
+	localTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.TopLevelOrder...)
+	localArchivedTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.ArchivedTopLevelOrder...)
+
 	filteredTopLevelOrder := make([]TopLevelItem, 0, len(cloudNoteList.TopLevelOrder))
 	for _, item := range cloudNoteList.TopLevelOrder {
 		if item.Type == "folder" && deletedFolderIDs[item.ID] {
@@ -980,35 +983,28 @@ func (s *driveService) resolveConflict(noteListID string) error {
 				if localMeta, ok := localMap[id]; ok {
 					mergedNotes = append(mergedNotes, localMeta)
 					if localMeta.FolderID == "" {
-						targetOrder := &s.noteService.noteList.TopLevelOrder
-						if localMeta.Archived {
-							targetOrder = &s.noteService.noteList.ArchivedTopLevelOrder
-						}
-						found := false
-						for _, item := range *targetOrder {
-							if item.ID == id && item.Type == "note" {
-								found = true
-								break
-							}
-						}
-						if !found {
-							*targetOrder = append(*targetOrder, TopLevelItem{Type: "note", ID: id})
-						}
+						placeTopLevelItemUsingLocalSnapshot(
+							localTopLevelSnapshot,
+							localArchivedTopLevelSnapshot,
+							&s.noteService.noteList.TopLevelOrder,
+							&s.noteService.noteList.ArchivedTopLevelOrder,
+							localMeta,
+						)
 					}
 				}
 				continue
 			}
 			if note, err := s.noteService.LoadNote(id); err == nil {
-				mergedNotes = append(mergedNotes, s.noteService.buildNoteMetadata(note))
-				found := false
-				for _, item := range s.noteService.noteList.TopLevelOrder {
-					if item.ID == id && item.Type == "note" {
-						found = true
-						break
-					}
-				}
-				if !found {
-					s.noteService.noteList.TopLevelOrder = append(s.noteService.noteList.TopLevelOrder, TopLevelItem{Type: "note", ID: id})
+				localMeta := s.noteService.buildNoteMetadata(note)
+				mergedNotes = append(mergedNotes, localMeta)
+				if localMeta.FolderID == "" {
+					placeTopLevelItemUsingLocalSnapshot(
+						localTopLevelSnapshot,
+						localArchivedTopLevelSnapshot,
+						&s.noteService.noteList.TopLevelOrder,
+						&s.noteService.noteList.ArchivedTopLevelOrder,
+						localMeta,
+					)
 				}
 			}
 		}
@@ -1228,6 +1224,92 @@ func isSameBoolSet(a, b map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+func placeTopLevelItemUsingLocalSnapshot(
+	localTopLevelSnapshot []TopLevelItem,
+	localArchivedTopLevelSnapshot []TopLevelItem,
+	currentTopLevelOrder *[]TopLevelItem,
+	currentArchivedTopLevelOrder *[]TopLevelItem,
+	localMeta NoteMetadata,
+) {
+	if localMeta.FolderID != "" {
+		return
+	}
+
+	targetItem := TopLevelItem{Type: "note", ID: localMeta.ID}
+	targetOrder := currentTopLevelOrder
+	snapshot := localTopLevelSnapshot
+	if localMeta.Archived {
+		targetOrder = currentArchivedTopLevelOrder
+		snapshot = localArchivedTopLevelSnapshot
+	}
+
+	insertTopLevelItemPreservingLocalPlacement(snapshot, targetOrder, targetItem)
+}
+
+func insertTopLevelItemPreservingLocalPlacement(
+	localSnapshot []TopLevelItem,
+	currentOrder *[]TopLevelItem,
+	item TopLevelItem,
+) {
+	if currentOrder == nil {
+		return
+	}
+	if topLevelItemIndex(*currentOrder, item) != -1 {
+		return
+	}
+
+	localIndex := topLevelItemIndex(localSnapshot, item)
+	if localIndex == -1 {
+		*currentOrder = append(*currentOrder, item)
+		return
+	}
+
+	for i := localIndex - 1; i >= 0; i-- {
+		anchorIndex := topLevelItemIndex(*currentOrder, localSnapshot[i])
+		if anchorIndex != -1 {
+			*currentOrder = insertTopLevelItemAt(*currentOrder, anchorIndex+1, item)
+			return
+		}
+	}
+
+	for i := localIndex + 1; i < len(localSnapshot); i++ {
+		anchorIndex := topLevelItemIndex(*currentOrder, localSnapshot[i])
+		if anchorIndex != -1 {
+			*currentOrder = insertTopLevelItemAt(*currentOrder, anchorIndex, item)
+			return
+		}
+	}
+
+	if localIndex == 0 {
+		*currentOrder = insertTopLevelItemAt(*currentOrder, 0, item)
+		return
+	}
+
+	*currentOrder = append(*currentOrder, item)
+}
+
+func insertTopLevelItemAt(order []TopLevelItem, index int, item TopLevelItem) []TopLevelItem {
+	if index < 0 {
+		index = 0
+	}
+	if index > len(order) {
+		index = len(order)
+	}
+	order = append(order, TopLevelItem{})
+	copy(order[index+1:], order[index:])
+	order[index] = item
+	return order
+}
+
+func topLevelItemIndex(order []TopLevelItem, target TopLevelItem) int {
+	for i, item := range order {
+		if item.Type == target.Type && item.ID == target.ID {
+			return i
+		}
+	}
+	return -1
 }
 
 func hasPendingPayloadChanges(

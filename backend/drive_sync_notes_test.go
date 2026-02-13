@@ -166,6 +166,15 @@ func noteListHasNoteID(noteList *NoteList, noteID string) bool {
 	return false
 }
 
+func topLevelNoteIndex(order []TopLevelItem, noteID string) int {
+	for i, item := range order {
+		if item.Type == "note" && item.ID == noteID {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestSyncNotes_CaseA_NothingToDo(t *testing.T) {
 	ds, ops, cleanup := newSyncTestDriveService(t)
 	defer cleanup()
@@ -1083,15 +1092,48 @@ func TestSyncNotes_CaseC_Conflict_LocalNewNoteUploadFailureKeepsMetadata(t *test
 	assert.True(t, noteListHasNoteID(ds.noteService.noteList, localNew.ID), "アップロード失敗時もローカル新規ノートのメタデータは保持する")
 	assert.True(t, ds.syncState.IsDirty())
 	assert.True(t, ds.syncState.DirtyNoteIDs[localNew.ID])
+	assert.Equal(t, 0, topLevelNoteIndex(ds.noteService.noteList.TopLevelOrder, localNew.ID), "アップロード失敗時もローカル新規ノートの表示順は先頭を維持する")
+	assert.Equal(t, 1, topLevelNoteIndex(ds.noteService.noteList.TopLevelOrder, cloudNote.ID))
+}
 
-	foundTopLevel := false
-	for _, item := range ds.noteService.noteList.TopLevelOrder {
-		if item.Type == "note" && item.ID == localNew.ID {
-			foundTopLevel = true
-			break
-		}
+func TestSyncNotes_CaseC_Conflict_LocalNewNoteKeepsTopLevelPositionAfterUpload(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	localNew := &Note{ID: "local-new", Title: "local-new", Content: "local", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(localNew))
+	ds.syncState.MarkNoteDirty(localNew.ID)
+
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloudNote := &Note{
+		ID:           "cloud-note-1",
+		Title:        "cloud",
+		Content:      "from cloud",
+		Language:     "plaintext",
+		ModifiedTime: "2025-01-02T00:00:00Z",
 	}
-	assert.True(t, foundTopLevel, "アップロード失敗時もローカル新規ノートの表示順は保持する")
+	putCloudNote(t, ops, cloudNote)
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{{
+			ID:           cloudNote.ID,
+			Title:        cloudNote.Title,
+			Language:     cloudNote.Language,
+			ModifiedTime: cloudNote.ModifiedTime,
+			ContentHash:  computeContentHash(cloudNote),
+		}},
+		TopLevelOrder: []TopLevelItem{{Type: "note", ID: cloudNote.ID}},
+	})
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	assert.True(t, noteListHasNoteID(ds.noteService.noteList, localNew.ID))
+	assert.False(t, ds.syncState.IsDirty())
+	assert.Equal(t, 0, topLevelNoteIndex(ds.noteService.noteList.TopLevelOrder, localNew.ID), "競合解決後もローカル新規ノートは先頭を維持する")
+	assert.Equal(t, 1, topLevelNoteIndex(ds.noteService.noteList.TopLevelOrder, cloudNote.ID))
 }
 
 func TestSyncNotes_CaseC_LocalNewerWins(t *testing.T) {

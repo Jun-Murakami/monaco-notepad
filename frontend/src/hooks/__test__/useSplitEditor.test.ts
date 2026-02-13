@@ -181,4 +181,56 @@ describe('useSplitEditor', () => {
       'update',
     );
   });
+
+  it('同期で左右の表示ノートが消えた場合、未オープンの上位ノートへ自動差し替えされること', () => {
+    const setCurrentNote = vi.fn();
+    const setCurrentFileNote = vi.fn();
+    const setNotes = vi.fn();
+    const replacementLeft: Note = {
+      ...leftNote,
+      id: 'replacement-left',
+      title: 'Replacement Left',
+      modifiedTime: '2026-01-02T00:00:00.000Z',
+    };
+    const replacementRight: Note = {
+      ...rightNote,
+      id: 'replacement-right',
+      title: 'Replacement Right',
+      modifiedTime: '2026-01-02T00:00:00.000Z',
+    };
+
+    const { result } = renderHook(() =>
+      useSplitEditor({
+        currentNote: leftNote,
+        currentFileNote: null,
+        setCurrentNote,
+        setCurrentFileNote,
+        setNotes,
+      }),
+    );
+
+    act(() => {
+      result.current.toggleSplit(rightNote);
+    });
+
+    (setCurrentNote as Mock).mockClear();
+    (setCurrentFileNote as Mock).mockClear();
+
+    act(() => {
+      result.current.syncPaneNotes(
+        [replacementLeft, replacementRight],
+        [
+          { type: 'note', id: replacementLeft.id },
+          { type: 'note', id: replacementRight.id },
+        ],
+      );
+    });
+
+    expect(result.current.leftNote?.id).toBe(replacementLeft.id);
+    expect(result.current.rightNote?.id).toBe(replacementRight.id);
+    expect(setCurrentNote).toHaveBeenCalledWith(
+      expect.objectContaining({ id: replacementLeft.id }),
+    );
+    expect(setCurrentFileNote).toHaveBeenCalledWith(null);
+  });
 });

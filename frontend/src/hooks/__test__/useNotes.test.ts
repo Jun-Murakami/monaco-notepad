@@ -14,6 +14,7 @@ import {
   DeleteNote,
   DestroyApp,
   GetCollapsedFolderIDs,
+  GetTopLevelOrder,
   ListNotes,
   LoadArchivedNote,
   MoveNoteToFolder,
@@ -422,6 +423,64 @@ describe('useNotes', () => {
       });
 
       expect(ListNotes).toHaveBeenCalled();
+    });
+
+    it('notes:reloadで現在ノートが削除された場合、トップのノートへ自動切り替えされること', async () => {
+      const { result } = renderHook(() => useNotes());
+      const current = { ...mockNote, id: 'current', title: 'Current' };
+      const replacement = { ...mockNote, id: 'replacement', title: 'Replacement' };
+
+      await act(async () => {
+        result.current.setNotes([current, replacement]);
+        await result.current.handleSelectNote(current);
+      });
+
+      const mockCalls = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundReloadCall = mockCalls.find((call) => call[0] === 'notes:reload');
+      if (!foundReloadCall) throw new Error('notes:reload callback not found');
+      const reloadCallback = foundReloadCall[1];
+
+      (ListNotes as unknown as Mock).mockResolvedValue([replacement]);
+      (GetTopLevelOrder as unknown as Mock).mockResolvedValue([
+        { type: 'note', id: replacement.id },
+      ]);
+
+      await act(async () => {
+        await reloadCallback();
+      });
+
+      expect(result.current.currentNote?.id).toBe(replacement.id);
+    });
+
+    it('notes:reloadで現在ノートがアーカイブされた場合、トップのアクティブノートへ自動切り替えされること', async () => {
+      const { result } = renderHook(() => useNotes());
+      const current = { ...mockNote, id: 'current', title: 'Current' };
+      const replacement = { ...mockNote, id: 'replacement', title: 'Replacement' };
+
+      await act(async () => {
+        result.current.setNotes([current, replacement]);
+        await result.current.handleSelectNote(current);
+      });
+
+      const mockCalls = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundReloadCall = mockCalls.find((call) => call[0] === 'notes:reload');
+      if (!foundReloadCall) throw new Error('notes:reload callback not found');
+      const reloadCallback = foundReloadCall[1];
+
+      (ListNotes as unknown as Mock).mockResolvedValue([
+        { ...current, archived: true },
+        replacement,
+      ]);
+      (GetTopLevelOrder as unknown as Mock).mockResolvedValue([
+        { type: 'note', id: current.id },
+        { type: 'note', id: replacement.id },
+      ]);
+
+      await act(async () => {
+        await reloadCallback();
+      });
+
+      expect(result.current.currentNote?.id).toBe(replacement.id);
     });
 
     it('notes:updatedイベントで正しく個別のノートが更新されること', async () => {
