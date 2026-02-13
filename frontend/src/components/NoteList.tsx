@@ -130,6 +130,10 @@ interface NoteListProps {
   secondarySelectedNoteId?: string;
   onOpenInPane?: (note: Note | FileNote, pane: 'left' | 'right') => void;
   canSplit?: boolean;
+  onDropFileNoteToNotes?: (
+    fileNoteId: string,
+    target: FileDropInsertionTarget,
+  ) => Promise<void>;
 }
 
 interface NoteItemProps {
@@ -713,10 +717,27 @@ type DragData =
   | {
       kind: 'note';
       noteId: string;
+      source: 'note' | 'file';
     }
   | {
       kind: 'folder';
       folderId: string;
+    };
+
+export type FileDropInsertionTarget =
+  | {
+      kind: 'flat';
+      destinationIndex: number;
+    }
+  | {
+      kind: 'top-level';
+      topLevelInsertIndex: number;
+    }
+  | {
+      kind: 'folder';
+      folderId: string;
+      positionInFolder: number;
+      destinationIndex: number;
     };
 
 type NativePreviewState = {
@@ -862,7 +883,11 @@ const readDragData = (
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<DragData>;
   if (candidate.kind === 'note' && typeof candidate.noteId === 'string') {
-    return { kind: 'note', noteId: candidate.noteId };
+    return {
+      kind: 'note',
+      noteId: candidate.noteId,
+      source: candidate.source === 'file' ? 'file' : 'note',
+    };
   }
   if (candidate.kind === 'folder' && typeof candidate.folderId === 'string') {
     return { kind: 'folder', folderId: candidate.folderId };
@@ -1001,6 +1026,31 @@ const moveNoteWithinActiveList = (
   return { newActive, insertIndex };
 };
 
+const getInsertIndexForFolder = (
+  activeNotes: Note[],
+  targetFolderId: string,
+  positionInFolder: number,
+): number => {
+  const normalizedFolderId = targetFolderId || '';
+  const targetPositions: number[] = [];
+  activeNotes.forEach((note, index) => {
+    if ((note.folderId ?? '') === normalizedFolderId) {
+      targetPositions.push(index);
+    }
+  });
+
+  if (targetPositions.length === 0) {
+    return activeNotes.length;
+  }
+  if (positionInFolder <= 0) {
+    return targetPositions[0] ?? activeNotes.length;
+  }
+  if (positionInFolder >= targetPositions.length) {
+    return (targetPositions[targetPositions.length - 1] ?? activeNotes.length) + 1;
+  }
+  return targetPositions[positionInFolder] ?? activeNotes.length;
+};
+
 const PragmaticRow: React.FC<{
   isTestEnv: boolean;
   dragData?: DragData;
@@ -1126,6 +1176,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   secondarySelectedNoteId,
   onOpenInPane,
   canSplit,
+  onDropFileNoteToNotes,
 }) => {
   const isTestEnv = import.meta.env.MODE === 'test';
   const listContentRef = useRef<HTMLDivElement>(null);
@@ -1493,6 +1544,127 @@ export const NoteList: React.FC<NoteListProps> = ({
         return;
       }
 
+      if (dragItem.source === 'file') {
+        if (!onDropFileNoteToNotes || isFileMode) return;
+        const folderModeNotes = activeNotes as Note[];
+
+        switch (hover.target.kind) {
+          case 'unfiled-bottom': {
+            await onDropFileNoteToNotes(dragItem.noteId, {
+              kind: 'top-level',
+              topLevelInsertIndex: normalizedTopLevelOrder.length,
+            });
+            return;
+          }
+          case 'top-note': {
+            const targetIndex = hover.target.topLevelIndex ?? -1;
+            if (targetIndex === -1) return;
+            const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+            const insertIndex = edge === 'bottom' ? targetIndex + 1 : targetIndex;
+            await onDropFileNoteToNotes(dragItem.noteId, {
+              kind: 'top-level',
+              topLevelInsertIndex: insertIndex,
+            });
+            return;
+          }
+          case 'folder': {
+            const targetIndex = hover.target.topLevelIndex ?? -1;
+            const targetFolderId = hover.target.folderId ?? '';
+            if (targetIndex === -1 || !targetFolderId) return;
+            const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+            if (edge === 'top') {
+              await onDropFileNoteToNotes(dragItem.noteId, {
+                kind: 'top-level',
+                topLevelInsertIndex: targetIndex,
+              });
+              return;
+            }
+            if (!hover.boundaryIndented) {
+              await onDropFileNoteToNotes(dragItem.noteId, {
+                kind: 'top-level',
+                topLevelInsertIndex: targetIndex + 1,
+              });
+              return;
+            }
+            const targetFolderNotes = folderNotesMap.get(targetFolderId) ?? [];
+            const positionInFolder = targetFolderNotes.length;
+            await onDropFileNoteToNotes(dragItem.noteId, {
+              kind: 'folder',
+              folderId: targetFolderId,
+              positionInFolder,
+              destinationIndex: getInsertIndexForFolder(
+                folderModeNotes,
+                targetFolderId,
+                positionInFolder,
+              ),
+            });
+            return;
+          }
+          case 'folder-tail': {
+            const targetFolderId = hover.target.folderId ?? '';
+            const targetIndex = hover.target.topLevelIndex ?? -1;
+            if (!targetFolderId || targetIndex === -1) return;
+            if (!hover.boundaryIndented) {
+              await onDropFileNoteToNotes(dragItem.noteId, {
+                kind: 'top-level',
+                topLevelInsertIndex: targetIndex + 1,
+              });
+              return;
+            }
+            const targetFolderNotes = folderNotesMap.get(targetFolderId) ?? [];
+            const positionInFolder = targetFolderNotes.length;
+            await onDropFileNoteToNotes(dragItem.noteId, {
+              kind: 'folder',
+              folderId: targetFolderId,
+              positionInFolder,
+              destinationIndex: getInsertIndexForFolder(
+                folderModeNotes,
+                targetFolderId,
+                positionInFolder,
+              ),
+            });
+            return;
+          }
+          case 'folder-note': {
+            const targetFolderId = hover.target.folderId ?? '';
+            const targetTopIndex = hover.target.topLevelIndex ?? -1;
+            if (!targetFolderId || targetTopIndex === -1) return;
+            const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+            if (
+              hover.target.isLastInFolder &&
+              edge === 'bottom' &&
+              !hover.boundaryIndented
+            ) {
+              await onDropFileNoteToNotes(dragItem.noteId, {
+                kind: 'top-level',
+                topLevelInsertIndex: targetTopIndex + 1,
+              });
+              return;
+            }
+
+            const targetFolderNotes = folderNotesMap.get(targetFolderId) ?? [];
+            const overIndex = targetFolderNotes.findIndex(
+              (value) => value.id === hover.target.noteId,
+            );
+            if (overIndex === -1) return;
+            const positionInFolder = edge === 'bottom' ? overIndex + 1 : overIndex;
+            await onDropFileNoteToNotes(dragItem.noteId, {
+              kind: 'folder',
+              folderId: targetFolderId,
+              positionInFolder,
+              destinationIndex: getInsertIndexForFolder(
+                folderModeNotes,
+                targetFolderId,
+                positionInFolder,
+              ),
+            });
+            return;
+          }
+          default:
+            return;
+        }
+      }
+
       const note = (activeNotes as Note[]).find(
         (value) => value.id === dragItem.noteId,
       );
@@ -1617,9 +1789,11 @@ export const NoteList: React.FC<NoteListProps> = ({
     [
       activeNotes,
       folderNotesMap,
+      isFileMode,
       moveNoteIntoFolder,
       moveNoteToTopLevel,
       normalizedTopLevelOrder,
+      onDropFileNoteToNotes,
       onUpdateTopLevelOrder,
     ],
   );
@@ -1629,6 +1803,24 @@ export const NoteList: React.FC<NoteListProps> = ({
       if (dragItem.kind !== 'note') return;
       if (hover.target.kind !== 'flat-note' && hover.target.kind !== 'flat-tail')
         return;
+
+      if (dragItem.source === 'file' && !isFileMode) {
+        if (!onDropFileNoteToNotes) return;
+        let destinationIndex = activeNotes.length;
+        if (hover.target.kind === 'flat-note') {
+          const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+          const targetIndex = activeNotes.findIndex(
+            (note) => note.id === hover.target.noteId,
+          );
+          if (targetIndex === -1) return;
+          destinationIndex = edge === 'bottom' ? targetIndex + 1 : targetIndex;
+        }
+        await onDropFileNoteToNotes(dragItem.noteId, {
+          kind: 'flat',
+          destinationIndex,
+        });
+        return;
+      }
 
       const sourceIndex = activeNotes.findIndex(
         (note) => note.id === dragItem.noteId,
@@ -1676,7 +1868,7 @@ export const NoteList: React.FC<NoteListProps> = ({
         console.error('Failed to update note order:', error);
       }
     },
-    [activeNotes, archivedNotes, isFileMode, onReorder],
+    [activeNotes, archivedNotes, isFileMode, onDropFileNoteToNotes, onReorder],
   );
 
   useEffect(() => {
@@ -1812,6 +2004,7 @@ export const NoteList: React.FC<NoteListProps> = ({
             const dragData: DragData | undefined = {
               kind: 'note',
               noteId: row.note.id,
+              source: isFileMode ? 'file' : 'note',
             };
             return (
               <PragmaticRow
@@ -1863,6 +2056,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               : {
                   kind: 'note',
                   noteId: row.note.id,
+                  source: 'note',
                 };
             return (
               <PragmaticRow
@@ -1948,6 +2142,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               : {
                   kind: 'note',
                   noteId: row.note.id,
+                  source: 'note',
                 };
             return (
               <PragmaticRow

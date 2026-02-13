@@ -21,6 +21,8 @@ import type { editor } from 'monaco-editor';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
+import { SaveNote, UpdateNoteOrder } from '../wailsjs/go/backend/App';
+import { backend } from '../wailsjs/go/models';
 import { WindowToggleMaximise } from '../wailsjs/runtime';
 import { AppBar } from './components/AppBar';
 import { ArchivedNoteList } from './components/ArchivedNoteList';
@@ -28,7 +30,11 @@ import { Editor } from './components/Editor';
 import { EditorStatusBar } from './components/EditorStatusBar';
 import { MarkdownPreview } from './components/MarkdownPreview';
 import { MessageDialog } from './components/MessageDialog';
-import { NoteList } from './components/NoteList';
+import {
+  insertTopLevelNote,
+  type FileDropInsertionTarget,
+  NoteList,
+} from './components/NoteList';
 import { NoteSearchBox } from './components/NoteSearchBox';
 import { SettingsDialog } from './components/SettingsDialog';
 import { useEditorSettings } from './hooks/useEditorSettings';
@@ -69,6 +75,8 @@ const languageMenuProps: SelectProps['MenuProps'] = {
 };
 
 const isFileNote = (note: Note | FileNote | null): note is FileNote => note !== null && 'filePath' in note;
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
 
 const PaneHeader: React.FC<{
   note: Note | FileNote | null;
@@ -551,6 +559,74 @@ function App() {
     [handleCloseFile, replacePaneAfterClose, isSplit, findFirstOtherNote, setCurrentNote, setCurrentFileNote],
   );
 
+  const handleDropFileNoteToNotes = useCallback(
+    async (fileNoteId: string, target: FileDropInsertionTarget) => {
+      const fileNote = fileNotes.find((value) => value.id === fileNoteId);
+      if (!fileNote) return;
+
+      const newNote: Note = {
+        id: crypto.randomUUID(),
+        title: fileNote.fileName.replace(/\.[^/.]+$/, ''),
+        content: fileNote.content,
+        contentHeader: null,
+        language: fileNote.language,
+        modifiedTime: new Date().toISOString(),
+        archived: false,
+        ...(target.kind === 'folder' ? { folderId: target.folderId } : {}),
+      };
+
+      const remainingFileNotes = fileNotes.filter((value) => value.id !== fileNoteId);
+      const activeNotes = notes.filter((note) => !note.archived);
+      const archivedNotes = notes.filter((note) => note.archived);
+
+      let insertedActiveNotes = [...activeNotes];
+      let destinationIndex = activeNotes.length;
+      if (target.kind === 'flat' || target.kind === 'folder') {
+        destinationIndex = clamp(target.destinationIndex, 0, activeNotes.length);
+        insertedActiveNotes = [
+          ...activeNotes.slice(0, destinationIndex),
+          newNote,
+          ...activeNotes.slice(destinationIndex),
+        ];
+      } else {
+        insertedActiveNotes = [...activeNotes, newNote];
+      }
+
+      setFileNotes(remainingFileNotes);
+      setNotes([...insertedActiveNotes, ...archivedNotes]);
+
+      await handleSaveFileNotes(remainingFileNotes);
+      await SaveNote(backend.Note.createFrom(newNote), 'create');
+
+      if (target.kind === 'top-level') {
+        const nextOrder = insertTopLevelNote(
+          topLevelOrder,
+          newNote.id,
+          target.topLevelInsertIndex,
+        );
+        await handleUpdateTopLevelOrder(nextOrder);
+      } else {
+        try {
+          await UpdateNoteOrder(newNote.id, destinationIndex);
+        } catch (error) {
+          console.error('Failed to update converted note order:', error);
+        }
+      }
+
+      await handleSelecAnyNote(newNote);
+    },
+    [
+      fileNotes,
+      handleSaveFileNotes,
+      handleSelecAnyNote,
+      handleUpdateTopLevelOrder,
+      notes,
+      setFileNotes,
+      setNotes,
+      topLevelOrder,
+    ],
+  );
+
   archiveNoteRef.current = handleArchiveNoteWithSplit;
   closeFileRef.current = handleCloseFileWithSplit;
 
@@ -835,6 +911,7 @@ function App() {
                   secondarySelectedNoteId={secondarySelectedNoteId}
                   onOpenInPane={handleOpenNoteInPane}
                   canSplit={canSplit}
+                  onDropFileNoteToNotes={handleDropFileNoteToNotes}
                 />
               </SimpleBar>
             </Box>
