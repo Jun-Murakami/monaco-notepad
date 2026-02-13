@@ -175,18 +175,25 @@ const removeTopLevelNote = (
 ): TopLevelItem[] =>
   order.filter((item) => !(item.type === 'note' && item.id === noteId));
 
-const insertTopLevelNote = (
+export const insertTopLevelNote = (
   order: TopLevelItem[],
   noteId: string,
   index: number,
 ): TopLevelItem[] => {
+  const currentIndex = order.findIndex(
+    (item) => item.type === 'note' && item.id === noteId,
+  );
   const without = removeTopLevelNote(order, noteId);
-  const insertAt = clamp(index, 0, without.length);
+  let insertAt = index;
+  if (currentIndex !== -1 && currentIndex < insertAt) {
+    insertAt -= 1;
+  }
+  insertAt = clamp(insertAt, 0, without.length);
   without.splice(insertAt, 0, { type: 'note', id: noteId });
   return without;
 };
 
-const moveTopLevelItem = (
+export const moveTopLevelItem = (
   order: TopLevelItem[],
   itemType: 'note' | 'folder',
   itemId: string,
@@ -198,7 +205,11 @@ const moveTopLevelItem = (
   if (currentIndex === -1) return order;
   const moving = order[currentIndex];
   const without = order.filter((_, index) => index !== currentIndex);
-  const safeIndex = clamp(insertIndex, 0, without.length);
+  let safeIndex = insertIndex;
+  if (currentIndex < safeIndex) {
+    safeIndex -= 1;
+  }
+  safeIndex = clamp(safeIndex, 0, without.length);
   without.splice(safeIndex, 0, moving);
   return without;
 };

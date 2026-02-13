@@ -66,6 +66,8 @@ export function NotifyFrontendReady():Promise<void>;
 
 export function OpenAppFolder():Promise<void>;
 
+export function OpenConflictBackupFolder():Promise<void>;
+
 export function OpenFile(arg1:string):Promise<string>;
 
 export function OpenFileFromExternal(arg1:string):Promise<void>;

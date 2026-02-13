@@ -21,6 +21,7 @@ describe('SettingsDialog', () => {
     wordWrap: 'off',
     minimap: true,
     isDebug: false,
+    enableConflictBackup: true,
     markdownPreviewOnLeft: false,
     windowWidth: 800,
     windowHeight: 600,
@@ -60,6 +61,9 @@ describe('SettingsDialog', () => {
     expect(
       screen.getByRole('switch', { name: /Debug Mode/i }),
     ).not.toBeChecked();
+    expect(
+      screen.getByRole('switch', { name: /Conflict Backup/i }),
+    ).toBeChecked();
   });
 
   it('フォントファミリーの変更が正しく動作すること', () => {
@@ -113,6 +117,19 @@ describe('SettingsDialog', () => {
     expect(defaultProps.onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         wordWrap: 'on',
+      }),
+    );
+  });
+
+  it('競合バックアップ設定の切り替えが正しく動作すること', () => {
+    render(<SettingsDialog {...defaultProps} />);
+
+    const switch_ = screen.getByRole('switch', { name: /Conflict Backup/i });
+    fireEvent.click(switch_);
+
+    expect(defaultProps.onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enableConflictBackup: false,
       }),
     );
   });

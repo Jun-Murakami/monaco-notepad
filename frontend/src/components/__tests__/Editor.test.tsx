@@ -148,6 +148,7 @@ describe('Editor', () => {
     windowY: 0,
     isMaximized: false,
     isDebug: false,
+    enableConflictBackup: true,
     markdownPreviewOnLeft: false,
   };
 

@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import type { Folder, Note, TopLevelItem } from '../../types';
-import { ArchivedNoteList } from '../ArchivedNoteList';
+import {
+  ArchivedNoteList,
+  insertTopLevelNote,
+  moveTopLevelItem,
+} from '../ArchivedNoteList';
 
 describe('ArchivedNoteList', () => {
   const mockNotes: Note[] = [
@@ -55,6 +59,52 @@ describe('ArchivedNoteList', () => {
     isDarkMode: false,
   };
 
+  describe('topLevelOrder の並び替え', () => {
+    it('上からフォルダ直前へノートを移動してもフォルダ下に落ちないこと', () => {
+      const order: TopLevelItem[] = [
+        { type: 'note', id: 'n1' },
+        { type: 'note', id: 'n2' },
+        { type: 'folder', id: 'f1' },
+      ];
+
+      const next = insertTopLevelNote(order, 'n1', 2);
+
+      expect(next).toEqual([
+        { type: 'note', id: 'n2' },
+        { type: 'note', id: 'n1' },
+        { type: 'folder', id: 'f1' },
+      ]);
+    });
+
+    it('上からフォルダ直前へフォルダを移動してもフォルダ下に落ちないこと', () => {
+      const order: TopLevelItem[] = [
+        { type: 'folder', id: 'f1' },
+        { type: 'folder', id: 'f2' },
+        { type: 'note', id: 'n1' },
+      ];
+
+      const next = moveTopLevelItem(order, 'folder', 'f1', 1);
+
+      expect(next).toEqual(order);
+    });
+
+    it('先頭ノートを最下部へ移動できること', () => {
+      const order: TopLevelItem[] = [
+        { type: 'note', id: 'n1' },
+        { type: 'note', id: 'n2' },
+        { type: 'note', id: 'n3' },
+      ];
+
+      const next = insertTopLevelNote(order, 'n1', order.length);
+
+      expect(next).toEqual([
+        { type: 'note', id: 'n2' },
+        { type: 'note', id: 'n3' },
+        { type: 'note', id: 'n1' },
+      ]);
+    });
+  });
+
   it('アーカイブされたノートがない場合、メッセージが表示されること', () => {
     render(
       <ArchivedNoteList
@@ -72,6 +122,14 @@ describe('ArchivedNoteList', () => {
     expect(screen.getByText('Archived Note 1')).toBeInTheDocument();
     expect(screen.getByText('First line Second line')).toBeInTheDocument();
     expect(screen.getByText('Empty Note')).toBeInTheDocument();
+  });
+
+  it('アーカイブリストの末尾ドロップ領域が描画されること', () => {
+    render(<ArchivedNoteList {...defaultProps} />);
+    const list = screen.getByRole('list');
+    expect(
+      list.querySelector('[data-archived-note-list-row-id="unfiled-bottom"]'),
+    ).toBeInTheDocument();
   });
 
   it('タイトルの表示ロジックが正しく動作すること', () => {

@@ -19,7 +19,9 @@ import {
   MoveNoteToFolder,
   RenameFolder,
   SaveNote,
+  UpdateArchivedTopLevelOrder,
   UpdateCollapsedFolderIDs,
+  UpdateTopLevelOrder,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
 import type { Note } from '../../types';
@@ -276,6 +278,8 @@ describe('useNotes', () => {
       // ノートリストの状態を設定
       await act(async () => {
         result.current.setNotes([mockNote]);
+        result.current.setTopLevelOrder([{ type: 'note', id: mockNote.id }]);
+        result.current.setArchivedTopLevelOrder([]);
       });
 
       await act(async () => {
@@ -290,6 +294,10 @@ describe('useNotes', () => {
         }),
         'update',
       );
+      expect(UpdateTopLevelOrder).toHaveBeenCalledWith([]);
+      expect(UpdateArchivedTopLevelOrder).toHaveBeenCalledWith([
+        { type: 'note', id: mockNote.id },
+      ]);
     });
 
     it('アーカイブされたノートの復元が正しく機能すること', async () => {
@@ -306,6 +314,11 @@ describe('useNotes', () => {
       // ノートリストの状態を設定
       await act(async () => {
         result.current.setNotes([mockArchivedNote]);
+        result.current.setTopLevelOrder([{ type: 'note', id: 'active-note' }]);
+        result.current.setArchivedTopLevelOrder([
+          { type: 'note', id: mockArchivedNote.id },
+          { type: 'note', id: 'other-archived' },
+        ]);
       });
 
       await act(async () => {
@@ -321,6 +334,13 @@ describe('useNotes', () => {
         }),
         'update',
       );
+      expect(UpdateTopLevelOrder).toHaveBeenCalledWith([
+        { type: 'note', id: mockArchivedNote.id },
+        { type: 'note', id: 'active-note' },
+      ]);
+      expect(UpdateArchivedTopLevelOrder).toHaveBeenCalledWith([
+        { type: 'note', id: 'other-archived' },
+      ]);
     });
 
     it('アーカイブ時にコンテンツヘッダーが正しく生成されること', async () => {

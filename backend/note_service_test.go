@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // テストヘルパー構造体
@@ -397,6 +398,37 @@ func TestArchivedNoteClearsFolderIDOnSave(t *testing.T) {
 			assert.True(t, m.Archived)
 			assert.Empty(t, m.FolderID, "ノート単体のアーカイブ時はFolderIDが解除されるべき")
 		}
+	}
+}
+
+func TestSaveNote_ArchiveAndUnarchiveUpdatesOrders(t *testing.T) {
+	helper := setupNoteTest(t)
+	defer helper.cleanup()
+
+	note1 := &Note{ID: "note-1", Title: "First", Content: "content-1"}
+	note2 := &Note{ID: "note-2", Title: "Second", Content: "content-2"}
+	assert.NoError(t, helper.noteService.SaveNote(note1))
+	assert.NoError(t, helper.noteService.SaveNote(note2))
+
+	note1.Archived = true
+	assert.NoError(t, helper.noteService.SaveNote(note1))
+
+	for _, item := range helper.noteService.noteList.TopLevelOrder {
+		assert.False(t, item.Type == "note" && item.ID == note1.ID, "アーカイブ済みノートはTopLevelOrderに残らない")
+	}
+	require.NotEmpty(t, helper.noteService.noteList.ArchivedTopLevelOrder)
+	assert.Equal(t, "note", helper.noteService.noteList.ArchivedTopLevelOrder[0].Type)
+	assert.Equal(t, note1.ID, helper.noteService.noteList.ArchivedTopLevelOrder[0].ID)
+
+	note1.Archived = false
+	assert.NoError(t, helper.noteService.SaveNote(note1))
+
+	require.NotEmpty(t, helper.noteService.noteList.TopLevelOrder)
+	assert.Equal(t, "note", helper.noteService.noteList.TopLevelOrder[0].Type)
+	assert.Equal(t, note1.ID, helper.noteService.noteList.TopLevelOrder[0].ID)
+
+	for _, item := range helper.noteService.noteList.ArchivedTopLevelOrder {
+		assert.False(t, item.Type == "note" && item.ID == note1.ID, "復元済みノートはArchivedTopLevelOrderに残らない")
 	}
 }
 

@@ -35,18 +35,19 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 	// ファイルが存在しない場合はデフォルト設定を返す
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		return &Settings{
-			FontFamily:   "Consolas, Monaco, \"Courier New\", monospace",
-			FontSize:     14,
-			IsDarkMode:   false,
-			EditorTheme:  "default",
-			WordWrap:     "off",
-			Minimap:      true,
-			WindowWidth:  800,
-			WindowHeight: 600,
-			WindowX:      0,
-			WindowY:      0,
-			IsMaximized:  false,
-			IsDebug:      false,
+			FontFamily:           "Consolas, Monaco, \"Courier New\", monospace",
+			FontSize:             14,
+			IsDarkMode:           false,
+			EditorTheme:          "default",
+			WordWrap:             "off",
+			Minimap:              true,
+			WindowWidth:          800,
+			WindowHeight:         600,
+			WindowX:              0,
+			WindowY:              0,
+			IsMaximized:          false,
+			IsDebug:              false,
+			EnableConflictBackup: true,
 		}, nil
 	}
 
@@ -58,6 +59,14 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 	var settings Settings
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return nil, err
+	}
+
+	// 古いsettings.jsonでenableConflictBackupが未定義の場合は既定値(true)を適用する
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		settings.EnableConflictBackup = true
+	} else if _, exists := raw["enableConflictBackup"]; !exists {
+		settings.EnableConflictBackup = true
 	}
 
 	// デバッグモードを設定

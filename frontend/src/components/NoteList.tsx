@@ -727,6 +727,7 @@ type NativePreviewState = {
 
 type DropRowKind =
   | 'flat-note'
+  | 'flat-tail'
   | 'top-note'
   | 'folder'
   | 'folder-note'
@@ -761,6 +762,10 @@ type DisplayRow =
       kind: 'flat-note';
       rowId: string;
       note: Note | FileNote;
+    }
+  | {
+      kind: 'flat-tail';
+      rowId: 'flat-tail';
     }
   | {
       kind: 'top-note';
@@ -811,18 +816,25 @@ const removeTopLevelNote = (
 ): TopLevelItem[] =>
   order.filter((item) => !(item.type === 'note' && item.id === noteId));
 
-const insertTopLevelNote = (
+export const insertTopLevelNote = (
   order: TopLevelItem[],
   noteId: string,
   index: number,
 ): TopLevelItem[] => {
+  const currentIndex = order.findIndex(
+    (item) => item.type === 'note' && item.id === noteId,
+  );
   const without = removeTopLevelNote(order, noteId);
-  const insertAt = clamp(index, 0, without.length);
+  let insertAt = index;
+  if (currentIndex !== -1 && currentIndex < insertAt) {
+    insertAt -= 1;
+  }
+  insertAt = clamp(insertAt, 0, without.length);
   without.splice(insertAt, 0, { type: 'note', id: noteId });
   return without;
 };
 
-const moveTopLevelItem = (
+export const moveTopLevelItem = (
   order: TopLevelItem[],
   itemType: 'note' | 'folder',
   itemId: string,
@@ -834,7 +846,11 @@ const moveTopLevelItem = (
   if (currentIndex === -1) return order;
   const moving = order[currentIndex];
   const without = order.filter((_, index) => index !== currentIndex);
-  const safeIndex = clamp(insertIndex, 0, without.length);
+  let safeIndex = insertIndex;
+  if (currentIndex < safeIndex) {
+    safeIndex -= 1;
+  }
+  safeIndex = clamp(safeIndex, 0, without.length);
   without.splice(safeIndex, 0, moving);
   return without;
 };
@@ -876,6 +892,7 @@ const canDropOnTarget = (dragData: DragData, dropData: DropData): boolean => {
 
   if (
     dropData.kind === 'flat-note' ||
+    dropData.kind === 'flat-tail' ||
     dropData.kind === 'top-note' ||
     dropData.kind === 'folder-note'
   ) {
@@ -1028,7 +1045,9 @@ const PragmaticRow: React.FC<{
           }
 
           const allowedEdges: Edge[] =
-            dropData.kind === 'folder-tail' ? ['top'] : ['top', 'bottom'];
+            dropData.kind === 'folder-tail' || dropData.kind === 'flat-tail'
+              ? ['top']
+              : ['top', 'bottom'];
           return attachClosestEdge(baseData, {
             input,
             element: targetElement,
@@ -1202,11 +1221,14 @@ export const NoteList: React.FC<NoteListProps> = ({
 
   const rows = useMemo<DisplayRow[]>(() => {
     if (!isFolderMode) {
-      return activeNotes.map((note) => ({
+      const flatRows: DisplayRow[] = activeNotes.map((note) => ({
         kind: 'flat-note',
         rowId: `flat-note:${note.id}`,
         note,
       }));
+      if (flatRows.length === 0) return flatRows;
+      flatRows.push({ kind: 'flat-tail', rowId: 'flat-tail' });
+      return flatRows;
     }
 
     const result: DisplayRow[] = [];
@@ -1346,7 +1368,9 @@ export const NoteList: React.FC<NoteListProps> = ({
 
       const rawEdge = extractClosestEdge(matched.data);
       const edge: Edge | null =
-        dropData.kind === 'unfiled-bottom' ? 'top' : rawEdge;
+        dropData.kind === 'unfiled-bottom' || dropData.kind === 'flat-tail'
+          ? 'top'
+          : rawEdge;
       const boundaryIndented = computeBoundaryIndented(
         dropData,
         edge,
@@ -1602,23 +1626,30 @@ export const NoteList: React.FC<NoteListProps> = ({
   const handleFlatModeDrop = useCallback(
     async (dragItem: DragData, hover: HoverState) => {
       if (dragItem.kind !== 'note') return;
-      if (hover.target.kind !== 'flat-note') return;
-      const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+      if (hover.target.kind !== 'flat-note' && hover.target.kind !== 'flat-tail')
+        return;
 
       const sourceIndex = activeNotes.findIndex(
         (note) => note.id === dragItem.noteId,
       );
-      const targetIndex = activeNotes.findIndex(
-        (note) => note.id === hover.target.noteId,
-      );
-      if (sourceIndex === -1 || targetIndex === -1) return;
+      if (sourceIndex === -1) return;
 
-      const destinationIndex = getReorderDestinationIndex({
-        startIndex: sourceIndex,
-        indexOfTarget: targetIndex,
-        closestEdgeOfTarget: edge,
-        axis: 'vertical',
-      });
+      let destinationIndex = sourceIndex;
+      if (hover.target.kind === 'flat-tail') {
+        destinationIndex = activeNotes.length - 1;
+      } else {
+        const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
+        const targetIndex = activeNotes.findIndex(
+          (note) => note.id === hover.target.noteId,
+        );
+        if (targetIndex === -1) return;
+        destinationIndex = getReorderDestinationIndex({
+          startIndex: sourceIndex,
+          indexOfTarget: targetIndex,
+          closestEdgeOfTarget: edge,
+          axis: 'vertical',
+        });
+      }
       if (destinationIndex === sourceIndex) return;
 
       if (isFileMode) {
@@ -1787,6 +1818,19 @@ export const NoteList: React.FC<NoteListProps> = ({
                 sx={{ mx: 1 }}
               >
                 {renderNoteItem(row.note, !!activeDrag)}
+              </PragmaticRow>
+            );
+          }
+
+          if (row.kind === 'flat-tail') {
+            return (
+              <PragmaticRow
+                key={row.rowId}
+                isTestEnv={isTestEnv}
+                dropData={{ kind: 'flat-tail', rowId: row.rowId }}
+                sx={{ mx: 1, minHeight: 14 }}
+              >
+                <Box sx={{ minHeight: 14 }} />
               </PragmaticRow>
             );
           }

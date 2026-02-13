@@ -18,6 +18,7 @@ export const useEditorSettings = () => {
     windowY: 0,
     isMaximized: false,
     isDebug: false,
+    enableConflictBackup: true,
     markdownPreviewOnLeft: false,
   });
   const [isInitialized, setIsInitialized] = useState(false);
@@ -40,6 +41,7 @@ export const useEditorSettings = () => {
           windowY: settings.windowY,
           isMaximized: settings.isMaximized,
           isDebug: settings.isDebug,
+          enableConflictBackup: settings.enableConflictBackup ?? true,
           markdownPreviewOnLeft: settings.markdownPreviewOnLeft ?? false,
         };
 
