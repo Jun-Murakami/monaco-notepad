@@ -57,11 +57,15 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   const isClosing = useRef(false);
   const currentNoteRef = useRef<Note | null>(null);
   const notesRef = useRef<Note[]>([]);
+  const topLevelOrderRef = useRef<TopLevelItem[]>([]);
+  const archivedTopLevelOrderRef = useRef<TopLevelItem[]>([]);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ref同期（レンダー時に直接代入）
   currentNoteRef.current = currentNote;
   notesRef.current = notes;
+  topLevelOrderRef.current = topLevelOrder;
+  archivedTopLevelOrderRef.current = archivedTopLevelOrder;
 
   // 現在のノートを保存する（refベースで依存なし） ------------------------------------------------------------
   const saveCurrentNote = useCallback(async () => {
@@ -272,19 +276,25 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       };
 
       setNotes((prev) => prev.map((n) => (n.id === noteId ? archivedNote : n)));
-      setTopLevelOrder((prev) =>
-        prev.filter((item) => !(item.type === 'note' && item.id === noteId)),
+      const newTopLevelOrder = topLevelOrderRef.current.filter(
+        (item) => !(item.type === 'note' && item.id === noteId),
       );
+      setTopLevelOrder(newTopLevelOrder);
       await SaveNote(backend.Note.createFrom(archivedNote), 'update');
+      await UpdateTopLevelOrder(
+        newTopLevelOrder.map((item) => backend.TopLevelItem.createFrom(item)),
+      );
 
       const newArchivedOrder = [
         { type: 'note' as const, id: noteId },
-        ...archivedTopLevelOrder.filter(
+        ...archivedTopLevelOrderRef.current.filter(
           (item) => !(item.type === 'note' && item.id === noteId),
         ),
       ];
       setArchivedTopLevelOrder(newArchivedOrder);
-      await UpdateArchivedTopLevelOrder(newArchivedOrder);
+      await UpdateArchivedTopLevelOrder(
+        newArchivedOrder.map((item) => backend.TopLevelItem.createFrom(item)),
+      );
 
       if (currentNoteRef.current?.id === noteId) {
         const currentNotes = notesRef.current;
@@ -294,7 +304,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
             .map((n) => [n.id, n]),
         );
         let nextNote: Note | undefined;
-        for (const item of topLevelOrder) {
+        for (const item of topLevelOrderRef.current) {
           if (item.type === 'note' && activeNoteMap.has(item.id)) {
             nextNote = activeNoteMap.get(item.id);
             break;
@@ -316,7 +326,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         }
       }
     },
-    [handleNewNote, topLevelOrder, archivedTopLevelOrder],
+    [handleNewNote],
   );
 
   // ノートを選択する ------------------------------------------------------------
@@ -346,17 +356,27 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note)),
       );
-      setTopLevelOrder((prev) => [{ type: 'note', id: noteId }, ...prev]);
+      const newTopLevelOrder = [
+        { type: 'note' as const, id: noteId },
+        ...topLevelOrderRef.current.filter(
+          (item) => !(item.type === 'note' && item.id === noteId),
+        ),
+      ];
+      const newArchivedOrder = archivedTopLevelOrderRef.current.filter(
+        (item) => !(item.type === 'note' && item.id === noteId),
+      );
+      setTopLevelOrder(newTopLevelOrder);
+      setArchivedTopLevelOrder(newArchivedOrder);
       // リストア後はノートを開かずアーカイブページのままにする（setCurrentNote / setShowArchived は呼ばない）
       await SaveNote(backend.Note.createFrom(unarchivedNote), 'update');
-
-      const rawArchivedOrder = await GetArchivedTopLevelOrder();
-      setArchivedTopLevelOrder(
-        (rawArchivedOrder ?? []).map((item) => ({
-          type: item.type as 'note' | 'folder',
-          id: item.id,
-        })),
-      );
+      await Promise.all([
+        UpdateTopLevelOrder(
+          newTopLevelOrder.map((item) => backend.TopLevelItem.createFrom(item)),
+        ),
+        UpdateArchivedTopLevelOrder(
+          newArchivedOrder.map((item) => backend.TopLevelItem.createFrom(item)),
+        ),
+      ]);
     }
   }, []);
 

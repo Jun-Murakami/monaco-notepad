@@ -96,6 +96,7 @@ export type Settings = {
   windowY: number;
   isMaximized: boolean;
   isDebug: boolean;
+  enableConflictBackup: boolean;
   markdownPreviewOnLeft: boolean;
 };
 
@@ -115,5 +116,6 @@ export const DEFAULT_EDITOR_SETTINGS: Partial<Settings> = {
   wordWrap: 'off',
   minimap: true,
   isDebug: false,
+  enableConflictBackup: true,
   markdownPreviewOnLeft: false,
 };

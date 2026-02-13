@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import type { Folder, Note, TopLevelItem } from '../../types';
-import { ArchivedNoteList } from '../ArchivedNoteList';
+import {
+  ArchivedNoteList,
+  insertTopLevelNote,
+  moveTopLevelItem,
+} from '../ArchivedNoteList';
 
 describe('ArchivedNoteList', () => {
   const mockNotes: Note[] = [
@@ -54,6 +58,36 @@ describe('ArchivedNoteList', () => {
     onUpdateArchivedTopLevelOrder: vi.fn(),
     isDarkMode: false,
   };
+
+  describe('topLevelOrder の並び替え', () => {
+    it('上からフォルダ直前へノートを移動してもフォルダ下に落ちないこと', () => {
+      const order: TopLevelItem[] = [
+        { type: 'note', id: 'n1' },
+        { type: 'note', id: 'n2' },
+        { type: 'folder', id: 'f1' },
+      ];
+
+      const next = insertTopLevelNote(order, 'n1', 2);
+
+      expect(next).toEqual([
+        { type: 'note', id: 'n2' },
+        { type: 'note', id: 'n1' },
+        { type: 'folder', id: 'f1' },
+      ]);
+    });
+
+    it('上からフォルダ直前へフォルダを移動してもフォルダ下に落ちないこと', () => {
+      const order: TopLevelItem[] = [
+        { type: 'folder', id: 'f1' },
+        { type: 'folder', id: 'f2' },
+        { type: 'note', id: 'n1' },
+      ];
+
+      const next = moveTopLevelItem(order, 'folder', 'f1', 1);
+
+      expect(next).toEqual(order);
+    });
+  });
 
   it('アーカイブされたノートがない場合、メッセージが表示されること', () => {
     render(

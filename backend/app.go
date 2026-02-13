@@ -721,6 +721,15 @@ func (a *App) OpenAppFolder() error {
 	return a.fileService.OpenFolder(a.appDataDir)
 }
 
+// OpenConflictBackupFolder は競合バックアップフォルダをOSのファイルマネージャーで開きます
+func (a *App) OpenConflictBackupFolder() error {
+	backupDir := filepath.Join(a.appDataDir, cloudWinBackupDirName)
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return err
+	}
+	return a.fileService.OpenFolder(backupDir)
+}
+
 // CheckFileExists は指定されたパスのファイルが存在するかチェックします
 func (a *App) CheckFileExists(path string) bool {
 	return a.fileService.CheckFileExists(path)

@@ -125,6 +125,7 @@ export namespace backend {
 	    windowY: number;
 	    isMaximized: boolean;
 	    isDebug: boolean;
+	    enableConflictBackup: boolean;
 	    markdownPreviewOnLeft: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -145,6 +146,7 @@ export namespace backend {
 	        this.windowY = source["windowY"];
 	        this.isMaximized = source["isMaximized"];
 	        this.isDebug = source["isDebug"];
+	        this.enableConflictBackup = source["enableConflictBackup"];
 	        this.markdownPreviewOnLeft = source["markdownPreviewOnLeft"];
 	    }
 	}
