@@ -108,6 +108,7 @@ interface NoteListProps {
   notes: Note[] | FileNote[];
   currentNote: Note | FileNote | null;
   onNoteSelect: (note: Note | FileNote) => Promise<void>;
+  allowReselect?: boolean;
   onArchive?: (noteId: string) => Promise<void>;
   onConvertToNote?: (fileNote: FileNote) => Promise<void>;
   onSaveFile?: (fileNote: FileNote) => Promise<void>;
@@ -140,6 +141,7 @@ interface NoteItemProps {
   note: Note | FileNote;
   currentNote: Note | FileNote | null;
   onNoteSelect: (note: Note | FileNote) => Promise<void>;
+  allowReselect?: boolean;
   onArchive?: (noteId: string) => Promise<void>;
   onConvertToNote?: (fileNote: FileNote) => Promise<void>;
   onSaveFile?: (fileNote: FileNote) => Promise<void>;
@@ -162,6 +164,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     note,
     currentNote,
     onNoteSelect,
+    allowReselect,
     onArchive,
     onConvertToNote,
     onSaveFile,
@@ -219,7 +222,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
             selected={!isSyncing && currentNote?.id === note.id}
             disabled={isSyncing}
             onClick={async () => {
-              if (!isSyncing && currentNote?.id !== note.id) {
+              if (!isSyncing && (allowReselect || currentNote?.id !== note.id)) {
                 await onNoteSelect(note);
               }
             }}
@@ -1154,6 +1157,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   notes,
   currentNote,
   onNoteSelect,
+  allowReselect,
   onArchive,
   onConvertToNote,
   onSaveFile,
@@ -1357,6 +1361,7 @@ export const NoteList: React.FC<NoteListProps> = ({
         note={note}
         currentNote={currentNote}
         onNoteSelect={onNoteSelect}
+        allowReselect={allowReselect}
         onArchive={onArchive}
         onConvertToNote={onConvertToNote}
         onSaveFile={onSaveFile}
@@ -1376,6 +1381,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       currentNote,
       isFileMode,
       isFileModified,
+      allowReselect,
       onArchive,
       onCloseFile,
       onConvertToNote,

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import '@testing-library/jest-dom';
@@ -444,6 +445,136 @@ describe('App', () => {
             call[1] === 'update',
         );
         expect(unarchiveCall).toBeTruthy();
+      });
+    });
+
+    it('アーカイブページ表示中にサイドバーのノートを選択するとエディター表示に戻ること', async () => {
+      const activeNote: Note = {
+        ...mockNote,
+        id: 'active-note-1',
+        title: 'Active Note 1',
+        archived: false,
+      };
+      const anotherActiveNote: Note = {
+        ...mockNote,
+        id: 'active-note-2',
+        title: 'Active Note 2',
+        archived: false,
+      };
+      const archivedNote: Note = {
+        ...mockNote,
+        id: 'archived-note',
+        title: 'Archived Note',
+        archived: true,
+      };
+      (ListNotes as Mock).mockResolvedValue([
+        activeNote,
+        anotherActiveNote,
+        archivedNote,
+      ]);
+      (GetArchivedTopLevelOrder as Mock).mockResolvedValue([
+        { type: 'note', id: archivedNote.id },
+      ]);
+
+      render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Active Note 1')).toBeInTheDocument();
+        expect(screen.getByText('Active Note 2')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText(/Archives/));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+      });
+
+      const sidebar = screen.getByLabelText('Note List');
+      fireEvent.click(within(sidebar).getByText('Active Note 2'));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: 'Restore' }),
+        ).not.toBeInTheDocument();
+        expect(screen.getByDisplayValue('Active Note 2')).toBeInTheDocument();
+      });
+    });
+
+    it('アーカイブページ表示中にArchivesボタンを押すとエディター表示に戻ること', async () => {
+      const activeNote: Note = {
+        ...mockNote,
+        id: 'active-note',
+        title: 'Active Note',
+        archived: false,
+      };
+      const archivedNote: Note = {
+        ...mockNote,
+        id: 'archived-note',
+        title: 'Archived Note',
+        archived: true,
+      };
+      (ListNotes as Mock).mockResolvedValue([activeNote, archivedNote]);
+      (GetArchivedTopLevelOrder as Mock).mockResolvedValue([
+        { type: 'note', id: archivedNote.id },
+      ]);
+
+      render(<App />);
+
+      const archivesButton = await screen.findByText(/Archives/);
+      fireEvent.click(archivesButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText(/Archives/));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: 'Restore' }),
+        ).not.toBeInTheDocument();
+        expect(screen.getByDisplayValue('Active Note')).toBeInTheDocument();
+      });
+    });
+
+    it('アーカイブページ表示中に選択中ノートを再クリックしてもエディター表示に戻ること', async () => {
+      const activeNote: Note = {
+        ...mockNote,
+        id: 'active-note',
+        title: 'Active Note',
+        archived: false,
+      };
+      const archivedNote: Note = {
+        ...mockNote,
+        id: 'archived-note',
+        title: 'Archived Note',
+        archived: true,
+      };
+      (ListNotes as Mock).mockResolvedValue([activeNote, archivedNote]);
+      (GetArchivedTopLevelOrder as Mock).mockResolvedValue([
+        { type: 'note', id: archivedNote.id },
+      ]);
+
+      render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Active Note')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText(/Archives/));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+      });
+
+      const sidebar = screen.getByLabelText('Note List');
+      fireEvent.click(within(sidebar).getByText('Active Note'));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: 'Restore' }),
+        ).not.toBeInTheDocument();
+        expect(screen.getByDisplayValue('Active Note')).toBeInTheDocument();
       });
     });
   });

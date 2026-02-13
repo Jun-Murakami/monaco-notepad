@@ -784,6 +784,20 @@ function App() {
     [totalSearchMatches, searchMatchIndex, globalMatches, handleSelecAnyNote, isSplit, handleSelectNoteForPane],
   );
 
+  const handleSidebarSelectAnyNote = useCallback(
+    async (note: Note | FileNote) => {
+      if (showArchived) {
+        setShowArchived(false);
+      }
+      if (isSplit) {
+        await handleSelectNoteForPane(note);
+      } else {
+        await handleSelecAnyNote(note);
+      }
+    },
+    [showArchived, setShowArchived, isSplit, handleSelectNoteForPane, handleSelecAnyNote],
+  );
+
   const searchMatchIndexInNote = useMemo(() => {
     if (totalSearchMatches === 0 || searchMatchIndex === 0) return 0;
     const match = globalMatches[searchMatchIndex - 1];
@@ -892,7 +906,8 @@ function App() {
                     <NoteList
                       notes={noteSearch ? filteredFileNotes : fileNotes}
                       currentNote={isSplit ? leftFileNote : currentFileNote}
-                      onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
+                      onNoteSelect={handleSidebarSelectAnyNote}
+                      allowReselect={showArchived}
                       onConvertToNote={handleConvertToNoteWithPlacement}
                       onSaveFile={handleSaveFile}
                       onReorder={async (newNotes) => {
@@ -948,7 +963,8 @@ function App() {
                 <NoteList
                   notes={noteSearch ? filteredNotes : notes}
                   currentNote={isSplit ? leftNote : currentNote}
-                  onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
+                  onNoteSelect={handleSidebarSelectAnyNote}
+                  allowReselect={showArchived}
                   onArchive={handleArchiveNoteWithSplit}
                   onReorder={async (newNotes) => {
                     setNotes(newNotes as Note[]);
@@ -986,7 +1002,7 @@ function App() {
                   backgroundColor: 'action.hover',
                 },
               }}
-              onClick={() => setShowArchived(true)}
+              onClick={() => setShowArchived((prev) => !prev)}
               startIcon={<Inventory />}
             >
               Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
