@@ -332,7 +332,7 @@ function App() {
   });
 
   // ファイル操作
-  const { handleOpenFile, handleSaveFile, handleSaveAsFile, handleConvertToNote } = useFileOperations(
+  const { handleOpenFile, handleSaveFile, handleSaveAsFile } = useFileOperations(
     notes,
     setNotes,
     currentNote,
@@ -563,6 +563,9 @@ function App() {
     async (fileNoteId: string, target: FileDropInsertionTarget) => {
       const fileNote = fileNotes.find((value) => value.id === fileNoteId);
       if (!fileNote) return;
+      const wasCurrentFile = currentFileNote?.id === fileNoteId;
+      const wasLeftFile = leftFileNote?.id === fileNoteId;
+      const wasRightFile = rightFileNote?.id === fileNoteId;
 
       const newNote: Note = {
         id: crypto.randomUUID(),
@@ -613,18 +616,70 @@ function App() {
         }
       }
 
-      await handleSelecAnyNote(newNote);
+      let replacedPane = false;
+      if (isSplit) {
+        if (wasLeftFile) {
+          setLeftFileNote(null);
+          setLeftNote(newNote);
+          replacedPane = true;
+        }
+        if (wasRightFile) {
+          setRightFileNote(null);
+          setRightNote(newNote);
+          replacedPane = true;
+        }
+        if (wasCurrentFile) {
+          setCurrentFileNote(null);
+          setCurrentNote(newNote);
+        }
+        if (replacedPane) {
+          saveSplitState();
+        }
+      }
+
+      if (!isSplit || !replacedPane) {
+        await handleSelecAnyNote(newNote);
+      }
     },
     [
+      currentFileNote,
       fileNotes,
       handleSaveFileNotes,
       handleSelecAnyNote,
       handleUpdateTopLevelOrder,
+      isSplit,
+      leftFileNote,
+      rightFileNote,
       notes,
+      saveSplitState,
       setFileNotes,
+      setLeftFileNote,
+      setLeftNote,
+      setRightFileNote,
+      setRightNote,
+      setCurrentFileNote,
+      setCurrentNote,
       setNotes,
       topLevelOrder,
     ],
+  );
+
+  const handleConvertToNoteWithPlacement = useCallback(
+    async (fileNote: FileNote) => {
+      const hasActiveFolders = folders.some((folder) => !folder.archived);
+      if (hasActiveFolders) {
+        await handleDropFileNoteToNotes(fileNote.id, {
+          kind: 'top-level',
+          topLevelInsertIndex: 0,
+        });
+        return;
+      }
+      await handleDropFileNoteToNotes(fileNote.id, {
+        kind: 'flat',
+        destinationIndex: 0,
+      });
+    },
+    [folders, handleDropFileNoteToNotes],
   );
 
   archiveNoteRef.current = handleArchiveNoteWithSplit;
@@ -836,7 +891,7 @@ function App() {
                       notes={noteSearch ? filteredFileNotes : fileNotes}
                       currentNote={isSplit ? leftFileNote : currentFileNote}
                       onNoteSelect={isSplit ? handleSelectNoteForPane : handleSelecAnyNote}
-                      onConvertToNote={handleConvertToNote}
+                      onConvertToNote={handleConvertToNoteWithPlacement}
                       onSaveFile={handleSaveFile}
                       onReorder={async (newNotes) => {
                         setFileNotes(newNotes as FileNote[]);
