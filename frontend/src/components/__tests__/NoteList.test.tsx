@@ -227,15 +227,15 @@ describe('NoteList', () => {
     expect(screen.getByText('New Note')).toBeInTheDocument();
   });
 
-  it('フラットモードで末尾ドロップ領域が描画されること', () => {
+  it('非ドラッグ時はフラットモードの末尾ドロップ領域を表示しないこと', () => {
     render(<NoteList {...defaultProps} />);
     const list = screen.getByRole('list');
     expect(
       list.querySelector('[data-note-list-row-id="flat-tail"]'),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
   });
 
-  it('ローカルファイルリストでも末尾ドロップ領域が描画されること', () => {
+  it('ローカルファイルリストでは末尾ドロップ領域を常時表示すること', () => {
     render(<NoteList {...defaultFileProps} />);
     const list = screen.getByRole('list');
     expect(

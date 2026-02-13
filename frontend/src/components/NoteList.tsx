@@ -1347,8 +1347,12 @@ export const NoteList: React.FC<NoteListProps> = ({
       },
       dragItem: DragData,
     ): HoverState | null => {
-      const matched = currentLocation.dropTargets.find((target) =>
-        readDropData(target.data),
+      const contentEl = listContentRef.current;
+      if (!contentEl) return null;
+
+      const matched = currentLocation.dropTargets.find(
+        (target) =>
+          contentEl.contains(target.element) && readDropData(target.data),
       );
       if (!matched) return null;
       const dropData = readDropData(matched.data);
@@ -1382,9 +1386,6 @@ export const NoteList: React.FC<NoteListProps> = ({
         edge,
         boundaryIndented,
       );
-
-      const contentEl = listContentRef.current;
-      if (!contentEl) return null;
       const contentRect = contentEl.getBoundingClientRect();
       const rowRect = matched.element.getBoundingClientRect();
       const y = edge === 'bottom' ? rowRect.bottom : rowRect.top;
@@ -1791,7 +1792,12 @@ export const NoteList: React.FC<NoteListProps> = ({
   const indicator = activeDrag?.hover;
 
   return (
-    <List sx={{ flexGrow: 1, overflow: 'auto' }}>
+    <List
+      sx={{
+        flexGrow: isFileMode ? 0 : 1,
+        overflow: 'auto',
+      }}
+    >
       <Box ref={listContentRef} sx={{ position: 'relative', pb: 0.5 }}>
         {rows.map((row) => {
           if (row.kind === 'flat-note') {
@@ -1823,14 +1829,21 @@ export const NoteList: React.FC<NoteListProps> = ({
           }
 
           if (row.kind === 'flat-tail') {
+            const shouldRender =
+              isFileMode ||
+              (activeDrag !== null && activeDrag.item.kind === 'note');
+            if (!shouldRender) {
+              return null;
+            }
+            const tailHeight = isFileMode ? 2 : 8;
             return (
               <PragmaticRow
                 key={row.rowId}
                 isTestEnv={isTestEnv}
                 dropData={{ kind: 'flat-tail', rowId: row.rowId }}
-                sx={{ mx: 1, minHeight: 14 }}
+                sx={{ mx: 1, minHeight: tailHeight }}
               >
-                <Box sx={{ minHeight: 14 }} />
+                <Box sx={{ minHeight: tailHeight }} />
               </PragmaticRow>
             );
           }
