@@ -190,7 +190,6 @@ func (s *noteService) SaveNote(note *Note) error {
 	// 既存のノートを探す
 	for i, metadata := range s.noteList.Notes {
 		if metadata.ID == note.ID {
-			wasArchived := metadata.Archived
 			updatedFolderID := metadata.FolderID
 			// ノート単体のアーカイブ時はフォルダ紐付けを解除する
 			if note.Archived {
@@ -208,49 +207,6 @@ func (s *noteService) SaveNote(note *Note) error {
 				ContentHash:   contentHash,
 				FolderID:      updatedFolderID,
 			}
-
-			// archived状態が変化した場合は順序リストも同期する
-			if wasArchived != note.Archived {
-				if note.Archived {
-					s.ensureTopLevelOrder()
-					s.removeFromTopLevelOrder(note.ID)
-					s.ensureArchivedTopLevelOrder()
-
-					foundInArchivedOrder := false
-					for _, item := range s.noteList.ArchivedTopLevelOrder {
-						if item.Type == "note" && item.ID == note.ID {
-							foundInArchivedOrder = true
-							break
-						}
-					}
-					if !foundInArchivedOrder {
-						s.noteList.ArchivedTopLevelOrder = append(
-							[]TopLevelItem{{Type: "note", ID: note.ID}},
-							s.noteList.ArchivedTopLevelOrder...,
-						)
-					}
-				} else {
-					s.removeFromArchivedTopLevelOrder(note.ID)
-					if updatedFolderID == "" {
-						s.ensureTopLevelOrder()
-
-						foundInTopLevel := false
-						for _, item := range s.noteList.TopLevelOrder {
-							if item.Type == "note" && item.ID == note.ID {
-								foundInTopLevel = true
-								break
-							}
-						}
-						if !foundInTopLevel {
-							s.noteList.TopLevelOrder = append(
-								[]TopLevelItem{{Type: "note", ID: note.ID}},
-								s.noteList.TopLevelOrder...,
-							)
-						}
-					}
-				}
-			}
-
 			found = true
 			break
 		}

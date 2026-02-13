@@ -96,7 +96,6 @@ type Settings struct {
 	WindowY               int    `json:"windowY"`
 	IsMaximized           bool   `json:"isMaximized"`
 	IsDebug               bool   `json:"isDebug"`
-	EnableConflictBackup  bool   `json:"enableConflictBackup"`
 	MarkdownPreviewOnLeft bool   `json:"markdownPreviewOnLeft"`
 }
 

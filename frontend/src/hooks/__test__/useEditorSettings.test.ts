@@ -41,7 +41,6 @@ describe('useEditorSettings フック', () => {
     windowY: 100,
     isMaximized: true,
     isDebug: true,
-    enableConflictBackup: false,
     editorTheme: 'default',
     markdownPreviewOnLeft: false,
   };
@@ -78,7 +77,6 @@ describe('useEditorSettings フック', () => {
         windowY: 0,
         isMaximized: false,
         isDebug: false,
-        enableConflictBackup: true,
         editorTheme: 'default',
         markdownPreviewOnLeft: false,
       });
@@ -126,7 +124,6 @@ describe('useEditorSettings フック', () => {
         windowY: 0,
         isMaximized: false,
         isDebug: false,
-        enableConflictBackup: true,
         editorTheme: 'default',
         markdownPreviewOnLeft: false,
       });

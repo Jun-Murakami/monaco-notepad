@@ -17,10 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useEffect, useState } from 'react';
-import {
-  OpenAppFolder,
-  OpenConflictBackupFolder,
-} from '../../wailsjs/go/backend/App';
+import { OpenAppFolder } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { THEME_PAIRS } from '../lib/monaco';
 import type { Settings } from '../types';
@@ -262,46 +259,6 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   }}
                 >
                   app folder
-                </Box>
-                .
-              </Typography>
-            </Box>
-
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'flex-start',
-                gap: 2,
-                alignItems: 'center',
-                width: '100%',
-              }}
-            >
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={localSettings.enableConflictBackup}
-                    onChange={(e) =>
-                      handleChange({
-                        enableConflictBackup: e.target.checked,
-                      })
-                    }
-                  />
-                }
-                label="Conflict Backup"
-              />
-              <Typography variant="caption" color="textSecondary">
-                Keep conflict/deletion backups in{' '}
-                <Box
-                  component="span"
-                  onClick={() => OpenConflictBackupFolder()}
-                  sx={{
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                    '&:hover': { color: 'primary.main' },
-                  }}
-                >
-                  backup folder
                 </Box>
                 .
               </Typography>

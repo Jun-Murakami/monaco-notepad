@@ -197,7 +197,6 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
     windowY: 0,
     isMaximized: false,
     isDebug: false,
-    enableConflictBackup: true,
     markdownPreviewOnLeft: false,
   }),
   SaveSettings: vi.fn(),
@@ -217,7 +216,6 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
     windowY: 0,
     isMaximized: false,
     isDebug: false,
-    enableConflictBackup: true,
     markdownPreviewOnLeft: false,
   }),
   Environment: vi.fn().mockResolvedValue({
