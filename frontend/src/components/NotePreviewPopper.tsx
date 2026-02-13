@@ -3,30 +3,44 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 interface NotePreviewPopperProps {
   content: string | undefined;
+  modifiedTime?: string;
   anchorX?: number;
   disabled?: boolean;
   children: React.ReactNode;
 }
 
-export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
-  content,
-  anchorX,
-  disabled,
-  children,
-}) => {
+export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({ content, modifiedTime, anchorX, disabled, children }) => {
   // ドラッグ中など disabled 時は DOM ラッパーごとバイパスして children だけ返す
   if (disabled) return <>{children}</>;
 
   return (
-    <NotePreviewPopperInner content={content} anchorX={anchorX}>
+    <NotePreviewPopperInner content={content} modifiedTime={modifiedTime} anchorX={anchorX}>
       {children}
     </NotePreviewPopperInner>
   );
 };
 
-const NotePreviewPopperInner: React.FC<
-  Omit<NotePreviewPopperProps, 'disabled'>
-> = ({ content, anchorX, children }) => {
+const formatLocalizedDateTime = (value?: string): string => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const locale = typeof navigator === 'undefined' ? undefined : navigator.language;
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(date);
+};
+
+const NotePreviewPopperInner: React.FC<Omit<NotePreviewPopperProps, 'disabled'>> = ({
+  content,
+  modifiedTime,
+  anchorX,
+  children,
+}) => {
   const [open, setOpen] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
   const mouseYRef = useRef(0);
@@ -78,19 +92,15 @@ const NotePreviewPopperInner: React.FC<
       .slice(0, 10)
       .join('\n');
   }, [content]);
+  const previewModifiedTime = useMemo(() => formatLocalizedDateTime(modifiedTime), [modifiedTime]);
 
   return (
-    <Box
-      ref={containerRef}
-      onMouseEnter={handleMouseEnter}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-    >
+    <Box ref={containerRef} onMouseEnter={handleMouseEnter} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
       {open && previewLines && (
         <Popper
           open
           anchorEl={virtualAnchorRef.current as unknown as HTMLElement}
-          placement="right-start"
+          placement='right-start'
           modifiers={[
             { name: 'offset', options: { offset: [0, 4] } },
             {
@@ -104,26 +114,40 @@ const NotePreviewPopperInner: React.FC<
             elevation={8}
             sx={{
               maxWidth: 400,
-              maxHeight: 240,
+              maxHeight: 300,
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Box sx={{ px: 1.5, pt: 1, flex: '0 0 auto' }} />
+            {previewModifiedTime && (
+              <Box sx={{ px: 1.5, pt: 1, pb: 0.5, flex: '0 0 auto' }}>
+                <Typography
+                  variant='body1'
+                  sx={{
+                    color: 'text.disabled',
+                    display: 'block',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {previewModifiedTime}
+                </Typography>
+              </Box>
+            )}
             <Box
               sx={{
                 px: 1.5,
+                pt: previewModifiedTime ? 0 : 1,
                 overflow: 'hidden',
                 flex: '1 1 auto',
                 minHeight: 0,
               }}
             >
               <Typography
-                variant="caption"
-                component="pre"
+                variant='body1'
+                component='pre'
                 sx={{
                   fontFamily: 'monospace',
-                  fontSize: '0.75rem',
+                  fontSize: '0.875rem',
                   lineHeight: 1.5,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',

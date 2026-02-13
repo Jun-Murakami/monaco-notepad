@@ -6,6 +6,30 @@ const repoUrl =
   'https://api.github.com/repos/Jun-Murakami/monaco-notepad/releases/latest';
 const releaseUrl = 'https://jun-murakami.web.app/#monacoNotepad';
 
+const compareVersions = (a: string, b: string): number => {
+  const normalize = (version: string) =>
+    version
+      .trim()
+      .replace(/^v/i, '')
+      .split('.')
+      .map((part) => {
+        const num = Number.parseInt(part, 10);
+        return Number.isNaN(num) ? 0 : num;
+      });
+
+  const aParts = normalize(a);
+  const bParts = normalize(b);
+  const maxLen = Math.max(aParts.length, bParts.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const av = aParts[i] ?? 0;
+    const bv = bParts[i] ?? 0;
+    if (av > bv) return 1;
+    if (av < bv) return -1;
+  }
+  return 0;
+};
+
 export const VersionUp = () => {
   const [version, setVersion] = useState<string>('');
   const [showChip, setShowChip] = useState<boolean>(false);
@@ -24,7 +48,7 @@ export const VersionUp = () => {
 
         const latestVersion = data.tag_name.replace('v', '');
         setVersion(latestVersion);
-        if (latestVersion > ver) {
+        if (compareVersions(latestVersion, ver) > 0) {
           setShowChip(true);
         } else {
           await Console('Latest version', [latestVersion, ver]);

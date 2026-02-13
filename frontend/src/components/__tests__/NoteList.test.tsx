@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import dayjs from 'dayjs';
 import type { FileNote, Folder, Note } from '../../types';
 import { NoteList } from '../NoteList';
 
@@ -79,13 +78,6 @@ describe('NoteList', () => {
 
     expect(screen.getByText('Note 1')).toBeInTheDocument();
     expect(screen.getByText('First line Second line')).toBeInTheDocument();
-
-    // 日付が正しく表示されることを確認
-    for (const note of mockNotes) {
-      const formattedDate = dayjs(note.modifiedTime).format('L _ HH:mm:ss');
-      const dateElements = screen.getAllByText(formattedDate);
-      expect(dateElements.length).toBeGreaterThan(0);
-    }
   });
 
   it('ファイルノートが正しく表示されること', () => {
@@ -93,13 +85,6 @@ describe('NoteList', () => {
 
     expect(screen.getByText('file1.ts')).toBeInTheDocument();
     expect(screen.getByText('file2.ts')).toBeInTheDocument();
-
-    // 日付が正しく表示されることを確認
-    for (const note of mockFileNotes) {
-      const formattedDate = dayjs(note.modifiedTime).format('L _ HH:mm:ss');
-      const dateElements = screen.getAllByText(formattedDate);
-      expect(dateElements.length).toBeGreaterThan(0);
-    }
   });
 
   it('ノート選択が正しく動作すること', async () => {

@@ -54,6 +54,19 @@ describe('VersionUp', () => {
     });
   });
 
+  it('1.1.9 から 1.1.10 は新しいバージョンとして判定されること', async () => {
+    (GetAppVersion as Mock).mockResolvedValue('1.1.9');
+    (global.fetch as Mock).mockResolvedValue({
+      json: () => Promise.resolve({ tag_name: 'v1.1.10' }),
+    });
+
+    render(<VersionUp />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Update? v1.1.10')).toBeInTheDocument();
+    });
+  });
+
   it('現在のバージョンが最新の場合、更新チップが表示されないこと', async () => {
     // モックの設定
     (GetAppVersion as Mock).mockResolvedValue('1.0.1');

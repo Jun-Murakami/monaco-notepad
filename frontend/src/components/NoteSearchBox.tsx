@@ -51,8 +51,8 @@ export const NoteSearchBox = ({
       sx={{
         borderBottom: 1,
         borderColor: 'divider',
-        px: 0.5,
-        py: 0.25,
+        px: 1,
+        py: 0.5,
         display: 'flex',
         alignItems: 'center',
         backgroundColor: 'background.paper',
@@ -66,10 +66,13 @@ export const NoteSearchBox = ({
         placeholder="Search..."
         size="small"
         sx={{
-          flex: 1,
+          width: '100%',
           fontSize: '0.8rem',
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 1,
           '& .MuiInputBase-input': {
-            py: 0.25,
+            py: 0.5,
             px: 0.5,
           },
         }}
@@ -80,7 +83,7 @@ export const NoteSearchBox = ({
         }
         endAdornment={
           hasQuery ? (
-            <InputAdornment position="end" sx={{ mr: 0 }}>
+            <InputAdornment position="end" sx={{ mr: 0.25 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                 <Box
                   component="span"

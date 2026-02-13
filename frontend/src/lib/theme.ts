@@ -77,6 +77,10 @@ export const lightTheme = createTheme({
     error: {
       main: '#d91900',
     },
+    action: {
+      hover: 'rgba(0, 0, 0, 0.1)', // 0.04 の約 2/3
+      selectedOpacity: 0.3,
+    },
   },
   components: {
     MuiCssBaseline: {
@@ -107,6 +111,9 @@ export const darkTheme = createTheme({
     },
     error: {
       main: '#c95023',
+    },
+    action: {
+      hover: 'rgba(255, 255, 255, 0.15)', // 0.04 の約 2/3
     },
   },
   components: {

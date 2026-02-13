@@ -75,12 +75,24 @@ const PaneHeader: React.FC<{
   languages: LanguageInfo[];
   onTitleChange: (title: string) => void;
   onLanguageChange: (language: string) => void;
+  onActivatePane?: () => void;
   onFocusEditor?: () => void;
   isSplit: boolean;
   paneColor?: 'primary' | 'secondary';
   paneLabel?: string;
   dimmed?: boolean;
-}> = ({ note, languages, onTitleChange, onLanguageChange, onFocusEditor, isSplit, paneColor, paneLabel, dimmed }) => (
+}> = ({
+  note,
+  languages,
+  onTitleChange,
+  onLanguageChange,
+  onActivatePane,
+  onFocusEditor,
+  isSplit,
+  paneColor,
+  paneLabel,
+  dimmed,
+}) => (
   <Box
     sx={{
       display: 'flex',
@@ -154,8 +166,12 @@ const PaneHeader: React.FC<{
       variant='outlined'
       size='small'
       value={isFileNote(note) ? note.filePath : (note as Note | null)?.title || ''}
-      onChange={(e) => onTitleChange(e.target.value)}
+      onChange={(e) => {
+        onActivatePane?.();
+        onTitleChange(e.target.value);
+      }}
       disabled={isFileNote(note)}
+      onFocus={() => onActivatePane?.()}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === 'Tab') {
           e.preventDefault();
@@ -189,7 +205,12 @@ const PaneHeader: React.FC<{
         size='small'
         autoWidth
         value={languages.some((lang) => lang.id === note?.language) ? note?.language : ''}
-        onChange={(e) => onLanguageChange(e.target.value)}
+        onOpen={() => onActivatePane?.()}
+        onFocus={() => onActivatePane?.()}
+        onChange={(e) => {
+          onActivatePane?.();
+          onLanguageChange(e.target.value);
+        }}
         label='Language'
         MenuProps={languageMenuProps}
       >
@@ -901,6 +922,7 @@ function App() {
                     <PaneHeader
                       note={isSplit ? leftFileNote || leftNote : currentFileNote || currentNote}
                       languages={languages}
+                      onActivatePane={isSplit ? () => handleFocusPane('left') : undefined}
                       onTitleChange={
                         isSplit
                           ? (title) => {
@@ -1009,6 +1031,7 @@ function App() {
                       <PaneHeader
                         note={rightFileNote || rightNote}
                         languages={languages}
+                        onActivatePane={() => handleFocusPane('right')}
                         onTitleChange={(title) => {
                           if (rightNote) {
                             handleRightNoteTitleChange(title);

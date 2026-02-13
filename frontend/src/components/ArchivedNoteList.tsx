@@ -50,7 +50,6 @@ import { createPortal } from 'react-dom';
 import SimpleBar from 'simplebar-react';
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { Folder, Note, TopLevelItem } from '../types';
-import dayjs from '../utils/dayjs';
 import { ArchivedNoteContentDialog } from './ArchivedNoteContentDialog';
 import { NotePreviewPopper } from './NotePreviewPopper';
 import 'simplebar-react/dist/simplebar.min.css';
@@ -390,6 +389,7 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
     return (
       <NotePreviewPopper
         content={note.content || note.contentHeader || undefined}
+        modifiedTime={note.modifiedTime}
         disabled={isDragging}
       >
         <ListItemButton
@@ -400,8 +400,8 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
             alignItems: 'center',
             gap: 2,
             px: indented ? 3 : 2,
-            py: 0.75,
-            minHeight: 44,
+            py: 0.5,
+            minHeight: 40,
             borderBottom: hideBottomBorder ? 0 : 1,
             borderColor: 'divider',
             '&:hover .archive-action': { opacity: 1 },
@@ -429,13 +429,6 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
               }}
             >
               {titleInfo.text}
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ fontSize: '0.75rem' }}
-              color="text.secondary"
-            >
-              {dayjs(note.modifiedTime).format('L HH:mm')}
             </Typography>
           </Box>
           <Box

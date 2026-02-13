@@ -50,7 +50,6 @@ import {
 import { createPortal } from 'react-dom';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
-import dayjs from '../utils/dayjs';
 import { NotePreviewPopper } from './NotePreviewPopper';
 
 const detectTargetPane = (x: number, y: number): 'left' | 'right' | null => {
@@ -202,6 +201,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     return (
       <NotePreviewPopper
         content={'content' in note ? (note.content ?? undefined) : undefined}
+        modifiedTime={note.modifiedTime}
         anchorX={242}
         disabled={contextMenu !== null || isSyncing || !!isDragging}
       >
@@ -224,8 +224,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'flex-start',
-              pt: 0.5,
-              pb: 0.25,
+              py: 0.75,
               px: 1.5,
               ...(theme.palette.mode === 'light' && {
                 '&.Mui-selected': {
@@ -275,24 +274,18 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               )}
               {noteTitle.text}
             </Typography>
-            <Typography
-              variant="caption"
-              sx={{
-                color:
-                  theme.palette.mode === 'dark'
-                    ? 'rgba(255, 255, 255, 0.20)'
-                    : 'rgba(0, 0, 0, 0.20)',
-                width: '100%',
-                textAlign: 'right',
-              }}
-            >
-              {dayjs(note.modifiedTime).format('L _ HH:mm:ss')}
-            </Typography>
           </ListItemButton>
           {isFileMode ? (
             <>
               <Tooltip title={`Save (${cmdKey} + S)`} arrow placement="bottom">
-                <span style={{ position: 'absolute', right: 72, top: 8 }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    right: 72,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                  }}
+                >
                   <IconButton
                     className="action-button"
                     disabled={
@@ -327,7 +320,14 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                 </span>
               </Tooltip>
               <Tooltip title="Convert to Note" arrow placement="bottom">
-                <span style={{ position: 'absolute', right: 40, top: 8 }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    right: 40,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                  }}
+                >
                   <IconButton
                     className="action-button"
                     onPointerDown={(e) => e.stopPropagation()}
@@ -354,7 +354,14 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                 </span>
               </Tooltip>
               <Tooltip title={`Close (${cmdKey} + W)`} arrow placement="bottom">
-                <span style={{ position: 'absolute', right: 8, top: 8 }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                  }}
+                >
                   <IconButton
                     className="action-button"
                     onPointerDown={(e) => e.stopPropagation()}
@@ -388,7 +395,14 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                 arrow
                 placement="bottom"
               >
-                <span style={{ position: 'absolute', right: 8, top: 8 }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                  }}
+                >
                   <IconButton
                     className="action-button"
                     aria-label={`Archive (${cmdKey} + W)`}

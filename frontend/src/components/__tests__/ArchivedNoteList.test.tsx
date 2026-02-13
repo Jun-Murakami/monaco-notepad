@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import dayjs from 'dayjs';
 import type { Folder, Note, TopLevelItem } from '../../types';
 import { ArchivedNoteList } from '../ArchivedNoteList';
 
@@ -73,13 +72,6 @@ describe('ArchivedNoteList', () => {
     expect(screen.getByText('Archived Note 1')).toBeInTheDocument();
     expect(screen.getByText('First line Second line')).toBeInTheDocument();
     expect(screen.getByText('Empty Note')).toBeInTheDocument();
-
-    // 日付が正しく表示されることを確認
-    for (const note of mockNotes) {
-      const formattedDate = dayjs(note.modifiedTime).format('L HH:mm');
-      const dateElements = screen.getAllByText(formattedDate);
-      expect(dateElements.length).toBeGreaterThan(0);
-    }
   });
 
   it('タイトルの表示ロジックが正しく動作すること', () => {
