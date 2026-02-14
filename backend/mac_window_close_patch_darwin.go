@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package backend
 
 /*
 #cgo CFLAGS: -x objective-c
@@ -10,6 +10,7 @@ package main
 #import <objc/runtime.h>
 #import <objc/message.h>
 
+// 元の IMP を保持しておき、必要に応じてフォールバック呼び出しできるようにする。
 static IMP originalWindowShouldCloseIMP = NULL;
 static IMP originalApplicationShouldHandleReopenIMP = NULL;
 
@@ -107,7 +108,10 @@ static void patchApplicationShouldHandleReopen(void) {
 */
 import "C"
 
-func applyMacWindowClosePatch() {
+// ApplyMacWindowClosePatch は macOS のみで有効な Objective-C ランタイムパッチを適用する。
+// - 閉じるボタン押下時に hideOnClose を優先してウィンドウを非表示化
+// - Dock から再オープン時に、不可視ウィンドウを前面表示する挙動を補正
+func ApplyMacWindowClosePatch() {
 	C.patchWindowShouldClose()
 	C.patchApplicationShouldHandleReopen()
 }

@@ -20,7 +20,9 @@ import (
 var assets embed.FS
 
 func main() {
-	applyMacWindowClosePatch()
+	// macOS のウィンドウクローズ挙動パッチを適用する。
+	// 実装は backend パッケージに集約し、main は起動シーケンスのみを担当する。
+	backend.ApplyMacWindowClosePatch()
 
 	// Create an instance of the app structure
 	app := backend.NewApp()
