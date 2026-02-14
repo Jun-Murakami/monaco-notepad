@@ -32,6 +32,9 @@ vi.mock('monaco-editor', () => ({
   },
 }));
 
+// Unicode Highlighter の副作用importをテスト環境で無効化
+vi.mock('monaco-editor/esm/vs/features/unicodeHighlighter/register.js', () => ({}));
+
 // monaco-editorのワーカーモジュールをモック
 vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({
   default: {},

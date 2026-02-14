@@ -1,17 +1,20 @@
 import * as monaco from 'monaco-editor';
+// Monaco v0.56+ では "monaco-editor" が editor API のみを指すため、
+// 必要な機能を明示的に登録する（ここでは Unicode Highlighter）。
+import 'monaco-editor/esm/vs/features/unicodeHighlighter/register.js';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import {
-  javascriptDefaults,
   JsxEmit,
+  javascriptDefaults,
   ModuleKind,
   ModuleResolutionKind,
   ScriptTarget,
   typescriptDefaults,
 } from 'monaco-editor/esm/vs/language/typescript/monaco.contribution.js';
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 // Theme imports from local themes directory (copied from monaco-themes package)
 import cloudsTheme from '../themes/Clouds.json';
 import cloudsMidnightTheme from '../themes/Clouds Midnight.json';
