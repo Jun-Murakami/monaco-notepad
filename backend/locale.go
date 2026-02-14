@@ -18,8 +18,11 @@ var supportedLocales = map[string]bool{
 	LocaleEnglish:  true,
 }
 
+// getNativeSystemLocale はOS依存のロケール取得処理を注入するための変数
+var getNativeSystemLocale = detectNativeSystemLocale
+
 // DetectSystemLocale はOSのシステムロケールを検出します
-// 環境変数 LC_ALL, LC_MESSAGES, LANG を順にチェックします
+// 環境変数 LC_ALL, LC_MESSAGES, LANG を順にチェックし、未設定時はOS APIを使います
 func DetectSystemLocale() string {
 	// 優先順位順に環境変数をチェック
 	keys := []string{"LC_ALL", "LC_MESSAGES", "LANG"}
@@ -28,6 +31,11 @@ func DetectSystemLocale() string {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			return NormalizeLocale(value)
 		}
+	}
+
+	// GUIアプリでは環境変数が空の場合があるため、OSネイティブAPIから取得する
+	if value := strings.TrimSpace(getNativeSystemLocale()); value != "" {
+		return NormalizeLocale(value)
 	}
 
 	// デフォルトは英語

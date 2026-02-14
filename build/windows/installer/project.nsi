@@ -55,6 +55,9 @@ ManifestDPIAware true
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+!define MUI_LANGDLL_REGISTRY_ROOT HKCU
+!define MUI_LANGDLL_REGISTRY_KEY "Software\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}"
+!define MUI_LANGDLL_REGISTRY_VALUENAME "InstallerLanguage"
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
@@ -64,20 +67,25 @@ ManifestDPIAware true
 
 !insertmacro MUI_UNPAGE_INSTFILES # Uinstalling page
 
-!insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
+!insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_LANGUAGE "Japanese"
 
 ## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
 #!uninstfinalize 'signtool --file "%1"'
 #!finalize 'signtool --file "%1"'
 
 Name "${INFO_PRODUCTNAME}"
-# Installer filename with version (e.g. MonacoNotepad-win64-installer-1.1.5.exe)
-OutFile "..\..\bin\MonacoNotepad-win64-installer-${INFO_PRODUCTVERSION}.exe"
+OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
+   !insertmacro MUI_LANGDLL_DISPLAY
    !insertmacro wails.checkArchitecture
+FunctionEnd
+
+Function un.onInit
+    !insertmacro MUI_UNGETLANGUAGE
 FunctionEnd
 
 Section

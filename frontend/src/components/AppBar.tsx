@@ -15,21 +15,21 @@ export const AppBar: React.FC<{
     height: 32,
     width: '100%',
     minWidth: 0,
-    px: isJapanese ? 0.375 : 1,
+    px: isJapanese ? 0.375 : undefined,
     whiteSpace: 'nowrap',
     '& .MuiButton-startIcon': {
       marginLeft: 0,
-      marginRight: isJapanese ? 0.5 : 1,
+      marginRight: isJapanese ? 0.5 : 0.2,
     },
     '& .MuiSvgIcon-root': {
-      fontSize: isJapanese ? 18 : 22,
+      fontSize: isJapanese ? 18 : 18,
     },
   } as const;
   const labelSx = {
     whiteSpace: 'nowrap',
     display: 'block',
     lineHeight: 1,
-    fontSize: isJapanese ? 14 : undefined,
+    fontSize: isJapanese ? 14 : 12,
   } as const;
 
   return (

@@ -8,6 +8,8 @@ Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー
 
 <img width="1277" height="747" alt="スクリーンショット 2026-02-14 10 46 56" src="https://github.com/user-attachments/assets/d4299a17-28f6-4d3f-89e0-b6538d12a33b" />
 
+[Download](https://github.com/jun-murakami/monaco-notepad/releases/latest)
+
 ## 特徴
 
 ### 💡 ハイブリッドな使い方
