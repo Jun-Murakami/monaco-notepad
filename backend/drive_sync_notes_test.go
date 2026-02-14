@@ -1044,6 +1044,193 @@ func TestSyncNotes_CaseC_Conflict_RevisionChangedByNoteListOnlyStillCompletesMer
 	assert.Empty(t, ds.syncState.DirtyNoteIDs)
 }
 
+func TestSyncNotes_CaseC_Conflict_NoteListDirty_CloudUpdateApplied(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	local := &Note{ID: "note1", Title: "note1", Content: "local-old", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(local))
+
+	ds.syncState.MarkDirty()
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloud := &Note{
+		ID:           "note1",
+		Title:        "note1",
+		Content:      "cloud-new",
+		Language:     "plaintext",
+		ModifiedTime: "2025-01-02T00:00:00Z",
+	}
+	putCloudNote(t, ops, cloud)
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{{
+			ID:           cloud.ID,
+			Title:        cloud.Title,
+			Language:     cloud.Language,
+			ModifiedTime: cloud.ModifiedTime,
+			ContentHash:  computeContentHash(cloud),
+		}},
+		TopLevelOrder: []TopLevelItem{{Type: "note", ID: cloud.ID}},
+	})
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	updated := mustLoadLocalNote(t, ds, cloud.ID)
+	assert.Equal(t, "cloud-new", updated.Content)
+	assert.False(t, ds.syncState.IsDirty())
+}
+
+func TestSyncNotes_CaseC_Conflict_NoteListDirty_CloudNewNoteAdded(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	local := &Note{ID: "local-note", Title: "local-note", Content: "local", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(local))
+
+	ds.syncState.MarkDirty()
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloudNew := &Note{
+		ID:           "cloud-note",
+		Title:        "cloud-note",
+		Content:      "from-cloud",
+		Language:     "plaintext",
+		ModifiedTime: "2025-01-02T00:00:00Z",
+	}
+	putCloudNote(t, ops, cloudNew)
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{
+			{
+				ID:           local.ID,
+				Title:        local.Title,
+				Language:     local.Language,
+				ModifiedTime: local.ModifiedTime,
+				ContentHash:  computeContentHash(local),
+			},
+			{
+				ID:           cloudNew.ID,
+				Title:        cloudNew.Title,
+				Language:     cloudNew.Language,
+				ModifiedTime: cloudNew.ModifiedTime,
+				ContentHash:  computeContentHash(cloudNew),
+			},
+		},
+		TopLevelOrder: []TopLevelItem{
+			{Type: "note", ID: local.ID},
+			{Type: "note", ID: cloudNew.ID},
+		},
+	})
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	downloaded := mustLoadLocalNote(t, ds, cloudNew.ID)
+	assert.Equal(t, "from-cloud", downloaded.Content)
+	assert.True(t, noteListHasNoteID(ds.noteService.noteList, cloudNew.ID))
+	assert.False(t, ds.syncState.IsDirty())
+}
+
+func TestSyncNotes_CaseC_Conflict_LocalTopLevelOrderWins(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	note1 := &Note{ID: "note1", Title: "note1", Content: "local-1", Language: "plaintext"}
+	note2 := &Note{ID: "note2", Title: "note2", Content: "local-2", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(note1))
+	require.NoError(t, ds.noteService.SaveNote(note2))
+
+	localOrder := []TopLevelItem{
+		{Type: "note", ID: note1.ID},
+		{Type: "note", ID: note2.ID},
+	}
+	require.NoError(t, ds.noteService.UpdateTopLevelOrder(localOrder))
+	ds.syncState.MarkDirty()
+
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	cloudNotes := append([]NoteMetadata(nil), ds.noteService.noteList.Notes...)
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), &NoteList{
+		Version: CurrentVersion,
+		Notes:   cloudNotes,
+		TopLevelOrder: []TopLevelItem{
+			{Type: "note", ID: note2.ID},
+			{Type: "note", ID: note1.ID},
+		},
+	})
+
+	err := ds.SyncNotes()
+	require.NoError(t, err)
+
+	assert.Equal(t, localOrder, ds.noteService.noteList.TopLevelOrder)
+	assert.False(t, ds.syncState.IsDirty())
+
+	cloudAfter := cloudNoteListFromMock(t, ops, ds.auth.GetDriveSync().NoteListID())
+	assert.Equal(t, localOrder, cloudAfter.TopLevelOrder)
+}
+
+func TestSyncNotes_CaseC_Conflict_LocalFolderMoveWins(t *testing.T) {
+	ds, ops, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	note := &Note{ID: "note1", Title: "note1", Content: "local", Language: "plaintext"}
+	require.NoError(t, ds.noteService.SaveNote(note))
+
+	folder, err := ds.noteService.CreateFolder("LocalFolder")
+	require.NoError(t, err)
+	require.NoError(t, ds.noteService.MoveNoteToFolder(note.ID, folder.ID))
+	ds.syncState.MarkDirty()
+
+	ops.fixedModifiedTime = "2025-01-02T00:00:00Z"
+	ds.syncState.LastSyncedDriveTs = "2025-01-01T00:00:00Z"
+
+	putCloudNote(t, ops, note)
+	putCloudNoteList(t, ops, ds.auth.GetDriveSync().NoteListID(), &NoteList{
+		Version: CurrentVersion,
+		Notes: []NoteMetadata{
+			{
+				ID:           note.ID,
+				Title:        note.Title,
+				Language:     note.Language,
+				ModifiedTime: note.ModifiedTime,
+				ContentHash:  computeContentHash(note),
+				FolderID:     "",
+			},
+		},
+		TopLevelOrder: []TopLevelItem{{Type: "note", ID: note.ID}},
+	})
+
+	err = ds.SyncNotes()
+	require.NoError(t, err)
+
+	require.Len(t, ds.noteService.noteList.Folders, 1)
+	assert.Equal(t, folder.ID, ds.noteService.noteList.Folders[0].ID)
+	assert.Equal(t, []TopLevelItem{{Type: "folder", ID: folder.ID}}, ds.noteService.noteList.TopLevelOrder)
+
+	var movedMeta *NoteMetadata
+	for i := range ds.noteService.noteList.Notes {
+		if ds.noteService.noteList.Notes[i].ID == note.ID {
+			movedMeta = &ds.noteService.noteList.Notes[i]
+			break
+		}
+	}
+	require.NotNil(t, movedMeta)
+	assert.Equal(t, folder.ID, movedMeta.FolderID)
+	assert.False(t, ds.syncState.IsDirty())
+
+	cloudAfter := cloudNoteListFromMock(t, ops, ds.auth.GetDriveSync().NoteListID())
+	require.Len(t, cloudAfter.Folders, 1)
+	assert.Equal(t, folder.ID, cloudAfter.Folders[0].ID)
+	require.Len(t, cloudAfter.Notes, 1)
+	assert.Equal(t, folder.ID, cloudAfter.Notes[0].FolderID)
+	assert.Equal(t, []TopLevelItem{{Type: "folder", ID: folder.ID}}, cloudAfter.TopLevelOrder)
+}
+
 func TestSyncNotes_CaseC_Conflict_LocalNewNoteUploadFailureKeepsMetadata(t *testing.T) {
 	ds, ops, cleanup := newSyncTestDriveService(t)
 	defer cleanup()

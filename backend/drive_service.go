@@ -811,6 +811,10 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	for _, n := range s.noteService.noteList.Notes {
 		localMap[n.ID] = n
 	}
+	localFoldersSnapshot := append([]Folder(nil), s.noteService.noteList.Folders...)
+	localTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.TopLevelOrder...)
+	localArchivedTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.ArchivedTopLevelOrder...)
+	localCollapsedFolderSnapshot := append([]string(nil), s.noteService.noteList.CollapsedFolderIDs...)
 	for _, cloudNote := range cloudNoteList.Notes {
 		if dirtyIDs[cloudNote.ID] || deletedIDs[cloudNote.ID] {
 			continue
@@ -920,9 +924,6 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	}
 	s.noteService.noteList.Folders = filteredFolders
 
-	localTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.TopLevelOrder...)
-	localArchivedTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.ArchivedTopLevelOrder...)
-
 	filteredTopLevelOrder := make([]TopLevelItem, 0, len(cloudNoteList.TopLevelOrder))
 	for _, item := range cloudNoteList.TopLevelOrder {
 		if item.Type == "folder" && deletedFolderIDs[item.ID] {
@@ -1007,6 +1008,27 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 	}
 	s.noteService.noteList.Notes = mergedNotes
+	s.noteService.noteList.Notes = applyLocalStructureForUnchangedNotes(s.noteService.noteList.Notes, localMap)
+	s.noteService.noteList.Folders = mergeFoldersPreferLocal(localFoldersSnapshot, filteredFolders, deletedFolderIDs)
+	s.noteService.noteList.TopLevelOrder = mergeTopLevelOrderPreferLocal(
+		localTopLevelSnapshot,
+		s.noteService.noteList.TopLevelOrder,
+		s.noteService.noteList.Notes,
+		s.noteService.noteList.Folders,
+		false,
+	)
+	s.noteService.noteList.ArchivedTopLevelOrder = mergeTopLevelOrderPreferLocal(
+		localArchivedTopLevelSnapshot,
+		s.noteService.noteList.ArchivedTopLevelOrder,
+		s.noteService.noteList.Notes,
+		s.noteService.noteList.Folders,
+		true,
+	)
+	s.noteService.noteList.CollapsedFolderIDs = mergeCollapsedFolderIDsPreferLocal(
+		localCollapsedFolderSnapshot,
+		cloudNoteList.CollapsedFolderIDs,
+		s.noteService.noteList.Folders,
+	)
 
 	if uploadFailures > 0 || deleteFailures > 0 {
 		s.logger.InfoCode(MsgDrivePartialConflictDeferred, map[string]interface{}{"uploadFailures": uploadFailures, "deleteFailures": deleteFailures})
@@ -1304,6 +1326,158 @@ func topLevelItemIndex(order []TopLevelItem, target TopLevelItem) int {
 		}
 	}
 	return -1
+}
+
+func applyLocalStructureForUnchangedNotes(mergedNotes []NoteMetadata, localMap map[string]NoteMetadata) []NoteMetadata {
+	result := make([]NoteMetadata, len(mergedNotes))
+	copy(result, mergedNotes)
+
+	for i := range result {
+		localMeta, ok := localMap[result[i].ID]
+		if !ok {
+			continue
+		}
+		if localMeta.ContentHash != result[i].ContentHash {
+			continue
+		}
+
+		result[i].FolderID = localMeta.FolderID
+		result[i].Archived = localMeta.Archived
+	}
+
+	return result
+}
+
+func mergeFoldersPreferLocal(localFolders []Folder, cloudFolders []Folder, deletedFolderIDs map[string]bool) []Folder {
+	mergedByID := make(map[string]Folder, len(localFolders)+len(cloudFolders))
+
+	for _, folder := range cloudFolders {
+		if deletedFolderIDs[folder.ID] {
+			continue
+		}
+		mergedByID[folder.ID] = folder
+	}
+	for _, folder := range localFolders {
+		if deletedFolderIDs[folder.ID] {
+			continue
+		}
+		mergedByID[folder.ID] = folder
+	}
+
+	result := make([]Folder, 0, len(mergedByID))
+	added := make(map[string]bool, len(mergedByID))
+	for _, folder := range localFolders {
+		merged, ok := mergedByID[folder.ID]
+		if !ok || added[folder.ID] {
+			continue
+		}
+		result = append(result, merged)
+		added[folder.ID] = true
+	}
+	for _, folder := range cloudFolders {
+		merged, ok := mergedByID[folder.ID]
+		if !ok || added[folder.ID] {
+			continue
+		}
+		result = append(result, merged)
+		added[folder.ID] = true
+	}
+
+	return result
+}
+
+func mergeTopLevelOrderPreferLocal(
+	localOrder []TopLevelItem,
+	cloudOrder []TopLevelItem,
+	notes []NoteMetadata,
+	folders []Folder,
+	archived bool,
+) []TopLevelItem {
+	noteMap := make(map[string]NoteMetadata, len(notes))
+	for _, note := range notes {
+		noteMap[note.ID] = note
+	}
+	folderMap := make(map[string]Folder, len(folders))
+	for _, folder := range folders {
+		folderMap[folder.ID] = folder
+	}
+
+	isValid := func(item TopLevelItem) bool {
+		switch item.Type {
+		case "note":
+			note, ok := noteMap[item.ID]
+			if !ok {
+				return false
+			}
+			return note.FolderID == "" && note.Archived == archived
+		case "folder":
+			folder, ok := folderMap[item.ID]
+			if !ok {
+				return false
+			}
+			return folder.Archived == archived
+		default:
+			return false
+		}
+	}
+
+	result := make([]TopLevelItem, 0, len(localOrder)+len(cloudOrder))
+	seen := make(map[string]bool, len(localOrder)+len(cloudOrder))
+	appendIfValid := func(item TopLevelItem) {
+		key := item.Type + ":" + item.ID
+		if seen[key] || !isValid(item) {
+			return
+		}
+		result = append(result, item)
+		seen[key] = true
+	}
+
+	for _, item := range localOrder {
+		appendIfValid(item)
+	}
+	for _, item := range cloudOrder {
+		appendIfValid(item)
+	}
+	for _, note := range notes {
+		if note.FolderID != "" || note.Archived != archived {
+			continue
+		}
+		appendIfValid(TopLevelItem{Type: "note", ID: note.ID})
+	}
+	for _, folder := range folders {
+		if folder.Archived != archived {
+			continue
+		}
+		appendIfValid(TopLevelItem{Type: "folder", ID: folder.ID})
+	}
+
+	return result
+}
+
+func mergeCollapsedFolderIDsPreferLocal(localCollapsed []string, cloudCollapsed []string, folders []Folder) []string {
+	validFolderIDs := make(map[string]bool, len(folders))
+	for _, folder := range folders {
+		validFolderIDs[folder.ID] = true
+	}
+
+	result := make([]string, 0, len(localCollapsed)+len(cloudCollapsed))
+	seen := make(map[string]bool, len(localCollapsed)+len(cloudCollapsed))
+	appendIfValid := func(folderID string) {
+		if !validFolderIDs[folderID] || seen[folderID] {
+			return
+		}
+		result = append(result, folderID)
+		seen[folderID] = true
+	}
+
+	for _, folderID := range localCollapsed {
+		appendIfValid(folderID)
+	}
+	for _, folderID := range cloudCollapsed {
+		appendIfValid(folderID)
+	}
+
+	return result
 }
 
 func hasPendingPayloadChanges(
