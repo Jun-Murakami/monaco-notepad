@@ -22,7 +22,7 @@ export const AppBar: React.FC<{
       marginRight: isJapanese ? 0.5 : 0.2,
     },
     '& .MuiSvgIcon-root': {
-      fontSize: isJapanese ? 18 : 18,
+      fontSize: isJapanese ? 18 : 16,
     },
   } as const;
   const labelSx = {

@@ -110,6 +110,8 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
             </Select>
           </FormControl>
 
+          <Divider orientation='horizontal' sx={{ width: '100%' }} />
+
           <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2 }}>
             <TextField
               label={t('settings.fontFamily')}
