@@ -67,6 +67,25 @@ A programmer's notepad powered by Monaco Editor (the same engine as VS Code). Ed
 
 ## Building from Source
 
+### Prerequisites (Google Drive Credentials)
+
+To use Google Drive sync, create `backend/credentials.json`.
+Create an OAuth client in Google Cloud Console, then set `client_id` and `client_secret` like this:
+
+```json
+{
+  "installed": {
+    "client_id": "XXX",
+    "project_id": "monaco-notepad",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "XXX",
+    "redirect_uris": ["http://localhost"]
+  }
+}
+```
+
 ### Development
 
 ```bash
