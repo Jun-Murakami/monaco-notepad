@@ -4,7 +4,7 @@
 
 **メモ帳 × VSCode × Evernoteを足して10で割ったようなアプリ**
 
-Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー向けノートパッドです。ファイルを開いて直接編集したり、クラウドノートに変換して複数デバイスで同期したりできます。
+Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー向けテキストエディタです。ファイルを開いて直接編集したり、クラウドノートに変換して複数デバイスで同期したりできます。
 
 [Download](https://github.com/jun-murakami/monaco-notepad/releases/latest)
 
