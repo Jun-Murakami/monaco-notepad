@@ -66,6 +66,25 @@ Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー
 
 ## ソースからビルド
 
+### 事前準備（Google Drive クレデンシャル）
+
+Google Drive 同期機能を使うために、`backend/credentials.json` を用意してください。
+Google Cloud Console で OAuth クライアントを作成し、以下のように `client_id` と `client_secret` を設定します。
+
+```json
+{
+  "installed": {
+    "client_id": "XXX",
+    "project_id": "monaco-notepad",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "XXX",
+    "redirect_uris": ["http://localhost"]
+  }
+}
+```
+
 ### 開発環境
 
 ```bash
