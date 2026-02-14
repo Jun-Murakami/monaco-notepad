@@ -1,77 +1,76 @@
 # Monaco Notepad
 
-**English** | [日本語](README.ja.md)
+**日本語** | [English](README.en.md)
 
-**Like OS Notepad × VS Code × Evernote divided by 10**
+**メモ帳 × VSCode × Evernoteを足して10で割ったようなアプリ**
 
-A programmer's notepad powered by Monaco Editor (the same engine as VS Code). Edit files directly or convert them to cloud notes and sync across devices.
+Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー向けノートパッドです。ファイルを開いて直接編集したり、クラウドノートに変換して複数デバイスで同期したりできます。
 
-<img width="2700" height="1684" alt="Monaco Notepad Screenshot" src="https://github.com/user-attachments/assets/7609b7c5-2037-4801-bf5d-c70cb2d61e79" />
+<img width="1277" height="747" alt="スクリーンショット 2026-02-14 10 46 56" src="https://github.com/user-attachments/assets/d4299a17-28f6-4d3f-89e0-b6538d12a33b" />
 
-## Features
+## 特徴
 
-### 💡 Hybrid Approach
+### 💡 ハイブリッドな使い方
 
-- **Direct file editing** — Open and edit local files directly
-- **Convert to cloud notes** — Transform local files into cloud notes, syncing across devices like Evernote
-- **Private storage** — Cloud notes use your Google Drive (app only accesses its dedicated folder)
-- **Offline ready** — Works completely without network
+- **ローカルファイルの直接編集** — ファイルを開いてそのまま編集できます
+- **クラウドノート変換** — ローカルファイルをクラウドノートに変換して、Evernoteのように複数デバイスで同期
+- **プライベートストレージ** — クラウドノートはユーザーのGoogleドライブを使用（アプリ専用フォルダにのみアクセス）
+- **オフライン対応** — ネットワークなしでも完全に動作
 
-### 📝 Editor
+### 📝 エディタ
 
-- **Monaco Editor** with syntax highlighting for 50+ languages
-- **Auto-save** with 3-second debounce
-- **Customizable** font family, font size, and editor themes
-- **Convenient features** — Word wrap and minimap toggles
-- **Dark / Light mode** with smooth theme switching
-- **Side-by-side view** for editing two notes simultaneously
-- **Markdown preview** with GitHub Flavored Markdown (GFM) support
+- **Monaco Editor** — 50種類以上の言語でシンタックスハイライト
+- **自動保存** — 3秒間の入力停止後に自動保存
+- **カスタマイズ可能** — フォントファミリー、フォントサイズ、エディタテーマを設定可能
+- **便利な機能** — ワードラップ、ミニマップの切り替え
+- **ダーク/ライトモード** — スムーズなテーマ切り替え
+- **2画面分割モード** — 2つのノートを同時に編集
+- **Markdownプレビュー** — GitHub Flavored Markdown (GFM) をサポート
 
-### 📁 Note Management
+### 📁 ノート管理
 
-- **Basic operations** — Create, edit, archive, and delete notes
-- **Folder organization** with drag-and-drop reordering
-- **Full-text search** across all notes and file contents with match navigation
+- **基本操作** — ノートの作成、編集、アーカイブ、削除
+- **フォルダ整理** — ドラッグ&ドロップで並び替え
+- **全文検索** — すべてのノートとファイル内容を検索、マッチ箇所をナビゲート
 
-### 💾 Local File Editing
+### 💾 ローカルファイル編集
 
-- **Open and edit** local files directly
-- **Save / Save As** functionality
-- **Unsaved changes indicator**
-- **Convert to cloud notes** — Transform local files into cloud notes
-- **Drag & drop** to open files
+- **ファイルを開く** — ローカルファイルを直接開いて編集
+- **保存/名前を付けて保存** — 編集内容を保存
+- **クラウドノート変換** — ローカルファイルをクラウドノートに変換
+- **ドラッグ&ドロップ** — ファイルをドラッグ&ドロップ、関連づけ、コマンド引数で開く
 
-## Keyboard Shortcuts
+## キーボードショートカット
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl/Cmd + N` | New note |
-| `Ctrl/Cmd + O` | Open file |
-| `Ctrl/Cmd + S` | Save file |
-| `Ctrl/Cmd + Alt + S` | Save As |
-| `Ctrl/Cmd + W` | Close file / Archive note |
-| `Ctrl/Cmd + Tab` | Next note |
-| `Ctrl/Cmd + Shift + Tab` | Previous note |
+| ショートカット           | 動作                                  |
+| ------------------------ | ------------------------------------- |
+| `Ctrl/Cmd + N`           | 新しいノート                          |
+| `Ctrl/Cmd + O`           | ファイルを開く                        |
+| `Ctrl/Cmd + S`           | ファイルを保存                        |
+| `Ctrl/Cmd + Alt + S`     | 名前を付けて保存                      |
+| `Ctrl/Cmd + W`           | ファイルを閉じる / ノートをアーカイブ |
+| `Ctrl/Cmd + Tab`         | 次のノート                            |
+| `Ctrl/Cmd + Shift + Tab` | 前のノート                            |
 
-## Tech Stack
+## 技術スタック
 
-| Layer | Technology |
-|---|---|
-| Backend | Go + [Wails v2](https://wails.io/) |
-| Frontend | React 19 + TypeScript + Vite |
-| Editor | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
-| UI | Material UI (MUI) v7 |
-| Sync | Google Drive API v3 |
+| レイヤー       | 技術                                                        |
+| -------------- | ----------------------------------------------------------- |
+| バックエンド   | Go + [Wails v2](https://wails.io/)                          |
+| フロントエンド | React 19 + TypeScript + Vite                                |
+| エディタ       | [Monaco Editor](https://microsoft.github.io/monaco-editor/) |
+| UI             | Material UI (MUI) v7                                        |
+| 同期           | Google Drive API v3                                         |
 
-## Building from Source
+## ソースからビルド
 
-### Development
+### 開発環境
 
 ```bash
 wails dev
 ```
 
-### Production
+### 本番ビルド
 
 ```bash
 # macOS
@@ -81,10 +80,10 @@ wails dev
 ./build.ps1
 ```
 
-## License
+## ライセンス
 
 [MIT](LICENSE.txt)
 
-## Author
+## 作者
 
-Jun-Murakami ([@Jun_Murakami_jp](https://twitter.com/Jun_Murakami_jp))
+Jun-Murakami ([official site](https://jun-murakami.web.app/))
