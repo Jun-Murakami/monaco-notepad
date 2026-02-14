@@ -4,8 +4,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+const (
+	defaultEditorFontFamily = "\"Cascadia Mono\", \"Cascadia Code\", Consolas, \"BIZ UDGothic\", \"Yu Gothic UI\", \"Meiryo UI\", Meiryo, \"MS Gothic\", Monaco, \"Courier New\", monospace"
+	legacyEditorFontFamily  = "Consolas, Monaco, \"Courier New\", monospace"
 )
 
 // SettingsService は設定関連の操作を提供するインターフェースです
@@ -35,7 +41,7 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 	// ファイルが存在しない場合はデフォルト設定を返す
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		return &Settings{
-			FontFamily:           "Consolas, Monaco, \"Courier New\", monospace",
+			FontFamily:           defaultEditorFontFamily,
 			FontSize:             14,
 			IsDarkMode:           false,
 			EditorTheme:          "default",
@@ -60,6 +66,12 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 	var settings Settings
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return nil, err
+	}
+
+	// 旧既定値・未設定値を新しい既定フォントへ寄せる
+	if strings.TrimSpace(settings.FontFamily) == "" ||
+		settings.FontFamily == legacyEditorFontFamily {
+		settings.FontFamily = defaultEditorFontFamily
 	}
 
 	// 古いsettings.jsonでenableConflictBackupが未定義の場合は既定値(true)を適用する

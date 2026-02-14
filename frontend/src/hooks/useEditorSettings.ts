@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { GetSystemLocale, LoadSettings, SaveSettings } from '../../wailsjs/go/backend/App';
+import {
+  GetSystemLocale,
+  LoadSettings,
+  SaveSettings,
+} from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { changeLanguage } from '../i18n';
-import type { Settings } from '../types';
+import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../types';
 
 export const useEditorSettings = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editorSettings, setEditorSettings] = useState<Settings>({
-    fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+    fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
     fontSize: 14,
     isDarkMode: false,
     editorTheme: 'default',
@@ -30,7 +34,7 @@ export const useEditorSettings = () => {
     const loadSettings = async () => {
       try {
         const settings = await LoadSettings();
-        
+
         // 言語設定の解決
         let resolvedLanguage: 'en' | 'ja';
         if (settings.uiLanguage === 'system' || !settings.uiLanguage) {
@@ -39,12 +43,12 @@ export const useEditorSettings = () => {
         } else {
           resolvedLanguage = settings.uiLanguage as 'en' | 'ja';
         }
-        
+
         // i18nの言語を設定
         await changeLanguage(resolvedLanguage);
-        
+
         const editorSettings: Settings = {
-          fontFamily: settings.fontFamily,
+          fontFamily: settings.fontFamily || DEFAULT_EDITOR_FONT_FAMILY,
           fontSize: settings.fontSize,
           isDarkMode: settings.isDarkMode,
           editorTheme: settings.editorTheme || 'default',
@@ -63,7 +67,8 @@ export const useEditorSettings = () => {
           markdownPreviewPaneSize: settings.markdownPreviewPaneSize,
           markdownPreviewVisible: settings.markdownPreviewVisible,
           isSplit: settings.isSplit,
-          uiLanguage: (settings.uiLanguage as Settings['uiLanguage']) || 'system',
+          uiLanguage:
+            (settings.uiLanguage as Settings['uiLanguage']) || 'system',
         };
 
         // ウィンドウの位置とサイズを復元

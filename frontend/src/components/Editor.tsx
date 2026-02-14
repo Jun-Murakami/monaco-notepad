@@ -1,8 +1,18 @@
 import { Box } from '@mui/material';
 import type { editor } from 'monaco-editor';
 import { useEffect, useRef } from 'react';
-import { createEditor, disposeEditorInstance, getMonaco, getThemePair } from '../lib/monaco';
-import type { FileNote, Note, Settings } from '../types';
+import {
+  createEditor,
+  disposeEditorInstance,
+  getMonaco,
+  getThemePair,
+} from '../lib/monaco';
+import {
+  DEFAULT_EDITOR_FONT_FAMILY,
+  type FileNote,
+  type Note,
+  type Settings,
+} from '../types';
 
 interface EditorProps {
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
@@ -81,7 +91,7 @@ export const Editor: React.FC<EditorProps> = ({
       },
       automaticLayout: true,
       contextmenu: true,
-      fontFamily: 'Consolas',
+      fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
       fontSize: 14,
       renderLineHighlightOnlyWhenFocus: true,
       occurrencesHighlight: 'off',
@@ -112,7 +122,8 @@ export const Editor: React.FC<EditorProps> = ({
 
   // ノートIDが変わったときだけモデルを切り替え（同一ノート内の編集ではsetValueしない）
   useEffect(() => {
-    if (!editorInstanceRef.current || !currentNoteId || !currentNoteRef.current) return;
+    if (!editorInstanceRef.current || !currentNoteId || !currentNoteRef.current)
+      return;
 
     const note = currentNoteRef.current;
     const monaco = getMonaco();
@@ -120,7 +131,11 @@ export const Editor: React.FC<EditorProps> = ({
     let model = monaco.editor.getModel(monaco.Uri.parse(modelUri));
 
     if (!model) {
-      model = monaco.editor.createModel(note.content || '', note.language, monaco.Uri.parse(modelUri));
+      model = monaco.editor.createModel(
+        note.content || '',
+        note.language,
+        monaco.Uri.parse(modelUri),
+      );
     } else {
       const nextValue = note.content || '';
       if (model.getValue() !== nextValue) {
@@ -151,9 +166,17 @@ export const Editor: React.FC<EditorProps> = ({
     const model = editor.getModel();
     if (!model || !searchKeyword) return;
 
-    const matches = model.findMatches(searchKeyword, true, false, false, null, true);
+    const matches = model.findMatches(
+      searchKeyword,
+      true,
+      false,
+      false,
+      null,
+      true,
+    );
     if (matches.length > 0) {
-      const idx = searchMatchIndexInNote < matches.length ? searchMatchIndexInNote : 0;
+      const idx =
+        searchMatchIndexInNote < matches.length ? searchMatchIndexInNote : 0;
       editor.setSelection(matches[idx].range);
       editor.revealRangeInCenter(matches[idx].range);
     }
@@ -277,14 +300,21 @@ export const Editor: React.FC<EditorProps> = ({
         display: 'flex',
         flexDirection: 'column',
         '& .monaco-editor .unicode-highlight': {
-          border: settings.isDarkMode ? '1px solid rgba(255, 214, 102, 0.035)' : '1px solid rgba(255, 193, 7, 0.035)',
-          backgroundColor: settings.isDarkMode ? 'rgba(255, 214, 102, 0.025)' : 'rgba(255, 193, 7, 0.025)',
+          border: settings.isDarkMode
+            ? '1px solid rgba(255, 214, 102, 0.035)'
+            : '1px solid rgba(255, 193, 7, 0.035)',
+          backgroundColor: settings.isDarkMode
+            ? 'rgba(255, 214, 102, 0.025)'
+            : 'rgba(255, 193, 7, 0.025)',
           boxSizing: 'border-box',
         },
       }}
     >
       <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative' }}>
-        <div ref={editorRef} style={{ width: '100%', height: '100%', position: 'absolute' }} />
+        <div
+          ref={editorRef}
+          style={{ width: '100%', height: '100%', position: 'absolute' }}
+        />
       </Box>
     </Box>
   );

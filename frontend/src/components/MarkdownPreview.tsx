@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_UI_FONT_FAMILY } from '../types';
 
 const DEBOUNCE_MS = 300;
 
@@ -52,8 +53,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         height: '100%',
         overflow: 'auto',
         p: 3,
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: DEFAULT_UI_FONT_FAMILY,
         fontSize: 14,
         lineHeight: 1.7,
         color: 'text.primary',
@@ -94,7 +94,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           fontStyle: 'italic',
         },
         '& code': {
-          fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+          fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
           fontSize: '0.9em',
           backgroundColor: isDark
             ? 'rgba(255,255,255,0.08)'

@@ -1,4 +1,5 @@
 import { createTheme } from '@mui/material';
+import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_UI_FONT_FAMILY } from '../types';
 
 // プライマリカラーの補色を計算する
 const getComplementaryColor = (hex: string): string => {
@@ -82,11 +83,20 @@ export const lightTheme = createTheme({
       selectedOpacity: 0.3,
     },
   },
+  typography: {
+    fontFamily: DEFAULT_UI_FONT_FAMILY,
+  },
   components: {
     MuiCssBaseline: {
       styleOverrides: {
         ':root': {
           '--focus-border': LIGHT_PRIMARY,
+        },
+        body: {
+          fontFamily: DEFAULT_UI_FONT_FAMILY,
+        },
+        'code, pre': {
+          fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         },
       },
     },
@@ -116,13 +126,22 @@ export const darkTheme = createTheme({
       hover: 'rgba(255, 255, 255, 0.15)', // 0.04 の約 2/3
     },
   },
+  typography: {
+    fontFamily: DEFAULT_UI_FONT_FAMILY,
+  },
   components: {
     MuiCssBaseline: {
       styleOverrides: {
         ':root': {
           '--focus-border': DARK_PRIMARY,
         },
-        body: { backgroundColor: '#121212' },
+        body: {
+          backgroundColor: '#121212',
+          fontFamily: DEFAULT_UI_FONT_FAMILY,
+        },
+        'code, pre': {
+          fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
+        },
       },
     },
     MuiButton: {

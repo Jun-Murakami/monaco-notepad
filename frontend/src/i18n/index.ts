@@ -1,60 +1,73 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import ja from './locales/ja/common.json';
 import en from './locales/en/common.json';
+import ja from './locales/ja/common.json';
 
 const resources = {
-	ja: { translation: ja },
-	en: { translation: en },
+  ja: { translation: ja },
+  en: { translation: en },
 };
 
 type SupportedLocale = 'en' | 'ja';
 type InitialLocale = 'system' | SupportedLocale;
 
 const toSupportedLocale = (locale?: string): SupportedLocale => {
-	if (!locale) {
-		return 'en';
-	}
+  if (!locale) {
+    return 'en';
+  }
 
-	const normalized = locale.toLowerCase().split(/[-_]/)[0];
-	return normalized === 'ja' ? 'ja' : 'en';
+  const normalized = locale.toLowerCase().split(/[-_]/)[0];
+  return normalized === 'ja' ? 'ja' : 'en';
 };
 
-const resolveInitialLocale = (initialLocale: InitialLocale): SupportedLocale => {
-	if (initialLocale !== 'system') {
-		return toSupportedLocale(initialLocale);
-	}
+const resolveInitialLocale = (
+  initialLocale: InitialLocale,
+): SupportedLocale => {
+  if (initialLocale !== 'system') {
+    return toSupportedLocale(initialLocale);
+  }
 
-	if (typeof navigator !== 'undefined') {
-		return toSupportedLocale(navigator.language);
-	}
+  if (typeof navigator !== 'undefined') {
+    return toSupportedLocale(navigator.language);
+  }
 
-	return 'en';
+  return 'en';
+};
+
+const applyDocumentLanguage = (locale: SupportedLocale) => {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  document.documentElement.lang = locale;
 };
 
 export function initI18n(initialLocale: InitialLocale = 'system') {
-	i18n.use(initReactI18next).init({
-		resources,
-		lng: resolveInitialLocale(initialLocale),
-		fallbackLng: 'en',
-		supportedLngs: ['en', 'ja'],
-		interpolation: {
-			escapeValue: false,
-		},
-		react: {
-			useSuspense: false,
-		},
-	});
+  const locale = resolveInitialLocale(initialLocale);
 
-	return i18n;
+  i18n.use(initReactI18next).init({
+    resources,
+    lng: locale,
+    fallbackLng: 'en',
+    supportedLngs: ['en', 'ja'],
+    interpolation: {
+      escapeValue: false,
+    },
+    react: {
+      useSuspense: false,
+    },
+  });
+  applyDocumentLanguage(locale);
+
+  return i18n;
 }
 
 export function changeLanguage(lng: 'en' | 'ja') {
-	return i18n.changeLanguage(lng);
+  applyDocumentLanguage(lng);
+  return i18n.changeLanguage(lng);
 }
 
 export function getCurrentLanguage(): string {
-	return i18n.language || 'en';
+  return i18n.language || 'en';
 }
 
 export default i18n;

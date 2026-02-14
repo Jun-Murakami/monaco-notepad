@@ -14,7 +14,7 @@ import {
   SaveSettings,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
-import type { Settings } from '../../types';
+import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../../types';
 import { useEditorSettings } from '../useEditorSettings';
 
 // モックの設定
@@ -74,7 +74,7 @@ describe('useEditorSettings フック', () => {
 
       // 初期値の確認
       expect(result.current.editorSettings).toEqual({
-        fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+        fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         fontSize: 14,
         isDarkMode: false,
         wordWrap: 'off',
@@ -123,7 +123,7 @@ describe('useEditorSettings フック', () => {
       });
 
       expect(result.current.editorSettings).toEqual({
-        fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+        fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         fontSize: 14,
         isDarkMode: false,
         wordWrap: 'off',

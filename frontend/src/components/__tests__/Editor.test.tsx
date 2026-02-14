@@ -7,7 +7,7 @@ import {
   disposeEditorInstance,
   getMonaco,
 } from '../../lib/monaco';
-import type { Settings } from '../../types';
+import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../../types';
 import { Editor } from '../Editor';
 
 // lib/monacoのモック化をファイルの先頭で行う
@@ -208,7 +208,7 @@ describe('Editor', () => {
         },
         automaticLayout: true,
         contextmenu: true,
-        fontFamily: 'Consolas',
+        fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
         fontSize: 14,
         renderLineHighlightOnlyWhenFocus: true,
         occurrencesHighlight: 'off',
