@@ -6,20 +6,18 @@
 
 Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー向けノートパッドです。ファイルを開いて直接編集したり、クラウドノートに変換して複数デバイスで同期したりできます。
 
-<img width="1277" height="747" alt="スクリーンショット 2026-02-14 10 46 56" src="https://github.com/user-attachments/assets/d4299a17-28f6-4d3f-89e0-b6538d12a33b" />
-
 [Download](https://github.com/jun-murakami/monaco-notepad/releases/latest)
 
-## 特徴
+<img width="1277" height="747" alt="スクリーンショット 2026-02-14 10 46 56" src="https://github.com/user-attachments/assets/d4299a17-28f6-4d3f-89e0-b6538d12a33b" />
 
-### 💡 ハイブリッドな使い方
+### 💡 特徴
 
 - **ローカルファイルの直接編集** — ファイルを開いてそのまま編集できます
 - **クラウドノート変換** — ローカルファイルをクラウドノートに変換して、Evernoteのように複数デバイスで同期
 - **プライベートストレージ** — クラウドノートはユーザーのGoogleドライブを使用（アプリ専用フォルダにのみアクセス）
 - **オフライン対応** — ネットワークなしでも完全に動作
 
-### 📝 エディタ
+### 📝 エディタの機能
 
 - **Monaco Editor** — 50種類以上の言語でシンタックスハイライト
 - **自動保存** — 3秒間の入力停止後に自動保存
