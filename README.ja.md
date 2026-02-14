@@ -2,11 +2,11 @@
 
 [English](README.md) | **日本語**
 
-**OSのメモ帳 × VSCode × Evernoteを足して10で割ったようなアプリ**
+**メモ帳 × VSCode × Evernoteを足して10で割ったようなアプリ**
 
 Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー向けノートパッドです。ファイルを開いて直接編集したり、クラウドノートに変換して複数デバイスで同期したりできます。
 
-<img width="2700" height="1684" alt="Monaco Notepad スクリーンショット" src="https://github.com/user-attachments/assets/7609b7c5-2037-4801-bf5d-c70cb2d61e79" />
+<img width="1277" height="747" alt="スクリーンショット 2026-02-14 10 46 56" src="https://github.com/user-attachments/assets/d4299a17-28f6-4d3f-89e0-b6538d12a33b" />
 
 ## 特徴
 
@@ -24,7 +24,7 @@ Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー
 - **カスタマイズ可能** — フォントファミリー、フォントサイズ、エディタテーマを設定可能
 - **便利な機能** — ワードラップ、ミニマップの切り替え
 - **ダーク/ライトモード** — スムーズなテーマ切り替え
-- **サイドバイサイド表示** — 2つのノートを同時に編集
+- **2画面分割モード** — 2つのノートを同時に編集
 - **Markdownプレビュー** — GitHub Flavored Markdown (GFM) をサポート
 
 ### 📁 ノート管理
@@ -37,9 +37,8 @@ Monaco Editor（VS Codeと同じエンジン）を搭載したプログラマー
 
 - **ファイルを開く** — ローカルファイルを直接開いて編集
 - **保存/名前を付けて保存** — 編集内容を保存
-- **未保存の変更通知** — 保存されていない変更があることを表示
 - **クラウドノート変換** — ローカルファイルをクラウドノートに変換
-- **ドラッグ&ドロップ** — ファイルをドラッグ&ドロップで開く
+- **ドラッグ&ドロップ** — ファイルをドラッグ&ドロップ、関連づけ、コマンド引数で開く
 
 ## キーボードショートカット
 
@@ -87,4 +86,4 @@ wails dev
 
 ## 作者
 
-Jun-Murakami ([@Jun_Murakami_jp](https://twitter.com/Jun_Murakami_jp))
+Jun-Murakami ([official site](https://jun-murakami.web.app/))
