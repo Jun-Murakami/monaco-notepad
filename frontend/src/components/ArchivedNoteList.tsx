@@ -46,6 +46,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import SimpleBar from 'simplebar-react';
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
@@ -361,7 +362,10 @@ const moveNoteWithinActiveList = (
   return { newActive, insertIndex };
 };
 
-const getNoteTitle = (note: Note): { text: string; isFallback: boolean } => {
+const getNoteTitle = (
+  note: Note,
+  t: (key: string) => string,
+): { text: string; isFallback: boolean } => {
   if (note.title.trim()) return { text: note.title, isFallback: false };
   if (note.contentHeader) {
     return {
@@ -369,7 +373,7 @@ const getNoteTitle = (note: Note): { text: string; isFallback: boolean } => {
       isFallback: true,
     };
   }
-  return { text: 'Empty Note', isFallback: true };
+  return { text: t('notes.emptyNote'), isFallback: true };
 };
 
 interface ArchivedNoteItemProps {
@@ -394,7 +398,8 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
     isDragging,
     hideBottomBorder,
   }) => {
-    const titleInfo = getNoteTitle(note);
+    const { t } = useTranslation();
+    const titleInfo = getNoteTitle(note, t);
     const actionButtonSx = { width: 28, height: 28 };
 
     return (
@@ -446,7 +451,7 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
             sx={{ display: 'flex', gap: 1, flexShrink: 0 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <Tooltip title="Restore" arrow>
+            <Tooltip title={t('archived.restore')} arrow>
               <IconButton
                 className="archive-action"
                 onClick={() => onUnarchive(note.id)}
@@ -466,7 +471,7 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
                 <Unarchive />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Delete" arrow>
+            <Tooltip title={t('archived.delete')} arrow>
               <IconButton
                 className="archive-action"
                 onClick={() => onDelete(note.id)}
@@ -510,6 +515,8 @@ const ArchivedFolderHeader: React.FC<ArchivedFolderHeaderProps> = ({
   onUnarchive,
   onDelete,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <Box
       onClick={onToggle}
@@ -569,7 +576,7 @@ const ArchivedFolderHeader: React.FC<ArchivedFolderHeaderProps> = ({
         sx={{ display: 'flex', gap: 0.5 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <Tooltip title="Restore folder" arrow>
+        <Tooltip title={t('archived.restoreFolder')} arrow>
           <IconButton
             className="archive-action"
             size="small"
@@ -588,7 +595,7 @@ const ArchivedFolderHeader: React.FC<ArchivedFolderHeaderProps> = ({
             <Unarchive sx={{ width: 16, height: 16 }} />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Delete folder" arrow>
+        <Tooltip title={t('archived.deleteFolder')} arrow>
           <IconButton
             className="archive-action"
             size="small"
@@ -724,6 +731,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   isDarkMode,
 }) => {
   const isTestEnv = import.meta.env.MODE === 'test';
+  const { t } = useTranslation();
   const listContentRef = useRef<HTMLDivElement>(null);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     new Set(),
@@ -1378,7 +1386,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           color: 'text.secondary',
         }}
       >
-        <Typography variant="h6">No archived notes</Typography>
+        <Typography variant="h6">{t('archived.none')}</Typography>
       </Box>
     );
   }
@@ -1411,7 +1419,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           <ArrowBack />
         </IconButton>
         <Typography variant="subtitle1" fontWeight={600}>
-          Archived notes
+          {t('archived.title')}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
         <InputBase
@@ -1424,7 +1432,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               searchInputRef.current?.blur();
             }
           }}
-          placeholder="Search..."
+          placeholder={t('archived.searchPlaceholder')}
           size="small"
           sx={{
             maxWidth: 200,
@@ -1456,7 +1464,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
             ) : null
           }
         />
-        <Tooltip title="Delete all archived notes" arrow>
+        <Tooltip title={t('archived.deleteAllTooltip')} arrow>
           <Button
             onClick={onDeleteAll}
             color="error"
@@ -1470,7 +1478,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
               },
             }}
           >
-            Delete all
+            {t('archived.deleteAll')}
           </Button>
         </Tooltip>
       </Box>
@@ -1487,7 +1495,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           }}
         >
           <Typography variant="body2">
-            No results for "{searchQuery}"
+            {t('archived.noResults', { query: searchQuery })}
           </Typography>
         </Box>
       ) : (
@@ -1755,9 +1763,9 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                           const note = noteMap.get(nativePreview.item.noteId);
                           if (!note) return null;
                           return (
-                            <Typography variant="body2" noWrap>
-                              {getNoteTitle(note).text}
-                            </Typography>
+                              <Typography variant="body2" noWrap>
+                                {getNoteTitle(note, t).text}
+                              </Typography>
                           );
                         })()
                       : (() => {

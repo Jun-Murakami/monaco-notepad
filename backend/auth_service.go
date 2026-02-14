@@ -149,7 +149,7 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 		token = newToken
 	}
 
-	a.logger.Info("Drive: token validated")
+	a.logger.InfoCode(MsgDriveTokenValidated, nil)
 
 	// 初期化処理
 	return true, a.initializeGoogleDrive(token)
@@ -269,7 +269,7 @@ func (a *authService) LogoutDrive() error {
 	// 少し待機してポートが完全に解放されるのを待つ
 	time.Sleep(1 * time.Second)
 
-	a.logger.Info("Drive: disconnected")
+	a.logger.InfoCode(MsgDriveDisconnected, nil)
 	return nil
 }
 
@@ -303,7 +303,7 @@ func (a *authService) HandleOfflineTransition(err error) error {
 // handleTemporaryOffline はトークンを保持したまま一時的にオフラインにする
 func (a *authService) handleTemporaryOffline(err error) {
 	if err != nil {
-		a.logger.Error(err, "Drive: offline (will retry)")
+		a.logger.ErrorCode(err, MsgDriveErrorAuthOffline, nil)
 	}
 	a.driveSync.SetConnected(false)
 	a.logger.NotifyDriveStatus(a.ctx, "offline")
@@ -329,7 +329,7 @@ func (a *authService) handleFullOfflineTransition(err error) {
 
 	// フロントエンドに通知
 	if err != nil {
-		a.logger.Error(err, "Drive: connection error")
+		a.logger.ErrorCode(err, MsgDriveErrorAuthConnection, nil)
 	}
 	a.logger.NotifyDriveStatus(a.ctx, "offline")
 }
@@ -343,14 +343,14 @@ func (a *authService) initializeDriveService(token *oauth2.Token) error {
 	client := oauth2.NewClient(a.ctx, tokenSource)
 	srv, err := drive.NewService(a.ctx, option.WithHTTPClient(client))
 	if err != nil {
-		return a.logger.Error(err, "Drive: failed to initialize client")
+		return a.logger.ErrorCode(err, MsgDriveErrorAuthInitClient, nil)
 	}
 
-	a.logger.Info("Drive: service initialized")
+	a.logger.InfoCode(MsgDriveServiceInitialized, nil)
 
 	// driveSync の各フィールドを初期化する前に nil チェックを行う
 	if a.driveSync == nil {
-		return a.logger.Error(nil, "Drive: sync not initialized")
+		return fmt.Errorf("drive sync not initialized")
 	}
 
 	a.driveSync.service = srv
@@ -435,6 +435,43 @@ func (a *authService) CancelLoginDrive() error {
 	return nil
 }
 
+// authPageTexts はOAuth認証ページの多言語テキスト
+type authPageTexts struct {
+	Title             string
+	ConnectedHeading  string
+	ConnectedMessage  string
+	AuthErrorHeading  string
+	AuthErrorMessage  string
+	LoginErrorHeading string
+	LoginErrorMessage string
+}
+
+// getAuthPageTexts は指定された言語のテキストを返す
+func getAuthPageTexts(lang string) authPageTexts {
+	switch lang {
+	case LocaleJapanese:
+		return authPageTexts{
+			Title:             "Monaco Notepad",
+			ConnectedHeading:  "Google Driveに接続しました！",
+			ConnectedMessage:  "このウィンドウを閉じてアプリに戻ることができます。",
+			AuthErrorHeading:  "認証エラー",
+			AuthErrorMessage:  "認証がタイムアウトしました。もう一度お試しください。",
+			LoginErrorHeading: "ログインエラー",
+			LoginErrorMessage: "ログインに失敗しました。もう一度お試しください。",
+		}
+	default: // English
+		return authPageTexts{
+			Title:             "Monaco Notepad",
+			ConnectedHeading:  "Connected to Google Drive!",
+			ConnectedMessage:  "You can close this window and return to the app.",
+			AuthErrorHeading:  "Authentication Error",
+			AuthErrorMessage:  "Authentication timed out. Please try again.",
+			LoginErrorHeading: "Login Error",
+			LoginErrorMessage: "Login failed. Please try again.",
+		}
+	}
+}
+
 // startAuthServer は認証サーバーを起動し、認証コードを待機
 func (a *authService) startAuthServer() (<-chan string, error) {
 	// リダイレクトURIを設定
@@ -443,10 +480,14 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 	// カスタムServeMuxを作成して、ハンドラーの重複を防ぐ
 	mux := http.NewServeMux()
 
+	// システムロケールを検出して言語を決定
+	texts := getAuthPageTexts(DetectSystemLocale())
+
 	// 共通のHTMLテンプレートを定義
 	const htmlTemplate = `
 		<html>
 			<head>
+				<meta charset="UTF-8">
 				<title>%s</title>
 				<style>
 					body { 
@@ -489,7 +530,7 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 			</head>
 			<body>
 				<div class="container">
-					<svg class="app-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/xlink" viewBox="0 0 123.03 161.61">
+					<svg class="app-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 123.03 161.61">
 						<defs>
 							<linearGradient id="b" x1="61.52" y1="153.24" x2="61.52" y2="24.34" gradientUnits="userSpaceOnUse">
 								<stop offset=".04" stop-color="#fff"/>
@@ -544,33 +585,29 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 			case <-timeoutChan:
 				w.Header().Set("Content-Type", "text/html")
 				fmt.Fprintf(w, htmlTemplate,
-					"Monaco Notepad",       // title
-					"error",                // message-box class
-					"text-error",           // text class
-					"Authentication Error", // heading
-					"Authentication timed out. Please try again.") // message
+					texts.Title,
+					"error",
+					"text-error",
+					texts.AuthErrorHeading,
+					texts.AuthErrorMessage)
 			default:
-				// コードをチャネルに送信
 				codeChan <- code
 
-				// レスポンスを送信
 				w.Header().Set("Content-Type", "text/html")
 				fmt.Fprintf(w, htmlTemplate,
-					"Monaco Notepad",             // title
-					"",                           // message-box class
-					"text-success",               // text class
-					"Connected to Google Drive!", // heading
-					"You can close this window and return to the app.") // message
+					texts.Title,
+					"",
+					"text-success",
+					texts.ConnectedHeading,
+					texts.ConnectedMessage)
 
-				// サーバーを安全に停止
 				go func() {
-					time.Sleep(1 * time.Second) // レスポンスが確実に送信されるのを待つ
+					time.Sleep(1 * time.Second)
 					if err := server.Shutdown(context.Background()); err != nil {
 						if !strings.Contains(err.Error(), "use of closed network connection") {
 							a.logger.Console("Error shutting down auth server: %v", err)
 						}
 					}
-					// シャットダウン後にリスナーをnilに設定
 					a.driveSync.listener = nil
 					a.driveSync.server = nil
 				}()
@@ -578,11 +615,11 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 		} else {
 			w.Header().Set("Content-Type", "text/html")
 			fmt.Fprintf(w, htmlTemplate,
-				"Monaco Notepad",                  // title
-				"error",                           // message-box class
-				"text-error",                      // text class
-				"Login Error",                     // heading
-				"Login failed. Please try again.") // message
+				texts.Title,
+				"error",
+				"text-error",
+				texts.LoginErrorHeading,
+				texts.LoginErrorMessage)
 		}
 	})
 

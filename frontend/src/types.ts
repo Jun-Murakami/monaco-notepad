@@ -84,25 +84,26 @@ export type FileNote = {
 
 // 設定の型
 export type Settings = {
-  fontFamily: string;
-  fontSize: number;
-  isDarkMode: boolean;
-  editorTheme: string;
-  wordWrap: string;
-  minimap: boolean;
-  windowWidth: number;
-  windowHeight: number;
-  windowX: number;
-  windowY: number;
-  isMaximized: boolean;
-  isDebug: boolean;
-  enableConflictBackup: boolean;
-  markdownPreviewOnLeft: boolean;
-  sidebarWidth?: number;
-  splitPaneSize?: number;
-  markdownPreviewPaneSize?: number;
-  markdownPreviewVisible?: boolean;
-  isSplit?: boolean;
+	fontFamily: string;
+	fontSize: number;
+	isDarkMode: boolean;
+	editorTheme: string;
+	wordWrap: string;
+	minimap: boolean;
+	windowWidth: number;
+	windowHeight: number;
+	windowX: number;
+	windowY: number;
+	isMaximized: boolean;
+	isDebug: boolean;
+	enableConflictBackup: boolean;
+	markdownPreviewOnLeft: boolean;
+	sidebarWidth?: number;
+	splitPaneSize?: number;
+	markdownPreviewPaneSize?: number;
+	markdownPreviewVisible?: boolean;
+	isSplit?: boolean;
+	uiLanguage?: 'system' | 'en' | 'ja';
 };
 
 export type EditorPane = 'left' | 'right';
@@ -114,13 +115,14 @@ export type PaneState = {
 
 // デフォルトの設定
 export const DEFAULT_EDITOR_SETTINGS: Partial<Settings> = {
-  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-  fontSize: 14,
-  isDarkMode: false,
-  editorTheme: 'default',
-  wordWrap: 'off',
-  minimap: true,
-  isDebug: false,
-  enableConflictBackup: true,
-  markdownPreviewOnLeft: false,
+	fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+	fontSize: 14,
+	isDarkMode: false,
+	editorTheme: 'default',
+	wordWrap: 'off',
+	minimap: true,
+	isDebug: false,
+	enableConflictBackup: true,
+	markdownPreviewOnLeft: false,
+	uiLanguage: 'system',
 };

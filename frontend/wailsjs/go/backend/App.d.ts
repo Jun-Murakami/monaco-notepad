@@ -42,6 +42,8 @@ export function GetCollapsedFolderIDs():Promise<Array<string>>;
 
 export function GetModifiedTime(arg1:string):Promise<time.Time>;
 
+export function GetSystemLocale():Promise<string>;
+
 export function GetTopLevelOrder():Promise<Array<backend.TopLevelItem>>;
 
 export function InitializeDrive():Promise<void>;

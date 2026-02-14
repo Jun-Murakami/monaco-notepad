@@ -12,13 +12,16 @@ import (
 
 // AppLogger はログ出力とフロントエンド通知を担当するインターフェース
 type AppLogger interface {
-	NotifyDriveStatus(ctx context.Context, status string)                // ドライブステータスの通知
-	NotifyFrontendSyncedAndReload(ctx context.Context)                   // フロントエンドの変更通知
-	NotifyIntegrityIssues(ctx context.Context, issues []IntegrityIssue)  // 整合性修復の確認が必要な通知
-	Console(format string, args ...interface{})                          // コンソール出力
-	Info(format string, args ...interface{})                             // 情報メッセージ出力
-	Error(err error, format string, args ...interface{}) error           // エラーメッセージ出力
-	ErrorWithNotify(err error, format string, args ...interface{}) error // エラーメッセージ出力とフロントエンド通知
+	NotifyDriveStatus(ctx context.Context, status string)                          // ドライブステータスの通知
+	NotifyFrontendSyncedAndReload(ctx context.Context)                             // フロントエンドの変更通知
+	NotifyIntegrityIssues(ctx context.Context, issues []IntegrityIssue)            // 整合性修復の確認が必要な通知
+	Console(format string, args ...interface{})                                    // コンソール出力
+	Info(format string, args ...interface{})                                       // 情報メッセージ出力
+	Error(err error, format string, args ...interface{}) error                     // エラーメッセージ出力
+	ErrorWithNotify(err error, format string, args ...interface{}) error           // エラーメッセージ出力とフロントエンド通知
+	InfoCode(code string, args map[string]interface{})                             // 多言語対応情報メッセージ
+	ErrorCode(err error, code string, args map[string]interface{}) error           // 多言語対応エラーメッセージ
+	ErrorWithNotifyCode(err error, code string, args map[string]interface{}) error // 多言語対応エラーメッセージ（ダイアログ通知付き）
 	IsTestMode() bool
 	SetDebugMode(isDebug bool) // デバッグモードの設定
 }
@@ -172,4 +175,33 @@ func (l *appLoggerImpl) sendLogMessage(message string) {
 
 func (l *appLoggerImpl) IsTestMode() bool {
 	return l.isTestMode
+}
+
+// InfoCode は多言語対応の情報メッセージを送信
+func (l *appLoggerImpl) InfoCode(code string, args map[string]interface{}) {
+	if l.isTestMode {
+		return
+	}
+	message := MessageCode{Code: code, Args: args}
+	wailsRuntime.EventsEmit(l.ctx, "message:info", message)
+}
+
+// ErrorCode は多言語対応のエラーメッセージを送信
+func (l *appLoggerImpl) ErrorCode(err error, code string, args map[string]interface{}) error {
+	if err == nil || l.isTestMode {
+		return err
+	}
+	message := MessageCode{Code: code, Args: args}
+	wailsRuntime.EventsEmit(l.ctx, "message:error", message)
+	return err
+}
+
+// ErrorWithNotifyCode は多言語対応のエラーメッセージをダイアログで通知
+func (l *appLoggerImpl) ErrorWithNotifyCode(err error, code string, args map[string]interface{}) error {
+	if err == nil || l.isTestMode {
+		return err
+	}
+	message := MessageCode{Code: code, Args: args}
+	wailsRuntime.EventsEmit(l.ctx, "drive:error", message)
+	return err
 }

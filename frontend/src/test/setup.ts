@@ -1,4 +1,7 @@
 import { vi } from 'vitest';
+import { initI18n } from '../i18n';
+
+initI18n('en');
 
 const originalGetComputedStyle = window.getComputedStyle;
 Object.defineProperty(window, 'getComputedStyle', {

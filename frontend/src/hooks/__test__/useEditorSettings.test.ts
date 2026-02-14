@@ -8,13 +8,18 @@ import {
   type Mock,
   vi,
 } from 'vitest';
-import { LoadSettings, SaveSettings } from '../../../wailsjs/go/backend/App';
+import {
+  GetSystemLocale,
+  LoadSettings,
+  SaveSettings,
+} from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
 import type { Settings } from '../../types';
 import { useEditorSettings } from '../useEditorSettings';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({
+  GetSystemLocale: vi.fn(),
   LoadSettings: vi.fn(),
   SaveSettings: vi.fn(),
 }));
@@ -44,6 +49,7 @@ describe('useEditorSettings フック', () => {
     enableConflictBackup: false,
     editorTheme: 'default',
     markdownPreviewOnLeft: false,
+    uiLanguage: 'system',
   };
 
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -52,6 +58,7 @@ describe('useEditorSettings フック', () => {
     vi.clearAllMocks();
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     (LoadSettings as unknown as Mock).mockResolvedValue(mockSettings);
+    (GetSystemLocale as unknown as Mock).mockResolvedValue('en-US');
     (runtime.Environment as unknown as Mock).mockResolvedValue({
       platform: 'windows',
     });
@@ -81,6 +88,7 @@ describe('useEditorSettings フック', () => {
         enableConflictBackup: true,
         editorTheme: 'default',
         markdownPreviewOnLeft: false,
+        uiLanguage: 'system',
       });
 
       // 非同期処理の完了を待つ
@@ -129,6 +137,7 @@ describe('useEditorSettings フック', () => {
         enableConflictBackup: true,
         editorTheme: 'default',
         markdownPreviewOnLeft: false,
+        uiLanguage: 'system',
       });
     });
   });

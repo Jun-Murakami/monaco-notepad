@@ -6,6 +6,7 @@ import {
 } from '@mui/icons-material';
 import { Box, IconButton, InputAdornment, InputBase } from '@mui/material';
 import { useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface NoteSearchBoxProps {
   value: string;
@@ -25,6 +26,7 @@ export const NoteSearchBox = ({
   matchCount,
 }: NoteSearchBoxProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { t } = useTranslation();
 
   const handleClear = useCallback(() => {
     onChange('');
@@ -63,7 +65,7 @@ export const NoteSearchBox = ({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Search..."
+        placeholder={t('search.placeholder')}
         size="small"
         sx={{
           width: '100%',

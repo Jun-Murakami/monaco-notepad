@@ -9,6 +9,7 @@ import {
   NotifyFrontendReady,
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
+import i18n from '../i18n';
 import { getSupportedLanguages, type LanguageInfo } from '../lib/monaco';
 import type {
   FileNote,
@@ -130,14 +131,19 @@ export const useInitialize = (
         }
 
         if (!issue.fixOptions || issue.fixOptions.length < 2) {
-          await showMessage('Notice', issue.summary, false, 'OK');
+          await showMessage(
+            i18n.t('integrity.noticeTitle'),
+            issue.summary,
+            false,
+            i18n.t('dialog.ok'),
+          );
           continue;
         }
 
         const primary = issue.fixOptions[0];
         const secondary = issue.fixOptions[1];
         const confirmed = await showMessage(
-          'Unknown file',
+          i18n.t('integrity.unknownFileTitle'),
           issue.summary,
           true,
           primary.label,

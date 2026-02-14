@@ -7,6 +7,7 @@ import {
   SaveFileNotes,
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
+import i18n from '../i18n';
 import type { FileNote, Note } from '../types';
 
 interface UseFileNotesProps {
@@ -43,11 +44,11 @@ export const useFileNotes = ({
         const exists = await CheckFileExists(fileNote.filePath);
         if (!exists) {
           const shouldKeep = await showMessage(
-            'File not found',
-            'This file was moved or deleted. Keep the content as an unsaved buffer?',
+            i18n.t('file.notFoundTitle'),
+            i18n.t('file.notFoundMessage'),
             true,
-            'Keep',
-            'Discard',
+            i18n.t('dialog.keep'),
+            i18n.t('dialog.discard'),
           );
 
           if (shouldKeep) {
@@ -97,11 +98,11 @@ export const useFileNotes = ({
         );
         if (isModified) {
           const shouldReload = await showMessage(
-            'File changed externally',
-            'This file was modified outside the app. Reload? (Unsaved editor changes will be lost)',
+            i18n.t('file.changedExternallyTitle'),
+            i18n.t('file.changedExternallyMessage'),
             true,
-            'Reload',
-            'Keep current',
+            i18n.t('dialog.reload'),
+            i18n.t('dialog.keepCurrent'),
           );
 
           if (shouldReload) {
@@ -230,11 +231,11 @@ export const useFileNotes = ({
       // ファイルが変更されている場合は、保存するかどうかを確認
       if (fileNote && fileNote.content !== fileNote.originalContent) {
         const shouldClose = await showMessage(
-          'Unsaved changes',
-          'Discard changes and close the file?',
+          i18n.t('file.unsavedChangesTitle'),
+          i18n.t('file.unsavedChangesMessage'),
           true,
-          'Discard',
-          'Cancel',
+          i18n.t('dialog.discard'),
+          i18n.t('dialog.cancel'),
         );
 
         if (!shouldClose) {

@@ -148,7 +148,7 @@ func (a *App) Startup(ctx context.Context) {
 	// NoteServiceの初期化 (NoteList読み込みを含む)
 	ns, err := NewNoteService(a.notesDir, a.logger)
 	if err != nil {
-		a.logger.Error(err, "Error initializing note service")
+		a.logger.ErrorCode(err, MsgSystemNoteServiceInitFailed, nil)
 		a.logger.Console("Creating empty note service as last resort")
 		ns = NewEmptyNoteService(a.notesDir, a.logger)
 	}
@@ -196,7 +196,7 @@ func (a *App) DomReady(ctx context.Context) {
 		<-authService.GetFrontendReadyChan()
 		a.logger.Console("Frontend ready - initializing Google Drive...")
 		if err := driveService.InitializeDrive(); err != nil {
-			a.logger.Error(err, "Drive: initialization failed")
+			a.logger.ErrorCode(err, MsgSystemDriveInitFailed, nil)
 			wailsRuntime.EventsEmit(ctx, "drive:status", "offline")
 		}
 	}()
@@ -256,12 +256,12 @@ func (a *App) NotifyFrontendReady() {
 					},
 				})
 			case "backup":
-				a.logger.Info("Note list restored from backup")
+				a.logger.InfoCode(MsgSystemNoteListRestored, nil)
 			}
 		}
 
 		if repairs := a.noteService.DrainPendingIntegrityRepairs(); len(repairs) > 0 {
-			a.logger.Info("Integrity check: auto-repaired local data (%d change(s))", len(repairs))
+			a.logger.InfoCode(MsgSystemIntegrityAutoRepaired, map[string]interface{}{"count": len(repairs)})
 		}
 
 		if issues := a.noteService.DrainPendingIntegrityIssues(); len(issues) > 0 {
@@ -661,7 +661,7 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 	// ファイルの内容を読み込む
 	content, err := a.fileService.OpenFile(filePath)
 	if err != nil {
-		return a.logger.Error(err, "Failed to open file")
+		return a.logger.ErrorCode(err, MsgSystemOpenFileFailed, nil)
 	}
 
 	// フロントエンドにファイルオープンイベントを送信
@@ -733,4 +733,9 @@ func (a *App) OpenConflictBackupFolder() error {
 // CheckFileExists は指定されたパスのファイルが存在するかチェックします
 func (a *App) CheckFileExists(path string) bool {
 	return a.fileService.CheckFileExists(path)
+}
+
+// GetSystemLocale はOSのシステムロケールを返します
+func (a *App) GetSystemLocale() string {
+	return DetectSystemLocale()
 }

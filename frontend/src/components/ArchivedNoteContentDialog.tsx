@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import * as monaco from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { LoadArchivedNote } from '../../wailsjs/go/backend/App';
 import type { Note } from '../types';
 import dayjs from '../utils/dayjs';
@@ -49,6 +50,7 @@ export const ArchivedNoteContentDialog: React.FC<
   hasPrevious = false,
   hasNext = false,
 }) => {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [loading, setLoading] = useState(false);
@@ -63,9 +65,9 @@ export const ArchivedNoteContentDialog: React.FC<
           isFallback: true,
         };
       }
-      return { text: 'Empty Note', isFallback: true };
+      return { text: t('notes.emptyNote'), isFallback: true };
     },
-    [],
+    [t],
   );
 
   useEffect(() => {
@@ -181,7 +183,7 @@ export const ArchivedNoteContentDialog: React.FC<
           variant="contained"
           startIcon={<Unarchive />}
         >
-          Restore
+          {t('archived.restore')}
         </Button>
         <Button
           onClick={handleDelete}
@@ -189,11 +191,11 @@ export const ArchivedNoteContentDialog: React.FC<
           variant="outlined"
           startIcon={<DeleteForever />}
         >
-          Delete
+          {t('archived.delete')}
         </Button>
         <Box sx={{ flex: 1 }} />
         <Button onClick={onClose} variant="outlined">
-          Close
+          {t('dialog.close')}
         </Button>
       </DialogActions>
     </Dialog>

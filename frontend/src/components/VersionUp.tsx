@@ -1,5 +1,6 @@
 import { Chip } from '@mui/material';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Console, GetAppVersion, OpenURL } from '../../wailsjs/go/backend/App';
 
 const repoUrl =
@@ -31,6 +32,7 @@ const compareVersions = (a: string, b: string): number => {
 };
 
 export const VersionUp = () => {
+  const { t } = useTranslation();
   const [version, setVersion] = useState<string>('');
   const [showChip, setShowChip] = useState<boolean>(false);
 
@@ -72,7 +74,7 @@ export const VersionUp = () => {
     <>
       {showChip && (
         <Chip
-          label={`Update? v${version}`}
+          label={t('version.updateAvailable', { version })}
           onClick={handleClick}
           onDelete={() => setShowChip(false)}
           size="small"

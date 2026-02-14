@@ -47,6 +47,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
@@ -65,6 +66,7 @@ const detectTargetPane = (x: number, y: number): 'left' | 'right' | null => {
 
 const getNoteTitle = (
   note: Note | FileNote,
+  t: (key: string) => string,
 ): { text: string; isFallback: boolean } => {
   if ('filePath' in note) {
     return { text: note.fileName, isFallback: false };
@@ -72,7 +74,7 @@ const getNoteTitle = (
 
   if (note.title.trim()) return { text: note.title, isFallback: false };
 
-  if (note.syncing) return { text: 'Loading...', isFallback: true };
+  if (note.syncing) return { text: t('notes.loading'), isFallback: true };
 
   if (note.archived && note.contentHeader) {
     return {
@@ -82,11 +84,11 @@ const getNoteTitle = (
   }
 
   const content = note.content?.trim() || '';
-  if (!content) return { text: 'New Note', isFallback: true };
+  if (!content) return { text: t('notes.newNote'), isFallback: true };
 
   const lines = content.split('\n');
   const firstNonEmptyLine = lines.find((line) => line.trim().length > 0);
-  if (!firstNonEmptyLine) return { text: 'New Note', isFallback: true };
+  if (!firstNonEmptyLine) return { text: t('notes.newNote'), isFallback: true };
 
   return {
     text: content.replace(/\r\n|\n|\r/g, ' ').slice(0, 30),
@@ -180,6 +182,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
   }) => {
     const theme = useTheme();
     const cmdKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
+    const { t } = useTranslation();
     const noteTitle = getNoteTitle(note);
     const [contextMenu, setContextMenu] = useState<{
       mouseX: number;
@@ -283,7 +286,11 @@ const NoteItem: React.FC<NoteItemProps> = memo(
           </ListItemButton>
           {isFileMode ? (
             <>
-              <Tooltip title={`Save (${cmdKey} + S)`} arrow placement="bottom">
+              <Tooltip
+                title={t('notes.saveShortcut', { shortcut: cmdKey })}
+                arrow
+                placement="bottom"
+              >
                 <span
                   style={{
                     position: 'absolute',
@@ -325,7 +332,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title="Convert to Note" arrow placement="bottom">
+              <Tooltip title={t('notes.convertToNote')} arrow placement="bottom">
                 <span
                   style={{
                     position: 'absolute',
@@ -359,7 +366,11 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title={`Close (${cmdKey} + W)`} arrow placement="bottom">
+              <Tooltip
+                title={t('notes.closeShortcut', { shortcut: cmdKey })}
+                arrow
+                placement="bottom"
+              >
                 <span
                   style={{
                     position: 'absolute',
@@ -397,7 +408,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
           ) : (
             onArchive && (
               <Tooltip
-                title={`Archive (${cmdKey} + W)`}
+                title={t('notes.archiveShortcut', { shortcut: cmdKey })}
                 arrow
                 placement="bottom"
               >
@@ -411,7 +422,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                 >
                   <IconButton
                     className="action-button"
-                    aria-label={`Archive (${cmdKey} + W)`}
+                    aria-label={t('notes.archiveShortcut', { shortcut: cmdKey })}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={async (e) => {
                       e.stopPropagation();
@@ -461,13 +472,13 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                 color="text.secondary"
                 sx={{ mr: 0.5 }}
               >
-                Open in
+                {t('notes.openIn')}
               </Typography>
               <Typography
                 variant="caption"
                 sx={{ fontWeight: 'bold', color: 'primary.main' }}
               >
-                1: Left Pane
+                {t('notes.leftPane')}
               </Typography>
             </MenuItem>
             <MenuItem
@@ -484,13 +495,13 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                 color="text.secondary"
                 sx={{ mr: 0.5 }}
               >
-                Open in
+                {t('notes.openIn')}
               </Typography>
               <Typography
                 variant="caption"
                 sx={{ fontWeight: 'bold', color: 'secondary.main' }}
               >
-                2: Right Pane
+                {t('notes.rightPane')}
               </Typography>
             </MenuItem>
           </Menu>
@@ -525,6 +536,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
   autoEdit,
   onAutoEditDone,
 }) => {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(folder.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -634,7 +646,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
       </Typography>
       {!isEditing && (
         <>
-          <Tooltip title="Rename" arrow>
+          <Tooltip title={t('notes.rename')} arrow>
             <IconButton
               className="folder-action"
               size="small"
@@ -661,7 +673,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
             </IconButton>
           </Tooltip>
           {isEmpty ? (
-            <Tooltip title="Delete" arrow>
+            <Tooltip title={t('notes.delete')} arrow>
               <IconButton
                 className="folder-action"
                 size="small"
@@ -685,7 +697,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
               </IconButton>
             </Tooltip>
           ) : (
-            <Tooltip title="Archive" arrow>
+            <Tooltip title={t('notes.archive')} arrow>
               <IconButton
                 className="folder-action"
                 size="small"
@@ -1182,6 +1194,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   onDropFileNoteToNotes,
 }) => {
   const isTestEnv = import.meta.env.MODE === 'test';
+  const { t } = useTranslation();
   const listContentRef = useRef<HTMLDivElement>(null);
   const [nativePreview, setNativePreview] = useState<NativePreviewState | null>(
     null,
@@ -1354,6 +1367,11 @@ export const NoteList: React.FC<NoteListProps> = ({
     [],
   );
 
+  const getLocalizedNoteTitle = useCallback(
+    (note: Note | FileNote) => getNoteTitle(note, t),
+    [t],
+  );
+
   const renderNoteItem = useCallback(
     (note: Note | FileNote, isDraggingAny: boolean) => (
       <NoteItem
@@ -1364,7 +1382,7 @@ export const NoteList: React.FC<NoteListProps> = ({
         onArchive={onArchive}
         onConvertToNote={onConvertToNote}
         onSaveFile={onSaveFile}
-        getNoteTitle={getNoteTitle}
+        getNoteTitle={getLocalizedNoteTitle}
         isFileMode={isFileMode}
         onCloseFile={onCloseFile}
         isFileModified={isFileModified}
@@ -1389,6 +1407,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       onSaveFile,
       platform,
       secondarySelectedNoteId,
+      getLocalizedNoteTitle,
     ],
   );
 
@@ -2271,7 +2290,7 @@ export const NoteList: React.FC<NoteListProps> = ({
                   if (!note) return null;
                   return (
                     <Typography variant="body2" noWrap>
-                      {getNoteTitle(note).text}
+                      {getLocalizedNoteTitle(note).text}
                     </Typography>
                   );
                 })()

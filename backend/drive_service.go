@@ -188,7 +188,7 @@ func (s *driveService) onConnected() error {
 
 	s.logger.Console("Ensuring Drive folders...")
 	if err := s.ensureDriveFolders(); err != nil {
-		s.logger.Error(err, "Drive: folder setup failed")
+		s.logger.ErrorCode(err, MsgDriveErrorFolderSetup, nil)
 		return s.auth.HandleOfflineTransition(err)
 	}
 
@@ -206,11 +206,11 @@ func (s *driveService) onConnected() error {
 
 	s.logger.Console("Ensuring note list...")
 	if err := s.ensureNoteList(); err != nil {
-		s.logger.Error(err, "Drive: note list setup failed")
+		s.logger.ErrorCode(err, MsgDriveErrorNoteListSetup, nil)
 		return s.auth.HandleOfflineTransition(err)
 	}
 
-	s.logger.Info("Drive: connected")
+	s.logger.InfoCode(MsgDriveConnected, nil)
 	go s.waitForFrontendAndStartSync()
 	return nil
 }
@@ -261,7 +261,7 @@ func (s *driveService) CreateNote(note *Note) error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
-	s.logger.Info("Drive: uploading \"%s\"", note.Title)
+	s.logger.InfoCode(MsgDriveUploading, map[string]interface{}{"noteTitle": note.Title})
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 	err := s.driveSync.CreateNote(s.ctx, note)
 	if err != nil {
@@ -271,7 +271,7 @@ func (s *driveService) CreateNote(note *Note) error {
 		}
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note: %v", err))
 	}
-	s.logger.Info("Drive: uploaded \"%s\"", note.ID)
+	s.logger.InfoCode(MsgDriveUploaded, map[string]interface{}{"noteId": note.ID})
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
@@ -283,7 +283,7 @@ func (s *driveService) UpdateNote(note *Note) error {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	s.logger.Info("Drive: updating \"%s\"", note.ID)
+	s.logger.InfoCode(MsgDriveUpdating, map[string]interface{}{"noteId": note.ID})
 	err := s.driveSync.UpdateNote(s.ctx, note)
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
@@ -292,7 +292,7 @@ func (s *driveService) UpdateNote(note *Note) error {
 		}
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note: %v", err))
 	}
-	s.logger.Info("Drive: updated \"%s\"", note.ID)
+	s.logger.InfoCode(MsgDriveUpdated, map[string]interface{}{"noteId": note.ID})
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
@@ -304,7 +304,7 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 	}
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	s.logger.Info("Drive: deleting note %s", noteID)
+	s.logger.InfoCode(MsgDriveDeletingNote, map[string]interface{}{"noteId": noteID})
 	err := s.driveSync.DeleteNote(s.ctx, noteID)
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
@@ -313,7 +313,7 @@ func (s *driveService) DeleteNoteDrive(noteID string) error {
 		}
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to delete note from cloud"))
 	}
-	s.logger.Info("Drive: deleted note from cloud")
+	s.logger.InfoCode(MsgDriveDeletedNote, nil)
 	s.logger.NotifyDriveStatus(s.ctx, "synced")
 	s.resetPollingInterval()
 	return nil
@@ -336,7 +336,7 @@ func (s *driveService) SaveNoteAndUpdateList(note *Note, isCreate bool) error {
 	}
 
 	if isCreate {
-		s.logger.Info("Drive: uploading \"%s\"", note.Title)
+		s.logger.InfoCode(MsgDriveUploading, map[string]interface{}{"noteTitle": note.Title})
 		err := s.driveSync.CreateNote(s.ctx, note)
 		if err != nil {
 			if strings.Contains(err.Error(), "operation cancelled") {
@@ -345,7 +345,7 @@ func (s *driveService) SaveNoteAndUpdateList(note *Note, isCreate bool) error {
 			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note: %v", err))
 		}
 	} else {
-		s.logger.Info("Drive: updating \"%s\"", note.ID)
+		s.logger.InfoCode(MsgDriveUpdating, map[string]interface{}{"noteId": note.ID})
 		err := s.driveSync.UpdateNote(s.ctx, note)
 		if err != nil {
 			if strings.Contains(err.Error(), "operation cancelled") {
@@ -401,13 +401,13 @@ func (s *driveService) SyncNotes() error {
 
 	noteListID := s.auth.GetDriveSync().NoteListID()
 	if noteListID == "" {
-		s.logger.Info("Uploading all local notes to Drive (first sync)")
+		s.logger.InfoCode(MsgDriveSyncFirstPush, nil)
 		return s.pushLocalChanges()
 	}
 
 	meta, err := s.driveOps.GetFileMetadata(noteListID)
 	if err != nil {
-		s.logger.Error(err, "Drive: failed to get noteList metadata")
+		s.logger.ErrorCode(err, MsgDriveErrorGetNoteListMeta, nil)
 		return s.auth.HandleOfflineTransition(err)
 	}
 	cloudModifiedTime := meta.ModifiedTime
@@ -422,15 +422,15 @@ func (s *driveService) SyncNotes() error {
 		return nil
 
 	case !cloudChanged && localDirty:
-		s.logger.Info("Uploading local changes to Drive")
+		s.logger.InfoCode(MsgDriveSyncPushLocalChanges, nil)
 		return s.pushLocalChanges()
 
 	case cloudChanged && !localDirty:
-		s.logger.Info("Downloading changes from Drive")
+		s.logger.InfoCode(MsgDriveSyncPullCloudChanges, nil)
 		return s.pullCloudChanges(noteListID)
 
 	default:
-		s.logger.Info("Syncing — both local and cloud have changes")
+		s.logger.InfoCode(MsgDriveSyncConflictDetected, nil)
 		return s.resolveConflict(noteListID)
 	}
 }
@@ -445,21 +445,21 @@ func (s *driveService) pushLocalChanges() error {
 	for id := range dirtyIDs {
 		note, err := s.noteService.LoadNote(id)
 		if err != nil {
-			s.logger.Error(err, "Drive: failed to load dirty note %s (skipping)", id)
+			s.logger.ErrorCode(err, MsgDriveErrorLoadDirtyNote, map[string]interface{}{"noteId": id})
 			uploadFailures++
 			continue
 		}
 		uploadedHashes[id] = computeContentHash(note)
-		s.logger.Info("Uploading note %s", id)
+		s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{"noteId": id})
 		if _, err := s.driveSync.GetNoteID(s.ctx, id); err != nil {
 			if err := s.driveSync.CreateNote(s.ctx, note); err != nil {
-				s.logger.Error(err, "Drive: failed to create note %s", id)
+				s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": id})
 				uploadFailures++
 				continue
 			}
 		} else {
 			if err := s.driveSync.UpdateNote(s.ctx, note); err != nil {
-				s.logger.Error(err, "Drive: failed to update note %s", id)
+				s.logger.ErrorCode(err, MsgDriveErrorUpdateNote, map[string]interface{}{"noteId": id})
 				uploadFailures++
 				continue
 			}
@@ -467,22 +467,19 @@ func (s *driveService) pushLocalChanges() error {
 	}
 
 	for id := range deletedIDs {
-		s.logger.Info("Deleting note %s from Drive", id)
+		s.logger.InfoCode(MsgDriveSyncDeleteNote, map[string]interface{}{"noteId": id})
 		if err := s.driveSync.DeleteNote(s.ctx, id); err != nil {
 			if isDriveNotFoundError(err) {
-				s.logger.Info("Drive: note %s already absent on Drive; treating as deleted", id)
+				s.logger.InfoCode(MsgDriveNoteAlreadyAbsent, map[string]interface{}{"noteId": id})
 				continue
 			}
-			s.logger.Error(err, "Drive: failed to delete note %s from Drive (skipping)", id)
+			s.logger.ErrorCode(err, MsgDriveErrorDeleteNote, map[string]interface{}{"noteId": id})
 			deleteFailures++
 		}
 	}
 
 	if uploadFailures > 0 || deleteFailures > 0 {
-		s.logger.Info(
-			"Drive: partial push deferred; keeping local dirty state for retry (%d upload/update failed, %d delete failed)",
-			uploadFailures, deleteFailures,
-		)
+		s.logger.InfoCode(MsgDrivePartialPushDeferred, map[string]interface{}{"uploadFailures": uploadFailures, "deleteFailures": deleteFailures})
 		s.pollingService.RefreshChangeToken()
 		return nil
 	}
@@ -504,7 +501,7 @@ func (s *driveService) pushLocalChanges() error {
 			uploadedHashes,
 			currentHashes,
 		) {
-			s.logger.Info("Drive: local changes arrived during push; deferring note list upload to next sync")
+			s.logger.InfoCode(MsgDriveDeferNoteListUpload, nil)
 			s.pollingService.RefreshChangeToken()
 			return nil
 		}
@@ -537,7 +534,7 @@ func (s *driveService) pushLocalChanges() error {
 
 	meta, err := s.driveOps.GetFileMetadata(noteListID)
 	if err != nil {
-		s.logger.Error(err, "Drive: failed to get updated metadata after push")
+		s.logger.ErrorCode(err, MsgDriveErrorGetUpdatedMeta, nil)
 	}
 
 	driveTs := ""
@@ -587,15 +584,15 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 	for _, cloudNote := range cloudNoteList.Notes {
 		localNote, exists := localMap[cloudNote.ID]
 		if !exists || localNote.ContentHash != cloudNote.ContentHash {
-			s.logger.Info("Downloading note %s", cloudNote.ID)
+			s.logger.InfoCode(MsgDriveSyncDownloadNote, map[string]interface{}{"noteId": cloudNote.ID})
 			note, dlErr := s.driveSync.DownloadNote(s.ctx, cloudNote.ID)
 			if dlErr != nil {
 				if isDriveNotFoundError(dlErr) {
-					s.logger.Info("Drive: note %s is missing in Drive files; removing from cloud note list", cloudNote.ID)
+					s.logger.InfoCode(MsgDriveNoteMissingRemoveList, map[string]interface{}{"noteId": cloudNote.ID})
 					missingCloudNoteIDs[cloudNote.ID] = true
 					continue
 				}
-				s.logger.Error(dlErr, "Drive: failed to download note %s", cloudNote.ID)
+				s.logger.ErrorCode(dlErr, MsgDriveErrorDownloadNote, map[string]interface{}{"noteId": cloudNote.ID})
 				continue
 			}
 			stagedDownloads[cloudNote.ID] = note
@@ -609,7 +606,7 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 	removedMissing := filterNoteListByMissingNotes(cloudNoteList, missingCloudNoteIDs)
 	if removedMissing > 0 {
 		if err := s.driveSync.UpdateNoteList(s.ctx, cloudNoteList, noteListID); err != nil {
-			s.logger.Error(err, "Drive: failed to repair cloud note list after missing note cleanup")
+			s.logger.ErrorCode(err, MsgDriveErrorRepairCloudList, nil)
 		}
 	}
 
@@ -620,7 +617,7 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 
 	_, _, _, _, latestRevision := s.syncState.GetDirtySnapshotWithRevision()
 	if latestRevision != snapshotRevision {
-		s.logger.Info("Drive: local changes arrived during pull; deferring cloud apply to next sync")
+		s.logger.InfoCode(MsgDriveDeferCloudApply, nil)
 		s.pollingService.RefreshChangeToken()
 		return nil
 	}
@@ -633,7 +630,7 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 		sort.Strings(downloadIDs)
 		for _, id := range downloadIDs {
 			if err := s.noteService.SaveNoteFromSync(stagedDownloads[id]); err != nil {
-				s.logger.Error(err, "Drive: failed to save downloaded note %s", id)
+				s.logger.ErrorCode(err, MsgDriveErrorSaveDownloadedNote, map[string]interface{}{"noteId": id})
 				continue
 			}
 		}
@@ -641,7 +638,7 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 
 	for _, localNote := range s.noteService.noteList.Notes {
 		if _, exists := cloudMap[localNote.ID]; !exists {
-			s.logger.Info("Removing local note %s (deleted on another device)", localNote.ID)
+			s.logger.InfoCode(MsgDriveSyncRemoveLocalDeleted, map[string]interface{}{"noteId": localNote.ID})
 			if backupEnabled {
 				backupPath, backupErr := s.backupLocalNoteBeforeCloudDelete(localNote.ID, "cloud-delete-during-pull")
 				if backupErr != nil {
@@ -651,7 +648,7 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 				}
 			}
 			if err := s.noteService.DeleteNoteFromSync(localNote.ID); err != nil {
-				s.logger.Error(err, "Drive: failed to remove local note %s", localNote.ID)
+				s.logger.ErrorCode(err, MsgDriveErrorRemoveLocalNote, map[string]interface{}{"noteId": localNote.ID})
 			}
 		}
 	}
@@ -726,20 +723,20 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		if !existsInCloud || cloudNote.ContentHash == lastHash {
 			note, err := s.noteService.LoadNote(id)
 			if err != nil {
-				s.logger.Error(err, "Drive: failed to load dirty note %s", id)
+				s.logger.ErrorCode(err, MsgDriveErrorLoadDirtyNote, map[string]interface{}{"noteId": id})
 				uploadFailures++
 				continue
 			}
-			s.logger.Info("Uploading local note %s (unchanged on cloud)", id)
+			s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{"noteId": id})
 			if _, getErr := s.driveSync.GetNoteID(s.ctx, id); getErr != nil {
 				if err := s.driveSync.CreateNote(s.ctx, note); err != nil {
-					s.logger.Error(err, "Drive: failed to create note %s", id)
+					s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": id})
 					uploadFailures++
 					continue
 				}
 			} else {
 				if err := s.driveSync.UpdateNote(s.ctx, note); err != nil {
-					s.logger.Error(err, "Drive: failed to update note %s", id)
+					s.logger.ErrorCode(err, MsgDriveErrorUpdateNote, map[string]interface{}{"noteId": id})
 					uploadFailures++
 					continue
 				}
@@ -749,26 +746,26 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		} else {
 			localNote, err := s.noteService.LoadNote(id)
 			if err != nil {
-				s.logger.Error(err, "Drive: failed to load local note %s for conflict resolution", id)
+				s.logger.ErrorCode(err, MsgDriveErrorLoadLocalForConflict, map[string]interface{}{"noteId": id})
 				uploadFailures++
 				continue
 			}
 			if isModifiedTimeAfter(localNote.ModifiedTime, cloudNote.ModifiedTime) {
-				s.logger.Info("Note %s edited on both devices — keeping local (newer)", id)
+				s.logger.InfoCode(MsgDriveConflictKeepLocal, map[string]interface{}{"noteId": id})
 				if err := s.driveSync.UpdateNote(s.ctx, localNote); err != nil {
-					s.logger.Error(err, "Drive: failed to upload note %s", id)
+					s.logger.ErrorCode(err, MsgDriveErrorUploadNote, map[string]interface{}{"noteId": id})
 					uploadFailures++
 				} else {
 					processedDirtyHashes[id] = computeContentHash(localNote)
 				}
 			} else {
-				s.logger.Info("Note %s edited on both devices — keeping cloud (newer)", id)
+				s.logger.InfoCode(MsgDriveConflictKeepCloud, map[string]interface{}{"noteId": id})
 				downloaded, dlErr := s.driveSync.DownloadNote(s.ctx, id)
 				if dlErr != nil {
 					if isDriveNotFoundError(dlErr) {
-						s.logger.Info("Drive: note %s is missing in Drive files; uploading local copy", id)
+						s.logger.InfoCode(MsgDriveNoteMissingUploadLocal, map[string]interface{}{"noteId": id})
 						if err := s.driveSync.CreateNote(s.ctx, localNote); err != nil {
-							s.logger.Error(err, "Drive: failed to recreate missing note %s", id)
+							s.logger.ErrorCode(err, MsgDriveErrorRecreateMissingNote, map[string]interface{}{"noteId": id})
 							missingCloudNoteIDs[id] = true
 							uploadFailures++
 							continue
@@ -777,7 +774,7 @@ func (s *driveService) resolveConflict(noteListID string) error {
 						dirtySynced[id] = true
 						continue
 					}
-					s.logger.Error(dlErr, "Drive: failed to download note %s", id)
+					s.logger.ErrorCode(dlErr, MsgDriveErrorDownloadNote, map[string]interface{}{"noteId": id})
 					uploadFailures++
 					continue
 				}
@@ -798,13 +795,13 @@ func (s *driveService) resolveConflict(noteListID string) error {
 
 	for id := range deletedIDs {
 		if _, exists := cloudMap[id]; exists {
-			s.logger.Info("Deleting note %s from Drive (deleted locally)", id)
+			s.logger.InfoCode(MsgDriveSyncDeleteNote, map[string]interface{}{"noteId": id})
 			if err := s.driveSync.DeleteNote(s.ctx, id); err != nil {
 				if isDriveNotFoundError(err) {
-					s.logger.Info("Drive: note %s already absent on Drive; treating as deleted", id)
+					s.logger.InfoCode(MsgDriveNoteAlreadyAbsent, map[string]interface{}{"noteId": id})
 					continue
 				}
-				s.logger.Error(err, "Drive: failed to delete note %s", id)
+				s.logger.ErrorCode(err, MsgDriveErrorDeleteNote, map[string]interface{}{"noteId": id})
 				deleteFailures++
 			}
 		}
@@ -820,15 +817,15 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 		localNote, exists := localMap[cloudNote.ID]
 		if !exists || localNote.ContentHash != cloudNote.ContentHash {
-			s.logger.Info("Downloading note %s (changed on another device)", cloudNote.ID)
+			s.logger.InfoCode(MsgDriveSyncDownloadRemoteNote, map[string]interface{}{"noteId": cloudNote.ID})
 			downloaded, dlErr := s.driveSync.DownloadNote(s.ctx, cloudNote.ID)
 			if dlErr != nil {
 				if isDriveNotFoundError(dlErr) {
-					s.logger.Info("Drive: note %s is missing in Drive files; removing from cloud note list", cloudNote.ID)
+					s.logger.InfoCode(MsgDriveNoteMissingRemoveList, map[string]interface{}{"noteId": cloudNote.ID})
 					missingCloudNoteIDs[cloudNote.ID] = true
 					continue
 				}
-				s.logger.Error(dlErr, "Drive: failed to download note %s", cloudNote.ID)
+				s.logger.ErrorCode(dlErr, MsgDriveErrorDownloadNote, map[string]interface{}{"noteId": cloudNote.ID})
 				continue
 			}
 			stagedDownloads[cloudNote.ID] = downloaded
@@ -858,7 +855,7 @@ func (s *driveService) resolveConflict(noteListID string) error {
 			processedDirtyHashes,
 			currentHashes,
 		) {
-			s.logger.Info("Drive: local changes arrived during conflict resolution; deferring local merge to next sync")
+			s.logger.InfoCode(MsgDriveDeferConflictMerge, nil)
 			s.pollingService.RefreshChangeToken()
 			return nil
 		}
@@ -890,7 +887,7 @@ func (s *driveService) resolveConflict(noteListID string) error {
 			}
 
 			if err := s.noteService.SaveNoteFromSync(stagedDownloads[id]); err != nil {
-				s.logger.Error(err, "Drive: failed to save downloaded note %s", id)
+				s.logger.ErrorCode(err, MsgDriveErrorSaveDownloadedNote, map[string]interface{}{"noteId": id})
 				uploadFailures++
 				continue
 			}
@@ -899,7 +896,7 @@ func (s *driveService) resolveConflict(noteListID string) error {
 
 	for _, localNote := range s.noteService.noteList.Notes {
 		if _, inCloud := cloudMap[localNote.ID]; !inCloud && !dirtyIDs[localNote.ID] && !deletedIDs[localNote.ID] {
-			s.logger.Info("Removing local note %s (deleted on another device)", localNote.ID)
+			s.logger.InfoCode(MsgDriveSyncRemoveLocalDeleted, map[string]interface{}{"noteId": localNote.ID})
 			if backupEnabled {
 				backupPath, backupErr := s.backupLocalNoteBeforeCloudDelete(localNote.ID, "cloud-delete-during-conflict-merge")
 				if backupErr != nil {
@@ -909,7 +906,7 @@ func (s *driveService) resolveConflict(noteListID string) error {
 				}
 			}
 			if err := s.noteService.DeleteNoteFromSync(localNote.ID); err != nil {
-				s.logger.Error(err, "Drive: failed to remove local note %s", localNote.ID)
+				s.logger.ErrorCode(err, MsgDriveErrorRemoveLocalNote, map[string]interface{}{"noteId": localNote.ID})
 			}
 		}
 	}
@@ -1012,10 +1009,7 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	s.noteService.noteList.Notes = mergedNotes
 
 	if uploadFailures > 0 || deleteFailures > 0 {
-		s.logger.Info(
-			"Drive: partial conflict resolution deferred; keeping local dirty state for retry (%d upload/download failed, %d delete failed)",
-			uploadFailures, deleteFailures,
-		)
+		s.logger.InfoCode(MsgDrivePartialConflictDeferred, map[string]interface{}{"uploadFailures": uploadFailures, "deleteFailures": deleteFailures})
 		if err := s.noteService.saveNoteList(); err != nil {
 			return fmt.Errorf("failed to save merged note list: %w", err)
 		}
@@ -1400,7 +1394,7 @@ func (s *driveService) ensureSyncIsPossible() error {
 // 同期が完了したらフロントエンドへ通知
 func (s *driveService) notifySyncComplete() {
 	if _, err := s.noteService.ValidateIntegrity(); err != nil {
-		s.logger.Error(err, "Drive: integrity check failed after sync")
+		s.logger.ErrorCode(err, MsgDriveErrorIntegrityCheck, nil)
 	}
 	if s.operationsQueue != nil && s.operationsQueue.HasItems() {
 		s.logger.Console("Drive: upload queue active")
@@ -1424,13 +1418,13 @@ func (s *driveService) ensureDriveFolders() error {
 	rootFolders, err := s.driveOps.ListFiles(
 		"name='monaco-notepad' and mimeType='application/vnd.google-apps.folder' and trashed=false")
 	if err != nil {
-		return s.logger.ErrorWithNotify(err, "Drive: failed to check root folder")
+		return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCheckRootFolder, nil)
 	}
 
 	if len(rootFolders) == 0 {
 		rootID, err = s.driveOps.CreateFolder("monaco-notepad", "")
 		if err != nil {
-			return s.logger.ErrorWithNotify(err, "Drive: failed to create root folder")
+			return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCreateRootFolder, nil)
 		}
 	} else {
 		rootID = rootFolders[0].Id
@@ -1440,13 +1434,13 @@ func (s *driveService) ensureDriveFolders() error {
 		fmt.Sprintf("name='notes' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
 			rootID))
 	if err != nil {
-		return s.logger.ErrorWithNotify(err, "Drive: failed to check notes folder")
+		return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCheckNotesFolder, nil)
 	}
 
 	if len(notesFolders) == 0 {
 		notesID, err = s.driveOps.CreateFolder("notes", rootID)
 		if err != nil {
-			return s.logger.ErrorWithNotify(err, "Drive: failed to create notes folder")
+			return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCreateNotesFolder, nil)
 		}
 	} else {
 		notesID = notesFolders[0].Id
@@ -1462,7 +1456,7 @@ func (s *driveService) ensureNoteList() error {
 	noteListFile, err := s.driveOps.ListFiles(
 		fmt.Sprintf("name='noteList_v2.json' and '%s' in parents and trashed=false", rootID))
 	if err != nil {
-		return s.logger.ErrorWithNotify(err, "Drive: failed to check note list file")
+		return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCheckNoteListFile, nil)
 	}
 
 	if len(noteListFile) > 0 {

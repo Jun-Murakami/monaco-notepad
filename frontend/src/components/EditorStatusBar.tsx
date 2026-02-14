@@ -15,10 +15,12 @@ import {
 import { keyframes } from '@mui/system';
 import type { editor, IDisposable } from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import * as wailsRuntime from '../../wailsjs/runtime';
 import { useDriveSync } from '../hooks/useDriveSync';
+import { isMessageCode, translateMessageCode } from '../utils/messageCode';
 import { GoogleDriveIcon, MarkdownIcon, SplitEditorIcon } from './Icons';
 import { VersionUp } from './VersionUp';
 
@@ -68,6 +70,7 @@ export const EditorStatusBar = ({
   onSettings,
   showMessage,
 }: EditorStatusBarProps) => {
+  const { t } = useTranslation();
   const {
     syncStatus,
     isHoveringSync,
@@ -103,20 +106,26 @@ export const EditorStatusBar = ({
     const selection = editorInstanceRef.current.getSelection();
     const lineCount = model.getLineCount();
 
-    const info = [`Length: ${model.getValueLength()}`, `Lines: ${lineCount}`];
+    const info = [
+      t('statusBar.length', { length: model.getValueLength() }),
+      t('statusBar.lines', { lines: lineCount }),
+    ];
 
     if (selection && !selection.isEmpty()) {
       const start = `${selection.startLineNumber}.${selection.startColumn}`;
       const end = `${selection.endLineNumber}.${selection.endColumn}`;
-      info.push(`Select: [ ${start} -> ${end} ]`);
+      info.push(t('statusBar.selection', { start, end }));
     } else if (position) {
       info.push(
-        `Cursor Position: [ Line ${position.lineNumber}, Col ${position.column} ]`,
+        t('statusBar.cursor', {
+          line: position.lineNumber,
+          column: position.column,
+        }),
       );
     }
 
     return info;
-  }, [editorInstanceRef]);
+  }, [editorInstanceRef, t]);
 
   const [info, setInfo] = useState<string[]>(getEditorInfo());
 
@@ -140,33 +149,44 @@ export const EditorStatusBar = ({
     };
   }, [editorInstanceRef, getEditorInfo]);
 
+  const appendStatusMessage = useCallback((message: string) => {
+    if (logTimeoutRef.current) {
+      window.clearTimeout(logTimeoutRef.current);
+    }
+
+    setLogMessage(message);
+    setOpacity(1);
+
+    const history = messageHistoryRef.current;
+    history.push({ message, timestamp: new Date() });
+    if (history.length > MAX_HISTORY) {
+      history.splice(0, history.length - MAX_HISTORY);
+    }
+
+    logTimeoutRef.current = window.setTimeout(() => {
+      setOpacity(0);
+    }, 8000);
+  }, []);
+
   useEffect(() => {
     wailsRuntime.EventsOn('logMessage', (message: string) => {
-      if (logTimeoutRef.current) {
-        window.clearTimeout(logTimeoutRef.current);
+      appendStatusMessage(message);
+    });
+
+    wailsRuntime.EventsOn('message:info', (message: unknown) => {
+      if (isMessageCode(message)) {
+        appendStatusMessage(translateMessageCode(message));
       }
-
-      setLogMessage(message);
-      setOpacity(1);
-
-      const history = messageHistoryRef.current;
-      history.push({ message, timestamp: new Date() });
-      if (history.length > MAX_HISTORY) {
-        history.splice(0, history.length - MAX_HISTORY);
-      }
-
-      logTimeoutRef.current = window.setTimeout(() => {
-        setOpacity(0);
-      }, 8000);
     });
 
     return () => {
       wailsRuntime.EventsOff('logMessage');
+      wailsRuntime.EventsOff('message:info');
       if (logTimeoutRef.current) {
         window.clearTimeout(logTimeoutRef.current);
       }
     };
-  }, []);
+  }, [appendStatusMessage]);
 
   useEffect(() => {
     if (!historyOpen) {
@@ -234,7 +254,7 @@ export const EditorStatusBar = ({
         <Tooltip
           title={
             messageHistoryRef.current.length > 0
-              ? 'Open Notification History'
+              ? t('statusBar.openNotificationHistory')
               : ''
           }
           arrow
@@ -295,7 +315,7 @@ export const EditorStatusBar = ({
         }}
       >
         <Tooltip
-          title={isSplit ? 'Close Split' : 'Split Editor'}
+          title={isSplit ? t('statusBar.closeSplit') : t('statusBar.splitEditor')}
           arrow
           placement="top"
         >
@@ -311,7 +331,11 @@ export const EditorStatusBar = ({
           </span>
         </Tooltip>
         <Tooltip
-          title={isMarkdownPreview ? 'Close Preview' : 'Markdown Preview'}
+          title={
+            isMarkdownPreview
+              ? t('statusBar.closePreview')
+              : t('statusBar.markdownPreview')
+          }
           arrow
           placement="top"
         >
@@ -326,7 +350,7 @@ export const EditorStatusBar = ({
 
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           {syncStatus === 'synced' ? (
-            <Tooltip title="Sync now!" arrow placement="top">
+            <Tooltip title={t('statusBar.syncNow')} arrow placement="top">
               <IconButton
                 onClick={handleSyncNow}
                 size="small"
@@ -342,7 +366,7 @@ export const EditorStatusBar = ({
               </IconButton>
             </Tooltip>
           ) : syncStatus === 'syncing' ? (
-            <Tooltip title="Syncing..." arrow placement="top">
+            <Tooltip title={t('statusBar.syncing')} arrow placement="top">
               <Box
                 sx={{
                   animation: `${fadeAnimation} 1.5s ease-in-out infinite`,
@@ -361,7 +385,7 @@ export const EditorStatusBar = ({
           )}
         </Box>
         {syncStatus === 'offline' ? (
-          <Tooltip title="Connect to Google Drive" arrow placement="top">
+          <Tooltip title={t('statusBar.connectGoogleDrive')} arrow placement="top">
             <IconButton
               sx={{ width: 28, height: 28 }}
               onClick={handleGoogleAuth}
@@ -371,7 +395,11 @@ export const EditorStatusBar = ({
           </Tooltip>
         ) : (
           <Tooltip
-            title={syncStatus === 'logging in' ? 'Cancel' : 'Logout'}
+            title={
+              syncStatus === 'logging in'
+                ? t('dialog.cancel')
+                : t('statusBar.logout')
+            }
             arrow
             placement="top"
           >
@@ -386,7 +414,7 @@ export const EditorStatusBar = ({
             </span>
           </Tooltip>
         )}
-        <Tooltip title="Settings" arrow placement="top">
+        <Tooltip title={t('statusBar.settings')} arrow placement="top">
           <IconButton sx={{ width: 28, height: 28 }} onClick={onSettings}>
             <Settings sx={{ fontSize: 18 }} />
           </IconButton>
@@ -415,7 +443,9 @@ export const EditorStatusBar = ({
       >
         <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }}>
           <Typography variant="subtitle2">
-            Notification History ({messageHistoryRef.current.length})
+            {t('statusBar.notificationHistory', {
+              count: messageHistoryRef.current.length,
+            })}
           </Typography>
         </Box>
         <SimpleBar

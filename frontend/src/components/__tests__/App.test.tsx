@@ -205,6 +205,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   GetVersion: vi.fn().mockResolvedValue('1.0.0'),
   DestroyApp: vi.fn(),
   CheckDriveConnection: vi.fn().mockResolvedValue(false),
+  GetSystemLocale: vi.fn().mockResolvedValue('en-US'),
   Console: vi.fn(),
   LoadSettings: vi.fn().mockResolvedValue({
     fontFamily: 'Test Font',

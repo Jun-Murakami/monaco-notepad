@@ -52,6 +52,30 @@ func (r *notificationRecorder) Info(format string, args ...interface{}) {
 	r.AppLogger.Info(format, args...)
 }
 
+func (r *notificationRecorder) InfoCode(code string, args map[string]interface{}) {
+	msg := code
+	switch code {
+	case MsgDriveUploading:
+		msg = fmt.Sprintf("Drive: uploading \"%v\"", args["noteTitle"])
+	case MsgDriveUploaded:
+		msg = fmt.Sprintf("Drive: uploaded \"%v\"", args["noteId"])
+	case MsgDriveUpdating:
+		msg = fmt.Sprintf("Drive: updating \"%v\"", args["noteId"])
+	case MsgDriveUpdated:
+		msg = fmt.Sprintf("Drive: updated \"%v\"", args["noteId"])
+	case MsgDriveDeletingNote:
+		msg = fmt.Sprintf("Drive: deleting note %v", args["noteId"])
+	case MsgDriveDeletedNote:
+		msg = "Drive: deleted note from cloud"
+	case MsgSystemIntegrityAutoRepaired:
+		msg = fmt.Sprintf("Integrity check: auto-repaired local data (%v change(s))", args["count"])
+	}
+	r.mu.Lock()
+	r.infoCalls = append(r.infoCalls, msg)
+	r.mu.Unlock()
+	r.AppLogger.InfoCode(code, args)
+}
+
 func (r *notificationRecorder) Error(err error, format string, args ...interface{}) error {
 	if err != nil {
 		msg := fmt.Sprintf(format, args...)

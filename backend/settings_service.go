@@ -48,6 +48,7 @@ func (s *settingsService) LoadSettings() (*Settings, error) {
 			IsMaximized:          false,
 			IsDebug:              false,
 			EnableConflictBackup: true,
+			UILanguage:           LocaleSystem,
 		}, nil
 	}
 

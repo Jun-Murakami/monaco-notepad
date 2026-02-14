@@ -19,6 +19,7 @@ import { Allotment } from 'allotment';
 import 'allotment/dist/style.css';
 import type { editor } from 'monaco-editor';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import { SaveNote, UpdateNoteOrder } from '../wailsjs/go/backend/App';
@@ -101,19 +102,22 @@ const PaneHeader: React.FC<{
   paneColor,
   paneLabel,
   dimmed,
-}) => (
-  <Box
-    sx={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 1,
-      px: 1,
-      py: 0.5,
-      minHeight: 48,
-      opacity: dimmed ? 0.5 : 1,
-      transition: 'opacity 0.2s',
-    }}
-  >
+}) => {
+  const { t } = useTranslation();
+
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        px: 1,
+        py: 0.5,
+        minHeight: 48,
+        opacity: dimmed ? 0.5 : 1,
+        transition: 'opacity 0.2s',
+      }}
+    >
     {paneLabel &&
       (!dimmed ? (
         <Box
@@ -154,84 +158,85 @@ const PaneHeader: React.FC<{
           {paneLabel}
         </Typography>
       ))}
-    <TextField
-      sx={{
-        width: '100%',
-        '& .MuiOutlinedInput-root': {
-          height: 32,
-          ...(isSplit &&
-            paneColor && {
-              '& fieldset': { borderColor: `${paneColor}.main` },
-              '&:hover fieldset': { borderColor: `${paneColor}.main` },
-            }),
-        },
-        '& .MuiInputLabel-root:not(.MuiInputLabel-shrink)': { top: -4 },
-        ...(isSplit &&
-          paneColor && {
-            '& .MuiInputLabel-root': { color: `${paneColor}.main` },
-          }),
-      }}
-      label={isFileNote(note) ? 'File Path' : 'Title'}
-      variant='outlined'
-      size='small'
-      value={isFileNote(note) ? note.filePath : (note as Note | null)?.title || ''}
-      onChange={(e) => {
-        onActivatePane?.();
-        onTitleChange(e.target.value);
-      }}
-      disabled={isFileNote(note)}
-      onFocus={() => onActivatePane?.()}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === 'Tab') {
-          e.preventDefault();
-          (e.target as HTMLInputElement).blur();
-          onFocusEditor?.();
-        }
-      }}
-    />
-    <FormControl
-      sx={{
-        minWidth: 180,
-        flexShrink: 0,
-        '& .MuiOutlinedInput-root': {
-          height: 32,
-          ...(isSplit &&
-            paneColor && {
-              '& fieldset': { borderColor: `${paneColor}.main` },
-              '&:hover fieldset': { borderColor: `${paneColor}.main` },
-            }),
-        },
-        '& .MuiInputLabel-root:not(.MuiInputLabel-shrink)': { top: -4 },
-        ...(isSplit &&
-          paneColor && {
-            '& .MuiInputLabel-root': { color: `${paneColor}.main` },
-          }),
-      }}
-      size='small'
-    >
-      <InputLabel size='small'>Language</InputLabel>
-      <Select
-        size='small'
-        autoWidth
-        value={languages.some((lang) => lang.id === note?.language) ? note?.language : ''}
-        onOpen={() => onActivatePane?.()}
-        onFocus={() => onActivatePane?.()}
-        onChange={(e) => {
-          onActivatePane?.();
-          onLanguageChange(e.target.value);
-        }}
-        label='Language'
-        MenuProps={languageMenuProps}
-      >
-        {languages.map((lang) => (
-          <MenuItem key={lang.id} value={lang.id}>
-            {lang.aliases?.[0] ?? lang.id}
-          </MenuItem>
-        ))}
-      </Select>
-    </FormControl>
-  </Box>
-);
+        <TextField
+          sx={{
+            width: '100%',
+            '& .MuiOutlinedInput-root': {
+              height: 32,
+              ...(isSplit &&
+                paneColor && {
+                  '& fieldset': { borderColor: `${paneColor}.main` },
+                  '&:hover fieldset': { borderColor: `${paneColor}.main` },
+                }),
+            },
+            '& .MuiInputLabel-root:not(.MuiInputLabel-shrink)': { top: -4 },
+            ...(isSplit &&
+              paneColor && {
+                '& .MuiInputLabel-root': { color: `${paneColor}.main` },
+              }),
+          }}
+          label={isFileNote(note) ? t('app.paneFilePath') : t('app.paneTitle')}
+          variant='outlined'
+          size='small'
+          value={isFileNote(note) ? note.filePath : (note as Note | null)?.title || ''}
+          onChange={(e) => {
+            onActivatePane?.();
+            onTitleChange(e.target.value);
+          }}
+          disabled={isFileNote(note)}
+          onFocus={() => onActivatePane?.()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+              onFocusEditor?.();
+            }
+          }}
+        />
+        <FormControl
+          sx={{
+            minWidth: 180,
+            flexShrink: 0,
+            '& .MuiOutlinedInput-root': {
+              height: 32,
+              ...(isSplit &&
+                paneColor && {
+                  '& fieldset': { borderColor: `${paneColor}.main` },
+                  '&:hover fieldset': { borderColor: `${paneColor}.main` },
+                }),
+            },
+            '& .MuiInputLabel-root:not(.MuiInputLabel-shrink)': { top: -4 },
+            ...(isSplit &&
+              paneColor && {
+                '& .MuiInputLabel-root': { color: `${paneColor}.main` },
+              }),
+          }}
+          size='small'
+        >
+          <InputLabel size='small'>{t('app.language')}</InputLabel>
+          <Select
+            size='small'
+            autoWidth
+            value={languages.some((lang) => lang.id === note?.language) ? note?.language : ''}
+            onOpen={() => onActivatePane?.()}
+            onFocus={() => onActivatePane?.()}
+            onChange={(e) => {
+              onActivatePane?.();
+              onLanguageChange(e.target.value);
+            }}
+            label={t('app.language')}
+            MenuProps={languageMenuProps}
+          >
+            {languages.map((lang) => (
+              <MenuItem key={lang.id} value={lang.id}>
+                {lang.aliases?.[0] ?? lang.id}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+    </Box>
+  );
+};
 
 // 検索マッチの各出現箇所を表す型（ノート内の何番目のマッチか）
 type SearchMatch = {
@@ -240,6 +245,8 @@ type SearchMatch = {
 };
 
 function App() {
+  const { t } = useTranslation();
+
   // エディタ設定
   const { isSettingsOpen, setIsSettingsOpen, editorSettings, setEditorSettings, handleSettingsChange } = useEditorSettings();
 
@@ -863,7 +870,7 @@ function App() {
               fontWeight='bold'
               sx={{ userSelect: 'none', pointerEvents: 'none' }}
             >
-              Monaco Notepad
+              {t('app.titleBar')}
             </Typography>
           </Box>
         )}
@@ -889,7 +896,7 @@ function App() {
             {/* サイドバー */}
             <Allotment.Pane preferredSize={sidebarWidth} minSize={242} maxSize={500}>
               <Box
-                aria-label='Note List'
+                aria-label={t('app.noteListAriaLabel')}
                 sx={{
                   width: '100%',
                   height: '100%',
@@ -931,7 +938,7 @@ function App() {
                       }}
                     >
                       <Typography variant='body2' color='text.secondary'>
-                        Local files{' '}
+                        {t('app.localFiles')}{' '}
                         <Typography component='span' variant='caption' sx={{ fontWeight: 'normal', display: 'inline-block', ml: 1 }}>
                           {noteSearch ? filteredFileNotes.length : fileNotes.length}
                         </Typography>
@@ -974,19 +981,19 @@ function App() {
                   }}
                 >
                   <Typography variant='body2' color='text.secondary'>
-                    Notes{' '}
+                    {t('app.notes')}{' '}
                     <Typography component='span' variant='caption' sx={{ fontWeight: 'normal', display: 'inline-block', ml: 1 }}>
                       {noteSearch ? filteredNotes.length : notes.filter((note) => !note.archived).length}
                     </Typography>
                   </Typography>
-                  <Tooltip title='New Folder' arrow placement='bottom'>
+                  <Tooltip title={t('app.newFolder')} arrow placement='bottom'>
                     <IconButton
                       sx={{
                         position: 'absolute',
                         right: 4,
                       }}
                       onClick={async () => {
-                        const folder = await handleCreateFolder('New Folder');
+                        const folder = await handleCreateFolder(t('app.newFolder'));
                         setEditingFolderId(folder.id);
                       }}
                     >
@@ -1039,7 +1046,8 @@ function App() {
               onClick={() => setShowArchived((prev) => !prev)}
               startIcon={<Inventory />}
             >
-              Archives {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
+              {t('app.archives')}{' '}
+              {notes.filter((note) => note.archived).length ? `(${notes.filter((note) => note.archived).length})` : ''}
             </Button>
               </Box>
             </Allotment.Pane>
@@ -1064,11 +1072,11 @@ function App() {
                 onDelete={handleDeleteNote}
                 onDeleteAll={async () => {
                   const confirmed = await showMessage(
-                    'Delete all',
-                    'Delete all archived notes? This cannot be undone.',
+                    t('archived.deleteAllDialogTitle'),
+                    t('archived.deleteAllDialogMessage'),
                     true,
-                    'Delete',
-                    'Cancel',
+                    t('dialog.delete'),
+                    t('dialog.cancel'),
                   );
                   if (confirmed) handleDeleteAllArchivedNotes();
                 }}

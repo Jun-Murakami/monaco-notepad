@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogTitle,
 } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import { Console } from '../../wailsjs/go/backend/App';
 
 interface MessageDialogProps {
@@ -26,6 +27,8 @@ export const MessageDialog = ({
   secondaryButtonText,
   onResult,
 }: MessageDialogProps) => {
+  const { t } = useTranslation();
+
   const handleClose = async (result: boolean) => {
     try {
       await onResult?.(result);
@@ -64,7 +67,7 @@ export const MessageDialog = ({
           variant="contained"
           autoFocus={isTwoButton}
         >
-          {isTwoButton ? primaryButtonText : 'Close'}
+          {isTwoButton ? primaryButtonText : t('dialog.close')}
         </Button>
       </DialogActions>
     </Dialog>

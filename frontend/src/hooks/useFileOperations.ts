@@ -9,6 +9,7 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
+import i18n from '../i18n';
 import { getExtensionByLanguage, getLanguageByExtension } from '../lib/monaco';
 import type { FileNote, Note } from '../types';
 import { isBinaryFile } from '../utils/fileUtils';
@@ -50,7 +51,7 @@ export function useFileOperations(
       if (isBinaryFile(content)) {
         runtime.EventsEmit(
           'logMessage',
-          'Cannot open: file appears to be binary',
+          i18n.t('file.binaryOpenError'),
         );
         return null;
       }
@@ -179,7 +180,7 @@ export function useFileOperations(
       console.error('Failed to save file:', error);
       runtime.EventsEmit(
         'logMessage',
-        'Save As failed — check permissions or try a different location',
+        i18n.t('file.saveAsFailed'),
       );
     }
   };
@@ -201,7 +202,7 @@ export function useFileOperations(
       await handleSaveFileNotes(updatedFileNotes);
     } catch (error) {
       console.error('Failed to save file:', error);
-      runtime.EventsEmit('logMessage', 'Save failed — changes still in editor');
+      runtime.EventsEmit('logMessage', i18n.t('file.saveFailedKeepChanges'));
     }
   };
 

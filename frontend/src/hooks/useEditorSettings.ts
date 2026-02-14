@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { LoadSettings, SaveSettings } from '../../wailsjs/go/backend/App';
+import { GetSystemLocale, LoadSettings, SaveSettings } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
+import { changeLanguage } from '../i18n';
 import type { Settings } from '../types';
 
 export const useEditorSettings = () => {
@@ -20,6 +21,7 @@ export const useEditorSettings = () => {
     isDebug: false,
     enableConflictBackup: true,
     markdownPreviewOnLeft: false,
+    uiLanguage: 'system',
   });
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -28,6 +30,19 @@ export const useEditorSettings = () => {
     const loadSettings = async () => {
       try {
         const settings = await LoadSettings();
+        
+        // 言語設定の解決
+        let resolvedLanguage: 'en' | 'ja';
+        if (settings.uiLanguage === 'system' || !settings.uiLanguage) {
+          const systemLocale = await GetSystemLocale();
+          resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
+        } else {
+          resolvedLanguage = settings.uiLanguage as 'en' | 'ja';
+        }
+        
+        // i18nの言語を設定
+        await changeLanguage(resolvedLanguage);
+        
         const editorSettings: Settings = {
           fontFamily: settings.fontFamily,
           fontSize: settings.fontSize,
@@ -48,6 +63,7 @@ export const useEditorSettings = () => {
           markdownPreviewPaneSize: settings.markdownPreviewPaneSize,
           markdownPreviewVisible: settings.markdownPreviewVisible,
           isSplit: settings.isSplit,
+          uiLanguage: (settings.uiLanguage as Settings['uiLanguage']) || 'system',
         };
 
         // ウィンドウの位置とサイズを復元
@@ -76,20 +92,44 @@ export const useEditorSettings = () => {
     loadSettings();
   }, []);
 
-  const handleSettingsChange = (newSettings: Settings) => {
+  const handleSettingsChange = async (newSettings: Settings) => {
+    // 言語が変更された場合はi18nも更新
+    if (newSettings.uiLanguage !== editorSettings.uiLanguage) {
+      let resolvedLanguage: 'en' | 'ja';
+      if (newSettings.uiLanguage === 'system') {
+        const systemLocale = await GetSystemLocale();
+        resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
+      } else {
+        resolvedLanguage = newSettings.uiLanguage as 'en' | 'ja';
+      }
+      await changeLanguage(resolvedLanguage);
+    }
+
     setEditorSettings(newSettings);
     setIsSettingsOpen(false);
     SaveSettings(newSettings);
   };
 
   const handleSetEditorSettings = useCallback(
-    (newSettings: Settings) => {
+    async (newSettings: Settings) => {
+      // 言語が変更された場合はi18nも更新
+      if (newSettings.uiLanguage !== editorSettings.uiLanguage) {
+        let resolvedLanguage: 'en' | 'ja';
+        if (newSettings.uiLanguage === 'system') {
+          const systemLocale = await GetSystemLocale();
+          resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
+        } else {
+          resolvedLanguage = newSettings.uiLanguage as 'en' | 'ja';
+        }
+        await changeLanguage(resolvedLanguage);
+      }
+
       setEditorSettings(newSettings);
       if (isInitialized) {
         SaveSettings(newSettings);
       }
     },
-    [isInitialized],
+    [isInitialized, editorSettings.uiLanguage],
   );
 
   return {

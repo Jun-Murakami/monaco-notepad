@@ -103,6 +103,7 @@ type Settings struct {
 	MarkdownPreviewPaneSize float64 `json:"markdownPreviewPaneSize,omitempty"` // マークダウンプレビューのペインサイズ割合(0-1)
 	MarkdownPreviewVisible  bool    `json:"markdownPreviewVisible,omitempty"`  // マークダウンプレビューが表示状態か
 	IsSplit                 bool    `json:"isSplit,omitempty"`                 // スプリットモードが有効か
+	UILanguage              string  `json:"uiLanguage,omitempty"`              // UI言語設定（"system", "en", "ja"）
 }
 
 // ノートリスト整合性チェックの問題
@@ -199,6 +200,93 @@ func isModifiedTimeAfter(a, b string) bool {
 	}
 	return ta.After(tb)
 }
+
+// MessageCode は多言語対応のメッセージコードを表す構造体
+type MessageCode struct {
+	Code string                 `json:"code"`
+	Args map[string]interface{} `json:"args,omitempty"`
+}
+
+// ドライブ関連のメッセージコード定数
+const (
+	// Infoメッセージ
+	MsgDriveConnected               = "drive.connected"
+	MsgDriveDisconnected            = "drive.disconnected"
+	MsgDriveTokenValidated          = "drive.tokenValidated"
+	MsgDriveServiceInitialized      = "drive.serviceInitialized"
+	MsgDriveUploading               = "drive.uploading"
+	MsgDriveUploaded                = "drive.uploaded"
+	MsgDriveUpdating                = "drive.updating"
+	MsgDriveUpdated                 = "drive.updated"
+	MsgDriveDeletingNote            = "drive.deletingNote"
+	MsgDriveDeletedNote             = "drive.deletedNote"
+	MsgDriveSyncFirstPush           = "drive.sync.firstPush"
+	MsgDriveSyncPushLocalChanges    = "drive.sync.pushLocalChanges"
+	MsgDriveSyncPullCloudChanges    = "drive.sync.pullCloudChanges"
+	MsgDriveSyncConflictDetected    = "drive.sync.conflictDetected"
+	MsgDriveSyncUploadNote          = "drive.sync.uploadNote"
+	MsgDriveSyncDeleteNote          = "drive.sync.deleteNote"
+	MsgDriveSyncDownloadNote        = "drive.sync.downloadNote"
+	MsgDriveSyncDownloadRemoteNote  = "drive.sync.downloadRemoteNote"
+	MsgDriveSyncRemoveLocalDeleted  = "drive.sync.removeLocalDeleted"
+	MsgDriveNoteAlreadyAbsent       = "drive.noteAlreadyAbsent"
+	MsgDriveNoteMissingRemoveList   = "drive.noteMissingRemoveList"
+	MsgDriveNoteMissingUploadLocal  = "drive.noteMissingUploadLocal"
+	MsgDriveConflictKeepLocal       = "drive.conflict.keepLocal"
+	MsgDriveConflictKeepCloud       = "drive.conflict.keepCloud"
+	MsgDriveDeferNoteListUpload     = "drive.deferNoteListUpload"
+	MsgDriveDeferCloudApply         = "drive.deferCloudApply"
+	MsgDriveDeferConflictMerge      = "drive.deferConflictMerge"
+	MsgDrivePartialPushDeferred     = "drive.partialPushDeferred"
+	MsgDrivePartialConflictDeferred = "drive.partialConflictDeferred"
+	MsgDriveDuplicateCleanupStart   = "drive.duplicateCleanupStart"
+	MsgDriveDuplicateCleanupDone    = "drive.duplicateCleanupDone"
+	MsgDriveNoteListCorrupted       = "drive.noteListCorrupted"
+	MsgDrivePollingStarted          = "drive.pollingStarted"
+	MsgDriveCheckingCloudFiles      = "drive.checkingCloudFiles"
+	MsgDriveCheckingDuplicates      = "drive.checkingDuplicates"
+	MsgDriveReconnected             = "drive.reconnected"
+
+	// Errorメッセージ
+	MsgDriveErrorFolderSetup          = "drive.error.folderSetup"
+	MsgDriveErrorNoteListSetup        = "drive.error.noteListSetup"
+	MsgDriveErrorGetNoteListMeta      = "drive.error.getNoteListMeta"
+	MsgDriveErrorLoadDirtyNote        = "drive.error.loadDirtyNote"
+	MsgDriveErrorCreateNote           = "drive.error.createNote"
+	MsgDriveErrorUpdateNote           = "drive.error.updateNote"
+	MsgDriveErrorDeleteNote           = "drive.error.deleteNote"
+	MsgDriveErrorGetUpdatedMeta       = "drive.error.getUpdatedMeta"
+	MsgDriveErrorDownloadNote         = "drive.error.downloadNote"
+	MsgDriveErrorRepairCloudList      = "drive.error.repairCloudList"
+	MsgDriveErrorSaveDownloadedNote   = "drive.error.saveDownloadedNote"
+	MsgDriveErrorRemoveLocalNote      = "drive.error.removeLocalNote"
+	MsgDriveErrorLoadLocalForConflict = "drive.error.loadLocalForConflict"
+	MsgDriveErrorUploadNote           = "drive.error.uploadNote"
+	MsgDriveErrorRecreateMissingNote  = "drive.error.recreateMissingNote"
+	MsgDriveErrorIntegrityCheck       = "drive.error.integrityCheck"
+	MsgDriveErrorInitialSync          = "drive.error.initialSync"
+	MsgDriveErrorRefreshFileCache     = "drive.error.refreshFileCache"
+	MsgDriveErrorListNotesFolder      = "drive.error.listNotesFolder"
+	MsgDriveErrorCleanDuplicates      = "drive.error.cleanDuplicates"
+	MsgDriveErrorSyncFailed           = "drive.error.syncFailed"
+	MsgDriveErrorGetChangeToken       = "drive.error.getChangeToken"
+	MsgDriveErrorChangesAPI           = "drive.error.changesAPI"
+	MsgDriveErrorAuthOffline          = "drive.error.authOffline"
+	MsgDriveErrorAuthConnection       = "drive.error.authConnection"
+	MsgDriveErrorAuthInitClient       = "drive.error.authInitClient"
+	MsgDriveErrorCheckRootFolder      = "drive.error.checkRootFolder"
+	MsgDriveErrorCreateRootFolder     = "drive.error.createRootFolder"
+	MsgDriveErrorCheckNotesFolder     = "drive.error.checkNotesFolder"
+	MsgDriveErrorCreateNotesFolder    = "drive.error.createNotesFolder"
+	MsgDriveErrorCheckNoteListFile    = "drive.error.checkNoteListFile"
+
+	// システムメッセージ
+	MsgSystemNoteServiceInitFailed = "system.error.noteServiceInit"
+	MsgSystemDriveInitFailed       = "system.error.driveInit"
+	MsgSystemOpenFileFailed        = "system.error.openFile"
+	MsgSystemNoteListRestored      = "system.noteListRestored"
+	MsgSystemIntegrityAutoRepaired = "system.integrityAutoRepaired"
+)
 
 type WailsConfig struct {
 	Name           string `json:"name"`

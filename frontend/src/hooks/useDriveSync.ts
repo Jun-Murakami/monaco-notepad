@@ -8,6 +8,9 @@ import {
   SyncNow,
 } from '../../wailsjs/go/backend/App';
 import { EventsOff, EventsOn } from '../../wailsjs/runtime';
+import i18n from '../i18n';
+import type { MessageCode } from '../utils/messageCode';
+import { isMessageCode, translateMessageCode } from '../utils/messageCode';
 
 const SYNC_TIMEOUT = 5 * 60 * 1000; // 5分のタイムアウト
 
@@ -108,9 +111,10 @@ export const useDriveSync = (
     }
   };
 
-  const handleDriveErrorRef = useRef((_error: string) => {});
-  handleDriveErrorRef.current = (error: string) => {
-    showMessage('Drive sync error', error);
+  const handleDriveErrorRef = useRef((_error: string | MessageCode) => {});
+  handleDriveErrorRef.current = (error: string | MessageCode) => {
+    const message = isMessageCode(error) ? translateMessageCode(error) : String(error);
+    showMessage(i18n.t('driveUI.syncErrorTitle'), message);
     console.error('Drive error:', error);
   };
 
@@ -119,7 +123,7 @@ export const useDriveSync = (
     EventsOn('drive:status', (status: string) =>
       handleDriveStatusRef.current(status),
     );
-    EventsOn('drive:error', (error: string) =>
+    EventsOn('drive:error', (error: string | MessageCode) =>
       handleDriveErrorRef.current(error),
     );
 
@@ -141,8 +145,10 @@ export const useDriveSync = (
     } catch (error) {
       console.error('Google authentication error:', error);
       showMessage(
-        'Sign-in failed',
-        `Could not authenticate with Google. Please try again.\n\nDetails: ${error}`,
+        i18n.t('driveUI.signInFailedTitle'),
+        i18n.t('driveUI.signInFailedMessage', {
+          error: String(error),
+        }),
       );
       setSyncStatus('offline');
     }
@@ -159,8 +165,8 @@ export const useDriveSync = (
 
       // 通常のログアウト処理（確認あり）
       const result = await showMessage(
-        'Disconnect from Google Drive?',
-        'Syncing will stop. Your notes remain saved locally.',
+        i18n.t('driveUI.disconnectTitle'),
+        i18n.t('driveUI.disconnectMessage'),
         true,
       );
       if (result) {
@@ -182,8 +188,10 @@ export const useDriveSync = (
       } catch (error) {
         console.error('Manual sync error:', error);
         showMessage(
-          'Sync failed',
-          `Could not sync with Google Drive. Notes are safe locally.\n\nDetails: ${error}`,
+          i18n.t('driveUI.syncFailedTitle'),
+          i18n.t('driveUI.syncFailedMessage', {
+            error: String(error),
+          }),
         );
       }
     }

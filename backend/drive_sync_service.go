@@ -417,7 +417,7 @@ func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context, fil
 		}
 	}
 	if totalDuplicates > 0 {
-		d.logger.Info("Drive: cleaning up %d duplicate files...", totalDuplicates)
+		d.logger.InfoCode(MsgDriveDuplicateCleanupStart, map[string]interface{}{"count": totalDuplicates})
 	}
 
 	// 各noteIDごとに複数ファイルが存在すれば最新1つ以外を削除
@@ -438,7 +438,7 @@ func (d *driveSyncServiceImpl) RemoveDuplicateNoteFiles(ctx context.Context, fil
 		}
 	}
 	if cleanupCount > 0 {
-		d.logger.Info("Drive: cleaned up %d duplicate files", cleanupCount)
+		d.logger.InfoCode(MsgDriveDuplicateCleanupDone, map[string]interface{}{"count": cleanupCount})
 	}
 
 	return nil
@@ -564,7 +564,7 @@ func (d *driveSyncServiceImpl) DownloadNoteList(
 	var noteList NoteList
 	if err := json.Unmarshal(content, &noteList); err != nil {
 		if d.cachedNoteList != nil {
-			d.logger.Info("Drive: note list corrupted, using last known good state")
+			d.logger.InfoCode(MsgDriveNoteListCorrupted, nil)
 			return d.cachedNoteList, nil
 		}
 		return nil, fmt.Errorf("failed to decode note list: %w", err)

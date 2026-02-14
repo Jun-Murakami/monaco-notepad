@@ -78,6 +78,10 @@ export function GetModifiedTime(arg1) {
   return window['go']['backend']['App']['GetModifiedTime'](arg1);
 }
 
+export function GetSystemLocale() {
+  return window['go']['backend']['App']['GetSystemLocale']();
+}
+
 export function GetTopLevelOrder() {
   return window['go']['backend']['App']['GetTopLevelOrder']();
 }

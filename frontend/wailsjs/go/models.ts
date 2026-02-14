@@ -132,6 +132,7 @@ export namespace backend {
 	    markdownPreviewPaneSize?: number;
 	    markdownPreviewVisible?: boolean;
 	    isSplit?: boolean;
+	    uiLanguage?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -158,6 +159,7 @@ export namespace backend {
 	        this.markdownPreviewPaneSize = source["markdownPreviewPaneSize"];
 	        this.markdownPreviewVisible = source["markdownPreviewVisible"];
 	        this.isSplit = source["isSplit"];
+	        this.uiLanguage = source["uiLanguage"];
 	    }
 	}
 	export class TopLevelItem {
