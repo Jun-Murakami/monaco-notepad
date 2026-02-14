@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -60,16 +61,7 @@ func (s *fileService) OpenFile(filePath string) (string, error) {
 
 // SelectSaveFileUri は保存ダイアログを表示し、選択された保存先のパスを返します
 func (s *fileService) SelectSaveFileUri(fileName string, extension string) (string, error) {
-	var defaultFileName string
-	var pattern string
-
-	if extension == "" {
-		defaultFileName = fileName
-		pattern = "*.*"
-	} else {
-		defaultFileName = fmt.Sprintf("%s.%s", fileName, extension)
-		pattern = "*." + extension
-	}
+	defaultFileName, pattern := buildSaveDialogDefaults(fileName, extension)
 
 	file, err := wailsRuntime.SaveFileDialog(s.ctx.ctx, wailsRuntime.SaveDialogOptions{
 		Title:           "Please select export file path.",
@@ -85,6 +77,32 @@ func (s *fileService) SelectSaveFileUri(fileName string, extension string) (stri
 		return "", err
 	}
 	return file, nil
+}
+
+// buildSaveDialogDefaults は保存ダイアログ用の既定ファイル名とフィルタを組み立てる
+func buildSaveDialogDefaults(fileName string, extension string) (string, string) {
+	trimmedName := strings.TrimSpace(fileName)
+	trimmedExt := strings.TrimSpace(extension)
+	trimmedExt = strings.TrimPrefix(trimmedExt, ".")
+
+	if trimmedExt == "" {
+		if trimmedName == "" {
+			return "untitled", "*.*"
+		}
+		return trimmedName, "*.*"
+	}
+
+	if trimmedName == "" {
+		return fmt.Sprintf("untitled.%s", trimmedExt), "*." + trimmedExt
+	}
+
+	lowerName := strings.ToLower(trimmedName)
+	lowerExt := strings.ToLower(trimmedExt)
+	if strings.HasSuffix(lowerName, "."+lowerExt) {
+		return trimmedName, "*." + trimmedExt
+	}
+
+	return fmt.Sprintf("%s.%s", trimmedName, trimmedExt), "*." + trimmedExt
 }
 
 // SaveFile は指定されたパスにコンテンツを保存します

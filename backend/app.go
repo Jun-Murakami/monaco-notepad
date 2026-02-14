@@ -165,6 +165,13 @@ func (a *App) Startup(ctx context.Context) {
 func (a *App) DomReady(ctx context.Context) {
 	a.logger.Console("DomReady called")
 
+	// ネイティブメニューの言語を設定に合わせて反映
+	if settings, err := a.settingsService.LoadSettings(); err == nil {
+		a.applyNativeMenuLocalization(settings.UILanguage)
+	} else {
+		a.applyNativeMenuLocalization(LocaleSystem)
+	}
+
 	// AuthServiceの初期化
 	authService := NewAuthService(
 		ctx,
@@ -691,7 +698,13 @@ func (a *App) LoadSettings() (*Settings, error) {
 
 // 設定を保存する
 func (a *App) SaveSettings(settings *Settings) error {
-	return a.settingsService.SaveSettings(settings)
+	if err := a.settingsService.SaveSettings(settings); err != nil {
+		return err
+	}
+	if settings != nil {
+		a.applyNativeMenuLocalization(settings.UILanguage)
+	}
+	return nil
 }
 
 // ウィンドウの状態を保存する
