@@ -22,7 +22,7 @@
     "allotment": "^1.20.5",
     "dayjs": "^1.11.19",
     "i18next": "^25.8.7",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "0.56.0-dev-20260113",
     "monaco-themes": "^0.4.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

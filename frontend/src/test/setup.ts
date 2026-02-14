@@ -48,6 +48,31 @@ vi.mock('monaco-editor/esm/vs/language/html/html.worker?worker', () => ({
 vi.mock('monaco-editor/esm/vs/language/typescript/ts.worker?worker', () => ({
   default: {},
 }));
+vi.mock(
+  'monaco-editor/esm/vs/language/typescript/monaco.contribution.js',
+  () => ({
+    javascriptDefaults: {
+      setDiagnosticsOptions: () => {},
+    },
+    typescriptDefaults: {
+      setDiagnosticsOptions: () => {},
+      setCompilerOptions: () => {},
+      setEagerModelSync: () => {},
+    },
+    ScriptTarget: {
+      Latest: 99,
+    },
+    ModuleResolutionKind: {
+      NodeJs: 2,
+    },
+    ModuleKind: {
+      CommonJS: 1,
+    },
+    JsxEmit: {
+      React: 2,
+    },
+  }),
+);
 
 // lib/monaco.ts のモック
 vi.mock('../lib/monaco', () => ({

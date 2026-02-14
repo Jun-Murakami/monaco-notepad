@@ -67,12 +67,18 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      'monaco-editor': path.resolve(
-        __dirname,
-        './node_modules/monaco-editor/esm/vs/editor/editor.api.js',
-      ),
-    },
+    alias: [
+      {
+        find: /^monaco-editor$/,
+        replacement: path.resolve(
+          __dirname,
+          './node_modules/monaco-editor/esm/vs/editor/editor.api.js',
+        ),
+      },
+      {
+        find: '@',
+        replacement: path.resolve(__dirname, './src'),
+      },
+    ],
   },
 });
