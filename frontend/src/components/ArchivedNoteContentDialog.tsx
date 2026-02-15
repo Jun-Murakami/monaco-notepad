@@ -20,7 +20,7 @@ import * as monaco from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoadArchivedNote } from '../../wailsjs/go/backend/App';
-import type { Note } from '../types';
+import { DEFAULT_EDITOR_FONT_FAMILY, type Note } from '../types';
 import dayjs from '../utils/dayjs';
 
 interface ArchivedNoteContentDialogProps {
@@ -92,6 +92,7 @@ export const ArchivedNoteContentDialog: React.FC<
       language: note?.language || 'plaintext',
       readOnly: true,
       domReadOnly: true,
+      fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       theme: isDarkMode ? 'vs-dark' : 'vs',
