@@ -28,6 +28,7 @@ export const useDriveSync = (
   syncStatusRef.current = syncStatus;
   const [isHoveringSync, setIsHoveringSync] = useState(false);
   const [isHoverLocked, setIsHoverLocked] = useState(false);
+  const [isMigrationDialogOpen, setIsMigrationDialogOpen] = useState(false);
   const syncStartTime = useRef<number | null>(null);
   const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
@@ -113,7 +114,9 @@ export const useDriveSync = (
 
   const handleDriveErrorRef = useRef((_error: string | MessageCode) => {});
   handleDriveErrorRef.current = (error: string | MessageCode) => {
-    const message = isMessageCode(error) ? translateMessageCode(error) : String(error);
+    const message = isMessageCode(error)
+      ? translateMessageCode(error)
+      : String(error);
     showMessage(i18n.t('driveUI.syncErrorTitle'), message);
     console.error('Drive error:', error);
   };
@@ -126,6 +129,9 @@ export const useDriveSync = (
     EventsOn('drive:error', (error: string | MessageCode) =>
       handleDriveErrorRef.current(error),
     );
+    EventsOn('drive:migration-needed', () => {
+      setIsMigrationDialogOpen(true);
+    });
 
     handleBackendReady();
 
@@ -133,6 +139,7 @@ export const useDriveSync = (
       EventsOff('notes:updated');
       EventsOff('drive:status');
       EventsOff('drive:error');
+      EventsOff('drive:migration-needed');
       stopSyncMonitoring();
     };
   }, [handleBackendReady, handleSync, stopSyncMonitoring]);
@@ -202,6 +209,8 @@ export const useDriveSync = (
     isHoveringSync,
     setIsHoveringSync,
     isHoverLocked,
+    isMigrationDialogOpen,
+    setIsMigrationDialogOpen,
     handleGoogleAuth,
     handleLogout,
     handleSyncNow,

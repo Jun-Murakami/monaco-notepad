@@ -428,7 +428,11 @@ describe('useNotes', () => {
     it('notes:reloadで現在ノートが削除された場合、トップのノートへ自動切り替えされること', async () => {
       const { result } = renderHook(() => useNotes());
       const current = { ...mockNote, id: 'current', title: 'Current' };
-      const replacement = { ...mockNote, id: 'replacement', title: 'Replacement' };
+      const replacement = {
+        ...mockNote,
+        id: 'replacement',
+        title: 'Replacement',
+      };
 
       await act(async () => {
         result.current.setNotes([current, replacement]);
@@ -436,7 +440,9 @@ describe('useNotes', () => {
       });
 
       const mockCalls = (runtime.EventsOn as unknown as Mock).mock.calls;
-      const foundReloadCall = mockCalls.find((call) => call[0] === 'notes:reload');
+      const foundReloadCall = mockCalls.find(
+        (call) => call[0] === 'notes:reload',
+      );
       if (!foundReloadCall) throw new Error('notes:reload callback not found');
       const reloadCallback = foundReloadCall[1];
 
@@ -455,7 +461,11 @@ describe('useNotes', () => {
     it('notes:reloadで現在ノートがアーカイブされた場合、トップのアクティブノートへ自動切り替えされること', async () => {
       const { result } = renderHook(() => useNotes());
       const current = { ...mockNote, id: 'current', title: 'Current' };
-      const replacement = { ...mockNote, id: 'replacement', title: 'Replacement' };
+      const replacement = {
+        ...mockNote,
+        id: 'replacement',
+        title: 'Replacement',
+      };
 
       await act(async () => {
         result.current.setNotes([current, replacement]);
@@ -463,7 +473,9 @@ describe('useNotes', () => {
       });
 
       const mockCalls = (runtime.EventsOn as unknown as Mock).mock.calls;
-      const foundReloadCall = mockCalls.find((call) => call[0] === 'notes:reload');
+      const foundReloadCall = mockCalls.find(
+        (call) => call[0] === 'notes:reload',
+      );
       if (!foundReloadCall) throw new Error('notes:reload callback not found');
       const reloadCallback = foundReloadCall[1];
 

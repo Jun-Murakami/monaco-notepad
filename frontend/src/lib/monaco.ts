@@ -69,22 +69,38 @@ export const getThemePair = (id: string): ThemePair => {
 // シングルトンとしてのモジュール初期化
 let _isInitialized = false;
 let _monaco: typeof monaco | null = null;
+type MonacoThemeData = monaco.editor.IStandaloneThemeData;
 
 // Register custom themes
 const registerThemes = () => {
   if (!_monaco) return;
-  _monaco.editor.defineTheme('github-light', githubLightTheme as any);
-  _monaco.editor.defineTheme('github-dark', githubDarkTheme as any);
-  _monaco.editor.defineTheme('solarized-light', solarizedLightTheme as any);
-  _monaco.editor.defineTheme('solarized-dark', solarizedDarkTheme as any);
-  _monaco.editor.defineTheme('tomorrow', tomorrowTheme as any);
-  _monaco.editor.defineTheme('tomorrow-night', tomorrowNightTheme as any);
-  _monaco.editor.defineTheme('clouds', cloudsTheme as any);
-  _monaco.editor.defineTheme('clouds-midnight', cloudsMidnightTheme as any);
-  _monaco.editor.defineTheme('monokai', monokaiTheme as any);
-  _monaco.editor.defineTheme('dracula', draculaTheme as any);
-  _monaco.editor.defineTheme('nord', nordTheme as any);
-  _monaco.editor.defineTheme('night-owl', nightOwlTheme as any);
+  _monaco.editor.defineTheme(
+    'github-light',
+    githubLightTheme as MonacoThemeData,
+  );
+  _monaco.editor.defineTheme('github-dark', githubDarkTheme as MonacoThemeData);
+  _monaco.editor.defineTheme(
+    'solarized-light',
+    solarizedLightTheme as MonacoThemeData,
+  );
+  _monaco.editor.defineTheme(
+    'solarized-dark',
+    solarizedDarkTheme as MonacoThemeData,
+  );
+  _monaco.editor.defineTheme('tomorrow', tomorrowTheme as MonacoThemeData);
+  _monaco.editor.defineTheme(
+    'tomorrow-night',
+    tomorrowNightTheme as MonacoThemeData,
+  );
+  _monaco.editor.defineTheme('clouds', cloudsTheme as MonacoThemeData);
+  _monaco.editor.defineTheme(
+    'clouds-midnight',
+    cloudsMidnightTheme as MonacoThemeData,
+  );
+  _monaco.editor.defineTheme('monokai', monokaiTheme as MonacoThemeData);
+  _monaco.editor.defineTheme('dracula', draculaTheme as MonacoThemeData);
+  _monaco.editor.defineTheme('nord', nordTheme as MonacoThemeData);
+  _monaco.editor.defineTheme('night-owl', nightOwlTheme as MonacoThemeData);
 };
 
 // Monaco Editorの初期化

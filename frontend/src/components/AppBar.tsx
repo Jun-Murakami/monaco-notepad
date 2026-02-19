@@ -1,5 +1,5 @@
 import { FileOpen, NoteAdd, Save } from '@mui/icons-material';
-import { Box, Button, Typography, Tooltip } from '@mui/material';
+import { Box, Button, Tooltip, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 
 export const AppBar: React.FC<{
@@ -42,23 +42,53 @@ export const AppBar: React.FC<{
         p: 1,
       }}
     >
-      <Tooltip title={t('toolbar.newShortcut', { shortcut: commandKey })} arrow placement='bottom' style={{ flex: 1 }}>
-        <Button sx={buttonSx} startIcon={<NoteAdd />} variant='contained' onClick={onNew}>
-          <Typography component='span' sx={labelSx}>
+      <Tooltip
+        title={t('toolbar.newShortcut', { shortcut: commandKey })}
+        arrow
+        placement="bottom"
+        style={{ flex: 1 }}
+      >
+        <Button
+          sx={buttonSx}
+          startIcon={<NoteAdd />}
+          variant="contained"
+          onClick={onNew}
+        >
+          <Typography component="span" sx={labelSx}>
             {t('toolbar.new')}
           </Typography>
         </Button>
       </Tooltip>
-      <Tooltip title={t('toolbar.openShortcut', { shortcut: commandKey })} arrow placement='bottom' style={{ flex: 1 }}>
-        <Button sx={buttonSx} startIcon={<FileOpen />} variant='contained' onClick={onOpen}>
-          <Typography component='span' sx={labelSx}>
+      <Tooltip
+        title={t('toolbar.openShortcut', { shortcut: commandKey })}
+        arrow
+        placement="bottom"
+        style={{ flex: 1 }}
+      >
+        <Button
+          sx={buttonSx}
+          startIcon={<FileOpen />}
+          variant="contained"
+          onClick={onOpen}
+        >
+          <Typography component="span" sx={labelSx}>
             {t('toolbar.open')}
           </Typography>
         </Button>
       </Tooltip>
-      <Tooltip title={t('toolbar.saveAsShortcut', { shortcut: commandKey })} arrow placement='bottom' style={{ flex: 1 }}>
-        <Button sx={buttonSx} startIcon={<Save />} variant='contained' onClick={onSave}>
-          <Typography component='span' sx={labelSx}>
+      <Tooltip
+        title={t('toolbar.saveAsShortcut', { shortcut: commandKey })}
+        arrow
+        placement="bottom"
+        style={{ flex: 1 }}
+      >
+        <Button
+          sx={buttonSx}
+          startIcon={<Save />}
+          variant="contained"
+          onClick={onSave}
+        >
+          <Typography component="span" sx={labelSx}>
             {t('toolbar.saveAs')}
           </Typography>
         </Button>

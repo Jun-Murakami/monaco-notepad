@@ -257,6 +257,16 @@ func (d *driveSyncServiceImpl) CreateNote(
 	}
 
 	fileName := note.ID + ".json"
+
+	existingFileID, getErr := d.driveOps.GetFileID(fileName, d.notesFolderID, d.rootFolderID)
+	if getErr == nil && existingFileID != "" {
+		d.logger.Console("Duplicate prevention: file %s already exists (id: %s), updating instead of creating", fileName, existingFileID)
+		d.setCachedFileID(note.ID, existingFileID)
+		return d.withRetry(func() error {
+			return d.driveOps.UpdateFile(existingFileID, noteContent)
+		}, uploadRetryConfig)
+	}
+
 	fileID, err := d.driveOps.CreateFile(
 		fileName,
 		noteContent,

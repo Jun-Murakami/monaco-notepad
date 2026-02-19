@@ -62,6 +62,7 @@ type noteService struct {
 	logger                  AppLogger
 	pendingIntegrityIssues  []IntegrityIssue
 	pendingIntegrityRepairs []string
+	pendingOrphanRecoveries []OrphanRecoveryInfo
 	recoveryApplied         string // 復旧方法: "", "backup", "rebuild"
 }
 
@@ -1173,7 +1174,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		message := fmt.Sprintf(format, args...)
 		repairLogs = append(repairLogs, message)
 		if s.logger != nil {
-			s.logger.Info("Integrity repair: %s", message)
+			s.logger.Console("Integrity repair: %s", message)
 		}
 	}
 
@@ -1182,43 +1183,68 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		noteIDSet[metadata.ID] = true
 	}
 
-	// 1. 孤立物理ファイルを検出（ユーザー確認が必要）
+	// 1. 孤立物理ファイルを自動復元（復元フォルダに追加）
 	physicalNotes := make(map[string]bool)
+	var orphanNoteIDs []string
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != ".json" {
 			continue
 		}
 		noteID := file.Name()[:len(file.Name())-5]
 		physicalNotes[noteID] = true
-
 		if !noteIDSet[noteID] {
-			title := noteID
-			if note, loadErr := s.LoadNote(noteID); loadErr == nil && note.Title != "" {
-				title = note.Title
-			}
-			issues = append(issues, IntegrityIssue{
-				ID:                "orphan_file:" + noteID,
-				Kind:              "orphan_file",
-				Severity:          "warn",
-				NeedsUserDecision: true,
-				NoteIDs:           []string{noteID},
-				Summary:           fmt.Sprintf("Unknown file: \"%s\"", title),
-				FixOptions: []IntegrityFixOption{
-					{
-						ID:          "restore",
-						Label:       "Restore",
-						Description: "Restore",
-						Params:      map[string]string{"noteId": noteID},
-					},
-					{
-						ID:          "delete",
-						Label:       "Delete",
-						Description: "Delete",
-						Params:      map[string]string{"noteId": noteID},
-					},
-				},
+			orphanNoteIDs = append(orphanNoteIDs, noteID)
+		}
+	}
+
+	var recoveredOrphanCount int
+	var recoveryFolderID string
+	totalOrphans := len(orphanNoteIDs)
+	for i, noteID := range orphanNoteIDs {
+		note, loadErr := s.LoadNote(noteID)
+		if loadErr != nil {
+			logRepair(fmt.Sprintf("Skipped corrupted orphan file: %s (%v)", noteID, loadErr))
+			continue
+		}
+
+		if recoveryFolderID == "" {
+			recoveryFolderID = s.findOrCreateRecoveryFolder(RecoveryFolderName)
+		}
+
+		note.Archived = false
+		note.FolderID = recoveryFolderID
+		if saveErr := s.SaveNoteFromSync(note); saveErr != nil {
+			logRepair(fmt.Sprintf("Failed to update orphan note file: %s (%v)", noteID, saveErr))
+		}
+
+		s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
+			ID:            note.ID,
+			Title:         note.Title,
+			ContentHeader: note.ContentHeader,
+			Language:      note.Language,
+			ModifiedTime:  note.ModifiedTime,
+			Archived:      false,
+			ContentHash:   computeContentHash(note),
+			FolderID:      recoveryFolderID,
+		})
+		noteIDSet[noteID] = true
+		recoveredOrphanCount++
+		changed = true
+		logRepair(fmt.Sprintf("Recovered orphan note: \"%s\" (%s)", note.Title, noteID))
+
+		if s.logger != nil {
+			s.logger.InfoCode(MsgOrphanLocalRecoveryProgress, map[string]interface{}{
+				"current": i + 1,
+				"total":   totalOrphans,
 			})
 		}
+	}
+	if recoveredOrphanCount > 0 {
+		s.pendingOrphanRecoveries = append(s.pendingOrphanRecoveries, OrphanRecoveryInfo{
+			Source:     "local",
+			Count:      recoveredOrphanCount,
+			FolderName: RecoveryFolderName,
+		})
 	}
 
 	// 2. 物理ファイルが無いリストエントリをサイレント除外
@@ -1528,6 +1554,63 @@ func (s *noteService) DrainPendingIntegrityRepairs() []string {
 	return repairs
 }
 
+func (s *noteService) DrainPendingOrphanRecoveries() []OrphanRecoveryInfo {
+	if len(s.pendingOrphanRecoveries) == 0 {
+		return nil
+	}
+	recoveries := s.pendingOrphanRecoveries
+	s.pendingOrphanRecoveries = nil
+	return recoveries
+}
+
+// findOrCreateRecoveryFolder は指定名のフォルダを検索し、存在しなければ作成する（noteListに直接追加、保存は呼び出し元で行う）
+func (s *noteService) findOrCreateRecoveryFolder(name string) string {
+	for i, folder := range s.noteList.Folders {
+		if folder.Name == name {
+			if folder.Archived {
+				s.noteList.Folders[i].Archived = false
+			}
+			return folder.ID
+		}
+	}
+	folderID := uuid.New().String()
+	s.noteList.Folders = append(s.noteList.Folders, Folder{
+		ID:   folderID,
+		Name: name,
+	})
+	return folderID
+}
+
+// RecoverOrphanNote は孤立ノートを指定の復元フォルダに追加する（クラウド孤立復元からも呼ばれる）
+func (s *noteService) RecoverOrphanNote(note *Note, recoveryFolderName string) error {
+	for _, m := range s.noteList.Notes {
+		if m.ID == note.ID {
+			return nil
+		}
+	}
+
+	folderID := s.findOrCreateRecoveryFolder(recoveryFolderName)
+
+	note.Archived = false
+	note.FolderID = folderID
+	if saveErr := s.SaveNoteFromSync(note); saveErr != nil {
+		s.logConsole("Failed to update orphan note file: %s (%v)", note.ID, saveErr)
+	}
+
+	s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
+		ID:            note.ID,
+		Title:         note.Title,
+		ContentHeader: note.ContentHeader,
+		Language:      note.Language,
+		ModifiedTime:  note.ModifiedTime,
+		Archived:      false,
+		ContentHash:   computeContentHash(note),
+		FolderID:      folderID,
+	})
+
+	return s.saveNoteList()
+}
+
 // conflict copy を自動解決する（同一ハッシュの重複のみ削除）
 func (s *noteService) autoResolveConflictCopies() conflictCopyResolution {
 	result := conflictCopyResolution{}
@@ -1633,17 +1716,16 @@ func (s *noteService) autoResolveConflictCopies() conflictCopyResolution {
 
 	if s.logger != nil {
 		for id, duplicateOf := range deleteIDs {
-			if duplicateOf != "" {
-				s.logger.Info("Auto-resolve conflict copy: deleted %s (duplicate of %s)", id, duplicateOf)
-			} else {
-				s.logger.Info("Auto-resolve conflict copy: deleted %s (duplicate)", id)
-			}
+			s.logger.InfoCode(MsgConflictAutoResolveDuplicate, map[string]interface{}{
+				"noteId":      id,
+				"duplicateOf": duplicateOf,
+			})
 		}
 		for id := range keepIDs {
 			if _, deleted := deleteIDs[id]; deleted {
 				continue
 			}
-			s.logger.Info("Auto-resolve conflict copy: kept %s (unique content)", id)
+			s.logger.Console("Conflict copy kept (unique content): %s", id)
 		}
 	}
 
@@ -1696,7 +1778,7 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 	logApply := func(message string) {
 		summary.Messages = append(summary.Messages, message)
 		if s.logger != nil {
-			s.logger.Info("Integrity repair: %s", message)
+			s.logger.Console("Integrity repair: %s", message)
 		}
 	}
 

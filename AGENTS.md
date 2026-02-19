@@ -7,9 +7,10 @@ Monaco Notepad は、[Wails v2](https://wails.io/) で構築されたデスク�
 - **バックエンド**: Go 1.22 + Wails v2.11
 - **フロントエンド**: React 19 + TypeScript + Vite + MUI v7
 - **エディタ**: Monaco Editor（VSCode と同じエンジン）
-- **同期**: Google Drive API v3（OAuth2 認証）
+- **同期**: Google Drive API v3（OAuth2 認証、appDataFolder スコープ）
 - **テスト**: Go標準 `testing` + `testify` / Vitest + React Testing Library
 - **リンター/フォーマッター**: Biome（フロントエンド）、gofmt（バックエンド）
+- **国際化**: i18next（フロントエンド）、OS ネイティブ API（バックエンド）
 
 ---
 
@@ -19,28 +20,36 @@ Monaco Notepad は、[Wails v2](https://wails.io/) で構築されたデスク�
 ┌─────────────────────────────────────────────────────┐
 │  Frontend (React + TypeScript)                       │
 │  ├── App.tsx (ルート)                                │
-│  ├── components/ (UI部品)                            │
-│  ├── hooks/ (ビジネスロジック)                        │
+│  ├── components/ (UI部品 - Search, Preview, i18n)     │
+│  ├── hooks/ (ビジネスロジック - Sync, Search, Split)  │
 │  ├── lib/ (Monaco, Theme設定)                        │
+│  ├── themes/ (カスタムMonacoテーマ群)                 │
+│  ├── i18n/ (i18nextリソース)                         │
 │  └── utils/ (ユーティリティ)                          │
 ├─────────────── Wails Bindings ──────────────────────┤
 │  wailsjs/go/backend/App.ts  ← 自動生成バインディング   │
 │  wailsjs/runtime/           ← Wailsランタイム API     │
 ├─────────────── Events (双方向) ─────────────────────┤
-│  drive:status, notes:reload, note:updated,           │
-│  app:beforeclose, file:open-external, logMessage     │
+│  drive:status, drive:migration-needed,               │
+│  notes:reload, notes:updated, integrity:issues,      │
+│  backend:ready, logMessage, app:beforeclose          │
 ├─────────────────────────────────────────────────────┤
 │  Backend (Go)                                        │
 │  ├── app.go        (Wails公開メソッド=エントリ)        │
-│  ├── domain.go     (全データ構造定義)                  │
-│  ├── note_service  (ノートCRUD + ローカルファイルI/O)  │
+│  ├── domain.go     (全データ構造定義 + MessageCode)    │
+│  ├── note_service  (ノートCRUD + 整合性チェック)       │
 │  ├── drive_service (Drive同期オーケストレーション)      │
+│  ├── drive_sync_service (中レベル同期ロジック)         │
+│  ├── drive_migration (ストレージ移行ロジック)          │
+│  ├── drive_operations (Drive低レベルAPI + ページング)   │
+│  ├── sync_state    (同期状態の永続化 - dirtyフラグ)    │
 │  ├── auth_service  (OAuth2認証フロー)                 │
-│  ├── drive_polling (ポーリング + Changes API)         │
+│  ├── drive_polling (指数バックオフ付きポーリング)      │
 │  ├── drive_operations_queue (非同期キュー)             │
 │  ├── settings_service (設定永続化)                    │
-│  ├── file_note_service (外部ファイル操作)              │
-│  └── app_logger    (ログ + フロントエンド通知)         │
+│  ├── file_service  (ファイルダイアログ・I/O)           │
+│  ├── locale        (OS言語検出・ネイティブメニュー)    │
+│  └── migration/    (noteList v1→v2マイグレーション)    │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -66,62 +75,49 @@ monaco-notepad/
 ├── build.ps1                # Windows ビルドスクリプト (PowerShell)
 │
 ├── backend/                 # Go バックエンド
-│   ├── domain.go            # 全ドメイン型 (Note, NoteList, Settings, DriveSync等)
-│   ├── app.go               # Wails公開メソッド (フロントエンドから呼べるAPI)
-│   ├── app_logger.go        # ログ + EventsEmit
-│   ├── note_service.go      # ノートCRUD・ファイルI/O・noteList.json管理
-│   ├── auth_service.go      # OAuth2認証 (ブラウザ認証, トークン保存/更新)
-│   ├── drive_service.go     # Drive同期オーケストレーション
-│   ├── drive_polling.go     # Changes APIベースのポーリング (指数バックオフ)
-│   ├── drive_operations_queue.go  # Drive操作の非同期キュー
-│   ├── drive_ops.go         # Drive低レベル操作 (API呼出し)
-│   ├── drive_sync_impl.go   # 同期ロジック実装
-│   ├── settings_service.go  # settings.json 永続化
-│   ├── file_note_service.go # 外部ファイル操作 (Open/Save/FileNotes管理)
+│   ├── domain.go            # 全ドメイン型, MessageCode, 整合性関連型
+│   ├── app.go               # Wails公開メソッド, ライフサイクル管理
+│   ├── app_logger.go        # ログ + EventsEmit (多言語対応)
+│   ├── note_service.go      # ノートCRUD, 整合性チェック, 孤立ファイル復元
+│   ├── drive_service.go     # Drive同期統合, 移行ハンドリング
+│   ├── drive_sync_service.go # 同期詳細ロジック (push/pull/conflict)
+│   ├── drive_migration.go   # appDataFolder移行, 孤立ファイル検出
+│   ├── drive_operations.go  # Drive API (Page対応), MD5チェック
+│   ├── sync_state.go        # dirtyフラグ管理 (sync_state.json)
+│   ├── auth_service.go      # OAuth2認証 (ブラウザ認証, トークン管理)
+│   ├── drive_polling.go     # Changes APIポーリング (5s〜1m/3m)
+│   ├── drive_operations_queue.go # 非同期操作キュー
+│   ├── settings_service.go  # settings.json 永続化, ウィンドウ状態
+│   ├── file_service.go      # OSファイルダイアログ, ファイルI/O
+│   ├── file_note_service.go # ファイルノート管理 (fileNotes.json)
+│   ├── locale.go            # システム言語検出, 正規化
+│   ├── native_menu_localization.go # macOSネイティブメニュー翻訳
+│   ├── mac_window_close_patch.go # macOS用ウィンドウクローズ回避
+│   ├── migration/           # noteList.json v1→v2変換ロジック
 │   └── *_test.go            # テストファイル
 │
 ├── frontend/                # React フロントエンド
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── vitest.config.ts
-│   ├── tsconfig.json
-│   ├── biome.json           # Biome リンター/フォーマッター設定
-│   └── src/
-│       ├── main.tsx          # Reactエントリポイント
-│       ├── App.tsx           # ルートコンポーネント (全hookの統合)
-│       ├── types.ts          # TypeScript型定義 (Note, FileNote, Settings等)
-│       ├── components/
-│       │   ├── AppBar.tsx              # ツールバー (タイトル編集, 言語選択, Drive同期)
-│       │   ├── Editor.tsx              # Monaco Editor ラッパー
-│       │   ├── NoteList.tsx            # サイドバーノート一覧 (DnD並替)
-│       │   ├── ArchivedNoteList.tsx    # アーカイブ一覧
-│       │   ├── EditorStatusBar.tsx     # ステータスバー
-│       │   ├── SettingsDialog.tsx      # 設定ダイアログ
-│       │   ├── MessageDialog.tsx       # 汎用メッセージダイアログ
-│       │   ├── NotePreviewPopper.tsx   # ノートプレビューポップアップ
-│       │   ├── LightDarkSwitch.tsx     # テーマ切替
-│       │   ├── VersionUp.tsx           # バージョンアップ通知
-│       │   ├── Icons.tsx               # カスタムアイコン
-│       │   └── __tests__/             # コンポーネントテスト
-│       ├── hooks/
-│       │   ├── useNotes.ts             # ノートの状態管理 (CRUD, アーカイブ, フォルダ)
-│       │   ├── useInitialize.ts        # アプリ初期化・キーボードショートカット
-│       │   ├── useDriveSync.ts         # Drive同期状態管理
-│       │   ├── useEditorSettings.ts    # エディタ設定 (永続化含む)
-│       │   ├── useFileOperations.ts    # 外部ファイル操作
-│       │   ├── useMessageDialog.ts     # ダイアログ状態管理
-│       │   └── __test__/              # hookテスト
-│       ├── lib/
-│       │   ├── monaco.ts              # Monaco Editor 初期化・言語マッピング
-│       │   └── theme.ts               # MUI テーマ定義
-│       └── utils/
-│           ├── fileUtils.ts           # バイナリファイル判定
-│           └── dayjs.ts               # dayjs設定
-│
+│   ├── src/
+│   │   ├── App.tsx           # ルート (hook統合, ダイアログ管理)
+│   │   ├── components/
+│   │   │   ├── NoteSearchBox.tsx     # 全文検索UI
+│   │   │   ├── MarkdownPreview.tsx   # Markdownプレビュー (GFM)
+│   │   │   ├── MigrationDialog.tsx   # Drive移行ダイアログ
+│   │   │   ├── ArchivedNoteContentDialog.tsx # アーカイブ表示
+│   │   │   ├── PaneHeader.tsx        # スプリットペインヘッダー
+│   │   │   └── ... (AppBar, Editor, NoteList等)
+│   │   ├── hooks/
+│   │   │   ├── useNoteSearch.ts      # 検索ロジック (複数ワード対応)
+│   │   │   ├── useSplitEditor.ts     # 2画面分割管理
+│   │   │   ├── usePaneSizes.ts       # ペインリサイズ管理
+│   │   │   ├── useFileNotes.ts       # 外部ファイル管理
+│   │   │   └── ... (useNotes, useDriveSync等)
+│   │   ├── i18n/
+│   │   │   └── locales/              # ja.json, en.json リソース
+│   │   ├── themes/                   # Monaco カスタムテーマ (.json)
+│   │   └── ...
+│   └── ...
 └── wailsjs/                 # Wails自動生成 (手動編集禁止)
-    ├── go/backend/App.ts    # Goメソッドのバインディング
-    ├── go/models.ts         # Go構造体のTS型
-    └── runtime/             # Wailsランタイム API
 ```
 
 ---
@@ -130,34 +126,32 @@ monaco-notepad/
 
 ### domain.go — データモデル
 
-全てのデータ構造がここに集約されている。**新しい型は必ずここに追加する。**
+全てのデータ構造がここに集約されている。
 
-| 型             | 用途                                                           |
-| -------------- | -------------------------------------------------------------- |
-| `App`          | メイン構造体。全サービスを保持                                 |
-| `Note`         | ノート本体 (ID, Title, Content, Language, Archived, FolderID)  |
-| `NoteMetadata` | ノートリスト用の軽量メタ (ContentHashで変更検知)               |
-| `NoteList`     | noteList.json の構造 (Notes, Folders, TopLevelOrder, LastSync) |
-| `Folder`       | フォルダ (ID, Name, Archived)                                  |
-| `TopLevelItem` | 表示順序管理 (Type: "note"/"folder", ID)                       |
-| `Settings`     | エディタ設定 (フォント, テーマ, ウィンドウ位置等)              |
-| `DriveSync`    | Drive接続状態 (service, token, folderIDs, mutex)               |
-| `WailsConfig`  | wails.json パース用                                            |
+| 型                       | 用途                                                             |
+| ------------------------ | ---------------------------------------------------------------- |
+| `App`                    | メイン構造体。全サービスと `SyncState` を保持                    |
+| `Note` / `NoteMetadata`  | ノート本体 / メタデータ (ContentHash, ModifiedTime)              |
+| `NoteList`               | 表示順, フォルダ, 展開状態, アーカイブ順を管理 (v2)              |
+| `Settings`               | エディタ設定, UI言語, ペインサイズ, 競合バックアップ設定         |
+| `SyncState`              | dirtyフラグ (Note/Folder), 最終同期トークン, MD5キャッシュ       |
+| `IntegrityIssue`         | 整合性チェックで見つかった問題 (Kind, Severity)                  |
+| `IntegrityFixOption`     | 問題に対する修復の選択肢 (Label, Description)                    |
+| `MessageCode`            | フロントエンド側で翻訳するためのメッセージコードと引数           |
+| `Context`                | `skipBeforeClose` フラグを持つ context ラッパー                  |
 
 ### app.go — Wails公開メソッド (フロントエンドAPI)
 
-`App` 構造体のパブリックメソッドが自動的にフロントエンドから呼び出し可能になる。
+主要な新規・更新バインディング:
 
-主要なバインディング:
-
-- `ListNotes()`, `SaveNote()`, `DeleteNote()`, `LoadArchivedNote()`
-- `CreateFolder()`, `RenameFolder()`, `DeleteFolder()`, `MoveNoteToFolder()`
-- `ArchiveFolder()`, `UnarchiveFolder()`, `DeleteArchivedFolder()`
-- `GetTopLevelOrder()`, `UpdateTopLevelOrder()`
-- `AuthorizeDrive()`, `LogoutDrive()`, `CheckDriveConnection()`, `SyncNow()`
-- `LoadSettings()`, `SaveSettings()`
-- `OpenFile()`, `SaveFile()`, `SelectFile()`, `SelectSaveFileUri()`
-- `NotifyFrontendReady()`, `DestroyApp()`
+- `LoadNote(id)`, `SaveNoteList()`, `ApplyIntegrityFixes(selections)`
+- `GetArchivedTopLevelOrder()`, `UpdateArchivedTopLevelOrder()`
+- `GetCollapsedFolderIDs()`, `UpdateCollapsedFolderIDs()`
+- `RespondToMigration(choice)` — "migrate_delete" / "migrate_keep" / "skip"
+- `LoadFileNotes()`, `SaveFileNotes()`
+- `GetModifiedTime()`, `CheckFileModified()`, `CheckFileExists()`
+- `OpenAppFolder()`, `OpenConflictBackupFolder()`, `OpenURL()`
+- `GetSystemLocale()`, `GetAppVersion()`, `BringToFront()`
 
 ### サービス層パターン
 
@@ -170,89 +164,62 @@ type DriveService interface { ... }    // drive_service.go
 type AppLogger interface { ... }       // app_logger.go
 ```
 
-- サービスは `New*Service()` ファクトリ関数で作成
-- `App` 構造体が全サービスを DI 的に保持
-- テスト時は `isTestMode` フラグで EventsEmit を無効化
+### Google Drive同期 (v2)
 
-### Google Drive同期
-
-1. **認証フロー** (`auth_service.go`): ローカルHTTPサーバー(`:34115`)でOAuth2コールバック受信
-2. **ポーリング** (`drive_polling.go`): Changes API使用、指数バックオフ (20秒→最大3分)
-3. **操作キュー** (`drive_operations_queue.go`): CREATE/UPDATE/DELETE/DOWNLOAD を非同期キューイング
-4. **同期判定**: `NoteMetadata.ContentHash` (SHA-256) と `ModifiedTime` で変更検知
+1. **ストレージ移行** (`drive_migration.go`): 従来のルート直下から `appDataFolder` へ移行。孤立ノートの復元機能。
+2. **同期判定** (`sync_state.go`): `SyncState` による dirty フラグ方式。不要なフルスキャンを回避。
+3. **同期詳細** (`drive_sync_service.go`):
+   - `pushLocalChanges`: ローカルの dirty 変更をアップロード。
+   - `pullCloudChanges`: クラウドの変更をダウンロード。MD5比較で不要な転送を抑制。
+   - `resolveConflict`: クラウド優先/ローカル優先を ModifiedTime で判定。クラウド優先時はローカルを `cloud_conflict_backups/` に保存。
+4. **リトライとページング**:
+   - `uploadRetryConfig`: 最大4回 (2s〜20s)
+   - `downloadRetryConfig`: 最大5回 (2s〜30s)
+   - `drive_operations.go`: 100件を超えるファイル/変更リストのページネーション対応。
 
 ### データ永続化
 
-| データ         | 場所                                    | 形式                |
-| -------------- | --------------------------------------- | ------------------- |
-| 各ノート       | `{notesDir}/{id}.json`                  | JSON                |
-| ノートリスト   | `{appDataDir}/noteList.json`            | JSON (NoteList)     |
-| 設定           | `{appDataDir}/settings.json`            | JSON (Settings)     |
-| OAuthトークン  | `{appDataDir}/token.json`               | JSON (oauth2.Token) |
-| Google認証情報 | `{appDataDir}/credentials.json`         | JSON                |
-| ファイルノート | `{appDataDir}/fileNotes.json`           | JSON                |
-| ログ           | `{appDataDir}/logs/app_{timestamp}.log` | テキスト            |
+| データ                 | 場所                                    | 形式                |
+| ---------------------- | --------------------------------------- | ------------------- |
+| ノートリスト (v2)      | `{appDataDir}/noteList_v2.json`         | JSON (NoteList)     |
+| 同期状態               | `{appDataDir}/sync_state.json`          | JSON (SyncState)    |
+| 設定                   | `{appDataDir}/settings.json`            | JSON (Settings)     |
+| ファイルノート         | `{appDataDir}/fileNotes.json`           | JSON                |
+| 競合バックアップ       | `{appDataDir}/cloud_conflict_backups/`  | JSON (最大100件)    |
+| マイグレーション状態   | `{appDataDir}/drive_storage_migration.json` | JSON            |
 
 ---
 
 ## フロントエンド詳細
 
-### コンポーネント設計
+### コンポーネント設計 (拡張)
 
-App.tsx がルートで、全hookを統合して子コンポーネントにpropsで渡す。**Context/Storeは未使用、props drilling パターン。**
+- **2画面分割 (Split Mode)**: `useSplitEditor` で左右のペイン状態を管理。`PaneHeader` で切替。
+- **全文検索**: `NoteSearchBox` で全ノート/外部ファイルを検索。ハイライトナビゲーション対応。
+- **Markdownプレビュー**: `MarkdownPreview` を左右いずれかのペイン、または専用パネルで表示。
+- **整合性修復**: `integrity:issues` イベント受信時に `MessageDialog` でユーザーに修復案を提示。
 
-```
-App.tsx
-├── AppBar (タイトル, 言語選択, Drive状態, ファイル操作ボタン)
-├── NoteList (サイドバー: ノート一覧, フォルダ, DnD並替)
-├── Editor (Monaco Editor本体)
-├── ArchivedNoteList (アーカイブ表示)
-├── EditorStatusBar (行数, 言語, Drive同期ログ)
-├── SettingsDialog (設定画面)
-├── MessageDialog (確認ダイアログ)
-└── VersionUp (バージョンアップ通知)
-```
-
-### Hook設計
+### Hook設計 (新規)
 
 | Hook                | 責務                                                          |
 | ------------------- | ------------------------------------------------------------- |
-| `useNotes`          | ノートCRUD, アーカイブ, フォルダ操作, 自動保存(3秒デバウンス) |
-| `useInitialize`     | 初期データロード, キーボードショートカット登録                |
-| `useDriveSync`      | Drive同期状態 (synced/syncing/offline), 認証/ログアウト       |
-| `useEditorSettings` | 設定の読込/保存, ウィンドウ位置復元                           |
-| `useFileOperations` | 外部ファイル Open/Save/SaveAs/DnD/CloseFile                   |
-| `useMessageDialog`  | Promise ベースのダイアログ表示                                |
+| `useNoteSearch`     | 全文検索ロジック。キャッシュによる高速化、マッチ箇所抽出       |
+| `useSplitEditor`    | 左右ペインのノート/ファイル選択状態、プレビュー連動           |
+| `useFileNotes`      | 最近開いたローカルファイルのパス・内容・変更検知管理           |
+| `usePaneSizes`      | サイドバー、スプリットペイン、プレビューペインのサイズ永続化   |
+| `useNoteSelecter`   | 複雑化したノート選択状態の単一ソース化                        |
 
 ### Monaco Editor 統合 (`lib/monaco.ts`)
 
-- **シングルトン**: `getOrCreateEditor()` / `disposeEditor()` で1インスタンス管理
-- **モデル管理**: ノートごとに `inmemory://{id}` URI でモデル作成、タブ切替時にモデル差し替え
-- **言語マッピング**: 拡張子→言語のマッピング定義あり (`getLanguageByExtension()`)
-- **Worker**: Vite の `?worker` インポートで Monaco の Web Worker を設定
+- **シングルトン**: `getOrCreateEditor()` / `disposeEditor()` で1インスタンス管理。
+- **モデル管理**: ノートごとに `inmemory://{id}` URI でモデル作成、タブ切替時にモデル差し替え。
+- **言語マッピング**: 拡張子→言語のマッピング定義あり (`getLanguageByExtension()`)。
 
-### UIライブラリ
+### 国際化 (i18n)
 
-- **MUI (Material UI) v6**: Box, Button, Dialog, TextField, Select, IconButton 等
-- **@dnd-kit**: ノート一覧の並べ替え (SortableContext, DragOverlay)
-- **simplebar-react**: カスタムスクロールバー
-- **dayjs**: 日付フォーマット
-
-### スタイリング
-
-MUI の `sx` prop と `useTheme()` でインラインスタイリング。グローバルCSSは最小限。ダーク/ライトは MUI テーマ切替 + Monaco の `vs`/`vs-dark` テーマ。
-
-### キーボードショートカット
-
-| ショートカット         | 機能                              |
-| ---------------------- | --------------------------------- |
-| Ctrl/Cmd + N           | 新規ノート                        |
-| Ctrl/Cmd + O           | ファイルを開く                    |
-| Ctrl/Cmd + S           | ファイル保存                      |
-| Ctrl/Cmd + Alt + S     | 名前を付けて保存                  |
-| Ctrl/Cmd + W           | ファイル閉じる / ノートアーカイブ |
-| Ctrl/Cmd + Tab         | 次のノートへ                      |
-| Ctrl/Cmd + Shift + Tab | 前のノートへ                      |
+- `frontend/src/i18n/locales/` に `ja.json`, `en.json` を配置。
+- バックエンドからの `MessageCode` は `i18next.t(code, args)` で翻訳して表示。
+- `UILanguage` 設定 ("system", "ja", "en") に基づき、初期化時に OS 言語を考慮して適用。
 
 ---
 
@@ -264,8 +231,25 @@ MUI の `sx` prop と `useTheme()` でインラインスタイリング。グロ
 cd backend && go test ./...
 ```
 
-テストファイル: `app_test.go`, `note_service_test.go`, `drive_service_test.go`, `drive_operations_queue_test.go`, `domain_test.go`, `file_note_service_test.go`
+主要なテストファイル:
+- `drive_migration_test.go`: appDataFolderへの移行ロジック。
+- `drive_sync_service_test.go`: 競合解決・リトライを含む同期ロジック。
+- `drive_sync_notes_test.go`: ノート同期の詳細テスト。
+- `drive_service_test.go`: DriveService統合テスト。
+- `drive_service_notification_test.go`: Drive通知イベントテスト。
+- `drive_operations_queue_test.go`: 非同期キューのテスト。
+- `drive_polling_test.go`: ポーリングロジックのテスト。
+- `sync_state_test.go`: dirtyフラグの永続化と管理。
+- `note_service_test.go`: ノートCRUDと整合性チェック。
+- `file_service_test.go`: ファイル操作テスト。
+- `file_note_service_test.go`: ファイルノート操作テスト。
+- `locale_test.go`: ロケール検出・正規化テスト。
+- `domain_test.go`: ドメイン型テスト。
+- `app_test.go`: App統合テスト。
+- `drive_test_compat_helpers_test.go`: テスト共通ヘルパー。
+- `migration/v1_to_v2_test.go`: noteList v1→v2変換テスト。
 
+テスト実行時の注意:
 - `testify` の `assert`, `require` を使用
 - `isTestMode: true` で Wails EventsEmit を無効化してテスト
 
@@ -275,14 +259,8 @@ cd backend && go test ./...
 cd frontend && npx vitest run
 ```
 
-テストファイル:
-
-- `components/__tests__/`: App, AppBar, ArchivedNoteList, Editor, NoteList, etc.
-- `hooks/__test__/`: useNotes, useDriveSync, useEditorSettings, useFileOperations, etc.
-
-- `vitest` + `@testing-library/react`
-- Monaco Editor はモック (`test/setup.ts` で `vi.mock`)
-- Wails バインディングもモック
+- `components/__tests__/`: 新規追加コンポーネントの表示・操作テスト。
+- `hooks/__test__/`: 全文検索・スプリットエディタ等のビジネスロジックテスト。
 
 ---
 
@@ -304,99 +282,71 @@ wails dev      # ホットリロード付き開発サーバー
 ./build.ps1
 ```
 
-ビルドスクリプトは `wails.json` からバージョン情報を読み、ビルド成果物を `build/bin/` に出力。
-
-### フロントエンド単体
-
-```bash
-cd frontend
-npm install
-npm run dev      # Vite dev server
-npm run build    # 本番ビルド
-npm run check    # Biome lint + format check
-```
-
 ---
 
 ## コーディング規約
 
 ### Go
-
-- **パッケージ**: 全バックエンドコードは `package backend` (単一パッケージ)
-- **コメント**: 日本語 (`// ノート関連のローカル操作を提供するインターフェース`)
-- **命名**: Go 標準 (CamelCase公開, camelCase非公開)
-- **エラー処理**: `fmt.Errorf` でラップ、`logger.Error()` でログ+通知
-- **ファクトリ**: `New*Service()` 関数パターン
-- **テストモード**: `isTestMode` フラグでWailsランタイム呼出しを回避
+- **パッケージ**: 全バックエンドコードは `package backend` (単一パッケージ)。`migration/` サブパッケージのみ例外。
+- **多言語対応**: 直接文字列を返さず、`domain.go` の `MessageCode` と定数を使用する。
+- **エラー処理**: `logger.ErrorCode()` 等を使用して、フロントエンドへ翻訳可能なメッセージを通知する。
+- **DI**: `App` 構造体に必要なサービスを注入し、`isTestMode` フラグで環境を切り分ける。
+- **ファクトリ**: `New*Service()` 関数パターンでサービスを作成する。
+- **コメント**: 日本語コメントを使用する。
 
 ### TypeScript / React
-
-- **Biome** でlint + format (`biome.json` 設定)
-- **命名**: コンポーネントは PascalCase (`NoteList.tsx`)、hookは `use` プレフィックス
-- **型定義**: `types.ts` に集約。Wails自動生成型は `wailsjs/go/models.ts`
-- **Hook パターン**: ビジネスロジックはカスタムhookに分離、コンポーネントはUI専念
-- **Wails バインディング**: `wailsjs/go/backend/App` からインポート
-- **イベント**: `wailsjs/runtime` の `EventsOn` / `EventsOff` / `EventsEmit`
-- **インデント**: タブ
-
-### 共通
-
-- コミットメッセージ: `feat(scope): description` / `fix(scope): description` / `refactor:` / `style:` / `test:` / `perf:` — Conventional Commits
-- ブランチ: `main` がデフォルト、機能ブランチは説明的な名前 (`FolderFunction`, `Add-file-mode`)
+- **ビジネスロジックの分離**: コンポーネント内にはUIのみを記述し、ロジックはカスタム hook に集約する。
+- **Props Drilling**: 状態管理ライブラリ（Redux/Zustand等）は使用せず、`App.tsx` から props で各コンポーネントへ渡す。
+- **Biome**: リンターおよびフォーマッターとして Biome を使用する。
+- **型定義**: `types.ts` に集約。Wails自動生成型は `wailsjs/go/models.ts`。
+- **インデント**: タブ。
+- **命名**: コンポーネントは PascalCase、hookは `use` プレフィックス。
 
 ---
 
 ## 重要な注意事項
 
-### wailsjs/ は自動生成
+### SyncState による整合性
+`sync_state.go` の `Dirty` フラグが立っている場合のみ同期が実行される。操作失敗時は `ClearDirtyIfUnchanged` を通じて安全にリトライが行われる。
 
-`wailsjs/` ディレクトリ配下は `wails dev` / `wails build` 時に自動生成される。**手動編集禁止。** Go の `App` 構造体にパブリックメソッドを追加すると、自動でバインディングが生成される。
+### 孤立ファイル復元 (Orphan Recovery)
+起動時に `noteList` に登録されていない物理ノートファイルを検知した場合、自動的に「不明ノート」フォルダを作成して登録する。Drive移行時にも同様のチェックを行い、データの紛失を防止する。
 
-### ノートのデータフロー
+### 多言語対応メッセージ
+バックエンドからユーザーへの通知は、直接文字列を渡すのではなく `MessageCode` (domain.go) を使用する。
+1. `domain.go` に `Msg*` 定数を追加。
+2. フロントエンドの `locales/*.json` に翻訳を追加。
+3. `app_logger.go` の `InfoCode` / `ErrorCode` 等で呼び出す。
 
-1. ノート作成/変更 → `useNotes` で React state 更新 → `SaveNote()` でバックエンドへ
-2. バックエンド: ノートJSON保存 → noteList.json 更新 → (Drive接続時) operationsQueue 経由でアップロード
-3. Drive変更検知 → `SyncNotes()` → noteList.json更新 → `EventsEmit("notes:reload")` → フロントエンド再取得
-
-### フォルダ・並べ替え
-
-- `TopLevelOrder` (noteList.json) でサイドバーの表示順を管理
-- フォルダ内のノートは `NoteMetadata.FolderID` で紐付け
-- DnD は `@dnd-kit` で実装 (`NoteList.tsx`)
-
-### 自動保存
-
-- エディタ変更後3秒デバウンスで自動保存 (`useNotes.ts`)
-- アプリ終了時 (`app:beforeclose`) に未保存ノートを保存
-- ウィンドウのサイズ/位置変更時に設定保存 (`useEditorSettings.ts`)
-
-### Google Drive認証ポート
-
-OAuth2コールバック用に `:34115` を使用。固定ポートのため競合注意。
+### macOS ウィンドウ制御
+macOS ではウィンドウを閉じてもアプリを終了させない挙動を `mac_window_close_patch.go` で実装。`DestroyApp()` 呼び出し時のみ完全に終了する。
 
 ---
 
 ## 機能追加ガイド
 
 ### 新しいバックエンドAPIの追加
+1. `domain.go` に必要なデータ型を定義。
+2. 適切なサービスファイルにロジック実装。
+3. `app.go` にパブリックメソッドを追加。
+4. 必要に応じて `SyncState` に dirty フラグを追加し、`MarkDirty()` 等で同期をトリガー。
+5. `wails dev` で再ビルド → `wailsjs/` が自動更新。
+6. テスト追加 (`*_test.go`)。
 
-1. `domain.go` に必要なデータ型を定義
-2. 適切なサービスファイルにロジック実装
-3. `app.go` の `App` 構造体にパブリックメソッドを追加 (→ Wails自動バインディング)
-4. `wails dev` で再ビルド → `wailsjs/` が自動更新
-5. フロントエンドから `wailsjs/go/backend/App` のインポートで呼び出し
-6. テスト追加 (`*_test.go`)
+### 新しいUIと言語リソースの追加
+1. `locales/` の各 JSON にキーを追加。
+2. 複雑なロジックはカスタムhookに分離 (`hooks/use*.ts`)。
+3. UIコンポーネントを `components/` に作成。
+4. `App.tsx` でhookを統合、propsとして子コンポーネントに渡す。
+5. コンポーネント内で `useTranslation()` を使用。
+6. テスト追加 (`__tests__/` or `__test__/`)。
 
-### 新しいUI機能の追加
-
-1. `types.ts` に必要な型定義追加
-2. 複雑なロジックはカスタムhookに分離 (`hooks/use*.ts`)
-3. UIコンポーネントを `components/` に作成
-4. `App.tsx` でhookを統合、propsとして子コンポーネントに渡す
-5. テスト追加 (`__tests__/` or `__test__/`)
+### 新しいメッセージコードの追加
+1. `domain.go` に `Msg*` 定数を追加。
+2. フロントエンドの `locales/*.json` に翻訳を追加。
+3. `app_logger.go` の `InfoCode` / `ErrorCode` 等で呼び出す。
 
 ### 新しい Wails イベントの追加
-
 - Backend → Frontend: `wailsRuntime.EventsEmit(ctx, "event:name", data)` (Go側)
 - Frontend 受信: `runtime.EventsOn("event:name", handler)` (React側)
 - cleanup 忘れずに: `runtime.EventsOff("event:name")` を useEffect の return で呼ぶ

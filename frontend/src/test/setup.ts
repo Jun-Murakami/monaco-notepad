@@ -6,7 +6,7 @@ initI18n('en');
 const originalGetComputedStyle = window.getComputedStyle;
 Object.defineProperty(window, 'getComputedStyle', {
   configurable: true,
-  value: (element: Element, pseudo?: string | null) =>
+  value: (element: Element, _pseudo?: string | null) =>
     originalGetComputedStyle(element),
 });
 
@@ -33,7 +33,10 @@ vi.mock('monaco-editor', () => ({
 }));
 
 // Unicode Highlighter の副作用importをテスト環境で無効化
-vi.mock('monaco-editor/esm/vs/features/unicodeHighlighter/register.js', () => ({}));
+vi.mock(
+  'monaco-editor/esm/vs/features/unicodeHighlighter/register.js',
+  () => ({}),
+);
 
 // monaco-editorのワーカーモジュールをモック
 vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({
@@ -132,7 +135,7 @@ vi.mock('../lib/monaco', () => ({
       dark: 'github-dark',
     },
   ],
-  getThemePair: (id: string) => ({
+  getThemePair: (_id: string) => ({
     id: 'default',
     label: 'Default',
     light: 'vs',

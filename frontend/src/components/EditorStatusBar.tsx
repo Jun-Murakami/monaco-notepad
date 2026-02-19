@@ -22,6 +22,7 @@ import * as wailsRuntime from '../../wailsjs/runtime';
 import { useDriveSync } from '../hooks/useDriveSync';
 import { isMessageCode, translateMessageCode } from '../utils/messageCode';
 import { GoogleDriveIcon, MarkdownIcon, SplitEditorIcon } from './Icons';
+import { MigrationDialog } from './MigrationDialog';
 import { VersionUp } from './VersionUp';
 
 const fadeAnimation = keyframes`
@@ -76,6 +77,8 @@ export const EditorStatusBar = ({
     isHoveringSync,
     setIsHoveringSync,
     isHoverLocked,
+    isMigrationDialogOpen,
+    setIsMigrationDialogOpen,
     handleGoogleAuth,
     handleLogout,
     handleSyncNow,
@@ -315,7 +318,9 @@ export const EditorStatusBar = ({
         }}
       >
         <Tooltip
-          title={isSplit ? t('statusBar.closeSplit') : t('statusBar.splitEditor')}
+          title={
+            isSplit ? t('statusBar.closeSplit') : t('statusBar.splitEditor')
+          }
           arrow
           placement="top"
         >
@@ -385,7 +390,11 @@ export const EditorStatusBar = ({
           )}
         </Box>
         {syncStatus === 'offline' ? (
-          <Tooltip title={t('statusBar.connectGoogleDrive')} arrow placement="top">
+          <Tooltip
+            title={t('statusBar.connectGoogleDrive')}
+            arrow
+            placement="top"
+          >
             <IconButton
               sx={{ width: 28, height: 28 }}
               onClick={handleGoogleAuth}
@@ -486,6 +495,10 @@ export const EditorStatusBar = ({
           </List>
         </SimpleBar>
       </Popover>
+      <MigrationDialog
+        open={isMigrationDialogOpen}
+        onClose={() => setIsMigrationDialogOpen(false)}
+      />
     </Box>
   );
 };

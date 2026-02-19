@@ -256,6 +256,48 @@ func TestUpdateNote_AllRetriesFail_FallsBackToCreate(t *testing.T) {
 	assert.True(t, exists)
 }
 
+func TestCreateNote_DuplicatePrevention_UpdatesExisting(t *testing.T) {
+	ops := newRetryCountingOps()
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+
+	noteData, _ := json.Marshal(&Note{ID: "dup-note", Title: "Original", Content: "old", Language: "plaintext"})
+	_, err := ops.CreateFile("dup-note.json", noteData, "test-folder", "application/json")
+	require.NoError(t, err)
+
+	ops.mu.Lock()
+	ops.callCounts["CreateFile"] = 0
+	ops.mu.Unlock()
+
+	service := NewDriveSyncService(ops, "test-folder", "test-root", logger).(*driveSyncServiceImpl)
+	err = service.CreateNote(context.Background(), &Note{ID: "dup-note", Title: "Updated", Content: "new", Language: "plaintext"})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, ops.callCount("CreateFile"), "既存ファイルがある場合CreateFileは呼ばれないべき")
+	assert.Equal(t, 1, ops.callCount("UpdateFile"), "既存ファイルがUpdateされるべき")
+
+	ops.mockDriveOperations.mu.RLock()
+	updatedData := ops.files["test-file-dup-note.json"]
+	ops.mockDriveOperations.mu.RUnlock()
+	var updated Note
+	require.NoError(t, json.Unmarshal(updatedData, &updated))
+	assert.Equal(t, "new", updated.Content)
+}
+
+func TestCreateNote_NoExisting_CreatesNew(t *testing.T) {
+	ops := newRetryCountingOps()
+	logger := NewAppLogger(context.Background(), true, t.TempDir())
+	service := NewDriveSyncService(ops, "test-folder", "test-root", logger).(*driveSyncServiceImpl)
+
+	err := service.CreateNote(context.Background(), &Note{ID: "new-note", Title: "New", Content: "content", Language: "plaintext"})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, ops.callCount("CreateFile"), "新規ファイルはCreateFileで作成されるべき")
+	assert.Equal(t, 0, ops.callCount("UpdateFile"), "新規ファイルでUpdateFileは呼ばれないべき")
+
+	ops.mockDriveOperations.mu.RLock()
+	_, exists := ops.files["test-file-new-note.json"]
+	ops.mockDriveOperations.mu.RUnlock()
+	assert.True(t, exists)
+}
+
 func TestRetryConfig_ShouldRetry_Conditions(t *testing.T) {
 	tests := []struct {
 		name   string

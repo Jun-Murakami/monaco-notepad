@@ -124,6 +124,13 @@
     "syncFailedTitle": "Sync failed",
     "syncFailedMessage": "Could not sync with Google Drive. Notes are safe locally.\n\nDetails: {{error}}"
   },
+  "migration": {
+    "title": "Cloud Storage Update",
+    "announcement": "Cloud storage has been updated to a new format.\n(Using appDataFolder in Google Drive to avoid excessive file operation history output)\n\nAll devices must be running Monaco Notepad v1.3.0 or later. Devices running older versions will not be able to sync with Monaco Notepad v1.3.0 or later.",
+    "migrateDelete": "Migrate and remove old data",
+    "migrateKeep": "Migrate and keep old data",
+    "skip": "Skip for now"
+  },
   "integrity": {
     "noticeTitle": "Notice",
     "unknownFileTitle": "Unknown file"
@@ -172,6 +179,18 @@
     "checkingCloudFiles": "Checking cloud files...",
     "checkingDuplicates": "Checking for duplicates...",
     "reconnected": "Reconnected to Google Drive",
+    "migration": {
+      "starting": "Starting storage migration...",
+      "alreadyDone": "Storage already migrated from another device",
+      "noteList": "Migrating note list...",
+      "progress": "Migrating notes... ({{current}}/{{total}})",
+      "copied": "Migrated {{count}} notes",
+      "complete": "Storage migration completed",
+      "cleaningUp": "Cleaning up incomplete migration data...",
+      "cleanedUp": "Incomplete migration data cleaned up",
+      "deletingOld": "Deleting old Drive data...",
+      "deletedOld": "Old Drive data deleted"
+    },
     "error": {
       "folderSetup": "Folder setup failed",
       "noteListSetup": "Note list setup failed",
@@ -214,6 +233,21 @@
     },
     "noteListRestored": "Note list restored from backup",
     "integrityAutoRepaired": "Integrity check: auto-repaired local data ({{count}} changes)"
+  },
+  "orphan": {
+    "localRecoveryDone": "Recovered {{count}} orphan notes into \"{{folder}}\" folder",
+    "cloudRecoveryDone": "Recovered {{count}} orphan cloud notes into \"{{folder}}\" folder",
+    "recoverySkipCorrupt": "Skipped corrupted orphan file",
+    "recoveryDialogTitle": "Orphan Notes Recovered",
+    "recoveryDialogLocal": "{{count}} orphan note(s) found on local disk were recovered into the \"{{folder}}\" folder.",
+    "recoveryDialogCloud": "{{count}} orphan note(s) found on Google Drive were recovered into the \"{{folder}}\" folder.",
+    "recoveryDialogCloudDeleted": "{{count}} duplicate conflict copy/copies were deleted from Google Drive.",
+    "localRecoveryProgress": "Recovering orphan notes... ({{current}}/{{total}})",
+    "cloudRecoveryProgress": "Recovering orphan cloud notes... ({{current}}/{{total}})"
+  },
+  "conflict": {
+    "autoResolveDuplicate": "Auto-resolved conflict copy: deleted \"{{noteId}}\"",
+    "autoResolveKept": "Auto-resolved conflict copy: kept \"{{noteId}}\" (unique content)"
   },
   "common": {
     "appName": "Monaco Notepad",

@@ -171,6 +171,52 @@ export const useInitialize = (
   }, [showMessage]);
 
   useEffect(() => {
+    const handleOrphanRecoveries = async (
+      recoveries: {
+        source: string;
+        count: number;
+        folderName: string;
+        deletedDuplicates: number;
+      }[],
+    ) => {
+      if (!recoveries || recoveries.length === 0) return;
+      for (const recovery of recoveries) {
+        const lines: string[] = [];
+        if (recovery.count > 0) {
+          const messageKey =
+            recovery.source === 'local'
+              ? 'orphan.recoveryDialogLocal'
+              : 'orphan.recoveryDialogCloud';
+          lines.push(
+            i18n.t(messageKey, {
+              count: recovery.count,
+              folder: recovery.folderName,
+            }),
+          );
+        }
+        if (recovery.deletedDuplicates > 0) {
+          lines.push(
+            i18n.t('orphan.recoveryDialogCloudDeleted', {
+              count: recovery.deletedDuplicates,
+            }),
+          );
+        }
+        if (lines.length === 0) continue;
+        await showMessage(
+          i18n.t('orphan.recoveryDialogTitle'),
+          lines.join('\n'),
+          false,
+          i18n.t('dialog.ok'),
+        );
+      }
+    };
+    runtime.EventsOn('notes:orphans-recovered', handleOrphanRecoveries);
+    return () => {
+      runtime.EventsOff('notes:orphans-recovered');
+    };
+  }, [showMessage]);
+
+  useEffect(() => {
     if (isInitialized) return;
     const asyncFunc = async () => {
       try {

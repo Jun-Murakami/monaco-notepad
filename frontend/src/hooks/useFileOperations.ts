@@ -34,7 +34,7 @@ export function useFileOperations(
   fileNotes: FileNote[],
   setFileNotes: (files: FileNote[]) => void,
   handleSelecAnyNote: (note: Note | FileNote) => Promise<void>,
-  showMessage: (
+  _showMessage: (
     title: string,
     message: string,
     isTwoButton?: boolean,
@@ -49,10 +49,7 @@ export function useFileOperations(
   const createFileNote = useCallback(
     async (content: string, filePath: string): Promise<FileNote | null> => {
       if (isBinaryFile(content)) {
-        runtime.EventsEmit(
-          'logMessage',
-          i18n.t('file.binaryOpenError'),
-        );
+        runtime.EventsEmit('logMessage', i18n.t('file.binaryOpenError'));
         return null;
       }
 
@@ -178,10 +175,7 @@ export function useFileOperations(
       }
     } catch (error) {
       console.error('Failed to save file:', error);
-      runtime.EventsEmit(
-        'logMessage',
-        i18n.t('file.saveAsFailed'),
-      );
+      runtime.EventsEmit('logMessage', i18n.t('file.saveAsFailed'));
     }
   };
 

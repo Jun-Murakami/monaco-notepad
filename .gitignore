@@ -8,3 +8,9 @@ build/bin
 node_modules
 frontend/dist
 frontend/coverage
+
+# Go
+backend/*.out
+
+# Sisyphus
+.sisyphus/

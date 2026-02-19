@@ -18,7 +18,10 @@ import {
 } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { OpenAppFolder, OpenConflictBackupFolder } from '../../wailsjs/go/backend/App';
+import {
+  OpenAppFolder,
+  OpenConflictBackupFolder,
+} from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { THEME_PAIRS } from '../lib/monaco';
 import type { Settings } from '../types';
@@ -33,7 +36,13 @@ interface SettingsDialogProps {
   onChange: (settings: Settings) => void;
 }
 
-export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, onClose, onSave, onChange }) => {
+export const SettingsDialog: React.FC<SettingsDialogProps> = ({
+  open,
+  settings,
+  onClose,
+  onSave,
+  onChange,
+}) => {
   const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
   const { t } = useTranslation();
 
@@ -81,7 +90,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth='sm'
+      maxWidth="sm"
       fullWidth
       slotProps={{
         backdrop: {
@@ -97,25 +106,31 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
           {/* 言語設定 */}
-          <FormControl fullWidth size='small'>
+          <FormControl fullWidth size="small">
             <InputLabel>{t('settings.language')}</InputLabel>
             <Select
               value={localSettings.uiLanguage || 'system'}
               label={t('settings.language')}
-              onChange={(e) => handleChange({ uiLanguage: e.target.value as 'system' | 'en' | 'ja' })}
+              onChange={(e) =>
+                handleChange({
+                  uiLanguage: e.target.value as 'system' | 'en' | 'ja',
+                })
+              }
             >
-              <MenuItem value='system'>{t('settings.language_system')}</MenuItem>
-              <MenuItem value='ja'>{t('settings.language_ja')}</MenuItem>
-              <MenuItem value='en'>{t('settings.language_en')}</MenuItem>
+              <MenuItem value="system">
+                {t('settings.language_system')}
+              </MenuItem>
+              <MenuItem value="ja">{t('settings.language_ja')}</MenuItem>
+              <MenuItem value="en">{t('settings.language_en')}</MenuItem>
             </Select>
           </FormControl>
 
-          <Divider orientation='horizontal' sx={{ width: '100%' }} />
+          <Divider orientation="horizontal" sx={{ width: '100%' }} />
 
           <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2 }}>
             <TextField
               label={t('settings.fontFamily')}
-              size='small'
+              size="small"
               fullWidth
               value={localSettings.fontFamily}
               onChange={(e) => handleChange({ fontFamily: e.target.value })}
@@ -124,12 +139,17 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
             <FormControl sx={{ width: 150 }}>
               <InputLabel>{t('settings.fontSize')}</InputLabel>
               <Select
-                size='small'
+                size="small"
                 value={localSettings.fontSize}
                 label={t('settings.fontSize')}
-                onChange={(e) => handleChange({ fontSize: e.target.value as number })}
+                onChange={(e) =>
+                  handleChange({ fontSize: e.target.value as number })
+                }
               >
-                {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].map((size) => (
+                {[
+                  8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                  24,
+                ].map((size) => (
                   <MenuItem key={size} value={size}>
                     {size}px
                   </MenuItem>
@@ -138,12 +158,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
             </FormControl>
           </Box>
 
-          <FormControl fullWidth size='small'>
+          <FormControl fullWidth size="small">
             <InputLabel>{t('settings.theme')}</InputLabel>
             <Select
               value={localSettings.editorTheme}
               label={t('settings.theme')}
-              onChange={(e) => handleChange({ editorTheme: e.target.value as string })}
+              onChange={(e) =>
+                handleChange({ editorTheme: e.target.value as string })
+              }
             >
               {THEME_PAIRS.map((pair) => (
                 <MenuItem key={pair.id} value={pair.id}>
@@ -178,7 +200,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
                     }}
                   />
                 }
-                label={localSettings.isDarkMode ? t('settings.darkMode') : t('settings.lightMode')}
+                label={
+                  localSettings.isDarkMode
+                    ? t('settings.darkMode')
+                    : t('settings.lightMode')
+                }
               />
             </Grid>
 
@@ -187,7 +213,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
                 control={
                   <Switch
                     checked={localSettings.wordWrap === 'on'}
-                    size='small'
+                    size="small"
                     onChange={(e) =>
                       handleChange({
                         wordWrap: e.target.checked ? 'on' : 'off',
@@ -203,9 +229,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
               <FormControlLabel
                 control={
                   <Switch
-                    size='small'
+                    size="small"
                     checked={localSettings.minimap}
-                    onChange={(e) => handleChange({ minimap: e.target.checked })}
+                    onChange={(e) =>
+                      handleChange({ minimap: e.target.checked })
+                    }
                   />
                 }
                 label={t('settings.minimap')}
@@ -216,16 +244,18 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
               <FormControlLabel
                 control={
                   <Switch
-                    size='small'
+                    size="small"
                     checked={localSettings.markdownPreviewOnLeft}
-                    onChange={(e) => handleChange({ markdownPreviewOnLeft: e.target.checked })}
+                    onChange={(e) =>
+                      handleChange({ markdownPreviewOnLeft: e.target.checked })
+                    }
                   />
                 }
                 label={t('settings.markdownPreviewOnLeft')}
               />
             </Grid>
 
-            <Divider orientation='horizontal' sx={{ width: '100%' }} />
+            <Divider orientation="horizontal" sx={{ width: '100%' }} />
 
             <Box
               sx={{
@@ -239,17 +269,19 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
               <FormControlLabel
                 control={
                   <Switch
-                    size='small'
+                    size="small"
                     checked={localSettings.isDebug}
-                    onChange={(e) => handleChange({ isDebug: e.target.checked })}
+                    onChange={(e) =>
+                      handleChange({ isDebug: e.target.checked })
+                    }
                   />
                 }
                 label={t('settings.debugMode')}
               />
-              <Typography variant='caption' color='textSecondary'>
+              <Typography variant="caption" color="textSecondary">
                 {t('settings.debugModeDescriptionBeforeLink')}
                 <Box
-                  component='span'
+                  component="span"
                   onClick={() => OpenAppFolder()}
                   sx={{
                     textDecoration: 'underline',
@@ -275,7 +307,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
               <FormControlLabel
                 control={
                   <Switch
-                    size='small'
+                    size="small"
                     checked={localSettings.enableConflictBackup}
                     onChange={(e) =>
                       handleChange({
@@ -286,10 +318,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
                 }
                 label={t('settings.conflictBackup')}
               />
-              <Typography variant='caption' color='textSecondary'>
+              <Typography variant="caption" color="textSecondary">
                 {t('settings.conflictBackupDescriptionBeforeLink')}
                 <Box
-                  component='span'
+                  component="span"
                   onClick={() => OpenConflictBackupFolder()}
                   sx={{
                     textDecoration: 'underline',
@@ -306,12 +338,12 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, settings, 
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleReset} color='primary'>
+        <Button onClick={handleReset} color="primary">
           {t('settings.resetToDefault')}
         </Button>
         <Box sx={{ flex: '1 0 0' }} />
         <Button onClick={handleClose}>{t('settings.cancel')}</Button>
-        <Button onClick={() => onSave(localSettings)} variant='contained'>
+        <Button onClick={() => onSave(localSettings)} variant="contained">
           {t('settings.save')}
         </Button>
       </DialogActions>

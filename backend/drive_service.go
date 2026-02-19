@@ -10,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"google.golang.org/api/drive/v3"
 )
 
 // Google Drive関連の操作を提供するインターフェース
@@ -30,6 +33,7 @@ type DriveService interface {
 
 	// ---- ユーティリティ ----
 	NotifyFrontendReady()                           // フロントエンド準備完了通知
+	RespondToMigration(choice string)               // マイグレーション選択を受信
 	IsConnected() bool                              // 接続状態確認
 	IsTestMode() bool                               // テストモード確認
 	GetDriveOperationsQueue() *DriveOperationsQueue // キューシステムを取得
@@ -37,19 +41,22 @@ type DriveService interface {
 
 // driveService はDriveServiceインターフェースの実装
 type driveService struct {
-	ctx             context.Context
-	auth            *authService
-	noteService     *noteService
-	appDataDir      string
-	notesDir        string
-	stopPollingChan chan struct{}
-	logger          AppLogger
-	driveOps        DriveOperations
-	driveSync       DriveSyncService
-	pollingService  *DrivePollingService
-	operationsQueue *DriveOperationsQueue
-	syncMu          sync.Mutex
-	syncState       *SyncState
+	ctx                 context.Context
+	auth                *authService
+	noteService         *noteService
+	appDataDir          string
+	notesDir            string
+	stopPollingChan     chan struct{}
+	logger              AppLogger
+	driveOpsFactory     func(useAppDataFolder bool) DriveOperations
+	driveOps            DriveOperations
+	driveSync           DriveSyncService
+	pollingService      *DrivePollingService
+	operationsQueue     *DriveOperationsQueue
+	migrationChoiceChan chan string
+	migrationChoiceWait time.Duration
+	syncMu              sync.Mutex
+	syncState           *SyncState
 }
 
 const (
@@ -89,20 +96,30 @@ func NewDriveService(
 ) *driveService {
 	_ = credentialsJSON
 	ds := &driveService{
-		ctx:             ctx,
-		auth:            authService,
-		noteService:     noteService,
-		appDataDir:      appDataDir,
-		notesDir:        notesDir,
-		stopPollingChan: make(chan struct{}),
-		logger:          logger,
-		driveOps:        nil,
-		driveSync:       nil,
-		syncState:       syncState,
+		ctx:                 ctx,
+		auth:                authService,
+		noteService:         noteService,
+		appDataDir:          appDataDir,
+		notesDir:            notesDir,
+		stopPollingChan:     make(chan struct{}),
+		logger:              logger,
+		driveOpsFactory:     nil,
+		driveOps:            nil,
+		driveSync:           nil,
+		migrationChoiceChan: make(chan string, 1),
+		migrationChoiceWait: 5 * time.Minute,
+		syncState:           syncState,
 	}
 
 	ds.pollingService = NewDrivePollingService(ctx, ds)
 	return ds
+}
+
+func (s *driveService) newDriveOperations(useAppDataFolder bool) DriveOperations {
+	if s.driveOpsFactory != nil {
+		return s.driveOpsFactory(useAppDataFolder)
+	}
+	return NewDriveOperations(s.auth.GetDriveSync().service, s.logger, useAppDataFolder)
 }
 
 // Google Drive APIの初期化 (保存済みトークンがあれば自動ログイン)
@@ -146,9 +163,19 @@ func (s *driveService) reconnect() error {
 		return fmt.Errorf("reconnect: still not connected after auth")
 	}
 
-	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service, s.logger)
+	useAppData := s.isMigrated()
+	s.driveOps = s.newDriveOperations(useAppData)
 	if s.driveOps == nil {
 		return fmt.Errorf("reconnect: failed to create DriveOperations")
+	}
+
+	// appDataFolder モードの場合、スコープが有効か確認する
+	// 旧バージョンのトークンには drive.appdata スコープがない可能性がある
+	if useAppData {
+		if _, err := s.driveOps.ListFiles("trashed=false"); err != nil {
+			s.logger.Console("reconnect: appDataFolder access failed (token may lack scope): %v", err)
+			return fmt.Errorf("reconnect: appDataFolder not accessible, re-authentication required: %w", err)
+		}
 	}
 
 	s.operationsQueue = NewDriveOperationsQueue(s.driveOps)
@@ -174,7 +201,92 @@ func (s *driveService) onConnected() error {
 	s.logger.Console("Starting Drive connection process...")
 
 	s.logger.Console("Initializing DriveOperations...")
-	s.driveOps = NewDriveOperations(s.auth.GetDriveSync().service, s.logger)
+	legacyOps := s.newDriveOperations(false)
+
+	// マイグレーション判定
+	migrationState := s.loadMigrationState()
+	useAppData := migrationState.Migrated
+
+	if !useAppData {
+		appDataOps := s.newDriveOperations(true)
+		appDataExists := s.checkAppDataFolderExists(appDataOps)
+		legacyExists := s.checkOldDriveFoldersExist(legacyOps)
+
+		if appDataExists && legacyExists {
+			if s.checkMigrationCompleteMarker(appDataOps) {
+				// 完了マーカーあり → 別デバイスで正常に移行完了済み
+				s.logger.Console("Migration complete marker found, accepting appDataFolder from another device")
+			} else {
+				// 完了マーカーなし → 中断されたマイグレーション → クリーンアップして再マイグレーション
+				s.logger.Console("No migration complete marker, cleaning up incomplete appDataFolder for fresh migration")
+				s.cleanupAppDataFolder(appDataOps)
+				appDataExists = false
+			}
+		}
+
+		if appDataExists {
+			s.logger.Console("Detected appDataFolder data, auto-migrating local state")
+			s.saveMigrationState(&driveStorageMigration{
+				Migrated:   true,
+				MigratedAt: time.Now().UTC().Format(time.RFC3339),
+			})
+			useAppData = true
+		} else if legacyExists {
+			// 旧フォルダあり → マイグレーションダイアログ表示
+			s.logger.Console("Legacy Drive folders detected, requesting migration choice...")
+			if !s.IsTestMode() {
+				wailsRuntime.EventsEmit(s.ctx, "drive:migration-needed")
+			}
+
+			// フロントエンドからの選択を待つ
+			choice := "skip"
+			select {
+			case choice = <-s.migrationChoiceChan:
+			case <-time.After(s.migrationChoiceWait):
+				s.logger.Console("Migration choice timeout, falling back to legacy mode")
+			}
+			s.logger.Console("Migration choice: %s", choice)
+
+			switch choice {
+			case "migrate_delete", "migrate_keep":
+				s.cleanupLegacyOrphansBeforeMigration(legacyOps)
+				deleteOld := choice == "migrate_delete"
+				if !s.checkAppDataFolderCanCreate(appDataOps) {
+					s.logger.Console("Re-authentication needed for appDataFolder access")
+					if !s.IsTestMode() {
+						wailsRuntime.EventsEmit(s.ctx, "drive:migration-reauth")
+					}
+					if err := s.auth.ReauthorizeForMigration(); err != nil {
+						s.logger.Console("Re-authentication failed: %v, falling back to legacy mode", err)
+						break
+					}
+					appDataOps = s.newDriveOperations(true)
+				}
+				if err := s.executeMigration(deleteOld); err != nil {
+					s.logger.Console("Migration failed: %v, falling back to legacy mode", err)
+				} else {
+					useAppData = true
+				}
+			case "skip":
+				s.logger.Console("Migration skipped, using legacy mode")
+			}
+		} else {
+			// 旧フォルダもappDataFolderもない → 新規インストール
+			if s.checkAppDataFolderCanCreate(appDataOps) {
+				s.logger.Console("Fresh install, using appDataFolder")
+				s.saveMigrationState(&driveStorageMigration{
+					Migrated:   true,
+					MigratedAt: time.Now().UTC().Format(time.RFC3339),
+				})
+				useAppData = true
+			} else {
+				s.logger.Console("Fresh install but appDataFolder not accessible, using legacy mode")
+			}
+		}
+	}
+
+	// 最終的なDriveOperationsを設定
+	s.driveOps = s.newDriveOperations(useAppData)
 	if s.driveOps == nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create DriveOperations"))
 	}
@@ -244,6 +356,15 @@ func (s *driveService) IsConnected() bool {
 // テストモードかどうかを返す
 func (s *driveService) IsTestMode() bool {
 	return s.auth != nil && s.auth.IsTestMode()
+}
+
+// RespondToMigration はフロントエンドからのマイグレーション選択を受け取る
+func (s *driveService) RespondToMigration(choice string) {
+	select {
+	case s.migrationChoiceChan <- choice:
+	default:
+		s.logger.Console("Warning: migration choice channel full, ignoring: %s", choice)
+	}
 }
 
 // フロントエンドの準備完了を待って同期開始 (ポーリング用ゴルーチン起動)
@@ -396,6 +517,9 @@ func (s *driveService) SyncNotes() error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
+	if s.driveSync == nil {
+		return fmt.Errorf("drive sync service not yet initialized")
+	}
 
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
 
@@ -471,11 +595,13 @@ func (s *driveService) pushLocalChanges() error {
 		if err := s.driveSync.DeleteNote(s.ctx, id); err != nil {
 			if isDriveNotFoundError(err) {
 				s.logger.InfoCode(MsgDriveNoteAlreadyAbsent, map[string]interface{}{"noteId": id})
-				continue
+			} else {
+				s.logger.ErrorCode(err, MsgDriveErrorDeleteNote, map[string]interface{}{"noteId": id})
+				deleteFailures++
 			}
-			s.logger.ErrorCode(err, MsgDriveErrorDeleteNote, map[string]interface{}{"noteId": id})
-			deleteFailures++
 		}
+		// orphan復元ループ防止: ローカル物理ファイルも確実に削除
+		_ = s.noteService.DeleteNoteFromSync(id)
 	}
 
 	if uploadFailures > 0 || deleteFailures > 0 {
@@ -895,6 +1021,15 @@ func (s *driveService) resolveConflict(noteListID string) error {
 				uploadFailures++
 				continue
 			}
+		}
+	}
+
+	// ローカルで削除済みのノートの物理ファイルを確実に削除する
+	// （前回の整合性修復やsync中断で物理ファイルが残っている可能性があるため、
+	//   ValidateIntegrity がorphanとして復元→再削除の無限ループを防止する）
+	for id := range deletedIDs {
+		if err := s.noteService.DeleteNoteFromSync(id); err != nil {
+			s.logger.Console("Drive: failed to clean up local file for deleted note %s: %v", id, err)
 		}
 	}
 
@@ -1588,6 +1723,7 @@ func (s *driveService) logSyncStatus(cloudNoteList, localNoteList *NoteList) {
 // Google Drive上に必要なフォルダ構造を作成
 func (s *driveService) ensureDriveFolders() error {
 	var rootID, notesID string
+	useAppData := s.isMigrated()
 
 	rootFolders, err := s.driveOps.ListFiles(
 		"name='monaco-notepad' and mimeType='application/vnd.google-apps.folder' and trashed=false")
@@ -1596,7 +1732,11 @@ func (s *driveService) ensureDriveFolders() error {
 	}
 
 	if len(rootFolders) == 0 {
-		rootID, err = s.driveOps.CreateFolder("monaco-notepad", "")
+		parentID := ""
+		if useAppData {
+			parentID = "appDataFolder"
+		}
+		rootID, err = s.driveOps.CreateFolder("monaco-notepad", parentID)
 		if err != nil {
 			return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCreateRootFolder, nil)
 		}
@@ -1656,4 +1796,132 @@ func (s *driveService) GetDriveOperationsQueue() *DriveOperationsQueue {
 // driveService型にauthServiceを設定するメソッドを追加 (テスト用)
 func (ds *driveService) SetAuthService(auth *authService) {
 	ds.auth = auth
+}
+
+func (ds *driveService) recoverOrphanCloudNotes(files []*drive.File, ops DriveOperations) (int, error) {
+	var deletedDuplicateCount int
+
+	latestFiles := make(map[string]*drive.File)
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name, ".json") {
+			continue
+		}
+		noteID := strings.TrimSuffix(file.Name, ".json")
+		if existing, ok := latestFiles[noteID]; ok {
+			var older *drive.File
+			if file.ModifiedTime > existing.ModifiedTime {
+				older = existing
+				latestFiles[noteID] = file
+			} else {
+				older = file
+			}
+			if err := ops.DeleteFile(older.Id); err != nil {
+				ds.logger.Console("Failed to delete same-ID duplicate from Drive %s: %v", older.Name, err)
+			} else {
+				deletedDuplicateCount++
+			}
+		} else {
+			latestFiles[noteID] = file
+		}
+	}
+
+	noteIDSet := make(map[string]bool)
+	for _, metadata := range ds.noteService.noteList.Notes {
+		noteIDSet[metadata.ID] = true
+	}
+
+	type orphanEntry struct {
+		noteID string
+		file   *drive.File
+	}
+	var orphans []orphanEntry
+	for noteID, file := range latestFiles {
+		if !noteIDSet[noteID] {
+			orphans = append(orphans, orphanEntry{noteID, file})
+		}
+	}
+
+	// 既存ノートの重複判定用ハッシュセットを構築
+	existingHashes := make(map[string]bool)
+	for _, metadata := range ds.noteService.noteList.Notes {
+		note, err := ds.noteService.LoadNote(metadata.ID)
+		if err != nil {
+			continue
+		}
+		existingHashes[computeConflictCopyDedupHash(note)] = true
+	}
+
+	var orphanCount int
+	totalOrphans := len(orphans)
+	for i, entry := range orphans {
+		ds.logger.InfoCode(MsgOrphanCloudRecoveryProgress, map[string]interface{}{
+			"current": i + 1,
+			"total":   totalOrphans,
+		})
+
+		content, err := ops.DownloadFile(entry.file.Id)
+		if err != nil {
+			ds.logger.Console("Failed to download orphan cloud note %s: %v", entry.noteID, err)
+			continue
+		}
+
+		var note Note
+		if err := json.Unmarshal(content, &note); err != nil {
+			ds.logger.Console("Skipped corrupted orphan cloud note %s: %v", entry.noteID, err)
+			continue
+		}
+
+		note.ID = entry.noteID
+
+		// conflict copy の場合、既存ノートとの重複判定を行う
+		if isConflictCopyTitle(note.Title) {
+			hash := computeConflictCopyDedupHash(&note)
+			if existingHashes[hash] {
+				// 同一内容のノートが既に存在する → Driveから削除してスキップ
+				if err := ops.DeleteFile(entry.file.Id); err != nil {
+					ds.logger.Console("Failed to delete duplicate conflict copy from Drive %s: %v", entry.noteID, err)
+				} else {
+					ds.logger.Console("Deleted duplicate conflict copy from Drive: \"%s\" (%s)", note.Title, entry.noteID)
+					deletedDuplicateCount++
+				}
+				continue
+			}
+			// ユニークな conflict copy → 復元対象としてハッシュを追加
+			existingHashes[hash] = true
+		}
+
+		if err := ds.noteService.SaveNoteFromSync(&note); err != nil {
+			ds.logger.Console("Failed to save orphan cloud note %s: %v", entry.noteID, err)
+			continue
+		}
+
+		if err := ds.noteService.RecoverOrphanNote(&note, RecoveryFolderName); err != nil {
+			ds.logger.Console("Failed to recover orphan cloud note to list %s: %v", entry.noteID, err)
+			continue
+		}
+
+		orphanCount++
+		ds.logger.Console("Recovered orphan cloud note: \"%s\" (%s)", note.Title, entry.noteID)
+	}
+
+	if orphanCount > 0 {
+		ds.logger.InfoCode(MsgOrphanCloudRecoveryDone, map[string]interface{}{
+			"count":  orphanCount,
+			"folder": RecoveryFolderName,
+		})
+		ds.logger.NotifyFrontendSyncedAndReload(ds.ctx)
+	}
+
+	if orphanCount > 0 || deletedDuplicateCount > 0 {
+		ds.logger.NotifyOrphanRecoveries(ds.ctx, []OrphanRecoveryInfo{
+			{
+				Source:            "cloud",
+				Count:             orphanCount,
+				FolderName:        RecoveryFolderName,
+				DeletedDuplicates: deletedDuplicateCount,
+			},
+		})
+	}
+
+	return orphanCount, nil
 }

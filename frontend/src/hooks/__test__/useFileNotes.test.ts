@@ -416,7 +416,7 @@ describe('useFileNotes', () => {
     });
 
     it('ファイルノートが空の場合、自動保存が実行されないこと', async () => {
-      const { result } = renderHook(() => useFileNotes(mockProps));
+      renderHook(() => useFileNotes(mockProps));
 
       await act(async () => {
         vi.advanceTimersByTime(1100);

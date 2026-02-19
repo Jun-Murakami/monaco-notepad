@@ -231,7 +231,7 @@ describe('useDriveSync', () => {
   });
 
   it('ドライブエラーが正しく処理されること', async () => {
-    const { result } = renderHook(() => useDriveSync(mockShowMessage));
+    renderHook(() => useDriveSync(mockShowMessage));
     await waitForEffect();
 
     await act(async () => {
@@ -243,6 +243,33 @@ describe('useDriveSync', () => {
       'Drive sync error',
       'Test error',
     );
+  });
+
+  it('drive:migration-neededイベントでマイグレーションダイアログが開くこと', async () => {
+    (CheckDriveConnection as unknown as Mock).mockResolvedValue(false);
+    const { result } = renderHook(() => useDriveSync(mockShowMessage));
+    await waitForEffect();
+
+    expect(result.current.isMigrationDialogOpen).toBe(false);
+
+    await emitEvent('drive:migration-needed', undefined);
+
+    expect(result.current.isMigrationDialogOpen).toBe(true);
+  });
+
+  it('setIsMigrationDialogOpenでダイアログを閉じられること', async () => {
+    (CheckDriveConnection as unknown as Mock).mockResolvedValue(false);
+    const { result } = renderHook(() => useDriveSync(mockShowMessage));
+    await waitForEffect();
+
+    await emitEvent('drive:migration-needed', undefined);
+    expect(result.current.isMigrationDialogOpen).toBe(true);
+
+    await act(async () => {
+      result.current.setIsMigrationDialogOpen(false);
+    });
+
+    expect(result.current.isMigrationDialogOpen).toBe(false);
   });
 
   it('ログインのキャンセルが正しく機能すること', async () => {

@@ -531,7 +531,7 @@ describe('useFileOperations', () => {
 
   describe('外部ファイルとドラッグアンドドロップ', () => {
     it('外部から開かれたファイルが正しく処理されること', async () => {
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useFileOperations(
           [mockNote],
           mockSetNotes,
@@ -567,7 +567,7 @@ describe('useFileOperations', () => {
     });
 
     it('ドロップされたファイルが正しく処理されること', async () => {
-      const { result } = renderHook(() =>
+      renderHook(() =>
         useFileOperations(
           [mockNote],
           mockSetNotes,

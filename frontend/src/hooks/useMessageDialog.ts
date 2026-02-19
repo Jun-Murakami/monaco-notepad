@@ -7,11 +7,11 @@ export const useMessageDialog = () => {
   const [messageTitle, setMessageTitle] = useState('');
   const [messageContent, setMessageContent] = useState('');
   const [isTwoButton, setIsTwoButton] = useState(false);
-  const [primaryButtonText, setPrimaryButtonText] = useState(
-    () => i18n.t('dialog.ok'),
+  const [primaryButtonText, setPrimaryButtonText] = useState(() =>
+    i18n.t('dialog.ok'),
   );
-  const [secondaryButtonText, setSecondaryButtonText] = useState(
-    () => i18n.t('dialog.cancel'),
+  const [secondaryButtonText, setSecondaryButtonText] = useState(() =>
+    i18n.t('dialog.cancel'),
   );
   const [onResult, setOnResult] = useState<
     ((result: boolean) => Promise<void>) | null

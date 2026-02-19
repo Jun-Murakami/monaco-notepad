@@ -247,6 +247,20 @@ const (
 	MsgDriveCheckingDuplicates      = "drive.checkingDuplicates"
 	MsgDriveReconnected             = "drive.reconnected"
 
+	// マイグレーション関連
+	MsgDriveMigrationNeeded      = "drive.migration.needed"
+	MsgDriveMigrationComplete    = "drive.migration.complete"
+	MsgDriveMigrationFailed      = "drive.migration.failed"
+	MsgDriveMigrationStarting    = "drive.migration.starting"
+	MsgDriveMigrationAlreadyDone = "drive.migration.alreadyDone"
+	MsgDriveMigrationNoteList    = "drive.migration.noteList"
+	MsgDriveMigrationProgress    = "drive.migration.progress"
+	MsgDriveMigrationCopied      = "drive.migration.copied"
+	MsgDriveMigrationCleaningUp  = "drive.migration.cleaningUp"
+	MsgDriveMigrationCleanedUp   = "drive.migration.cleanedUp"
+	MsgDriveMigrationDeletingOld = "drive.migration.deletingOld"
+	MsgDriveMigrationDeletedOld  = "drive.migration.deletedOld"
+
 	// Errorメッセージ
 	MsgDriveErrorFolderSetup          = "drive.error.folderSetup"
 	MsgDriveErrorNoteListSetup        = "drive.error.noteListSetup"
@@ -280,6 +294,17 @@ const (
 	MsgDriveErrorCreateNotesFolder    = "drive.error.createNotesFolder"
 	MsgDriveErrorCheckNoteListFile    = "drive.error.checkNoteListFile"
 
+	// 孤立ファイル復元関連
+	MsgOrphanLocalRecoveryDone     = "orphan.localRecoveryDone"
+	MsgOrphanCloudRecoveryDone     = "orphan.cloudRecoveryDone"
+	MsgOrphanRecoverySkipCorrupt   = "orphan.recoverySkipCorrupt"
+	MsgOrphanLocalRecoveryProgress = "orphan.localRecoveryProgress"
+	MsgOrphanCloudRecoveryProgress = "orphan.cloudRecoveryProgress"
+
+	// conflict copy 自動解決関連
+	MsgConflictAutoResolveDuplicate = "conflict.autoResolveDuplicate"
+	MsgConflictAutoResolveKept      = "conflict.autoResolveKept"
+
 	// システムメッセージ
 	MsgSystemNoteServiceInitFailed = "system.error.noteServiceInit"
 	MsgSystemDriveInitFailed       = "system.error.driveInit"
@@ -287,6 +312,17 @@ const (
 	MsgSystemNoteListRestored      = "system.noteListRestored"
 	MsgSystemIntegrityAutoRepaired = "system.integrityAutoRepaired"
 )
+
+// 復元フォルダ名（固定名、ローカル/クラウド共通）
+const RecoveryFolderName = "不明ノート"
+
+// 孤立ファイル復元情報（フロントエンド通知用）
+type OrphanRecoveryInfo struct {
+	Source            string `json:"source"` // "local" or "cloud"
+	Count             int    `json:"count"`
+	FolderName        string `json:"folderName"`
+	DeletedDuplicates int    `json:"deletedDuplicates"`
+}
 
 type WailsConfig struct {
 	Name           string `json:"name"`

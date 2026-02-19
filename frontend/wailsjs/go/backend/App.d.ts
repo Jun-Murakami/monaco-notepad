@@ -78,6 +78,8 @@ export function OpenURL(arg1:string):Promise<void>;
 
 export function RenameFolder(arg1:string,arg2:string):Promise<void>;
 
+export function RespondToMigration(arg1:string):Promise<void>;
+
 export function SaveFile(arg1:string,arg2:string):Promise<void>;
 
 export function SaveFileNotes(arg1:Array<backend.FileNote>):Promise<string>;

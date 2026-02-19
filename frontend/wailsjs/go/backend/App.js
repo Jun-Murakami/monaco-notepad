@@ -150,6 +150,10 @@ export function RenameFolder(arg1, arg2) {
   return window['go']['backend']['App']['RenameFolder'](arg1, arg2);
 }
 
+export function RespondToMigration(arg1) {
+  return window['go']['backend']['App']['RespondToMigration'](arg1);
+}
+
 export function SaveFile(arg1, arg2) {
   return window['go']['backend']['App']['SaveFile'](arg1, arg2);
 }

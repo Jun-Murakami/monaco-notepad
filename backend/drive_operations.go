@@ -39,15 +39,17 @@ type DriveOperations interface {
 
 // DriveOperationsの実装
 type driveOperationsImpl struct {
-	service *drive.Service
-	logger  AppLogger
+	service          *drive.Service
+	logger           AppLogger
+	useAppDataFolder bool
 }
 
 // DriveOperationsインスタンスを作成
-func NewDriveOperations(service *drive.Service, logger AppLogger) DriveOperations {
+func NewDriveOperations(service *drive.Service, logger AppLogger, useAppDataFolder bool) DriveOperations {
 	return &driveOperationsImpl{
-		service: service,
-		logger:  logger,
+		service:          service,
+		logger:           logger,
+		useAppDataFolder: useAppDataFolder,
 	}
 }
 
@@ -149,15 +151,30 @@ func (d *driveOperationsImpl) CreateFolder(name string, rootFolderID string) (st
 // ファイルを検索 (Driveネイティブ)
 func (d *driveOperationsImpl) ListFiles(query string) ([]*drive.File, error) {
 	d.logger.Console("[GAPI] Listing files: %s", query)
-	files, err := d.service.Files.List().
-		Q(query).
-		Fields("files(id, name, createdTime, modifiedTime)").
-		Do()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list files: %w", err)
+	var allFiles []*drive.File
+	pageToken := ""
+	for {
+		call := d.service.Files.List().
+			Q(query).
+			PageSize(1000).
+			Fields("nextPageToken, files(id, name, createdTime, modifiedTime)")
+		if d.useAppDataFolder {
+			call = call.Spaces("appDataFolder")
+		}
+		if pageToken != "" {
+			call = call.PageToken(pageToken)
+		}
+		resp, err := call.Do()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list files: %w", err)
+		}
+		allFiles = append(allFiles, resp.Files...)
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
 	}
-
-	return files.Files, nil
+	return allFiles, nil
 }
 
 // ------------------------------------------------------------
@@ -247,10 +264,13 @@ func (d *driveOperationsImpl) ListChanges(pageToken string) (*ChangesResult, err
 	nextToken := pageToken
 
 	for {
-		resp, err := d.service.Changes.List(nextToken).
+		call := d.service.Changes.List(nextToken).
 			Fields("nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,parents,mimeType,modifiedTime))").
-			PageSize(100).
-			Do()
+			PageSize(100)
+		if d.useAppDataFolder {
+			call = call.Spaces("appDataFolder")
+		}
+		resp, err := call.Do()
 		if err != nil {
 			return nil, fmt.Errorf("failed to list changes: %w", err)
 		}

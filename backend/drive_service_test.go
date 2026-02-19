@@ -46,7 +46,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -197,6 +196,8 @@ func (m *mockDriveService) NotifyFrontendReady() {
 	// テストでは何もしない
 }
 
+func (m *mockDriveService) RespondToMigration(choice string) {}
+
 func (m *mockDriveService) IsConnected() bool {
 	return true
 }
@@ -314,9 +315,6 @@ func (m *mockDriveOperations) GetFileID(fileName string, noteFolderID string, ro
 	defer m.mu.RUnlock()
 	fileID := fmt.Sprintf("test-file-%s", fileName)
 	if _, exists := m.files[fileID]; exists {
-		return fileID, nil
-	}
-	if strings.HasSuffix(fileName, ".json") {
 		return fileID, nil
 	}
 	return "", fmt.Errorf("file not found: %s", fileName)
@@ -581,6 +579,10 @@ func TestFileIDCache_HitAvoidsDriveCall(t *testing.T) {
 
 func TestFileIDCache_MissFallsBackToDriveCall(t *testing.T) {
 	countingOps := &countingDriveOps{mockDriveOperations: newMockDriveOperations()}
+
+	noteData, _ := json.Marshal(&Note{ID: "uncached-note", Title: "Test"})
+	_, _ = countingOps.CreateFile("uncached-note.json", noteData, "test-folder", "application/json")
+
 	logger := NewAppLogger(context.Background(), true, t.TempDir())
 	syncService := NewDriveSyncService(countingOps, "test-folder", "test-root", logger)
 
@@ -1172,4 +1174,330 @@ func TestSaveNoteAndUpdateList_NotConnected_Error(t *testing.T) {
 	err := ds.SaveNoteAndUpdateList(note, true)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected")
+}
+
+func TestRecoverOrphanCloudNotes_DownloadsAndRestores(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+
+	existingNote := &Note{ID: "existing-note", Title: "Existing", Content: "already here", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	assert.NoError(t, ds.noteService.SaveNote(existingNote))
+
+	orphan1 := &Note{ID: "cloud-orphan-1", Title: "Cloud Orphan 1", Content: "content1", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	orphan2 := &Note{ID: "cloud-orphan-2", Title: "Cloud Orphan 2", Content: "content2", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	data1, _ := json.Marshal(orphan1)
+	data2, _ := json.Marshal(orphan2)
+
+	mockOps.mu.Lock()
+	mockOps.files["drive-orphan-1"] = data1
+	mockOps.files["drive-orphan-2"] = data2
+	mockOps.mu.Unlock()
+
+	driveFiles := []*drive.File{
+		{Id: "drive-existing", Name: "existing-note.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-orphan-1", Name: "cloud-orphan-1.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-orphan-2", Name: "cloud-orphan-2.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, count)
+
+	assert.Len(t, ds.noteService.noteList.Notes, 3)
+
+	var cloudFolderID string
+	for _, f := range ds.noteService.noteList.Folders {
+		if f.Name == RecoveryFolderName {
+			cloudFolderID = f.ID
+			break
+		}
+	}
+	assert.NotEmpty(t, cloudFolderID)
+
+	orphanCount := 0
+	for _, m := range ds.noteService.noteList.Notes {
+		if m.FolderID == cloudFolderID {
+			orphanCount++
+		}
+	}
+	assert.Equal(t, 2, orphanCount)
+}
+
+func TestRecoverOrphanCloudNotes_SkipsCorrupted(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+	mockOps.mu.Lock()
+	mockOps.files["drive-corrupt"] = []byte("{invalid json")
+	mockOps.mu.Unlock()
+
+	driveFiles := []*drive.File{
+		{Id: "drive-corrupt", Name: "corrupted.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, ds.noteService.noteList.Notes)
+}
+
+func TestRecoverOrphanCloudNotes_NoOrphans(t *testing.T) {
+	ds, _, _, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	existingNote := &Note{ID: "only-note", Title: "Only", Content: "here", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	assert.NoError(t, ds.noteService.SaveNote(existingNote))
+
+	driveFiles := []*drive.File{
+		{Id: "drive-only", Name: "only-note.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestRecoverOrphanCloudNotes_DeletesDuplicateConflictCopy(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+
+	existingNote := &Note{ID: "original", Title: "My Note", Content: "same content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	assert.NoError(t, ds.noteService.SaveNote(existingNote))
+
+	conflictNote := &Note{ID: "conflict-1", Title: "My Note - conflict copy", Content: "same content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	data, _ := json.Marshal(conflictNote)
+
+	mockOps.mu.Lock()
+	mockOps.files["drive-conflict-1"] = data
+	mockOps.mu.Unlock()
+
+	driveFiles := []*drive.File{
+		{Id: "drive-original", Name: "original.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-conflict-1", Name: "conflict-1.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	assert.Len(t, ds.noteService.noteList.Notes, 1)
+
+	mockOps.mu.RLock()
+	_, exists := mockOps.files["drive-conflict-1"]
+	mockOps.mu.RUnlock()
+	assert.False(t, exists, "duplicate conflict copy should be deleted from Drive")
+}
+
+func TestRecoverOrphanCloudNotes_RecoversUniqueConflictCopy(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+
+	existingNote := &Note{ID: "original", Title: "My Note", Content: "original content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	assert.NoError(t, ds.noteService.SaveNote(existingNote))
+
+	conflictNote := &Note{ID: "conflict-unique", Title: "My Note - conflict copy", Content: "different content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	data, _ := json.Marshal(conflictNote)
+
+	mockOps.mu.Lock()
+	mockOps.files["drive-conflict-unique"] = data
+	mockOps.mu.Unlock()
+
+	driveFiles := []*drive.File{
+		{Id: "drive-original", Name: "original.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-conflict-unique", Name: "conflict-unique.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	assert.Len(t, ds.noteService.noteList.Notes, 2)
+
+	var recoveryFolderID string
+	for _, f := range ds.noteService.noteList.Folders {
+		if f.Name == RecoveryFolderName {
+			recoveryFolderID = f.ID
+			break
+		}
+	}
+	assert.NotEmpty(t, recoveryFolderID)
+
+	found := false
+	for _, m := range ds.noteService.noteList.Notes {
+		if m.ID == "conflict-unique" && m.FolderID == recoveryFolderID {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "unique conflict copy should be recovered to recovery folder")
+}
+
+func TestRecoverOrphanCloudNotes_MixedConflictAndRegularOrphans(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+
+	existingNote := &Note{ID: "original", Title: "My Note", Content: "same content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	assert.NoError(t, ds.noteService.SaveNote(existingNote))
+
+	duplicateConflict := &Note{ID: "dup-conflict", Title: "My Note - conflict copy", Content: "same content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	uniqueConflict := &Note{ID: "unique-conflict", Title: "My Note - conflict copy 2", Content: "unique content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	regularOrphan := &Note{ID: "regular-orphan", Title: "Regular Orphan", Content: "orphan content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+
+	dataDup, _ := json.Marshal(duplicateConflict)
+	dataUnique, _ := json.Marshal(uniqueConflict)
+	dataRegular, _ := json.Marshal(regularOrphan)
+
+	mockOps.mu.Lock()
+	mockOps.files["drive-dup"] = dataDup
+	mockOps.files["drive-unique"] = dataUnique
+	mockOps.files["drive-regular"] = dataRegular
+	mockOps.mu.Unlock()
+
+	driveFiles := []*drive.File{
+		{Id: "drive-original", Name: "original.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-dup", Name: "dup-conflict.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-unique", Name: "unique-conflict.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-regular", Name: "regular-orphan.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, count)
+
+	assert.Len(t, ds.noteService.noteList.Notes, 3)
+
+	mockOps.mu.RLock()
+	_, dupExists := mockOps.files["drive-dup"]
+	mockOps.mu.RUnlock()
+	assert.False(t, dupExists, "duplicate conflict copy should be deleted from Drive")
+
+	ids := make(map[string]bool)
+	for _, m := range ds.noteService.noteList.Notes {
+		ids[m.ID] = true
+	}
+	assert.True(t, ids["original"])
+	assert.True(t, ids["unique-conflict"])
+	assert.True(t, ids["regular-orphan"])
+	assert.False(t, ids["dup-conflict"])
+}
+
+func TestRecoverOrphanCloudNotes_DeduplicatesMultipleConflictCopies(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+
+	conflict1 := &Note{ID: "conflict-a", Title: "Note - conflict copy", Content: "identical", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	conflict2 := &Note{ID: "conflict-b", Title: "Note - conflict copy 2", Content: "identical", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+
+	data1, _ := json.Marshal(conflict1)
+	data2, _ := json.Marshal(conflict2)
+
+	mockOps.mu.Lock()
+	mockOps.files["drive-a"] = data1
+	mockOps.files["drive-b"] = data2
+	mockOps.mu.Unlock()
+
+	driveFiles := []*drive.File{
+		{Id: "drive-a", Name: "conflict-a.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+		{Id: "drive-b", Name: "conflict-b.json", ModifiedTime: time.Now().Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	assert.Len(t, ds.noteService.noteList.Notes, 1)
+
+	mockOps.mu.RLock()
+	_, aExists := mockOps.files["drive-a"]
+	_, bExists := mockOps.files["drive-b"]
+	mockOps.mu.RUnlock()
+
+	deletedCount := 0
+	if !aExists {
+		deletedCount++
+	}
+	if !bExists {
+		deletedCount++
+	}
+	assert.Equal(t, 1, deletedCount, "exactly one of the two identical conflict copies should be deleted from Drive")
+}
+
+func TestRecoverOrphanCloudNotes_DeletesSameIDDuplicatesFromDrive(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+
+	orphanNote := &Note{ID: "dup-note", Title: "Duplicated", Content: "content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	data, _ := json.Marshal(orphanNote)
+
+	mockOps.mu.Lock()
+	mockOps.files["drive-dup-old"] = data
+	mockOps.files["drive-dup-new"] = data
+	mockOps.mu.Unlock()
+
+	now := time.Now()
+	driveFiles := []*drive.File{
+		{Id: "drive-dup-old", Name: "dup-note.json", ModifiedTime: now.Add(-1 * time.Hour).Format(time.RFC3339)},
+		{Id: "drive-dup-new", Name: "dup-note.json", ModifiedTime: now.Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	mockOps.mu.RLock()
+	_, oldExists := mockOps.files["drive-dup-old"]
+	_, newExists := mockOps.files["drive-dup-new"]
+	mockOps.mu.RUnlock()
+	assert.False(t, oldExists, "older same-ID duplicate should be deleted from Drive")
+	assert.True(t, newExists, "latest same-ID file should be kept in Drive")
+
+	assert.Len(t, ds.noteService.noteList.Notes, 1)
+	assert.Equal(t, "dup-note", ds.noteService.noteList.Notes[0].ID)
+}
+
+func TestRecoverOrphanCloudNotes_SameIDDuplicatesForExistingNoteAreDeleted(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	mockOps := rawOps.(*mockDriveOperations)
+
+	existingNote := &Note{ID: "my-note", Title: "My Note", Content: "content", Language: "plaintext", ModifiedTime: time.Now().Format(time.RFC3339)}
+	assert.NoError(t, ds.noteService.SaveNote(existingNote))
+
+	mockOps.mu.Lock()
+	mockOps.files["drive-v1"] = []byte(`{"id":"my-note"}`)
+	mockOps.files["drive-v2"] = []byte(`{"id":"my-note"}`)
+	mockOps.mu.Unlock()
+
+	now := time.Now()
+	driveFiles := []*drive.File{
+		{Id: "drive-v1", Name: "my-note.json", ModifiedTime: now.Add(-1 * time.Hour).Format(time.RFC3339)},
+		{Id: "drive-v2", Name: "my-note.json", ModifiedTime: now.Format(time.RFC3339)},
+	}
+
+	count, err := ds.recoverOrphanCloudNotes(driveFiles, ds.driveOps)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count, "existing note should not be recovered again")
+
+	mockOps.mu.RLock()
+	_, v1Exists := mockOps.files["drive-v1"]
+	_, v2Exists := mockOps.files["drive-v2"]
+	mockOps.mu.RUnlock()
+	assert.False(t, v1Exists, "older same-ID duplicate should be deleted from Drive")
+	assert.True(t, v2Exists, "latest same-ID file should be kept")
+
+	assert.Len(t, ds.noteService.noteList.Notes, 1)
 }

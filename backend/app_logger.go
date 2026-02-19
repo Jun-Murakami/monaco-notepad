@@ -15,6 +15,7 @@ type AppLogger interface {
 	NotifyDriveStatus(ctx context.Context, status string)                          // ドライブステータスの通知
 	NotifyFrontendSyncedAndReload(ctx context.Context)                             // フロントエンドの変更通知
 	NotifyIntegrityIssues(ctx context.Context, issues []IntegrityIssue)            // 整合性修復の確認が必要な通知
+	NotifyOrphanRecoveries(ctx context.Context, recoveries []OrphanRecoveryInfo)   // 孤立ファイル復元の通知
 	Console(format string, args ...interface{})                                    // コンソール出力
 	Info(format string, args ...interface{})                                       // 情報メッセージ出力
 	Error(err error, format string, args ...interface{}) error                     // エラーメッセージ出力
@@ -108,6 +109,12 @@ func (l *appLoggerImpl) NotifyFrontendSyncedAndReload(ctx context.Context) {
 func (l *appLoggerImpl) NotifyIntegrityIssues(ctx context.Context, issues []IntegrityIssue) {
 	if !l.isTestMode {
 		wailsRuntime.EventsEmit(l.ctx, "notes:integrity-issues", issues)
+	}
+}
+
+func (l *appLoggerImpl) NotifyOrphanRecoveries(ctx context.Context, recoveries []OrphanRecoveryInfo) {
+	if !l.isTestMode {
+		wailsRuntime.EventsEmit(l.ctx, "notes:orphans-recovered", recoveries)
 	}
 }
 

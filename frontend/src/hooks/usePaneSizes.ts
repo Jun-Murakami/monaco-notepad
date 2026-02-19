@@ -14,17 +14,17 @@ export interface PaneSizes {
 export const usePaneSizes = (settings: Settings) => {
   // サイドバーの幅（ピクセル）
   const [sidebarWidth, setSidebarWidth] = useState(
-    settings.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH
+    settings.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH,
   );
 
   // スプリットモード時の左ペインの割合（0-1）
   const [splitPaneSize, setSplitPaneSize] = useState(
-    settings.splitPaneSize ?? DEFAULT_SPLIT_PANE_RATIO
+    settings.splitPaneSize ?? DEFAULT_SPLIT_PANE_RATIO,
   );
 
   // マークダウンプレビューのペインサイズ割合（0-1）
   const [markdownPreviewPaneSize, setMarkdownPreviewPaneSize] = useState(
-    settings.markdownPreviewPaneSize ?? DEFAULT_MARKDOWN_PREVIEW_RATIO
+    settings.markdownPreviewPaneSize ?? DEFAULT_MARKDOWN_PREVIEW_RATIO,
   );
 
   // 変更をデバウンスして保存
@@ -43,7 +43,7 @@ export const usePaneSizes = (settings: Settings) => {
         });
       }, 500);
     },
-    [sidebarWidth, splitPaneSize, markdownPreviewPaneSize]
+    [sidebarWidth, splitPaneSize, markdownPreviewPaneSize],
   );
 
   const handleSidebarWidthChange = useCallback((width: number) => {
@@ -59,7 +59,11 @@ export const usePaneSizes = (settings: Settings) => {
   }, []);
 
   const getAllotmentSizes = useCallback(
-    (isSplit: boolean, isMarkdownPreview: boolean, isMarkdownOnLeft: boolean): number[] => {
+    (
+      isSplit: boolean,
+      isMarkdownPreview: boolean,
+      isMarkdownOnLeft: boolean,
+    ): number[] => {
       if (isSplit) {
         // スプリットモード: 左右のエディタ
         return [splitPaneSize * 100, (1 - splitPaneSize) * 100];
@@ -75,7 +79,7 @@ export const usePaneSizes = (settings: Settings) => {
       // 通常モード: 単一エディタ
       return [100];
     },
-    [splitPaneSize, markdownPreviewPaneSize]
+    [splitPaneSize, markdownPreviewPaneSize],
   );
 
   return {

@@ -1583,3 +1583,16 @@ func TestSyncNotes_InitialSync_WithCloud(t *testing.T) {
 	assert.Equal(t, "cloud", loaded.Content)
 	assert.False(t, ds.syncState.IsDirty())
 }
+
+func TestSyncNotes_DriveSyncNil_ReturnsErrorInsteadOfPanic(t *testing.T) {
+	ds, _, cleanup := newSyncTestDriveService(t)
+	defer cleanup()
+
+	ds.driveSync = nil
+
+	assert.True(t, ds.IsConnected())
+
+	err := ds.SyncNotes()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet initialized")
+}

@@ -73,6 +73,10 @@ func (p *DrivePollingService) StartPolling() {
 		p.logger.ErrorCode(err, MsgDriveErrorCleanDuplicates, nil)
 	}
 
+	if _, err := p.driveService.recoverOrphanCloudNotes(files, p.driveService.driveOps); err != nil {
+		p.logger.Console("Failed to recover orphan cloud notes: %v", err)
+	}
+
 	p.initChangeToken()
 
 	for {

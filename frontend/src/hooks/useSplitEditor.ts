@@ -456,7 +456,9 @@ export const useSplitEditor = ({
           continue;
         }
 
-        const folderNotes = activeNotes.filter((note) => note.folderId === item.id);
+        const folderNotes = activeNotes.filter(
+          (note) => note.folderId === item.id,
+        );
         for (const note of folderNotes) {
           if (seenActiveNoteIDs.has(note.id)) continue;
           orderedActiveNotes.push(note);
@@ -483,7 +485,10 @@ export const useSplitEditor = ({
         pendingContent.current = null;
       };
 
-      const setPaneNoteWithoutFile = (pane: 'left' | 'right', note: Note | null) => {
+      const setPaneNoteWithoutFile = (
+        pane: 'left' | 'right',
+        note: Note | null,
+      ) => {
         if (pane === 'left') {
           setLeftNote(note);
           setLeftFileNote(null);

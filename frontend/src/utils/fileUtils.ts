@@ -1,9 +1,16 @@
 // バイナリファイル判定ロジック
 export const isBinaryFile = (content: string): boolean => {
-  // 非表示文字・制御文字を含むかチェック（閾値は調整可能）
-  const controlChars = /[\x00-\x08\x0E-\x1F\x7F]/;
+  // BiomeのnoControlCharactersInRegexに合わせ、正規表現は使わずコードポイントで判定する
+  const hasControlChars = Array.from(content).some((char) => {
+    const code = char.charCodeAt(0);
+    return (
+      (code >= 0x00 && code <= 0x08) ||
+      (code >= 0x0e && code <= 0x1f) ||
+      code === 0x7f
+    );
+  });
   return (
-    controlChars.test(content) ||
+    hasControlChars ||
     content.includes('\x00') || // ヌル文字チェック
     content.length > 1024 * 1024
   ); // 1MB以上のファイルは安全のためブロック

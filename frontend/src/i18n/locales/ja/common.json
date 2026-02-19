@@ -124,6 +124,13 @@
     "syncFailedTitle": "同期に失敗しました",
     "syncFailedMessage": "Google Driveと同期できませんでした。ノートはローカルに安全に保存されています。\n\n詳細: {{error}}"
   },
+  "migration": {
+    "title": "クラウドストレージの更新",
+    "announcement": "クラウドの保存先が新しい仕様にアップデートされました。\n(Google Drive内でappDataFolderを使用するようになり、Google Driveのファイル操作履歴が大量に出力される問題が解消されます)\n\nすべてのデバイスでVer.1.3.0以上にMonaco Notepadがアップデートされている必要があります。アップデートしていない端末では1.3.0以上のMonaco Notepadと同期を行うことができません。",
+    "migrateDelete": "移行して旧データを削除",
+    "migrateKeep": "移行して旧データを残す",
+    "skip": "今はスキップ"
+  },
   "integrity": {
     "noticeTitle": "お知らせ",
     "unknownFileTitle": "不明なファイル"
@@ -172,6 +179,18 @@
     "checkingCloudFiles": "クラウドファイルを確認中...",
     "checkingDuplicates": "重複ファイルを確認中...",
     "reconnected": "Google Driveに再接続しました",
+    "migration": {
+      "starting": "ストレージの移行を開始しています...",
+      "alreadyDone": "別のデバイスで移行済みのストレージを検出しました",
+      "noteList": "ノートリストを移行中...",
+      "progress": "ノートを移行中... ({{current}}/{{total}})",
+      "copied": "{{count}}件のノートを移行しました",
+      "complete": "ストレージの移行が完了しました",
+      "cleaningUp": "不完全な移行データをクリーンアップ中...",
+      "cleanedUp": "不完全な移行データをクリーンアップしました",
+      "deletingOld": "旧データを削除中...",
+      "deletedOld": "旧データを削除しました"
+    },
     "error": {
       "folderSetup": "フォルダ設定に失敗しました",
       "noteListSetup": "ノートリスト設定に失敗しました",
@@ -214,6 +233,21 @@
     },
     "noteListRestored": "ノートリストをバックアップから復元しました",
     "integrityAutoRepaired": "整合性チェック：ローカルデータを自動修復しました（{{count}}件の変更）"
+  },
+  "orphan": {
+    "localRecoveryDone": "{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました",
+    "cloudRecoveryDone": "{{count}}件のクラウド孤立ノートを「{{folder}}」フォルダに復元しました",
+    "recoverySkipCorrupt": "破損した孤立ファイルをスキップしました",
+    "recoveryDialogTitle": "孤立ノートの復元",
+    "recoveryDialogLocal": "ローカルディスクで見つかった{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました。",
+    "recoveryDialogCloud": "Google Driveで見つかった{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました。",
+    "recoveryDialogCloudDeleted": "重複していた{{count}}件のコンフリクトコピーをGoogle Driveから削除しました。",
+    "localRecoveryProgress": "孤立ノートを復元中... ({{current}}/{{total}})",
+    "cloudRecoveryProgress": "クラウドの孤立ノートを復元中... ({{current}}/{{total}})"
+  },
+  "conflict": {
+    "autoResolveDuplicate": "競合コピーを自動解決：「{{noteId}}」を削除しました",
+    "autoResolveKept": "競合コピーを自動解決：「{{noteId}}」を保持しました（固有の内容）"
   },
   "common": {
     "appName": "Monaco Notepad",

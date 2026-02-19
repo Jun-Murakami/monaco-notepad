@@ -35,7 +35,7 @@ type QueueItem struct {
 	MimeType      string
 	CreatedAt     time.Time
 	Result        chan error
-	mapKey        string             // マップ操作用の安定キー（enqueue時に確定）
+	mapKey        string // マップ操作用の安定キー（enqueue時に確定）
 	// 追加のフィールド
 	Query         string             // ListFiles用
 	NoteFolderID  string             // GetFileID用

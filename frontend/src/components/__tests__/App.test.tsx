@@ -123,15 +123,15 @@ vi.mock('../../components/Editor', () => ({
   Editor: ({
     value = '',
     onChange,
-    settings = {
+    settings: _settings = {
       fontFamily: 'Test Font',
       fontSize: 14,
       isDarkMode: false,
       wordWrap: 'off',
       minimap: true,
     },
-    platform = 'win32',
-    currentNote = null,
+    platform: _platform = 'win32',
+    currentNote: _currentNote = null,
   }: {
     value?: string;
     onChange?: (value: string) => void;
@@ -487,7 +487,9 @@ describe('App', () => {
       fireEvent.click(screen.getByText(/Archives/));
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: 'Restore' }),
+        ).toBeInTheDocument();
       });
 
       const sidebar = screen.getByLabelText('Note List');
@@ -525,7 +527,9 @@ describe('App', () => {
       fireEvent.click(archivesButton);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: 'Restore' }),
+        ).toBeInTheDocument();
       });
 
       fireEvent.click(screen.getByText(/Archives/));
@@ -565,7 +569,9 @@ describe('App', () => {
       fireEvent.click(screen.getByText(/Archives/));
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: 'Restore' }),
+        ).toBeInTheDocument();
       });
 
       const sidebar = screen.getByLabelText('Note List');

@@ -23,6 +23,7 @@ import (
 type AuthService interface {
 	InitializeWithSavedToken() (bool, error) // 保存済みトークンがあれば自動的に接続を試みる
 	StartManualAuth() error                  // 手動認証フローを開始し、認証完了まで待機
+	ReauthorizeForMigration() error
 	LogoutDrive() error                      // Google Driveからログアウト
 	CancelLoginDrive() error                 // ログイン処理を安全にキャンセル
 	NotifyFrontendReady()                    // フロントエンドの準備完了を通知
@@ -93,7 +94,7 @@ func (a *authService) initializeGoogleDrive(token *oauth2.Token) error {
 func (a *authService) InitializeWithSavedToken() (bool, error) {
 	a.logger.Console("Attempting to initialize with saved token...")
 
-	config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope)
+	config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope, drive.DriveAppdataScope)
 	if err != nil {
 		return false, fmt.Errorf("unable to parse client secret file to config: %v", err)
 	}
@@ -158,7 +159,7 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 // StartManualAuth は手動認証フローを開始
 func (a *authService) StartManualAuth() error {
 	if a.driveSync.config == nil {
-		config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope)
+		config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope, drive.DriveAppdataScope)
 		if err != nil {
 			return fmt.Errorf("unable to parse client secret file to config: %v", err)
 		}
@@ -172,7 +173,7 @@ func (a *authService) StartManualAuth() error {
 	}
 
 	// 認証URLを開く
-	authURL := a.driveSync.config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
+	authURL := a.driveSync.config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
 	wailsRuntime.BrowserOpenURL(a.ctx, authURL)
 
 	// 認証コードの待機
@@ -190,6 +191,10 @@ func (a *authService) StartManualAuth() error {
 	case <-time.After(3 * time.Minute):
 		return fmt.Errorf("authentication timed out")
 	}
+}
+
+func (a *authService) ReauthorizeForMigration() error {
+	return a.StartManualAuth()
 }
 
 // saveToken はトークンをファイルに保存

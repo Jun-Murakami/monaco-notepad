@@ -159,10 +159,12 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         type: item.type as 'note' | 'folder',
         id: item.id,
       }));
-      const nextArchivedTopLevelOrder = (rawArchivedOrder ?? []).map((item) => ({
-        type: item.type as 'note' | 'folder',
-        id: item.id,
-      }));
+      const nextArchivedTopLevelOrder = (rawArchivedOrder ?? []).map(
+        (item) => ({
+          type: item.type as 'note' | 'folder',
+          id: item.id,
+        }),
+      );
       const activeNotes = newNotes.filter((note) => !note.archived);
       const activeNoteMap = new Map(activeNotes.map((note) => [note.id, note]));
       const orderedActiveNotes: Note[] = [];
@@ -178,7 +180,9 @@ export const useNotes = (options: UseNotesOptions = {}) => {
           continue;
         }
 
-        const folderNotes = activeNotes.filter((note) => note.folderId === item.id);
+        const folderNotes = activeNotes.filter(
+          (note) => note.folderId === item.id,
+        );
         for (const note of folderNotes) {
           if (seenActiveNoteIDs.has(note.id)) continue;
           orderedActiveNotes.push(note);

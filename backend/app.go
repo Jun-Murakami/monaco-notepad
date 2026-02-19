@@ -271,6 +271,18 @@ func (a *App) NotifyFrontendReady() {
 			a.logger.InfoCode(MsgSystemIntegrityAutoRepaired, map[string]interface{}{"count": len(repairs)})
 		}
 
+		if recoveries := a.noteService.DrainPendingOrphanRecoveries(); len(recoveries) > 0 {
+			for _, r := range recoveries {
+				if r.Source == "local" {
+					a.logger.InfoCode(MsgOrphanLocalRecoveryDone, map[string]interface{}{
+						"count":  r.Count,
+						"folder": r.FolderName,
+					})
+				}
+			}
+			wailsRuntime.EventsEmit(a.ctx.ctx, "notes:orphans-recovered", recoveries)
+		}
+
 		if issues := a.noteService.DrainPendingIntegrityIssues(); len(issues) > 0 {
 			a.logger.NotifyIntegrityIssues(a.ctx.ctx, issues)
 		}
@@ -607,6 +619,14 @@ func (a *App) CheckDriveConnection() bool {
 		return false
 	}
 	return a.driveService.IsConnected()
+}
+
+// RespondToMigration はDriveストレージマイグレーションのユーザー選択を処理する
+// choice: "migrate_delete" (移行+旧データ削除), "migrate_keep" (移行+旧データ保持), "skip" (スキップ)
+func (a *App) RespondToMigration(choice string) {
+	if a.driveService != nil {
+		a.driveService.RespondToMigration(choice)
+	}
 }
 
 // ------------------------------------------------------------
