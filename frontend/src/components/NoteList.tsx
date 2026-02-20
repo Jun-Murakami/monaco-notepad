@@ -132,7 +132,7 @@ interface NoteListProps {
   onToggleFolderCollapse?: (folderId: string) => void;
   onRenameFolder?: (id: string, name: string) => void;
   onDeleteFolder?: (id: string) => void;
-  onMoveNoteToFolder?: (noteID: string, folderID: string) => void;
+  onMoveNoteToFolder?: (noteID: string, folderID: string) => Promise<void> | void;
   editingFolderId?: string | null;
   onEditingFolderDone?: () => void;
   topLevelOrder?: TopLevelItem[];
@@ -1407,7 +1407,10 @@ export const NoteList: React.FC<NoteListProps> = ({
       onReorder?.([...moved.newActive, ...archivedNotes]);
 
       if (sourceFolderId !== targetFolderId) {
-        onMoveNoteToFolder?.(noteId, targetFolderId);
+        // 先に所属フォルダをバックエンドへ確定してから並び順を保存する。
+        // ここを待たないと、notes:reload が「未分類のまま並び順だけ更新済み」の状態を一瞬拾い、
+        // ノートがフォルダ外へ跳ねてから戻る表示揺れが発生する。
+        await onMoveNoteToFolder?.(noteId, targetFolderId);
       }
 
       const withoutTop = removeTopLevelNote(normalizedTopLevelOrder, noteId);
@@ -1432,7 +1435,11 @@ export const NoteList: React.FC<NoteListProps> = ({
   );
 
   const moveNoteToTopLevel = useCallback(
-    (noteId: string, insertIndex: number, sourceFolderId: string) => {
+    async (noteId: string, insertIndex: number, sourceFolderId: string) => {
+      // フォルダ所属の切り替えを先に確定して、表示が一時的に未分類へ跳ねる競合を防ぐ
+      if (sourceFolderId) {
+        await onMoveNoteToFolder?.(noteId, '');
+      }
       const nextOrder = insertTopLevelNote(
         normalizedTopLevelOrder,
         noteId,
@@ -1440,9 +1447,6 @@ export const NoteList: React.FC<NoteListProps> = ({
       );
       if (!isSameTopLevelOrder(nextOrder, normalizedTopLevelOrder)) {
         onUpdateTopLevelOrder?.(nextOrder);
-      }
-      if (sourceFolderId) {
-        onMoveNoteToFolder?.(noteId, '');
       }
     },
     [normalizedTopLevelOrder, onMoveNoteToFolder, onUpdateTopLevelOrder],
@@ -1613,7 +1617,7 @@ export const NoteList: React.FC<NoteListProps> = ({
 
       switch (hover.target.kind) {
         case 'unfiled-bottom': {
-          moveNoteToTopLevel(
+          await moveNoteToTopLevel(
             dragItem.noteId,
             normalizedTopLevelOrder.length,
             sourceFolderId,
@@ -1625,7 +1629,7 @@ export const NoteList: React.FC<NoteListProps> = ({
           if (targetIndex === -1) return;
           const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
           const insertIndex = edge === 'bottom' ? targetIndex + 1 : targetIndex;
-          moveNoteToTopLevel(dragItem.noteId, insertIndex, sourceFolderId);
+          await moveNoteToTopLevel(dragItem.noteId, insertIndex, sourceFolderId);
           return;
         }
         case 'folder': {
@@ -1634,11 +1638,11 @@ export const NoteList: React.FC<NoteListProps> = ({
           if (targetIndex === -1 || !targetFolderId) return;
           const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
           if (edge === 'top') {
-            moveNoteToTopLevel(dragItem.noteId, targetIndex, sourceFolderId);
+            await moveNoteToTopLevel(dragItem.noteId, targetIndex, sourceFolderId);
             return;
           }
           if (!hover.boundaryIndented) {
-            moveNoteToTopLevel(
+            await moveNoteToTopLevel(
               dragItem.noteId,
               targetIndex + 1,
               sourceFolderId,
@@ -1659,7 +1663,7 @@ export const NoteList: React.FC<NoteListProps> = ({
           const targetIndex = hover.target.topLevelIndex ?? -1;
           if (!targetFolderId || targetIndex === -1) return;
           if (!hover.boundaryIndented) {
-            moveNoteToTopLevel(
+            await moveNoteToTopLevel(
               dragItem.noteId,
               targetIndex + 1,
               sourceFolderId,
@@ -1685,7 +1689,7 @@ export const NoteList: React.FC<NoteListProps> = ({
             edge === 'bottom' &&
             !hover.boundaryIndented
           ) {
-            moveNoteToTopLevel(
+            await moveNoteToTopLevel(
               dragItem.noteId,
               targetTopIndex + 1,
               sourceFolderId,
