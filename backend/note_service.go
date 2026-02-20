@@ -696,7 +696,16 @@ func (s *noteService) DeleteArchivedFolder(id string) error {
 		}
 	}
 	if deletedCount > 0 {
-		s.logInfo("Deleted %d notes in archived folder", deletedCount)
+		// これまでは英語固定のlogMessage通知だったため、UI言語に関係なく英語表示になっていた。
+		// message:info + MessageCode 経由に切り替えることで、フロント側で i18n 翻訳して表示できる。
+		if s.logger != nil {
+			s.logger.InfoCode(MsgSystemArchivedFolderDeletedNotes, map[string]interface{}{
+				"count": deletedCount,
+			})
+		} else {
+			// logger未設定環境（将来の単体利用など）でも情報が失われないようにフォールバック出力する。
+			s.logInfo("Deleted %d notes in archived folder", deletedCount)
+		}
 	}
 	s.noteList.Notes = remainingNotes
 

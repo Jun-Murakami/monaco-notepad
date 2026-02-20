@@ -311,6 +311,8 @@ const (
 	MsgSystemOpenFileFailed        = "system.error.openFile"
 	MsgSystemNoteListRestored      = "system.noteListRestored"
 	MsgSystemIntegrityAutoRepaired = "system.integrityAutoRepaired"
+	// アーカイブ済みフォルダ削除時に、削除されたノート件数をステータスバーへ多言語表示する
+	MsgSystemArchivedFolderDeletedNotes = "system.archivedFolderDeletedNotes"
 )
 
 // 復元フォルダ名（固定名、ローカル/クラウド共通）

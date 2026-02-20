@@ -232,7 +232,8 @@
       "openFile": "ファイルを開くのに失敗しました"
     },
     "noteListRestored": "ノートリストをバックアップから復元しました",
-    "integrityAutoRepaired": "整合性チェック：ローカルデータを自動修復しました（{{count}}件の変更）"
+    "integrityAutoRepaired": "整合性チェック：ローカルデータを自動修復しました（{{count}}件の変更）",
+    "archivedFolderDeletedNotes": "アーカイブフォルダ内のノートを{{count}}件削除しました"
   },
   "orphan": {
     "localRecoveryDone": "{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました",

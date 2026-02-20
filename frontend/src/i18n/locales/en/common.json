@@ -232,7 +232,8 @@
       "openFile": "Failed to open file"
     },
     "noteListRestored": "Note list restored from backup",
-    "integrityAutoRepaired": "Integrity check: auto-repaired local data ({{count}} changes)"
+    "integrityAutoRepaired": "Integrity check: auto-repaired local data ({{count}} changes)",
+    "archivedFolderDeletedNotes": "Deleted {{count}} notes in archived folder"
   },
   "orphan": {
     "localRecoveryDone": "Recovered {{count}} orphan notes into \"{{folder}}\" folder",
