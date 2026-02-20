@@ -391,7 +391,7 @@ func setupTest(t *testing.T) *testHelper {
 	ds.driveSync = syncService
 
 	// キューシステムの初期化
-	ds.operationsQueue = NewDriveOperationsQueue(driveOps)
+	ds.operationsQueue = NewDriveOperationsQueue(driveOps, nil)
 
 	return &testHelper{
 		tempDir:      tempDir,
@@ -726,7 +726,7 @@ func TestChangesAPI_QueueDelegation(t *testing.T) {
 		mockDriveOperations: newMockDriveOperations(),
 		nextToken:           "delegated-token",
 	}
-	queue := NewDriveOperationsQueue(ops)
+	queue := NewDriveOperationsQueue(ops, nil)
 	defer queue.Cleanup()
 
 	token, err := queue.GetStartPageToken()

@@ -85,7 +85,11 @@ export const useNotes = (options: UseNotesOptions = {}) => {
 
     try {
       setNotes((prev) =>
-        prev.map((note) => (note.id === noteToSave.id ? noteToSave : note)),
+        prev.map((note) =>
+          note.id === noteToSave.id
+            ? { ...noteToSave, folderId: note.folderId }
+            : note,
+        ),
       );
       await SaveNote(backend.Note.createFrom(noteToSave), 'update');
       isNoteModified.current = false;
@@ -577,10 +581,14 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   const handleMoveNoteToFolder = useCallback(
     async (noteID: string, folderID: string) => {
       await MoveNoteToFolder(noteID, folderID);
+      const newFolderId = folderID || undefined;
       setNotes((prev) =>
         prev.map((n) =>
-          n.id === noteID ? { ...n, folderId: folderID || undefined } : n,
+          n.id === noteID ? { ...n, folderId: newFolderId } : n,
         ),
+      );
+      setCurrentNote((prev) =>
+        prev?.id === noteID ? { ...prev, folderId: newFolderId } : prev,
       );
       if (folderID) {
         setTopLevelOrder((prev) =>

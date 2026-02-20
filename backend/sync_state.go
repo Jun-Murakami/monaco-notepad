@@ -151,6 +151,20 @@ func (s *SyncState) clearDirtyLocked(driveTs string, noteHashes map[string]strin
 	}
 }
 
+// UpdateSyncedState は ClearDirtyIfUnchanged が失敗した場合のフォールバック
+// dirtyフラグは保持しつつ、完了した同期結果だけ反映し、次回の不要な resolveConflict を防ぐ
+func (s *SyncState) UpdateSyncedState(driveTs string, noteHashes map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.LastSyncedDriveTs = driveTs
+	s.LastSyncedNoteHash = make(map[string]string, len(noteHashes))
+	for k, v := range noteHashes {
+		s.LastSyncedNoteHash[k] = v
+	}
+	_ = s.saveLocked()
+}
+
 func (s *SyncState) IsDirty() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

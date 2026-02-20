@@ -58,6 +58,7 @@ import (
 	"monaco-notepad/backend/migration"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -200,6 +201,11 @@ func (a *App) DomReady(ctx context.Context) {
 	// Google Driveの初期化はフロントエンド準備完了後に実行
 	// （DomReady時点ではReactのuseEffect登録が完了していない可能性があるため）
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				a.logger.Console(fmt.Sprintf("PANIC in Drive initialization: %v\n%s", r, string(debug.Stack())))
+			}
+		}()
 		<-authService.GetFrontendReadyChan()
 		a.logger.Console("Frontend ready - initializing Google Drive...")
 		if err := driveService.InitializeDrive(); err != nil {
@@ -447,6 +453,7 @@ func (a *App) MoveNoteToFolder(noteID string, folderID string) error {
 
 	if a.syncState != nil {
 		a.syncState.MarkDirty()
+		a.syncState.MarkNoteDirty(noteID)
 	}
 
 	a.triggerSyncIfConnected()
@@ -558,6 +565,11 @@ func (a *App) UpdateArchivedTopLevelOrder(order []TopLevelItem) error {
 func (a *App) triggerSyncIfConnected() {
 	if a.driveService != nil && a.driveService.IsConnected() {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					a.logger.Console(fmt.Sprintf("PANIC in triggerSyncIfConnected: %v\n%s", r, string(debug.Stack())))
+				}
+			}()
 			if err := a.driveService.SyncNotes(); err != nil {
 				a.authService.HandleOfflineTransition(err)
 			}

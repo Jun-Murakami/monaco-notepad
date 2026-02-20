@@ -18,8 +18,9 @@ const CurrentVersion = "2.0"
 // computeContentHash はノートの安定フィールドのみからハッシュを計算する
 func computeContentHash(note *Note) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%v\n%s",
-		note.ID, note.Title, note.Content, note.Language, note.Archived, note.FolderID)
+	// FolderIDはnoteListのみで管理され、ノートファイルには保存されないためハッシュに含めない
+	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%v",
+		note.ID, note.Title, note.Content, note.Language, note.Archived)
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 

@@ -184,3 +184,47 @@ func TestSyncState_ClearDirtyIfUnchanged_ClearsWhenRevisionSame(t *testing.T) {
 	assert.Empty(t, state.DirtyNoteIDs)
 	assert.Equal(t, "hash1", state.LastSyncedNoteHash["note1"])
 }
+
+func TestSyncState_UpdateSyncedState_UpdatesTsAndHashesButKeepsDirty(t *testing.T) {
+	state := NewSyncState(t.TempDir())
+	state.MarkNoteDirty("note1")
+	state.MarkNoteDirty("note2")
+	state.MarkDirty()
+
+	_, _, _, _, revision := state.GetDirtySnapshotWithRevision()
+
+	state.MarkNoteDirty("note3")
+
+	cleared := state.ClearDirtyIfUnchanged(revision, "2026-01-01T00:00:00Z", map[string]string{
+		"note1": "hash1",
+		"note2": "hash2",
+	})
+	assert.False(t, cleared)
+
+	state.UpdateSyncedState("2026-01-01T00:00:00Z", map[string]string{
+		"note1": "hash1",
+		"note2": "hash2",
+	})
+
+	assert.True(t, state.IsDirty())
+	assert.True(t, state.DirtyNoteIDs["note1"])
+	assert.True(t, state.DirtyNoteIDs["note3"])
+	assert.Equal(t, "2026-01-01T00:00:00Z", state.LastSyncedDriveTs)
+	assert.Equal(t, "hash1", state.LastSyncedNoteHash["note1"])
+	assert.Equal(t, "hash2", state.LastSyncedNoteHash["note2"])
+}
+
+func TestSyncState_UpdateSyncedState_PersistsToDisk(t *testing.T) {
+	dir := t.TempDir()
+	state := NewSyncState(dir)
+	state.MarkNoteDirty("note1")
+
+	state.UpdateSyncedState("2026-02-19T10:00:00Z", map[string]string{
+		"note1": "abc",
+	})
+
+	state2 := NewSyncState(dir)
+	assert.NoError(t, state2.Load())
+	assert.Equal(t, "2026-02-19T10:00:00Z", state2.LastSyncedDriveTs)
+	assert.Equal(t, "abc", state2.LastSyncedNoteHash["note1"])
+}

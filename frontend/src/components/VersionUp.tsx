@@ -53,7 +53,7 @@ export const VersionUp = () => {
         if (compareVersions(latestVersion, ver) > 0) {
           setShowChip(true);
         } else {
-          await Console('Latest version', [latestVersion, ver]);
+			await Console(`Latest version: ${latestVersion} (current: ${ver})`, []);
         }
       } catch (error) {
         await Console('Failed to get version', [error]);

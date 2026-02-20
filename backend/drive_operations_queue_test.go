@@ -63,7 +63,7 @@ func (e *errorableDriveOps) GetFileID(fileName string, noteFolderID string, root
 // TestQueue_BasicCreateFile はキューの基本動作を検証
 func TestQueue_BasicCreateFile(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan struct{})
@@ -90,7 +90,7 @@ func TestQueue_BasicCreateFile(t *testing.T) {
 // RLockが必要な操作がI/O完了までブロックされる。
 func TestQueue_HasItemsNotBlockedByProcessing(t *testing.T) {
 	ops := newBlockingDriveOps()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer func() {
 		close(ops.blockCh) // ブロック中のオペレーションを解放
 		time.Sleep(200 * time.Millisecond)
@@ -128,7 +128,7 @@ func TestQueue_HasItemsNotBlockedByProcessing(t *testing.T) {
 func TestQueue_ListFiles_Error_ReturnsPromptly(t *testing.T) {
 	ops := newErrorableDriveOps()
 	ops.listFilesErr = fmt.Errorf("connection refused")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan struct{})
@@ -152,7 +152,7 @@ func TestQueue_ListFiles_Error_ReturnsPromptly(t *testing.T) {
 func TestQueue_GetFileID_Error_ReturnsPromptly(t *testing.T) {
 	ops := newErrorableDriveOps()
 	ops.getFileIDErr = fmt.Errorf("file not found")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan struct{})
@@ -175,7 +175,7 @@ func TestQueue_GetFileID_Error_ReturnsPromptly(t *testing.T) {
 
 func TestQueue_CreateOperation_ClearsFromMap(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan struct{})
@@ -196,7 +196,7 @@ func TestQueue_CreateOperation_ClearsFromMap(t *testing.T) {
 
 func TestQueue_CreateThenDelete_MapConsistent(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan struct{})
@@ -220,7 +220,7 @@ func TestQueue_CreateThenDelete_MapConsistent(t *testing.T) {
 
 func TestQueue_MultipleCreates_AllClearFromMap(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	var wg sync.WaitGroup
@@ -251,7 +251,7 @@ func TestQueue_MultipleCreates_AllClearFromMap(t *testing.T) {
 
 func TestQueue_CreateDoesNotBlockPolling(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan struct{})
@@ -274,7 +274,7 @@ func TestQueue_CreateDoesNotBlockPolling(t *testing.T) {
 
 func TestQueue_Delete_CancelsPendingCreate(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	createResult := make(chan error, 1)
@@ -310,7 +310,7 @@ func TestQueue_Delete_CancelsPendingCreate(t *testing.T) {
 func TestQueue_Delete_ThenCreate_WorksCorrectly(t *testing.T) {
 	ops := newMockDriveOperations()
 	ops.files["existing-file-id"] = []byte(`{"id":"note1"}`)
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan struct{})
@@ -346,7 +346,7 @@ func TestQueue_Delete_ThenCreate_WorksCorrectly(t *testing.T) {
 func TestQueue_CancelledUpdate_ReturnsSpecificError(t *testing.T) {
 	ops := newMockDriveOperations()
 	ops.files["file-1"] = []byte("existing")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	result1 := make(chan error, 1)
@@ -382,7 +382,7 @@ func TestQueue_CancelledUpdate_ReturnsSpecificError(t *testing.T) {
 func TestQueue_CancelledUpdate_FinalStateCorrect(t *testing.T) {
 	ops := newMockDriveOperations()
 	ops.files["file-x"] = []byte("original")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	results := make([]chan error, 3)
@@ -418,7 +418,7 @@ func TestQueue_CancelledUpdate_FinalStateCorrect(t *testing.T) {
 func TestQueue_Cleanup_DuringDebouncedUpdate_NoPanic(t *testing.T) {
 	ops := newMockDriveOperations()
 	ops.files["file-1"] = []byte("data")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 
 	result := make(chan error, 1)
 	go func() {
@@ -445,7 +445,7 @@ func TestQueue_Cleanup_MultipleInFlightOps_NoPanic(t *testing.T) {
 	ops.files["file-a"] = []byte("a")
 	ops.files["file-b"] = []byte("b")
 	ops.files["file-c"] = []byte("c")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 
 	results := make([]chan error, 3)
 	fileIDs := []string{"file-a", "file-b", "file-c"}
@@ -475,7 +475,7 @@ func TestQueue_Cleanup_MultipleInFlightOps_NoPanic(t *testing.T) {
 
 func TestQueue_Cleanup_ThenNewEnqueue_Rejected(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	q.Cleanup()
 
 	time.Sleep(200 * time.Millisecond)
@@ -498,7 +498,7 @@ func TestQueue_Cleanup_ThenNewEnqueue_Rejected(t *testing.T) {
 func TestQueue_UpdateDeleteCreate_Chain(t *testing.T) {
 	ops := newMockDriveOperations()
 	ops.files["file-1"] = []byte("v1")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	updateResult := make(chan error, 1)
@@ -559,7 +559,7 @@ func TestQueue_UpdateDeleteCreate_Chain(t *testing.T) {
 
 func TestQueue_CreateThenUpdate_SameFile(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	fileID, err := q.CreateFile("note.json", []byte("v1"), "folder-id", "application/json")
@@ -582,7 +582,7 @@ func TestQueue_ConcurrentUpdates_DifferentFiles(t *testing.T) {
 	ops.files["file-b"] = []byte("b-old")
 	ops.files["file-c"] = []byte("c-old")
 
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	updates := map[string]string{
@@ -621,7 +621,7 @@ func TestQueue_ConcurrentUpdates_DifferentFiles(t *testing.T) {
 func TestQueue_Cleanup_DelayedGoroutine_SafeReturn(t *testing.T) {
 	ops := newMockDriveOperations()
 	ops.files["file-1"] = []byte("before")
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 
 	updateResult := make(chan error, 1)
 	go func() {
@@ -643,7 +643,7 @@ func TestQueue_Cleanup_DelayedGoroutine_SafeReturn(t *testing.T) {
 
 func TestQueue_BufferFull_BlocksUntilSpace(t *testing.T) {
 	ops := newBlockingDriveOps()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	seedDone := make(chan error, 1)
@@ -707,7 +707,7 @@ func TestQueue_BufferFull_BlocksUntilSpace(t *testing.T) {
 
 func TestQueue_WaitForEmpty_Timeout(t *testing.T) {
 	ops := newBlockingDriveOps()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan error, 1)
@@ -735,7 +735,7 @@ func TestQueue_WaitForEmpty_Timeout(t *testing.T) {
 
 func TestQueue_WaitForEmpty_Success(t *testing.T) {
 	ops := newMockDriveOperations()
-	q := NewDriveOperationsQueue(ops)
+	q := NewDriveOperationsQueue(ops, nil)
 	defer q.Cleanup()
 
 	done := make(chan error, 1)

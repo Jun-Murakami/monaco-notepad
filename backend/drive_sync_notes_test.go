@@ -70,7 +70,7 @@ func rebindDriveServiceOps(ds *driveService, ops DriveOperations) {
 	if ds.operationsQueue != nil {
 		ds.operationsQueue.Cleanup()
 	}
-	ds.operationsQueue = NewDriveOperationsQueue(ops)
+	ds.operationsQueue = NewDriveOperationsQueue(ops, nil)
 	ds.driveOps = ds.operationsQueue
 	rootID, notesID := ds.auth.GetDriveSync().FolderIDs()
 	ds.driveSync = NewDriveSyncService(ds.driveOps, notesID, rootID, ds.logger)
@@ -109,7 +109,7 @@ func newSyncTestDriveService(t *testing.T) (*driveService, *syncTestDriveOps, fu
 		syncState:   NewSyncState(helper.tempDir),
 	}
 	ds.pollingService = NewDrivePollingService(ctx, ds)
-	ds.operationsQueue = NewDriveOperationsQueue(ops)
+	ds.operationsQueue = NewDriveOperationsQueue(ops, nil)
 
 	cleanup := func() {
 		ds.operationsQueue.Cleanup()

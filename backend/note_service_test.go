@@ -1421,11 +1421,11 @@ func TestContentHash_IncludesAllStableFields(t *testing.T) {
 	assert.NotEqual(t, computeContentHash(base), computeContentHash(&archivedChanged),
 		"Archived 変更でハッシュが変わるべき")
 
-	// FolderID 変更
+	// FolderID はノートファイルに保存されないためハッシュに含めない
 	folderChanged := *base
 	folderChanged.FolderID = "new-folder"
-	assert.NotEqual(t, computeContentHash(base), computeContentHash(&folderChanged),
-		"FolderID 変更でハッシュが変わるべき")
+	assert.Equal(t, computeContentHash(base), computeContentHash(&folderChanged),
+		"FolderID 変更でハッシュが変わらないべき")
 
 	// Content 変更
 	contentChanged := *base

@@ -2,6 +2,8 @@ package backend
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -28,6 +30,11 @@ func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePolling
 }
 
 func (p *DrivePollingService) WaitForFrontendAndStartSync() {
+	defer func() {
+		if r := recover(); r != nil {
+			p.logger.Console(fmt.Sprintf("PANIC in WaitForFrontendAndStartSync: %v\n%s", r, string(debug.Stack())))
+		}
+	}()
 	p.logger.Console("Waiting for frontend ready signal...")
 	<-p.driveService.auth.GetFrontendReadyChan()
 	p.logger.Console("Frontend ready signal received - starting sync...")

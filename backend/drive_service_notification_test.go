@@ -195,7 +195,7 @@ func newNotificationTestDriveService(
 		syncState:   NewSyncState(helper.tempDir),
 	}
 	ds.pollingService = NewDrivePollingService(ctx, ds)
-	ds.operationsQueue = NewDriveOperationsQueue(ops)
+	ds.operationsQueue = NewDriveOperationsQueue(ops, nil)
 
 	cleanup := func() {
 		ds.operationsQueue.Cleanup()

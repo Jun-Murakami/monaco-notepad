@@ -178,7 +178,7 @@ func (s *driveService) reconnect() error {
 		}
 	}
 
-	s.operationsQueue = NewDriveOperationsQueue(s.driveOps)
+	s.operationsQueue = NewDriveOperationsQueue(s.driveOps, s.logger)
 	if s.operationsQueue == nil {
 		return fmt.Errorf("reconnect: failed to create operations queue")
 	}
@@ -292,7 +292,7 @@ func (s *driveService) onConnected() error {
 	}
 
 	s.logger.Console("Initializing operations queue...")
-	s.operationsQueue = NewDriveOperationsQueue(s.driveOps)
+	s.operationsQueue = NewDriveOperationsQueue(s.driveOps, s.logger)
 	if s.operationsQueue == nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create operations queue"))
 	}
@@ -673,6 +673,7 @@ func (s *driveService) pushLocalChanges() error {
 	}
 	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
 		s.logger.Console("Sync state changed during push; retaining dirty flags for next sync")
+		s.syncState.UpdateSyncedState(driveTs, noteHashes)
 	}
 
 	s.pollingService.RefreshChangeToken()
@@ -801,6 +802,7 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 	}
 	if !s.syncState.ClearDirtyIfUnchanged(snapshotRevision, driveTs, noteHashes) {
 		s.logger.Console("Sync state changed during pull; retaining dirty flags for next sync")
+		s.syncState.UpdateSyncedState(driveTs, noteHashes)
 	}
 
 	s.notifySyncComplete()
@@ -1194,6 +1196,7 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	}
 	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
 		s.logger.Console("Sync state changed during conflict resolution; retaining dirty flags for next sync")
+		s.syncState.UpdateSyncedState(driveTs, noteHashes)
 	}
 
 	s.pollingService.RefreshChangeToken()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -53,10 +54,11 @@ type DriveOperationsQueue struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	closed     bool
+	logger     AppLogger
 }
 
 // NewDriveOperationsQueueはキューシステムを作成
-func NewDriveOperationsQueue(operations DriveOperations) *DriveOperationsQueue {
+func NewDriveOperationsQueue(operations DriveOperations, logger AppLogger) *DriveOperationsQueue {
 	ctx, cancel := context.WithCancel(context.Background())
 	q := &DriveOperationsQueue{
 		operations: operations,
@@ -64,12 +66,23 @@ func NewDriveOperationsQueue(operations DriveOperations) *DriveOperationsQueue {
 		items:      make(map[string][]*QueueItem),
 		ctx:        ctx,
 		cancel:     cancel,
+		logger:     logger,
 	}
 	go q.processQueue()
 	return q
 }
 
 func (q *DriveOperationsQueue) processQueue() {
+	defer func() {
+		if r := recover(); r != nil {
+			msg := fmt.Sprintf("PANIC in processQueue: %v\n%s", r, string(debug.Stack()))
+			if q.logger != nil {
+				q.logger.Console(msg)
+			} else {
+				fmt.Println(msg)
+			}
+		}
+	}()
 	for {
 		select {
 		case <-q.ctx.Done():
@@ -139,12 +152,23 @@ func computeMapKey(item *QueueItem) string {
 }
 
 // キューにアイテムを追加
+// cancelItem はキャンセル時にすべてのチャネルに値を送信し、デッドロックを防止する
+func cancelItem(item *QueueItem) {
+	if item.ListResult != nil {
+		item.ListResult <- nil
+	}
+	if item.GetFileResult != nil {
+		item.GetFileResult <- ""
+	}
+	item.Result <- ErrOperationCancelled
+}
+
 func (q *DriveOperationsQueue) addToQueue(item *QueueItem) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
 	if q.closed {
-		item.Result <- ErrOperationCancelled
+		cancelItem(item)
 		return
 	}
 
@@ -175,7 +199,7 @@ func (q *DriveOperationsQueue) addToQueue(item *QueueItem) {
 	} else {
 		select {
 		case <-q.ctx.Done():
-			item.Result <- ErrOperationCancelled
+			cancelItem(item)
 			q.removeItemFromMap(item)
 		case q.queue <- item:
 		}
@@ -184,12 +208,22 @@ func (q *DriveOperationsQueue) addToQueue(item *QueueItem) {
 
 // delayedEnqueue はデバウンス遅延後にアイテムをキューに送信する
 func (q *DriveOperationsQueue) delayedEnqueue(item *QueueItem) {
+	defer func() {
+		if r := recover(); r != nil {
+			msg := fmt.Sprintf("PANIC in delayedEnqueue: %v\n%s", r, string(debug.Stack()))
+			if q.logger != nil {
+				q.logger.Console(msg)
+			} else {
+				fmt.Println(msg)
+			}
+		}
+	}()
 	time.Sleep(3 * time.Second)
 
 	// ctx.Done()をチェックしてCleanup後のpanicを防止 (C-5)
 	select {
 	case <-q.ctx.Done():
-		item.Result <- ErrOperationCancelled
+		cancelItem(item)
 		return
 	default:
 	}
@@ -198,7 +232,7 @@ func (q *DriveOperationsQueue) delayedEnqueue(item *QueueItem) {
 	defer q.mutex.Unlock()
 
 	if q.closed {
-		item.Result <- ErrOperationCancelled
+		cancelItem(item)
 		q.removeItemFromMap(item)
 		return
 	}
@@ -207,11 +241,11 @@ func (q *DriveOperationsQueue) delayedEnqueue(item *QueueItem) {
 		select {
 		case q.queue <- item:
 		case <-q.ctx.Done():
-			item.Result <- ErrOperationCancelled
+			cancelItem(item)
 			q.removeItemFromMap(item)
 		}
 	} else {
-		item.Result <- ErrOperationCancelled
+		cancelItem(item)
 		q.removeItemFromMap(item)
 	}
 }
@@ -247,7 +281,7 @@ func (q *DriveOperationsQueue) removeOldUpdateItems(mapKey string) {
 		var newItems []*QueueItem
 		for _, item := range items {
 			if item.OperationType == UpdateOperation {
-				item.Result <- ErrOperationCancelled
+				cancelItem(item)
 			} else {
 				newItems = append(newItems, item)
 			}
@@ -259,7 +293,7 @@ func (q *DriveOperationsQueue) removeOldUpdateItems(mapKey string) {
 func (q *DriveOperationsQueue) removeExistingItems(mapKey string) {
 	if items, exists := q.items[mapKey]; exists {
 		for _, item := range items {
-			item.Result <- ErrOperationCancelled
+			cancelItem(item)
 		}
 		delete(q.items, mapKey)
 	}
@@ -270,7 +304,7 @@ func (q *DriveOperationsQueue) removeCreateItemsByFileName(fileName string) {
 		var remaining []*QueueItem
 		for _, item := range items {
 			if item.OperationType == CreateOperation && item.FileName == fileName {
-				item.Result <- ErrOperationCancelled
+				cancelItem(item)
 			} else {
 				remaining = append(remaining, item)
 			}
@@ -338,6 +372,18 @@ func (q *DriveOperationsQueue) Cleanup() {
 			select {
 			case item.Result <- ErrOperationCancelled:
 			default:
+			}
+			if item.ListResult != nil {
+				select {
+				case item.ListResult <- nil:
+				default:
+				}
+			}
+			if item.GetFileResult != nil {
+				select {
+				case item.GetFileResult <- "":
+				default:
+				}
 			}
 		}
 		delete(q.items, key)
