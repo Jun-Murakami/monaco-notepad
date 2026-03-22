@@ -16,7 +16,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   OpenAppFolder,
@@ -46,11 +46,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
   const { t } = useTranslation();
 
-  // ダイアログが開かれたときに現在の設定を保存
+  // ダイアログが開かれた瞬間のみ親の設定を同期する。
+  // open中に settings が変わっても localSettings をリセットしない（ペインサイズ保存等による外部更新でトグルが振動するのを防止）。
+  const prevOpenRef = useRef(false);
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpenRef.current) {
       setLocalSettings({ ...settings });
     }
+    prevOpenRef.current = open;
   }, [open, settings]);
 
   const handleChange = async (newSettings: Partial<Settings>) => {

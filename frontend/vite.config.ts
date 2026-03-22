@@ -7,12 +7,14 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'monaco-editor': ['monaco-editor'],
-          'monaco-workers': [
-            'monaco-editor/esm/vs/editor/editor.worker',
-            'monaco-editor/esm/vs/language/typescript/ts.worker',
-          ],
+        manualChunks(id) {
+          if (id.includes('monaco-editor/esm/vs/editor/editor.worker') ||
+              id.includes('monaco-editor/esm/vs/language/typescript/ts.worker')) {
+            return 'monaco-workers';
+          }
+          if (id.includes('monaco-editor')) {
+            return 'monaco-editor';
+          }
         },
       },
     },

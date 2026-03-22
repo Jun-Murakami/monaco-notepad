@@ -1,13 +1,42 @@
-import { Box, useTheme } from '@mui/material';
+import { Box, Link, useTheme } from '@mui/material';
 import type { editor } from 'monaco-editor';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { OpenURL } from '../../wailsjs/go/backend/App';
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_UI_FONT_FAMILY } from '../types';
 
 const DEBOUNCE_MS = 300;
+
+// リンククリック時にWailsのWebview内ではなくシステムブラウザで開く
+const MarkdownLink: React.FC<React.AnchorHTMLAttributes<HTMLAnchorElement>> = ({
+  href,
+  children,
+  ...props
+}) => {
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (href) {
+        OpenURL(href);
+      }
+    },
+    [href],
+  );
+
+  return (
+    <Link
+      href={href}
+      onClick={handleClick}
+      sx={{ cursor: 'pointer' }}
+      {...props}
+    >
+      {children}
+    </Link>
+  );
+};
 
 interface MarkdownPreviewProps {
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
@@ -164,6 +193,9 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[rehypeHighlight]}
+        components={{
+          a: MarkdownLink,
+        }}
       >
         {content}
       </ReactMarkdown>

@@ -295,6 +295,9 @@ function App() {
   });
 
   // 3) ハンドラ・派生値
+  // refを使って常に最新のeditorSettingsを参照し、デバウンスタイマー内のステールクロージャを防止する
+  const editorSettingsRef = useRef(editorSettings);
+  editorSettingsRef.current = editorSettings;
   const savePaneSizes = useCallback(
     (sizes: {
       sidebarWidth: number;
@@ -302,13 +305,13 @@ function App() {
       markdownPreviewPaneSize: number;
     }) => {
       setEditorSettings({
-        ...editorSettings,
+        ...editorSettingsRef.current,
         sidebarWidth: sizes.sidebarWidth,
         splitPaneSize: sizes.splitPaneSize,
         markdownPreviewPaneSize: sizes.markdownPreviewPaneSize,
       });
     },
-    [setEditorSettings, editorSettings],
+    [setEditorSettings],
   );
 
   const totalAvailableItems =

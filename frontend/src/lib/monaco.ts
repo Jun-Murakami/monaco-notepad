@@ -1,7 +1,11 @@
+// monaco-editor の Web Worker 設定用にグローバル型を拡張
+declare global {
+	interface Window {
+		MonacoEnvironment?: monaco.Environment;
+	}
+}
+
 import * as monaco from 'monaco-editor';
-// Monaco v0.56+ では "monaco-editor" が editor API のみを指すため、
-// 必要な機能を明示的に登録する（ここでは Unicode Highlighter）。
-import 'monaco-editor/esm/vs/features/unicodeHighlighter/register.js';
 import 'monaco-editor/esm/vs/basic-languages/monaco.contribution.js';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
