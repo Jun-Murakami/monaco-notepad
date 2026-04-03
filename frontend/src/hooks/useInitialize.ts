@@ -6,6 +6,7 @@ import {
   ListFolders,
   ListNotes,
   LoadFileNotes,
+  LoadSettings,
   NotifyFrontendReady,
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
@@ -19,6 +20,22 @@ import type {
   Note,
   TopLevelItem,
 } from '../types';
+
+const SPLIT_EDITOR_STATE_KEY = 'splitEditorState';
+
+const loadSplitEditorState = (): {
+  isSplit: boolean;
+  leftNoteId: string | null;
+  leftIsFile: boolean;
+} | null => {
+  try {
+    const raw = localStorage.getItem(SPLIT_EDITOR_STATE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
 
 export const useInitialize = (
   setNotes: (notes: Note[]) => void,
@@ -98,13 +115,42 @@ export const useInitialize = (
     }));
     setNotes(parsedNotes);
     const activeNotes = parsedNotes.filter((note) => !note.archived);
-    if (loadedFileNotes.length > 0) {
-      await handleSelecAnyNote(loadedFileNotes[0]);
-    } else if (activeNotes.length > 0) {
-      await handleSelecAnyNote(activeNotes[0]);
-    } else {
-      handleNewNote();
+
+    // Try to restore the previously active note from saved state
+    let restored = false;
+    const settings = await LoadSettings();
+    const splitState = loadSplitEditorState();
+
+    if (settings.isSplit && splitState?.leftNoteId) {
+      // Split mode was active: find the left pane note to initialize
+      const leftNote = splitState.leftIsFile
+        ? loadedFileNotes.find((f) => f.id === splitState.leftNoteId)
+        : activeNotes.find((n) => n.id === splitState.leftNoteId);
+      if (leftNote) {
+        await handleSelecAnyNote(leftNote);
+        restored = true;
+      }
+    } else if (settings.lastActiveNoteId) {
+      // Single pane: try to restore the last active note
+      const note = settings.lastActiveNoteIsFile
+        ? loadedFileNotes.find((f) => f.id === settings.lastActiveNoteId)
+        : activeNotes.find((n) => n.id === settings.lastActiveNoteId);
+      if (note) {
+        await handleSelecAnyNote(note);
+        restored = true;
+      }
     }
+
+    if (!restored) {
+      if (loadedFileNotes.length > 0) {
+        await handleSelecAnyNote(loadedFileNotes[0]);
+      } else if (activeNotes.length > 0) {
+        await handleSelecAnyNote(activeNotes[0]);
+      } else {
+        handleNewNote();
+      }
+    }
+
     restorePaneNotes(parsedNotes, loadedFileNotes);
   }, [
     handleNewNote,

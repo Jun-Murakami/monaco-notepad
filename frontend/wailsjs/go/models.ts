@@ -133,6 +133,8 @@ export namespace backend {
 	    markdownPreviewVisible?: boolean;
 	    isSplit?: boolean;
 	    uiLanguage?: string;
+	    lastActiveNoteId?: string;
+	    lastActiveNoteIsFile?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -160,6 +162,8 @@ export namespace backend {
 	        this.markdownPreviewVisible = source["markdownPreviewVisible"];
 	        this.isSplit = source["isSplit"];
 	        this.uiLanguage = source["uiLanguage"];
+	        this.lastActiveNoteId = source["lastActiveNoteId"];
+	        this.lastActiveNoteIsFile = source["lastActiveNoteIsFile"];
 	    }
 	}
 	export class TopLevelItem {

@@ -186,6 +186,10 @@ export function SelectSaveFileUri(arg1, arg2) {
   return window['go']['backend']['App']['SelectSaveFileUri'](arg1, arg2);
 }
 
+export function SetLastActiveNote(arg1, arg2) {
+  return window['go']['backend']['App']['SetLastActiveNote'](arg1, arg2);
+}
+
 export function SyncNow() {
   return window['go']['backend']['App']['SyncNow']();
 }

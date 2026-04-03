@@ -227,10 +227,26 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 	// イベントを発行して、フロントエンドに保存を要求
 	wailsRuntime.EventsEmit(ctx, "app:beforeclose")
 
-	// ウィンドウの状態を保存
-	if err := a.settingsService.SaveWindowState(a.ctx); err != nil {
+	// ウィンドウの状態と最後に選択されたノート情報を保存
+	settings, err := a.settingsService.LoadSettings()
+	if err != nil {
 		return false
 	}
+
+	width, height := wailsRuntime.WindowGetSize(a.ctx.ctx)
+	settings.WindowWidth = width
+	settings.WindowHeight = height
+
+	x, y := wailsRuntime.WindowGetPosition(a.ctx.ctx)
+	settings.WindowX = x
+	settings.WindowY = y
+
+	settings.IsMaximized = wailsRuntime.WindowIsMaximised(a.ctx.ctx)
+
+	settings.LastActiveNoteId = a.lastActiveNoteId
+	settings.LastActiveNoteIsFile = a.lastActiveNoteIsFile
+
+	a.settingsService.SaveSettings(settings)
 
 	return false
 }
@@ -737,6 +753,12 @@ func (a *App) SaveSettings(settings *Settings) error {
 		a.applyNativeMenuLocalization(settings.UILanguage)
 	}
 	return nil
+}
+
+// 最後に選択されたノートの情報を記録する（終了時にsettings.jsonへ保存される）
+func (a *App) SetLastActiveNote(noteId string, isFile bool) {
+	a.lastActiveNoteId = noteId
+	a.lastActiveNoteIsFile = isFile
 }
 
 // ウィンドウの状態を保存する

@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileNote, Note } from '../../types';
 import { useNoteSelecter } from '../useNoteSelecter';
 
+vi.mock('../../../wailsjs/go/backend/App', () => ({
+  SetLastActiveNote: vi.fn(),
+}));
+
 describe('useNoteSelecter フック', () => {
   const mockNote: Note = {
     id: '1',

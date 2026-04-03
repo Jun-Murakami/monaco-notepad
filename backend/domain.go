@@ -23,9 +23,11 @@ type App struct {
 	fileService      *fileService     // ファイル操作サービス
 	fileNoteService  *fileNoteService // ファイルノート操作サービス
 	syncState        *SyncState       // 同期状態管理（dirtyフラグ方式）
-	migrationMessage string           // マイグレーション結果メッセージ（フロントエンド準備後に通知）
-	frontendReady    chan struct{}    // フロントエンドの準備完了を通知するチャネル
-	logger           AppLogger        // アプリケーションのロガー
+	migrationMessage     string           // マイグレーション結果メッセージ（フロントエンド準備後に通知）
+	frontendReady        chan struct{}    // フロントエンドの準備完了を通知するチャネル
+	logger               AppLogger        // アプリケーションのロガー
+	lastActiveNoteId     string           // 最後に選択されたノートID（終了時にsettings.jsonへ保存）
+	lastActiveNoteIsFile bool             // 最後に選択されたノートがファイルノートかどうか
 }
 
 // アプリケーションのコンテキストを管理
@@ -104,6 +106,8 @@ type Settings struct {
 	MarkdownPreviewVisible  bool    `json:"markdownPreviewVisible,omitempty"`  // マークダウンプレビューが表示状態か
 	IsSplit                 bool    `json:"isSplit,omitempty"`                 // スプリットモードが有効か
 	UILanguage              string  `json:"uiLanguage,omitempty"`              // UI言語設定（"system", "en", "ja"）
+	LastActiveNoteId        string  `json:"lastActiveNoteId,omitempty"`        // 最後に選択されたノートID
+	LastActiveNoteIsFile    bool    `json:"lastActiveNoteIsFile,omitempty"`    // 最後に選択されたノートがファイルノートか
 }
 
 // ノートリスト整合性チェックの問題

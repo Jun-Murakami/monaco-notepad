@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { SetLastActiveNote } from '../../wailsjs/go/backend/App';
 import type { FileNote, Note } from '../types';
 
 interface NoteSelecterProps {
@@ -25,13 +26,15 @@ export const useNoteSelecter = ({
   // ノートを選択する
   const handleSelecAnyNote = useCallback(
     async (note: Note | FileNote) => {
-      if ('filePath' in note) {
+      const isFile = 'filePath' in note;
+      if (isFile) {
         await handleSelectFileNote(note);
         setCurrentNote(null);
       } else {
         await handleSelectNote(note);
         setCurrentFileNote(null);
       }
+      SetLastActiveNote(note.id, isFile);
     },
     [
       handleSelectFileNote,

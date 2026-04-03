@@ -40,6 +40,8 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   ListFolders: vi.fn(),
   GetTopLevelOrder: vi.fn(),
   GetArchivedTopLevelOrder: vi.fn(),
+  LoadSettings: vi.fn().mockResolvedValue({}),
+  SetLastActiveNote: vi.fn(),
 }));
 
 vi.mock('../../../wailsjs/runtime', () => ({

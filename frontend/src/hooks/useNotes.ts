@@ -15,6 +15,7 @@ import {
   MoveNoteToFolder,
   RenameFolder,
   SaveNote,
+  SetLastActiveNote,
   UnarchiveFolder,
   UpdateArchivedTopLevelOrder,
   UpdateCollapsedFolderIDs,
@@ -288,6 +289,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       openNoteInSplitPane(newNote, focusedPane);
     } else {
       setCurrentNote(newNote);
+      SetLastActiveNote(newNote.id, false);
     }
 
     await SaveNote(backend.Note.createFrom(newNote), 'create');

@@ -104,6 +104,8 @@ export type Settings = {
   markdownPreviewVisible?: boolean;
   isSplit?: boolean;
   uiLanguage?: 'system' | 'en' | 'ja';
+  lastActiveNoteId?: string;
+  lastActiveNoteIsFile?: boolean;
 };
 
 export const DEFAULT_EDITOR_FONT_FAMILY =

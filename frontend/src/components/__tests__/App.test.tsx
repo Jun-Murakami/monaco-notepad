@@ -249,6 +249,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   DeleteFolder: vi.fn(),
   MoveNoteToFolder: vi.fn(),
   DeleteNote: vi.fn(),
+  SetLastActiveNote: vi.fn(),
 }));
 
 describe('App', () => {

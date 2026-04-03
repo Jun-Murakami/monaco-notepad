@@ -96,6 +96,8 @@ export function SelectFile():Promise<string>;
 
 export function SelectSaveFileUri(arg1:string,arg2:string):Promise<string>;
 
+export function SetLastActiveNote(arg1:string,arg2:boolean):Promise<void>;
+
 export function SyncNow():Promise<void>;
 
 export function UnarchiveFolder(arg1:string):Promise<void>;
