@@ -32,6 +32,7 @@ import {
 } from './components/NoteList';
 import { NoteSearchBox } from './components/NoteSearchBox';
 import { PaneHeader } from './components/PaneHeader';
+import { LicenseDialog } from './components/LicenseDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileNotes } from './hooks/useFileNotes';
@@ -78,6 +79,7 @@ function App() {
   const editorInstanceRef = leftEditorInstanceRef;
 
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
 
   // 2) カスタムフック
   // エディタ設定
@@ -1270,6 +1272,14 @@ function App() {
         onClose={() => setIsSettingsOpen(false)}
         onChange={setEditorSettings}
         onSave={handleSettingsChange}
+        onOpenAbout={() => {
+          setIsSettingsOpen(false);
+          setIsAboutOpen(true);
+        }}
+      />
+      <LicenseDialog
+        open={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
       />
       <MessageDialog
         isOpen={isMessageDialogOpen}

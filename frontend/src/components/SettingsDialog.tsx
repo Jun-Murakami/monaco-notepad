@@ -34,6 +34,7 @@ interface SettingsDialogProps {
   onClose: () => void;
   onSave: (settings: Settings) => void;
   onChange: (settings: Settings) => void;
+  onOpenAbout: () => void;
 }
 
 export const SettingsDialog: React.FC<SettingsDialogProps> = ({
@@ -42,6 +43,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onClose,
   onSave,
   onChange,
+  onOpenAbout,
 }) => {
   const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
   const { t } = useTranslation();
@@ -343,6 +345,9 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       <DialogActions>
         <Button onClick={handleReset} color="primary">
           {t('settings.resetToDefault')}
+        </Button>
+        <Button onClick={onOpenAbout} color="primary">
+          {t('settings.aboutLicense')}
         </Button>
         <Box sx={{ flex: '1 0 0' }} />
         <Button onClick={handleClose}>{t('settings.cancel')}</Button>

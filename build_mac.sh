@@ -14,6 +14,10 @@ fi
 VERSION=$(cat wails.json | grep -o '"productVersion": "[^"]*' | grep -o '[^"]*$')
 echo "Building Monaco Notepad v$VERSION for macOS..."
 
+# ライセンス情報を生成
+echo "Generating license information..."
+(cd frontend && node scripts/generate-licenses.mjs)
+
 # ユニバーサルバイナリのビルド
 wails build -ldflags "-X 'monaco-notepad/backend.Version=$VERSION'" -platform darwin/universal
 

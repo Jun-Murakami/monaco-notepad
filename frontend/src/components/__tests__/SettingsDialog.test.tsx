@@ -37,6 +37,7 @@ describe('SettingsDialog', () => {
     onClose: vi.fn(),
     onSave: vi.fn(),
     onChange: vi.fn(),
+    onOpenAbout: vi.fn(),
   };
 
   beforeEach(() => {

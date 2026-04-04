@@ -7,7 +7,10 @@
       "Bash(npx vitest:*)",
       "Bash(go vet:*)",
       "Bash(xargs grep:*)",
-      "Bash(wails generate:*)"
+      "Bash(wails generate:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(go install:*)"
     ]
   }
 }

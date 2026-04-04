@@ -4,6 +4,12 @@ $version = $wailsConfig.info.productVersion
 
 Write-Host "Building Monaco Notepad v$version for Windows..."
 
+# ライセンス情報を生成
+Write-Host "Generating license information..."
+Push-Location frontend
+node scripts/generate-licenses.mjs
+Pop-Location
+
 # バージョン情報を埋め込んでビルド
 wails build -ldflags "-X 'monaco-notepad/backend.Version=$version'" -platform windows/amd64 -nsis
 

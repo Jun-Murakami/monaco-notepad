@@ -24,7 +24,8 @@
     "conflictBackupDescriptionAfterLink": " に保存します。",
     "resetToDefault": "デフォルトにリセット",
     "cancel": "キャンセル",
-    "save": "保存"
+    "save": "保存",
+    "aboutLicense": "このアプリについて / ライセンス"
   },
   "app": {
     "titleBar": "Monaco Notepad",
@@ -256,6 +257,19 @@
   "conflict": {
     "autoResolveDuplicate": "競合コピーを自動解決：「{{noteId}}」を削除しました",
     "autoResolveKept": "競合コピーを自動解決：「{{noteId}}」を保持しました（固有の内容）"
+  },
+  "about": {
+    "title": "このアプリについて",
+    "version": "バージョン {{version}}",
+    "developer": "開発者: Jun Murakami",
+    "website": "ウェブサイト",
+    "appLicense": "MIT License",
+    "frontendDependencies": "フロントエンド依存パッケージ",
+    "backendDependencies": "バックエンド依存パッケージ",
+    "packageName": "パッケージ",
+    "licenseType": "ライセンス",
+    "repository": "リポジトリ",
+    "close": "閉じる"
   },
   "common": {
     "appName": "Monaco Notepad",
