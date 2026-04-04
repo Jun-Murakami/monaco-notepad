@@ -200,7 +200,10 @@ describe('useFileNotes', () => {
       mockCheckFileExists.mockResolvedValue(true);
       mockCheckFileModified.mockResolvedValue(true);
       const updatedContent = 'Updated from outside';
-      mockOpenFile.mockResolvedValue(updatedContent);
+      mockOpenFile.mockResolvedValue({
+        content: updatedContent,
+        sourceEncoding: '',
+      });
       mockGetModifiedTime.mockResolvedValue(new Date().toISOString());
 
       await act(async () => {

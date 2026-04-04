@@ -4,7 +4,10 @@
       "Bash(npx tsc:*)",
       "Bash(go build:*)",
       "Bash(go test:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(go vet:*)",
+      "Bash(xargs grep:*)",
+      "Bash(wails generate:*)"
     ]
   }
 }

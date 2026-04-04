@@ -5,14 +5,13 @@ import {
   expect,
   it,
   type Mock,
-  type MockInstance,
   vi,
 } from 'vitest';
 import '@testing-library/jest-dom';
 import {
   Console,
   GetAppVersion,
-  OpenURL,
+  GetReleaseInfo,
 } from '../../../wailsjs/go/backend/App';
 import { VersionUp } from '../VersionUp';
 
@@ -21,22 +20,21 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   GetAppVersion: vi.fn(),
   Console: vi.fn(),
   OpenURL: vi.fn(),
+  GetReleaseInfo: vi.fn(),
+  PerformUpdate: vi.fn(),
 }));
 
-// window.openのモック
-const mockOpen = vi.fn();
-window.open = mockOpen;
+// wailsjs/runtimeのモック
+vi.mock('../../../wailsjs/runtime', () => ({
+  EventsOn: vi.fn().mockReturnValue(() => {}),
+}));
 
 // fetchのモック
 global.fetch = vi.fn();
 
-// モック関数の型付け
-const mockOpenURL = OpenURL as unknown as MockInstance<typeof OpenURL>;
-
 describe('VersionUp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockOpen.mockClear();
   });
 
   it('新しいバージョンが利用可能な場合、更新チップが表示されること', async () => {
@@ -82,13 +80,18 @@ describe('VersionUp', () => {
     });
   });
 
-  it('チップをクリックすると、更新ページが開くこと', async () => {
+  it('チップをクリックすると、アップデートダイアログが開くこと', async () => {
     // モックの設定
     (GetAppVersion as Mock).mockResolvedValue('1.0.0');
     (global.fetch as Mock).mockResolvedValue({
       json: () => Promise.resolve({ tag_name: 'v1.0.1' }),
     });
-    mockOpenURL.mockResolvedValue();
+    (GetReleaseInfo as Mock).mockResolvedValue({
+      version: '1.0.1',
+      body: '## Release Notes\n- Bug fixes',
+      downloadUrl: 'https://example.com/installer.exe',
+      assetName: 'installer.exe',
+    });
 
     render(<VersionUp />);
 
@@ -98,10 +101,10 @@ describe('VersionUp', () => {
       fireEvent.click(chip);
     });
 
-    // OpenURLが正しく呼ばれることを確認
-    expect(mockOpenURL).toHaveBeenCalledWith(
-      'https://jun-murakami.web.app/#monacoNotepad',
-    );
+    // ダイアログが表示されることを確認
+    await waitFor(() => {
+      expect(screen.getByText('Update Available — v1.0.1')).toBeInTheDocument();
+    });
   });
 
   it('削除ボタンをクリックすると、チップが非表示になること', async () => {

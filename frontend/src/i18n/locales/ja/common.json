@@ -111,6 +111,7 @@
     "changedExternallyMessage": "このファイルはアプリ外で変更されました。再読み込みしますか？（エディタの未保存変更は失われます）",
     "unsavedChangesTitle": "未保存の変更があります",
     "unsavedChangesMessage": "変更を破棄してファイルを閉じますか？",
+    "encodingConverted": "文字コードを{{encoding}}からUTF-8に自動変換しました。保存すると文字コードがUTF-8に変更されます。",
     "binaryOpenError": "開けません: バイナリファイルの可能性があります",
     "saveAsFailed": "名前を付けて保存に失敗しました。権限を確認するか別の場所を選択してください",
     "saveFailedKeepChanges": "保存に失敗しました。変更はエディタに残っています"
@@ -137,6 +138,12 @@
   },
   "version": {
     "updateAvailable": "更新があります v{{version}}"
+  },
+  "update": {
+    "title": "アップデート — v{{version}}",
+    "downloading": "アップデートをダウンロード中...",
+    "installing": "インストール中... アプリは自動的に再起動します。",
+    "startUpdate": "アップデート"
   },
   "drive": {
     "connected": "Google Driveに接続しました",

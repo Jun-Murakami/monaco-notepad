@@ -42,6 +42,8 @@ export function GetCollapsedFolderIDs():Promise<Array<string>>;
 
 export function GetModifiedTime(arg1:string):Promise<time.Time>;
 
+export function GetReleaseInfo():Promise<backend.ReleaseInfo>;
+
 export function GetSystemLocale():Promise<string>;
 
 export function GetTopLevelOrder():Promise<Array<backend.TopLevelItem>>;
@@ -70,11 +72,13 @@ export function OpenAppFolder():Promise<void>;
 
 export function OpenConflictBackupFolder():Promise<void>;
 
-export function OpenFile(arg1:string):Promise<string>;
+export function OpenFile(arg1:string):Promise<backend.OpenFileResult>;
 
 export function OpenFileFromExternal(arg1:string):Promise<void>;
 
 export function OpenURL(arg1:string):Promise<void>;
+
+export function PerformUpdate(arg1:string,arg2:string):Promise<void>;
 
 export function RenameFolder(arg1:string,arg2:string):Promise<void>;
 

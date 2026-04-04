@@ -47,10 +47,22 @@ export function useFileOperations(
 ) {
   // ファイルを開く共通処理
   const createFileNote = useCallback(
-    async (content: string, filePath: string): Promise<FileNote | null> => {
+    async (
+      content: string,
+      filePath: string,
+      sourceEncoding?: string,
+    ): Promise<FileNote | null> => {
       if (isBinaryFile(content)) {
         runtime.EventsEmit('logMessage', i18n.t('file.binaryOpenError'));
         return null;
+      }
+
+      // エンコーディング変換が行われた場合、通知を表示
+      if (sourceEncoding) {
+        runtime.EventsEmit(
+          'logMessage',
+          i18n.t('file.encodingConverted', { encoding: sourceEncoding }),
+        );
       }
 
       const extension = filePath.split('.').pop()?.toLowerCase() || '';
@@ -68,7 +80,7 @@ export function useFileOperations(
         filePath: filePath,
         fileName: fileName,
         content: content,
-        originalContent: content,
+        originalContent: sourceEncoding ? '' : content,
         language: language,
         modifiedTime: modifiedTime.toString(),
       };
@@ -91,10 +103,14 @@ export function useFileOperations(
         return;
       }
 
-      const content = await OpenFile(filePath);
-      if (typeof content !== 'string') return;
+      const result = await OpenFile(filePath);
+      if (!result || typeof result.content !== 'string') return;
 
-      const newFileNote = await createFileNote(content, filePath);
+      const newFileNote = await createFileNote(
+        result.content,
+        filePath,
+        result.sourceEncoding || undefined,
+      );
       if (!newFileNote) return;
 
       const updatedFileNotes = [newFileNote, ...fileNotes];
@@ -121,10 +137,14 @@ export function useFileOperations(
           return;
         }
 
-        const content = await OpenFile(filePath);
-        if (typeof content !== 'string') return;
+        const result = await OpenFile(filePath);
+        if (!result || typeof result.content !== 'string') return;
 
-        const newFileNote = await createFileNote(content, filePath);
+        const newFileNote = await createFileNote(
+          result.content,
+          filePath,
+          result.sourceEncoding || undefined,
+        );
         if (!newFileNote) return;
 
         const updatedFileNotes = [newFileNote, ...fileNotes];
@@ -223,7 +243,11 @@ export function useFileOperations(
   useEffect(() => {
     const cleanup = runtime.EventsOn(
       'file:open-external',
-      async (data: { path: string; content: string }) => {
+      async (data: {
+        path: string;
+        content: string;
+        sourceEncoding?: string;
+      }) => {
         // 既に同じファイルが開かれているかチェック
         const existingFile = fileNotes.find(
           (note) => note.filePath === data.path,
@@ -233,7 +257,11 @@ export function useFileOperations(
           return;
         }
 
-        const newFileNote = await createFileNote(data.content, data.path);
+        const newFileNote = await createFileNote(
+          data.content,
+          data.path,
+          data.sourceEncoding || undefined,
+        );
         if (!newFileNote) return;
 
         const updatedFileNotes = [newFileNote, ...fileNotes];

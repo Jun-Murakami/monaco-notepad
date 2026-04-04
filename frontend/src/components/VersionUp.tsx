@@ -1,11 +1,11 @@
 import { Chip } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Console, GetAppVersion, OpenURL } from '../../wailsjs/go/backend/App';
+import { Console, GetAppVersion } from '../../wailsjs/go/backend/App';
+import { UpdateDialog } from './UpdateDialog';
 
 const repoUrl =
   'https://api.github.com/repos/Jun-Murakami/monaco-notepad/releases/latest';
-const releaseUrl = 'https://jun-murakami.web.app/#monacoNotepad';
 
 const compareVersions = (a: string, b: string): number => {
   const normalize = (version: string) =>
@@ -35,6 +35,7 @@ export const VersionUp = () => {
   const { t } = useTranslation();
   const [version, setVersion] = useState<string>('');
   const [showChip, setShowChip] = useState<boolean>(false);
+  const [dialogOpen, setDialogOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchVersion = async () => {
@@ -62,12 +63,8 @@ export const VersionUp = () => {
     fetchVersion();
   }, []);
 
-  const handleClick = async () => {
-    try {
-      await OpenURL(releaseUrl);
-    } catch (error) {
-      await Console('Failed to open URL', [error]);
-    }
+  const handleClick = () => {
+    setDialogOpen(true);
   };
 
   return (
@@ -85,6 +82,11 @@ export const VersionUp = () => {
           }}
         />
       )}
+      <UpdateDialog
+        open={dialogOpen}
+        version={version}
+        onClose={() => setDialogOpen(false)}
+      />
     </>
   );
 };

@@ -111,6 +111,7 @@
     "changedExternallyMessage": "This file was modified outside the app. Reload? (Unsaved editor changes will be lost)",
     "unsavedChangesTitle": "Unsaved changes",
     "unsavedChangesMessage": "Discard changes and close the file?",
+    "encodingConverted": "Encoding auto-converted from {{encoding}} to UTF-8. Saving will change the file encoding to UTF-8.",
     "binaryOpenError": "Cannot open: file appears to be binary",
     "saveAsFailed": "Save As failed — check permissions or try a different location",
     "saveFailedKeepChanges": "Save failed — changes still in editor"
@@ -137,6 +138,12 @@
   },
   "version": {
     "updateAvailable": "Update? v{{version}}"
+  },
+  "update": {
+    "title": "Update Available — v{{version}}",
+    "downloading": "Downloading update...",
+    "installing": "Installing update... The app will restart automatically.",
+    "startUpdate": "Update"
   },
   "drive": {
     "connected": "Connected to Google Drive",

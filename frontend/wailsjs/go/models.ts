@@ -112,6 +112,38 @@ export namespace backend {
 	        this.syncing = source["syncing"];
 	    }
 	}
+	export class OpenFileResult {
+	    content: string;
+	    sourceEncoding: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenFileResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.content = source["content"];
+	        this.sourceEncoding = source["sourceEncoding"];
+	    }
+	}
+	export class ReleaseInfo {
+	    version: string;
+	    body: string;
+	    downloadUrl: string;
+	    assetName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReleaseInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.body = source["body"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.assetName = source["assetName"];
+	    }
+	}
 	export class Settings {
 	    fontFamily: string;
 	    fontSize: number;

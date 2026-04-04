@@ -1,6 +1,119 @@
 package backend
 
-import "testing"
+import (
+	"testing"
+
+	"golang.org/x/text/encoding/japanese"
+)
+
+func TestDetectAndConvertEncoding(t *testing.T) {
+	tests := []struct {
+		name             string
+		input            []byte
+		wantContent      string
+		wantEncoding     string
+		wantEncodingBool bool // true if sourceEncoding should be non-empty
+	}{
+		{
+			name:         "UTF-8テキストはそのまま返す",
+			input:        []byte("Hello, World!"),
+			wantContent:  "Hello, World!",
+			wantEncoding: "",
+		},
+		{
+			name:         "UTF-8日本語テキストはそのまま返す",
+			input:        []byte("こんにちは世界"),
+			wantContent:  "こんにちは世界",
+			wantEncoding: "",
+		},
+		{
+			name:         "空のファイルはUTF-8として扱う",
+			input:        []byte{},
+			wantContent:  "",
+			wantEncoding: "",
+		},
+		{
+			name:         "UTF-8 BOMは除去される",
+			input:        append([]byte{0xEF, 0xBB, 0xBF}, []byte("Hello")...),
+			wantContent:  "Hello",
+			wantEncoding: "",
+		},
+		{
+			name:         "UTF-8 BOM付き日本語テキスト",
+			input:        append([]byte{0xEF, 0xBB, 0xBF}, []byte("テスト")...),
+			wantContent:  "テスト",
+			wantEncoding: "",
+		},
+		{
+			name:         "ASCII文字のみはUTF-8として扱う",
+			input:        []byte("plain ascii text\nwith newlines\r\n"),
+			wantContent:  "plain ascii text\nwith newlines\r\n",
+			wantEncoding: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, encoding := detectAndConvertEncoding(tt.input)
+			if content != tt.wantContent {
+				t.Errorf("content: got %q, want %q", content, tt.wantContent)
+			}
+			if encoding != tt.wantEncoding {
+				t.Errorf("encoding: got %q, want %q", encoding, tt.wantEncoding)
+			}
+		})
+	}
+}
+
+func TestDetectAndConvertEncoding_ShiftJIS(t *testing.T) {
+	// ShiftJIS でエンコードされたテスト文字列を生成
+	encoder := japanese.ShiftJIS.NewEncoder()
+
+	tests := []struct {
+		name        string
+		original    string
+		wantContent string
+	}{
+		{
+			name:        "ShiftJIS日本語テキストをUTF-8に変換",
+			original:    "こんにちは世界",
+			wantContent: "こんにちは世界",
+		},
+		{
+			name:        "ShiftJIS CSV形式テキスト",
+			original:    "名前,年齢,住所\n田中太郎,30,東京都\n鈴木花子,25,大阪府",
+			wantContent: "名前,年齢,住所\n田中太郎,30,東京都\n鈴木花子,25,大阪府",
+		},
+		{
+			name:        "ShiftJIS半角カナ混在テキスト",
+			original:    "ﾃｽﾄテスト",
+			wantContent: "ﾃｽﾄテスト",
+		},
+		{
+			name:        "ShiftJIS機種依存文字（丸数字・髙﨑など）",
+			original:    "①②③㈱㈲",
+			wantContent: "①②③㈱㈲",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// UTF-8テキストをShiftJISにエンコード
+			sjisBytes, err := encoder.Bytes([]byte(tt.original))
+			if err != nil {
+				t.Fatalf("failed to encode to ShiftJIS: %v", err)
+			}
+
+			content, encoding := detectAndConvertEncoding(sjisBytes)
+			if encoding != "Shift_JIS" {
+				t.Errorf("encoding: got %q, want %q", encoding, "Shift_JIS")
+			}
+			if content != tt.wantContent {
+				t.Errorf("content: got %q, want %q", content, tt.wantContent)
+			}
+		})
+	}
+}
 
 func TestBuildSaveDialogDefaults(t *testing.T) {
 	tests := []struct {

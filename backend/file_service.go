@@ -1,20 +1,32 @@
 package backend
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/transform"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// OpenFileResult はファイル読み込み結果を表します
+type OpenFileResult struct {
+	Content        string `json:"content"`
+	SourceEncoding string `json:"sourceEncoding"`
+}
+
 // FileService はファイル操作関連の機能を提供するインターフェースです
 type FileService interface {
 	SelectFile() (string, error)
-	OpenFile(filePath string) (string, error)
+	OpenFile(filePath string) (*OpenFileResult, error)
 	SelectSaveFileUri(fileName string, extension string) (string, error)
 	SaveFile(filePath string, content string) error
 	GetModifiedTime(filePath string) (string, error)
@@ -51,12 +63,37 @@ func (s *fileService) SelectFile() (string, error) {
 }
 
 // OpenFile は指定されたパスのファイルの内容を読み込みます
-func (s *fileService) OpenFile(filePath string) (string, error) {
-	content, err := os.ReadFile(filePath)
+// UTF-8以外のエンコーディングを検出した場合、自動的にUTF-8に変換します
+func (s *fileService) OpenFile(filePath string) (*OpenFileResult, error) {
+	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(content), nil
+	content, encoding := detectAndConvertEncoding(data)
+	return &OpenFileResult{Content: content, SourceEncoding: encoding}, nil
+}
+
+// detectAndConvertEncoding はバイト列のエンコーディングを検出し、必要に応じてUTF-8に変換します
+func detectAndConvertEncoding(data []byte) (string, string) {
+	// UTF-8 BOM を検出して除去
+	if bytes.HasPrefix(data, []byte{0xEF, 0xBB, 0xBF}) {
+		return string(data[3:]), ""
+	}
+
+	// 有効なUTF-8ならそのまま返す
+	if utf8.Valid(data) {
+		return string(data), ""
+	}
+
+	// ShiftJIS (CP932) として変換を試みる
+	reader := transform.NewReader(bytes.NewReader(data), japanese.ShiftJIS.NewDecoder())
+	decoded, err := io.ReadAll(reader)
+	if err == nil {
+		return string(decoded), "Shift_JIS"
+	}
+
+	// 変換に失敗した場合はそのまま返す（文字化けの可能性あり）
+	return string(data), ""
 }
 
 // SelectSaveFileUri は保存ダイアログを表示し、選択された保存先のパスを返します

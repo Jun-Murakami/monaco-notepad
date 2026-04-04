@@ -681,7 +681,7 @@ func (a *App) SelectFile() (string, error) {
 }
 
 // 指定されたパスのファイルの内容を読み込む
-func (a *App) OpenFile(filePath string) (string, error) {
+func (a *App) OpenFile(filePath string) (*OpenFileResult, error) {
 	return a.fileService.OpenFile(filePath)
 }
 
@@ -714,15 +714,16 @@ func (a *App) OpenFileFromExternal(filePath string) error {
 	}
 
 	// ファイルの内容を読み込む
-	content, err := a.fileService.OpenFile(filePath)
+	result, err := a.fileService.OpenFile(filePath)
 	if err != nil {
 		return a.logger.ErrorCode(err, MsgSystemOpenFileFailed, nil)
 	}
 
 	// フロントエンドにファイルオープンイベントを送信
 	wailsRuntime.EventsEmit(a.ctx.ctx, "file:open-external", map[string]string{
-		"path":    filePath,
-		"content": content,
+		"path":           filePath,
+		"content":        result.Content,
+		"sourceEncoding": result.SourceEncoding,
 	})
 	return nil
 }

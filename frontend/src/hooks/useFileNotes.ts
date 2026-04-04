@@ -106,12 +106,12 @@ export const useFileNotes = ({
           );
 
           if (shouldReload) {
-            const reloadedContent = await OpenFile(fileNote.filePath);
+            const result = await OpenFile(fileNote.filePath);
             const modifiedTime = await GetModifiedTime(fileNote.filePath);
             const newFileNote = {
               ...fileNote,
-              content: reloadedContent,
-              originalContent: reloadedContent,
+              content: result.content,
+              originalContent: result.sourceEncoding ? '' : result.content,
               modifiedTime: modifiedTime.toString(),
             };
             setCurrentFileNote(newFileNote);

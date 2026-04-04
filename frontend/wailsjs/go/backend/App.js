@@ -78,6 +78,10 @@ export function GetModifiedTime(arg1) {
   return window['go']['backend']['App']['GetModifiedTime'](arg1);
 }
 
+export function GetReleaseInfo() {
+  return window['go']['backend']['App']['GetReleaseInfo']();
+}
+
 export function GetSystemLocale() {
   return window['go']['backend']['App']['GetSystemLocale']();
 }
@@ -144,6 +148,10 @@ export function OpenFileFromExternal(arg1) {
 
 export function OpenURL(arg1) {
   return window['go']['backend']['App']['OpenURL'](arg1);
+}
+
+export function PerformUpdate(arg1, arg2) {
+  return window['go']['backend']['App']['PerformUpdate'](arg1, arg2);
 }
 
 export function RenameFolder(arg1, arg2) {
