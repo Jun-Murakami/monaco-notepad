@@ -7,6 +7,7 @@ import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { OpenURL } from '../../wailsjs/go/backend/App';
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_UI_FONT_FAMILY } from '../types';
+import { MermaidDiagram } from './MermaidDiagram';
 
 const DEBOUNCE_MS = 300;
 
@@ -192,9 +193,24 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={[[rehypeHighlight, { plainText: ['mermaid'] }]]}
         components={{
           a: MarkdownLink,
+          pre: ({ children, ...props }) => {
+            // mermaid コードブロックの場合は <pre> を挟まず直接 MermaidDiagram を表示
+            const child = Array.isArray(children) ? children[0] : children;
+            if (
+              child &&
+              typeof child === 'object' &&
+              'props' in child &&
+              typeof child.props?.className === 'string' &&
+              child.props.className.includes('language-mermaid')
+            ) {
+              const code = String(child.props.children).replace(/\n$/, '');
+              return <MermaidDiagram code={code} isDark={isDark} />;
+            }
+            return <pre {...props}>{children}</pre>;
+          },
         }}
       >
         {content}

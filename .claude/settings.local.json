@@ -24,7 +24,9 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(wc -l /d/Synching/code/Wails/monaco-notepad/backend/*.go)",
       "Bash(npm list:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebFetch(domain:zenn.dev)",
+      "Bash(npx vite:*)"
     ]
   }
 }

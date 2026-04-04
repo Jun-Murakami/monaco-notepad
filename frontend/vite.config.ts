@@ -18,6 +18,9 @@ export default defineConfig({
           if (id.includes('@mui/x-data-grid')) {
             return 'mui-data-grid';
           }
+          if (id.includes('mermaid')) {
+            return 'mermaid';
+          }
           if (id.includes('react-markdown') || id.includes('rehype') || id.includes('remark')) {
             return 'markdown';
           }

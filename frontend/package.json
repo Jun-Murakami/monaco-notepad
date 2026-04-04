@@ -25,6 +25,7 @@
     "allotment": "^1.20.5",
     "dayjs": "^1.11.20",
     "i18next": "^25.10.3",
+    "mermaid": "^10.9.5",
     "monaco-editor": "^0.53.0",
     "monaco-themes": "^0.4.8",
     "react": "^19.2.4",
