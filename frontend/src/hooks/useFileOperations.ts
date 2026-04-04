@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   GetModifiedTime,
   OpenFile,
@@ -90,6 +90,16 @@ export function useFileOperations(
     [],
   );
 
+  // ref経由で最新値を参照し、イベントリスナーの再登録を防止
+  const fileNotesRef = useRef(fileNotes);
+  const handleSelecAnyNoteRef = useRef(handleSelecAnyNote);
+  const setFileNotesRef = useRef(setFileNotes);
+  const handleSaveFileNotesRef = useRef(handleSaveFileNotes);
+  fileNotesRef.current = fileNotes;
+  handleSelecAnyNoteRef.current = handleSelecAnyNote;
+  setFileNotesRef.current = setFileNotes;
+  handleSaveFileNotesRef.current = handleSaveFileNotes;
+
   // ファイルを開く
   const handleOpenFile = async () => {
     try {
@@ -122,18 +132,18 @@ export function useFileOperations(
     }
   };
 
-  // ファイルをドラッグアンドドロップする
+  // ファイルをドラッグアンドドロップする（ref経由で依存を安定化）
   const handleFileDrop = useCallback(
     async (filePath: string, targetPane?: 'left' | 'right') => {
       try {
         if (!filePath) return;
 
         // 既に同じファイルが開かれているかチェック
-        const existingFile = fileNotes.find(
+        const existingFile = fileNotesRef.current.find(
           (note) => note.filePath === filePath,
         );
         if (existingFile) {
-          await handleSelecAnyNote(existingFile);
+          await handleSelecAnyNoteRef.current(existingFile);
           return;
         }
 
@@ -147,28 +157,20 @@ export function useFileOperations(
         );
         if (!newFileNote) return;
 
-        const updatedFileNotes = [newFileNote, ...fileNotes];
-        setFileNotes(updatedFileNotes);
-        await handleSaveFileNotes(updatedFileNotes);
+        const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
+        setFileNotesRef.current(updatedFileNotes);
+        await handleSaveFileNotesRef.current(updatedFileNotes);
 
         if (targetPane && isSplitRef.current && openNoteInPaneRef.current) {
           openNoteInPaneRef.current(newFileNote, targetPane);
         } else {
-          await handleSelecAnyNote(newFileNote);
+          await handleSelecAnyNoteRef.current(newFileNote);
         }
       } catch (error) {
         console.error('Failed to handle dropped file:', error);
       }
     },
-    [
-      fileNotes,
-      createFileNote,
-      setFileNotes,
-      handleSaveFileNotes,
-      handleSelecAnyNote,
-      isSplitRef,
-      openNoteInPaneRef,
-    ],
+    [createFileNote, isSplitRef, openNoteInPaneRef],
   );
 
   // ファイルをエクスポートする
@@ -240,6 +242,10 @@ export function useFileOperations(
     await handleSelecAnyNote(newNote);
   };
 
+  // ref経由で最新のhandleFileDropを参照
+  const handleFileDropRef = useRef(handleFileDrop);
+  handleFileDropRef.current = handleFileDrop;
+
   useEffect(() => {
     const cleanup = runtime.EventsOn(
       'file:open-external',
@@ -249,11 +255,11 @@ export function useFileOperations(
         sourceEncoding?: string;
       }) => {
         // 既に同じファイルが開かれているかチェック
-        const existingFile = fileNotes.find(
+        const existingFile = fileNotesRef.current.find(
           (note) => note.filePath === data.path,
         );
         if (existingFile) {
-          await handleSelecAnyNote(existingFile);
+          await handleSelecAnyNoteRef.current(existingFile);
           return;
         }
 
@@ -264,14 +270,14 @@ export function useFileOperations(
         );
         if (!newFileNote) return;
 
-        const updatedFileNotes = [newFileNote, ...fileNotes];
-        setFileNotes(updatedFileNotes);
-        await handleSaveFileNotes(updatedFileNotes);
+        const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
+        setFileNotesRef.current(updatedFileNotes);
+        await handleSaveFileNotesRef.current(updatedFileNotes);
 
         if (isSplitRef.current && openNoteInPaneRef.current) {
           openNoteInPaneRef.current(newFileNote, 'left');
         } else {
-          await handleSelecAnyNote(newFileNote);
+          await handleSelecAnyNoteRef.current(newFileNote);
         }
       },
     );
@@ -283,7 +289,7 @@ export function useFileOperations(
           const targetPane = isSplitRef.current
             ? (detectTargetPane(x, y) ?? 'left')
             : undefined;
-          await handleFileDrop(file, targetPane);
+          await handleFileDropRef.current(file, targetPane);
         }
       }
     }, true);
@@ -292,16 +298,7 @@ export function useFileOperations(
       cleanup();
       runtime.OnFileDropOff();
     };
-  }, [
-    fileNotes,
-    handleSelecAnyNote,
-    setFileNotes,
-    handleSaveFileNotes,
-    handleFileDrop,
-    createFileNote,
-    isSplitRef,
-    openNoteInPaneRef,
-  ]);
+  }, [createFileNote, isSplitRef, openNoteInPaneRef]);
 
   const handleCloseFile = async (note: FileNote) => {
     const updatedFileNotes = fileNotes.filter((f) => f.id !== note.id);

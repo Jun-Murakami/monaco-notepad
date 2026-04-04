@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApplyIntegrityFixes,
   GetArchivedTopLevelOrder,
@@ -45,17 +45,6 @@ export const useInitialize = (
   setArchivedTopLevelOrder: (order: TopLevelItem[]) => void,
   handleNewNote: () => void,
   handleSelecAnyNote: (note: Note | FileNote) => Promise<void>,
-  currentFileNote: FileNote | null,
-  setCurrentFileNote: (file: FileNote | null) => void,
-  handleSaveFile: (file: FileNote) => Promise<void>,
-  handleOpenFile: () => Promise<void>,
-  handleCloseFile: (file: FileNote) => Promise<void>,
-  isFileModified: (fileId: string) => boolean,
-  currentNote: Note | null,
-  handleArchiveNote: (noteId: string) => Promise<void>,
-  handleSaveAsFile: () => Promise<void>,
-  handleSelectNextAnyNote: () => Promise<void>,
-  handleSelectPreviousAnyNote: () => Promise<void>,
   showMessage: (
     title: string,
     message: string,
@@ -67,7 +56,7 @@ export const useInitialize = (
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
-  const [isInitialized, setIsInitialized] = useState(false);
+  const isInitializedRef = useRef(false);
 
   const initialNortLoader = useCallback(async () => {
     // ファイルノート一覧を取得
@@ -263,7 +252,8 @@ export const useInitialize = (
   }, [showMessage]);
 
   useEffect(() => {
-    if (isInitialized) return;
+    if (isInitializedRef.current) return;
+    isInitializedRef.current = true;
     const asyncFunc = async () => {
       try {
         // プラットフォームを取得
@@ -283,92 +273,7 @@ export const useInitialize = (
 
     // DomReadyはuseEffectより先に完了するため、直接通知
     NotifyFrontendReady();
-
-    setIsInitialized(true);
-  }, [initialNortLoader, isInitialized, handleNewNote, setNotes]);
-
-  // グローバルキーボードショートカット
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      // Ctrl/Cmd + N
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
-        e.preventDefault();
-        setCurrentFileNote(null);
-        handleNewNote();
-      }
-
-      // Ctrl/Cmd + O
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
-        e.preventDefault();
-        await handleOpenFile();
-      }
-
-      // Ctrl/Cmd + S
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        !e.shiftKey &&
-        !e.altKey &&
-        e.key.toLowerCase() === 's'
-      ) {
-        e.preventDefault();
-        if (currentFileNote && isFileModified(currentFileNote.id)) {
-          await handleSaveFile(currentFileNote);
-        }
-      }
-
-      // Ctrl/Cmd + Alt + S
-      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        if (currentNote || currentFileNote) {
-          await handleSaveAsFile();
-        }
-      }
-
-      // Ctrl/Cmd + W
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
-        e.preventDefault();
-        if (currentFileNote) {
-          await handleCloseFile(currentFileNote);
-        } else if (currentNote) {
-          await handleArchiveNote(currentNote.id);
-        }
-      }
-
-      // Ctrl/Cmd + Tab
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'tab') {
-        e.preventDefault();
-        await handleSelectNextAnyNote();
-      }
-
-      // Ctrl/Cmd + Shift + Tab
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        e.key.toLowerCase() === 'tab'
-      ) {
-        e.preventDefault();
-        await handleSelectPreviousAnyNote();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [
-    currentFileNote,
-    currentNote,
-    handleSaveFile,
-    handleCloseFile,
-    handleArchiveNote,
-    handleSaveAsFile,
-    isFileModified,
-    handleNewNote,
-    handleOpenFile,
-    handleSelectNextAnyNote,
-    handleSelectPreviousAnyNote,
-    setCurrentFileNote,
-  ]);
+  }, [initialNortLoader, handleNewNote, setNotes]);
 
   return {
     languages,

@@ -38,6 +38,7 @@ import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileNotes } from './hooks/useFileNotes';
 import { useFileOperations } from './hooks/useFileOperations';
 import { useInitialize } from './hooks/useInitialize';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import { useNoteSearch } from './hooks/useNoteSearch';
 import { useNoteSelecter } from './hooks/useNoteSelecter';
@@ -69,6 +70,7 @@ function App() {
   const closeFileRef = useRef<(file: FileNote) => Promise<void>>(
     async () => {},
   );
+  const settingsOpenCountRef = useRef(0);
 
   const leftEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(
     null,
@@ -262,17 +264,6 @@ function App() {
     setArchivedTopLevelOrder,
     handleNewNote,
     handleSelecAnyNote,
-    currentFileNote,
-    setCurrentFileNote,
-    handleSaveFile,
-    handleOpenFile,
-    useCallback((file: FileNote) => closeFileRef.current(file), []),
-    isFileModified,
-    currentNote,
-    useCallback((noteId: string) => archiveNoteRef.current(noteId), []),
-    handleSaveAsFile,
-    handleSelectNextAnyNote,
-    handleSelectPreviousAnyNote,
     showMessage,
     restorePaneNotes,
   );
@@ -617,6 +608,28 @@ function App() {
   // ショートカット経由の操作を、分割対応ハンドラに差し替え
   archiveNoteRef.current = handleArchiveNoteWithSplit;
   closeFileRef.current = handleCloseFileWithSplit;
+
+  // グローバルキーボードショートカット
+  useKeyboardShortcuts({
+    currentNote,
+    currentFileNote,
+    setCurrentFileNote,
+    handleNewNote,
+    handleOpenFile,
+    handleSaveFile,
+    handleSaveAsFile,
+    handleCloseFile: useCallback(
+      (file: FileNote) => closeFileRef.current(file),
+      [],
+    ),
+    handleArchiveNote: useCallback(
+      (noteId: string) => archiveNoteRef.current(noteId),
+      [],
+    ),
+    handleSelectNextAnyNote,
+    handleSelectPreviousAnyNote,
+    isFileModified,
+  });
 
   const TITLE_BAR_HEIGHT = platform === 'darwin' ? 26 : 0;
 
@@ -1257,7 +1270,10 @@ function App() {
                   canSplit={canSplit}
                   onToggleSplit={handleToggleSplit}
                   onToggleMarkdownPreview={toggleMarkdownPreview}
-                  onSettings={() => setIsSettingsOpen(true)}
+                  onSettings={() => {
+                    settingsOpenCountRef.current += 1;
+                    setIsSettingsOpen(true);
+                  }}
                   showMessage={showMessage}
                 />
               </Box>
@@ -1267,6 +1283,7 @@ function App() {
       </Box>
 
       <SettingsDialog
+        key={settingsOpenCountRef.current}
         open={isSettingsOpen}
         settings={editorSettings}
         onClose={() => setIsSettingsOpen(false)}

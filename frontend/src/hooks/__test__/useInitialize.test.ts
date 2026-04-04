@@ -97,17 +97,8 @@ describe('useInitialize', () => {
   const mockSetArchivedTopLevelOrder = vi.fn();
   const mockHandleNewNote = vi.fn();
   const mockHandleSelecAnyNote = vi.fn();
-  const mockHandleSaveFile = vi.fn();
-  const mockHandleOpenFile = vi.fn();
-  const mockHandleCloseFile = vi.fn();
-  const mockIsFileModified = vi.fn();
-  const mockHandleArchiveNote = vi.fn();
-  const mockHandleSaveAsFile = vi.fn();
-  const mockHandleSelectNextAnyNote = vi.fn();
-  const mockHandleSelectPreviousAnyNote = vi.fn();
   const mockShowMessage = vi.fn().mockResolvedValue(true);
   const mockRestorePaneNotes = vi.fn();
-  const mockSetCurrentFileNote = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -148,17 +139,6 @@ describe('useInitialize', () => {
         mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
-        null,
-        mockSetCurrentFileNote,
-        mockHandleSaveFile,
-        mockHandleOpenFile,
-        mockHandleCloseFile,
-        mockIsFileModified,
-        null,
-        mockHandleArchiveNote,
-        mockHandleSaveAsFile,
-        mockHandleSelectNextAnyNote,
-        mockHandleSelectPreviousAnyNote,
         mockShowMessage,
         mockRestorePaneNotes,
       ),
@@ -207,17 +187,6 @@ describe('useInitialize', () => {
         mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
-        null,
-        mockSetCurrentFileNote,
-        mockHandleSaveFile,
-        mockHandleOpenFile,
-        mockHandleCloseFile,
-        mockIsFileModified,
-        null,
-        mockHandleArchiveNote,
-        mockHandleSaveAsFile,
-        mockHandleSelectNextAnyNote,
-        mockHandleSelectPreviousAnyNote,
         mockShowMessage,
         mockRestorePaneNotes,
       ),
@@ -230,79 +199,6 @@ describe('useInitialize', () => {
     });
 
     expect(NotifyFrontendReady).toHaveBeenCalled();
-  });
-
-  it('グローバルキーボードショートカットが機能すること', async () => {
-    renderHook(() =>
-      useInitialize(
-        mockSetNotes,
-        mockSetFileNotes,
-        mockSetFolders,
-        mockSetTopLevelOrder,
-        mockSetArchivedTopLevelOrder,
-        mockHandleNewNote,
-        mockHandleSelecAnyNote,
-        null,
-        mockSetCurrentFileNote,
-        mockHandleSaveFile,
-        mockHandleOpenFile,
-        mockHandleCloseFile,
-        mockIsFileModified,
-        null,
-        mockHandleArchiveNote,
-        mockHandleSaveAsFile,
-        mockHandleSelectNextAnyNote,
-        mockHandleSelectPreviousAnyNote,
-        mockShowMessage,
-        mockRestorePaneNotes,
-      ),
-    );
-
-    await act(async () => {
-      await vi.runAllTimersAsync();
-    });
-
-    // 新規ノート作成 (Ctrl+N)
-    const newNoteEvent = new KeyboardEvent('keydown', {
-      key: 'n',
-      ctrlKey: true,
-    });
-    window.dispatchEvent(newNoteEvent);
-    await vi.runAllTimersAsync();
-
-    expect(mockSetCurrentFileNote).toHaveBeenCalledWith(null);
-    expect(mockHandleNewNote).toHaveBeenCalled();
-
-    // ファイルを開く (Ctrl+O)
-    const openFileEvent = new KeyboardEvent('keydown', {
-      key: 'o',
-      ctrlKey: true,
-    });
-    window.dispatchEvent(openFileEvent);
-    await vi.runAllTimersAsync();
-
-    expect(mockHandleOpenFile).toHaveBeenCalled();
-
-    // 次のノートに移動 (Ctrl+Tab)
-    const nextNoteEvent = new KeyboardEvent('keydown', {
-      key: 'tab',
-      ctrlKey: true,
-    });
-    window.dispatchEvent(nextNoteEvent);
-    await vi.runAllTimersAsync();
-
-    expect(mockHandleSelectNextAnyNote).toHaveBeenCalled();
-
-    // 前のノートに移動 (Ctrl+Shift+Tab)
-    const previousNoteEvent = new KeyboardEvent('keydown', {
-      key: 'tab',
-      ctrlKey: true,
-      shiftKey: true,
-    });
-    window.dispatchEvent(previousNoteEvent);
-    await vi.runAllTimersAsync();
-
-    expect(mockHandleSelectPreviousAnyNote).toHaveBeenCalled();
   });
 
   it('ノートリストが空の場合に新規ノートを作成すること', async () => {
@@ -318,17 +214,6 @@ describe('useInitialize', () => {
         mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
-        null,
-        mockSetCurrentFileNote,
-        mockHandleSaveFile,
-        mockHandleOpenFile,
-        mockHandleCloseFile,
-        mockIsFileModified,
-        null,
-        mockHandleArchiveNote,
-        mockHandleSaveAsFile,
-        mockHandleSelectNextAnyNote,
-        mockHandleSelectPreviousAnyNote,
         mockShowMessage,
         mockRestorePaneNotes,
       ),
@@ -360,17 +245,6 @@ describe('useInitialize', () => {
         mockSetArchivedTopLevelOrder,
         mockHandleNewNote,
         mockHandleSelecAnyNote,
-        null,
-        mockSetCurrentFileNote,
-        mockHandleSaveFile,
-        mockHandleOpenFile,
-        mockHandleCloseFile,
-        mockIsFileModified,
-        null,
-        mockHandleArchiveNote,
-        mockHandleSaveAsFile,
-        mockHandleSelectNextAnyNote,
-        mockHandleSelectPreviousAnyNote,
         mockShowMessage,
         mockRestorePaneNotes,
       ),

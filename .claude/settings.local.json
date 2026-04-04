@@ -10,7 +10,17 @@
       "Bash(wails generate:*)",
       "Bash(npm install:*)",
       "Bash(npm run:*)",
-      "Bash(go install:*)"
+      "Bash(go install:*)",
+      "Bash(grep:*)",
+      "Bash(wc -l /d/Synching/code/Wails/monaco-notepad/frontend/src/hooks/*.ts /d/Synching/code/Wails/monaco-notepad/frontend/src/App.tsx)",
+      "Bash(find /d/Synching/code/Wails/monaco-notepad/frontend/src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) ! -path \"*/__tests__/*\" ! -path \"*/__test__/*\" -exec wc -l {} +)",
+      "Bash(npm test:*)",
+      "WebSearch",
+      "WebFetch(domain:tanstack.com)",
+      "WebFetch(domain:betterstack.com)",
+      "WebFetch(domain:docs.bswen.com)",
+      "WebFetch(domain:www.mintlify.com)",
+      "Bash(npm ls:*)"
     ]
   }
 }

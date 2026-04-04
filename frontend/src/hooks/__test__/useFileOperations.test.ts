@@ -122,7 +122,9 @@ describe('useFileOperations', () => {
       );
 
       (SelectFile as unknown as Mock).mockResolvedValue('/path/to/newfile.txt');
-      (OpenFile as unknown as Mock).mockResolvedValue('New File Content');
+      (OpenFile as unknown as Mock).mockResolvedValue({
+        content: 'New File Content',
+      });
 
       await act(async () => {
         await result.current.handleOpenFile();
@@ -179,7 +181,9 @@ describe('useFileOperations', () => {
 
       (SelectFile as unknown as Mock).mockResolvedValue('/path/to/binary.exe');
       const binaryContent = '\x00\x01\x02\x03';
-      (OpenFile as unknown as Mock).mockResolvedValue(binaryContent);
+      (OpenFile as unknown as Mock).mockResolvedValue({
+        content: binaryContent,
+      });
       (isBinaryFile as unknown as Mock).mockReturnValueOnce(true);
 
       await act(async () => {
@@ -369,7 +373,9 @@ describe('useFileOperations', () => {
         ),
       );
 
-      (OpenFile as unknown as Mock).mockResolvedValue('Dropped File Content');
+      (OpenFile as unknown as Mock).mockResolvedValue({
+        content: 'Dropped File Content',
+      });
 
       await act(async () => {
         await result.current.handleFileDrop('/path/to/dropped.txt');
@@ -587,7 +593,9 @@ describe('useFileOperations', () => {
       const onFileDropCallback = (runtime.OnFileDrop as unknown as Mock).mock
         .calls[0][0];
 
-      (OpenFile as unknown as Mock).mockResolvedValue('Dropped file content');
+      (OpenFile as unknown as Mock).mockResolvedValue({
+        content: 'Dropped file content',
+      });
 
       await act(async () => {
         await onFileDropCallback(null, null, ['/path/to/dropped.txt']);
@@ -616,7 +624,9 @@ describe('useFileOperations', () => {
       );
 
       const binaryContent = '\x00\x01\x02\x03';
-      (OpenFile as unknown as Mock).mockResolvedValue(binaryContent);
+      (OpenFile as unknown as Mock).mockResolvedValue({
+        content: binaryContent,
+      });
       (isBinaryFile as unknown as Mock).mockReturnValueOnce(true);
 
       await act(async () => {

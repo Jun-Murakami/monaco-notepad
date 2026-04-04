@@ -132,17 +132,22 @@ export const EditorStatusBar = ({
 
   const [info, setInfo] = useState<string[]>(getEditorInfo());
 
+  // ref経由でgetEditorInfoを保持し、購読の再登録を防止
+  const getEditorInfoRef = useRef(getEditorInfo);
+  getEditorInfoRef.current = getEditorInfo;
+
   useEffect(() => {
     const editor = editorInstanceRef?.current;
     if (!editor) return;
 
-    setInfo(getEditorInfo());
+    const update = () => setInfo(getEditorInfoRef.current());
+    update();
 
     const disposables: IDisposable[] = [
-      editor.onDidChangeCursorPosition(() => setInfo(getEditorInfo())),
-      editor.onDidChangeCursorSelection(() => setInfo(getEditorInfo())),
-      editor.onDidChangeModelContent(() => setInfo(getEditorInfo())),
-      editor.onDidChangeModel(() => setInfo(getEditorInfo())),
+      editor.onDidChangeCursorPosition(update),
+      editor.onDidChangeCursorSelection(update),
+      editor.onDidChangeModelContent(update),
+      editor.onDidChangeModel(update),
     ];
 
     return () => {
@@ -150,7 +155,12 @@ export const EditorStatusBar = ({
         d.dispose();
       }
     };
-  }, [editorInstanceRef, getEditorInfo]);
+  }, [editorInstanceRef]);
+
+  // 言語切替時にステータスバーのテキストを更新
+  useEffect(() => {
+    setInfo(getEditorInfoRef.current());
+  }, [t]);
 
   const appendStatusMessage = useCallback((message: string) => {
     if (logTimeoutRef.current) {
