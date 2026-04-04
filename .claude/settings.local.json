@@ -20,7 +20,11 @@
       "WebFetch(domain:betterstack.com)",
       "WebFetch(domain:docs.bswen.com)",
       "WebFetch(domain:www.mintlify.com)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(wc -l /d/Synching/code/Wails/monaco-notepad/backend/*.go)",
+      "Bash(npm list:*)",
+      "Bash(ls:*)"
     ]
   }
 }

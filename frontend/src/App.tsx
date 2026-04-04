@@ -12,7 +12,7 @@ import {
 import { Allotment } from 'allotment';
 import 'allotment/dist/style.css';
 import type { editor } from 'monaco-editor';
-import { useCallback, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
@@ -20,10 +20,8 @@ import { SaveNote, UpdateNoteOrder } from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
 import { WindowToggleMaximise } from '../wailsjs/runtime';
 import { AppBar } from './components/AppBar';
-import { ArchivedNoteList } from './components/ArchivedNoteList';
 import { Editor } from './components/Editor';
 import { EditorStatusBar } from './components/EditorStatusBar';
-import { MarkdownPreview } from './components/MarkdownPreview';
 import { MessageDialog } from './components/MessageDialog';
 import {
   type FileDropInsertionTarget,
@@ -32,8 +30,28 @@ import {
 } from './components/NoteList';
 import { NoteSearchBox } from './components/NoteSearchBox';
 import { PaneHeader } from './components/PaneHeader';
-import { LicenseDialog } from './components/LicenseDialog';
-import { SettingsDialog } from './components/SettingsDialog';
+
+// Lazy-loaded components (not needed on first render)
+const ArchivedNoteList = React.lazy(() =>
+  import('./components/ArchivedNoteList').then((m) => ({
+    default: m.ArchivedNoteList,
+  })),
+);
+const MarkdownPreview = React.lazy(() =>
+  import('./components/MarkdownPreview').then((m) => ({
+    default: m.MarkdownPreview,
+  })),
+);
+const SettingsDialog = React.lazy(() =>
+  import('./components/SettingsDialog').then((m) => ({
+    default: m.SettingsDialog,
+  })),
+);
+const LicenseDialog = React.lazy(() =>
+  import('./components/LicenseDialog').then((m) => ({
+    default: m.LicenseDialog,
+  })),
+);
 import { useEditorSettings } from './hooks/useEditorSettings';
 import { useFileNotes } from './hooks/useFileNotes';
 import { useFileOperations } from './hooks/useFileOperations';
@@ -937,31 +955,33 @@ function App() {
                 }}
               >
                 {showArchived ? (
-                  <ArchivedNoteList
-                    notes={notes}
-                    folders={folders}
-                    archivedTopLevelOrder={archivedTopLevelOrder}
-                    onUnarchive={handleUnarchiveNote}
-                    onDelete={handleDeleteNote}
-                    onDeleteAll={async () => {
-                      const confirmed = await showMessage(
-                        t('archived.deleteAllDialogTitle'),
-                        t('archived.deleteAllDialogMessage'),
-                        true,
-                        t('dialog.delete'),
-                        t('dialog.cancel'),
-                      );
-                      if (confirmed) handleDeleteAllArchivedNotes();
-                    }}
-                    onClose={() => setShowArchived(false)}
-                    onUnarchiveFolder={handleUnarchiveFolder}
-                    onDeleteFolder={handleDeleteArchivedFolder}
-                    onUpdateArchivedTopLevelOrder={
-                      handleUpdateArchivedTopLevelOrder
-                    }
-                    onMoveNoteToFolder={handleMoveNoteToFolder}
-                    isDarkMode={editorSettings.isDarkMode}
-                  />
+                  <Suspense fallback={null}>
+                    <ArchivedNoteList
+                      notes={notes}
+                      folders={folders}
+                      archivedTopLevelOrder={archivedTopLevelOrder}
+                      onUnarchive={handleUnarchiveNote}
+                      onDelete={handleDeleteNote}
+                      onDeleteAll={async () => {
+                        const confirmed = await showMessage(
+                          t('archived.deleteAllDialogTitle'),
+                          t('archived.deleteAllDialogMessage'),
+                          true,
+                          t('dialog.delete'),
+                          t('dialog.cancel'),
+                        );
+                        if (confirmed) handleDeleteAllArchivedNotes();
+                      }}
+                      onClose={() => setShowArchived(false)}
+                      onUnarchiveFolder={handleUnarchiveFolder}
+                      onDeleteFolder={handleDeleteArchivedFolder}
+                      onUpdateArchivedTopLevelOrder={
+                        handleUpdateArchivedTopLevelOrder
+                      }
+                      onMoveNoteToFolder={handleMoveNoteToFolder}
+                      isDarkMode={editorSettings.isDarkMode}
+                    />
+                  </Suspense>
                 ) : (
                   <Allotment
                     defaultSizes={getAllotmentSizes(
@@ -995,9 +1015,11 @@ function App() {
                     {isMarkdownPreview &&
                       editorSettings.markdownPreviewOnLeft && (
                         <Allotment.Pane minSize={200}>
-                          <MarkdownPreview
-                            editorInstanceRef={leftEditorInstanceRef}
-                          />
+                          <Suspense fallback={null}>
+                            <MarkdownPreview
+                              editorInstanceRef={leftEditorInstanceRef}
+                            />
+                          </Suspense>
                         </Allotment.Pane>
                       )}
                     <Allotment.Pane minSize={200}>
@@ -1250,9 +1272,11 @@ function App() {
                     {isMarkdownPreview &&
                       !editorSettings.markdownPreviewOnLeft && (
                         <Allotment.Pane minSize={200}>
-                          <MarkdownPreview
-                            editorInstanceRef={leftEditorInstanceRef}
-                          />
+                          <Suspense fallback={null}>
+                            <MarkdownPreview
+                              editorInstanceRef={leftEditorInstanceRef}
+                            />
+                          </Suspense>
                         </Allotment.Pane>
                       )}
                   </Allotment>
@@ -1282,22 +1306,26 @@ function App() {
         </Box>
       </Box>
 
-      <SettingsDialog
-        key={settingsOpenCountRef.current}
-        open={isSettingsOpen}
-        settings={editorSettings}
-        onClose={() => setIsSettingsOpen(false)}
-        onChange={setEditorSettings}
-        onSave={handleSettingsChange}
-        onOpenAbout={() => {
-          setIsSettingsOpen(false);
-          setIsAboutOpen(true);
-        }}
-      />
-      <LicenseDialog
-        open={isAboutOpen}
-        onClose={() => setIsAboutOpen(false)}
-      />
+      <Suspense fallback={null}>
+        <SettingsDialog
+          key={settingsOpenCountRef.current}
+          open={isSettingsOpen}
+          settings={editorSettings}
+          onClose={() => setIsSettingsOpen(false)}
+          onChange={setEditorSettings}
+          onSave={handleSettingsChange}
+          onOpenAbout={() => {
+            setIsSettingsOpen(false);
+            setIsAboutOpen(true);
+          }}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <LicenseDialog
+          open={isAboutOpen}
+          onClose={() => setIsAboutOpen(false)}
+        />
+      </Suspense>
       <MessageDialog
         isOpen={isMessageDialogOpen}
         title={messageTitle}

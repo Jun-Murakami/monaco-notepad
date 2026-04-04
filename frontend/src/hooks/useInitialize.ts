@@ -260,10 +260,11 @@ export const useInitialize = (
         const env = await runtime.Environment();
         setPlatform(env.platform);
 
-        // 言語一覧を取得
-        setLanguages(getSupportedLanguages());
-
+        // ノートリストを先に読み込み（UIを早く表示するため）
         await initialNortLoader();
+
+        // 言語一覧はノート表示後に取得（Monaco初期化を遅延）
+        setLanguages(getSupportedLanguages());
       } catch (_error) {
         setNotes([]);
         handleNewNote();

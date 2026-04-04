@@ -23,7 +23,7 @@ import {
   OpenConflictBackupFolder,
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
-import { THEME_PAIRS } from '../lib/monaco';
+import { THEME_PAIRS } from '../lib/theme-pairs';
 import type { Settings } from '../types';
 import { DEFAULT_EDITOR_SETTINGS } from '../types';
 import { LightDarkSwitch } from './LightDarkSwitch';

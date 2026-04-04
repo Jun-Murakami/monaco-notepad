@@ -61,6 +61,7 @@ type noteService struct {
 	notesDir                string
 	noteList                *NoteList
 	logger                  AppLogger
+	noteCache               map[string]*Note // 起動時の二重読み込み防止キャッシュ
 	pendingIntegrityIssues  []IntegrityIssue
 	pendingIntegrityRepairs []string
 	pendingOrphanRecoveries []OrphanRecoveryInfo
@@ -82,6 +83,7 @@ func NewEmptyNoteService(notesDir string, logger AppLogger) *noteService {
 			Notes:   []NoteMetadata{},
 		},
 		logger:          logger,
+		noteCache:       make(map[string]*Note),
 		recoveryApplied: "rebuild",
 	}
 }
@@ -94,7 +96,8 @@ func NewNoteService(notesDir string, logger AppLogger) (*noteService, error) {
 			Version: CurrentVersion,
 			Notes:   []NoteMetadata{},
 		},
-		logger: logger,
+		logger:    logger,
+		noteCache: make(map[string]*Note),
 	}
 
 	// ノートリストの読み込み ※内部で物理ファイルとの不整合解決を行う
@@ -153,6 +156,11 @@ func (s *noteService) ListNotes() ([]Note, error) {
 
 // 指定されたIDのノートを読み込む ------------------------------------------------------------
 func (s *noteService) LoadNote(id string) (*Note, error) {
+	// キャッシュにあればディスク読み込みをスキップ
+	if cached, ok := s.noteCache[id]; ok {
+		return cached, nil
+	}
+
 	notePath := filepath.Join(s.notesDir, id+".json")
 	data, err := os.ReadFile(notePath)
 	if err != nil {
@@ -164,6 +172,7 @@ func (s *noteService) LoadNote(id string) (*Note, error) {
 		return nil, err
 	}
 
+	s.noteCache[id] = &note
 	return &note, nil
 }
 
@@ -186,6 +195,9 @@ func (s *noteService) SaveNote(note *Note) error {
 	if err := os.WriteFile(notePath, data, 0644); err != nil {
 		return err
 	}
+
+	// キャッシュを更新
+	s.noteCache[note.ID] = note
 
 	found := false
 
@@ -305,6 +317,9 @@ func (s *noteService) DeleteNote(id string) error {
 		return err
 	}
 
+	// キャッシュから削除
+	delete(s.noteCache, id)
+
 	// ノートリストから削除
 	var updatedNotes []NoteMetadata
 	for _, metadata := range s.noteList.Notes {
@@ -326,7 +341,11 @@ func (s *noteService) SaveNoteFromSync(note *Note) error {
 		return err
 	}
 	notePath := filepath.Join(s.notesDir, note.ID+".json")
-	return os.WriteFile(notePath, data, 0644)
+	if err := os.WriteFile(notePath, data, 0644); err != nil {
+		return err
+	}
+	s.noteCache[note.ID] = note
+	return nil
 }
 
 // 同期パスから呼ばれるノート削除（LastSync を更新しない、noteList.json も書かない）
@@ -335,6 +354,7 @@ func (s *noteService) DeleteNoteFromSync(id string) error {
 	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	delete(s.noteCache, id)
 	return nil
 }
 

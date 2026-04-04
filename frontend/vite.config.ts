@@ -15,6 +15,12 @@ export default defineConfig({
           if (id.includes('monaco-editor')) {
             return 'monaco-editor';
           }
+          if (id.includes('@mui/x-data-grid')) {
+            return 'mui-data-grid';
+          }
+          if (id.includes('react-markdown') || id.includes('rehype') || id.includes('remark')) {
+            return 'markdown';
+          }
         },
       },
     },
