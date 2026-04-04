@@ -114,6 +114,10 @@ export function LoadNote(arg1) {
   return window['go']['backend']['App']['LoadNote'](arg1);
 }
 
+export function LoadRecentFiles() {
+  return window['go']['backend']['App']['LoadRecentFiles']();
+}
+
 export function LoadSettings() {
   return window['go']['backend']['App']['LoadSettings']();
 }
@@ -176,6 +180,10 @@ export function SaveNote(arg1, arg2) {
 
 export function SaveNoteList() {
   return window['go']['backend']['App']['SaveNoteList']();
+}
+
+export function SaveRecentFiles(arg1) {
+  return window['go']['backend']['App']['SaveRecentFiles'](arg1);
 }
 
 export function SaveSettings(arg1) {

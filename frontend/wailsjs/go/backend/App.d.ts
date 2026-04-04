@@ -60,6 +60,8 @@ export function LoadFileNotes():Promise<Array<backend.FileNote>>;
 
 export function LoadNote(arg1:string):Promise<backend.Note>;
 
+export function LoadRecentFiles():Promise<Array<string>>;
+
 export function LoadSettings():Promise<backend.Settings>;
 
 export function LogoutDrive():Promise<void>;
@@ -91,6 +93,8 @@ export function SaveFileNotes(arg1:Array<backend.FileNote>):Promise<string>;
 export function SaveNote(arg1:backend.Note,arg2:string):Promise<void>;
 
 export function SaveNoteList():Promise<void>;
+
+export function SaveRecentFiles(arg1:Array<string>):Promise<void>;
 
 export function SaveSettings(arg1:backend.Settings):Promise<void>;
 

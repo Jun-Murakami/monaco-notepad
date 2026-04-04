@@ -173,6 +173,37 @@ export function useFileOperations(
     [createFileNote, isSplitRef, openNoteInPaneRef],
   );
 
+  // パスを指定してファイルを開く（最近開いたファイル用）
+  const handleOpenFileByPath = async (filePath: string) => {
+    try {
+      if (!filePath) return;
+
+      // 既に同じファイルが開かれているかチェック
+      const existingFile = fileNotes.find((note) => note.filePath === filePath);
+      if (existingFile) {
+        await handleSelecAnyNote(existingFile);
+        return;
+      }
+
+      const result = await OpenFile(filePath);
+      if (!result || typeof result.content !== 'string') return;
+
+      const newFileNote = await createFileNote(
+        result.content,
+        filePath,
+        result.sourceEncoding || undefined,
+      );
+      if (!newFileNote) return;
+
+      const updatedFileNotes = [newFileNote, ...fileNotes];
+      setFileNotes(updatedFileNotes);
+      await handleSaveFileNotes(updatedFileNotes);
+      await handleSelecAnyNote(newFileNote);
+    } catch (error) {
+      console.error('Failed to open file by path:', error);
+    }
+  };
+
   // ファイルをエクスポートする
   const handleSaveAsFile = async () => {
     try {
@@ -311,6 +342,7 @@ export function useFileOperations(
 
   return {
     handleOpenFile,
+    handleOpenFileByPath,
     handleSaveFile,
     handleSaveAsFile,
     handleConvertToNote,

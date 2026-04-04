@@ -232,6 +232,8 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   LogoutDrive: vi.fn(),
   SyncNow: vi.fn(),
   SaveFileNotes: vi.fn().mockResolvedValue(undefined),
+  LoadRecentFiles: vi.fn().mockResolvedValue([]),
+  SaveRecentFiles: vi.fn().mockResolvedValue(undefined),
   CheckFileModified: vi.fn().mockResolvedValue(false),
   CheckFileExists: vi.fn().mockResolvedValue(true),
   ListFolders: vi.fn().mockResolvedValue([]),

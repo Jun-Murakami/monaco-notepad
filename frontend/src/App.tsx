@@ -1,10 +1,13 @@
-import { CreateNewFolder, Inventory } from '@mui/icons-material';
+import { CreateNewFolder, History, Inventory } from '@mui/icons-material';
 import {
   Box,
   Button,
   CssBaseline,
   Divider,
   IconButton,
+  ListItemText,
+  Menu,
+  MenuItem,
   ThemeProvider,
   Tooltip,
   Typography,
@@ -59,6 +62,7 @@ import { useInitialize } from './hooks/useInitialize';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useMessageDialog } from './hooks/useMessageDialog';
 import { useNoteSearch } from './hooks/useNoteSearch';
+import { useRecentFiles } from './hooks/useRecentFiles';
 import { useNoteSelecter } from './hooks/useNoteSelecter';
 import { useNotes } from './hooks/useNotes';
 import { usePaneSizes } from './hooks/usePaneSizes';
@@ -100,6 +104,8 @@ function App() {
 
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [recentFilesAnchorEl, setRecentFilesAnchorEl] =
+    useState<HTMLElement | null>(null);
 
   // 2) カスタムフック
   // エディタ設定
@@ -212,7 +218,7 @@ function App() {
   });
 
   // ファイル操作
-  const { handleOpenFile, handleSaveFile, handleSaveAsFile } =
+  const { handleOpenFile, handleOpenFileByPath, handleSaveFile, handleSaveAsFile } =
     useFileOperations(
       notes,
       setNotes,
@@ -285,6 +291,14 @@ function App() {
     showMessage,
     restorePaneNotes,
   );
+
+  // 最近開いたファイル
+  const { recentFiles, addRecentFile, clearRecentFiles, openRecentFile } =
+    useRecentFiles({
+      fileNotes,
+      handleOpenFileByPath,
+      showMessage,
+    });
 
   // 検索
   const {
@@ -470,6 +484,10 @@ function App() {
 
   const handleCloseFileWithSplit = useCallback(
     async (fileNote: FileNote) => {
+      // 閉じるファイルを最近開いたファイルに追加
+      if (fileNote.filePath) {
+        addRecentFile(fileNote.filePath);
+      }
       await handleCloseFile(fileNote);
       if (!isSplit) {
         // Override the wrong selection made by handleCloseFile
@@ -491,6 +509,7 @@ function App() {
       findFirstOtherNote,
       setCurrentNote,
       setCurrentFileNote,
+      addRecentFile,
     ],
   );
 
@@ -781,39 +800,113 @@ function App() {
                 />
                 <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
                   <SimpleBar style={{ height: '100%' }}>
-                    {filteredFileNotes.length > 0 && (
-                      <>
-                        <Box
+                    <Box
+                      sx={{
+                        height: 32,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        display: 'flex',
+                        backgroundColor: 'action.disabledBackground',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        m: 1,
+                        mb: 0,
+                        position: 'relative',
+                      }}
+                    >
+                      <Typography variant="body2" color="text.secondary">
+                        {t('app.localFiles')}{' '}
+                        <Typography
+                          component="span"
+                          variant="caption"
                           sx={{
-                            height: 32,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            display: 'flex',
-                            backgroundColor: 'action.disabledBackground',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                            borderRadius: 1,
-                            m: 1,
-                            mb: 0,
+                            fontWeight: 'normal',
+                            display: 'inline-block',
+                            ml: 1,
                           }}
                         >
-                          <Typography variant="body2" color="text.secondary">
-                            {t('app.localFiles')}{' '}
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{
-                                fontWeight: 'normal',
-                                display: 'inline-block',
-                                ml: 1,
+                          {noteSearch
+                            ? filteredFileNotes.length
+                            : fileNotes.length}
+                        </Typography>
+                      </Typography>
+                      {recentFiles.length > 0 && (
+                        <Tooltip title={t('file.recentFiles')}>
+                          <IconButton
+                            onClick={(e) =>
+                              setRecentFilesAnchorEl(e.currentTarget)
+                            }
+                            sx={{
+                              position: 'absolute',
+                              right: 4,
+                            }}
+                          >
+                            <History sx={{ fontSize: 18 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      <Menu
+                        anchorEl={recentFilesAnchorEl}
+                        open={Boolean(recentFilesAnchorEl)}
+                        onClose={() => setRecentFilesAnchorEl(null)}
+                        slotProps={{
+                          paper: {
+                            sx: { maxHeight: 320, maxWidth: 360 },
+                          },
+                        }}
+                      >
+                        {recentFiles.map((filePath) => (
+                          <MenuItem
+                            key={filePath}
+                            onClick={async () => {
+                              setRecentFilesAnchorEl(null);
+                              await openRecentFile(filePath);
+                            }}
+                            sx={{ py: 0.5 }}
+                          >
+                            <ListItemText
+                              primary={filePath.split(/[/\\]/).pop()}
+                              secondary={filePath}
+                              slotProps={{
+                                primary: {
+                                  variant: 'body2',
+                                  noWrap: true,
+                                },
+                                secondary: {
+                                  variant: 'caption',
+                                  noWrap: true,
+                                  sx: { opacity: 0.7 },
+                                },
                               }}
-                            >
-                              {noteSearch
-                                ? filteredFileNotes.length
-                                : fileNotes.length}
-                            </Typography>
-                          </Typography>
-                        </Box>
+                            />
+                          </MenuItem>
+                        ))}
+                        <Divider />
+                        <MenuItem
+                          onClick={async () => {
+                            setRecentFilesAnchorEl(null);
+                            await clearRecentFiles();
+                          }}
+                          sx={{ py: 0.5 }}
+                        >
+                          <ListItemText
+                            primary={t('file.clearRecentFiles')}
+                            slotProps={{
+                              primary: {
+                                variant: 'body2',
+                                color: 'text.secondary',
+                                textAlign: 'center',
+                              },
+                            }}
+                          />
+                        </MenuItem>
+                      </Menu>
+                    </Box>
+                    {(noteSearch
+                      ? filteredFileNotes.length > 0
+                      : fileNotes.length > 0) && (
+                      <>
                         <NoteList
                           notes={noteSearch ? filteredFileNotes : fileNotes}
                           currentNote={isSplit ? leftFileNote : currentFileNote}

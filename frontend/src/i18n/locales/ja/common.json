@@ -115,7 +115,12 @@
     "encodingConverted": "文字コードを{{encoding}}からUTF-8に自動変換しました。保存すると文字コードがUTF-8に変更されます。",
     "binaryOpenError": "開けません: バイナリファイルの可能性があります",
     "saveAsFailed": "名前を付けて保存に失敗しました。権限を確認するか別の場所を選択してください",
-    "saveFailedKeepChanges": "保存に失敗しました。変更はエディタに残っています"
+    "saveFailedKeepChanges": "保存に失敗しました。変更はエディタに残っています",
+    "recentFiles": "最近開いたファイル",
+    "recentFilesNone": "最近開いたファイルはありません",
+    "recentFileNotFound": "ファイルが見つかりません。履歴から削除しますか？",
+    "recentFileNotFoundTitle": "ファイルが見つかりません",
+    "clearRecentFiles": "履歴をクリア"
   },
   "driveUI": {
     "syncErrorTitle": "Drive同期エラー",

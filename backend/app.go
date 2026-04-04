@@ -138,6 +138,9 @@ func (a *App) Startup(ctx context.Context) {
 	// FileNoteServiceの初期化
 	a.fileNoteService = NewFileNoteService(a.appDataDir)
 
+	// RecentFilesServiceの初期化
+	a.recentFilesService = NewRecentFilesService(a.appDataDir)
+
 	migrated, err := migration.RunIfNeeded(a.appDataDir, a.notesDir)
 	if err != nil {
 		a.logger.Console("Warning: migration failed: %v", err)
@@ -801,6 +804,16 @@ func (a *App) OpenConflictBackupFolder() error {
 // CheckFileExists は指定されたパスのファイルが存在するかチェックします
 func (a *App) CheckFileExists(path string) bool {
 	return a.fileService.CheckFileExists(path)
+}
+
+// LoadRecentFiles は最近開いたファイルのパスリストを返します
+func (a *App) LoadRecentFiles() ([]string, error) {
+	return a.recentFilesService.LoadRecentFiles()
+}
+
+// SaveRecentFiles は最近開いたファイルのパスリストを保存します
+func (a *App) SaveRecentFiles(list []string) error {
+	return a.recentFilesService.SaveRecentFiles(list)
 }
 
 // GetSystemLocale はOSのシステムロケールを返します

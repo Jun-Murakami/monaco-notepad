@@ -115,7 +115,12 @@
     "encodingConverted": "Encoding auto-converted from {{encoding}} to UTF-8. Saving will change the file encoding to UTF-8.",
     "binaryOpenError": "Cannot open: file appears to be binary",
     "saveAsFailed": "Save As failed — check permissions or try a different location",
-    "saveFailedKeepChanges": "Save failed — changes still in editor"
+    "saveFailedKeepChanges": "Save failed — changes still in editor",
+    "recentFiles": "Recent files",
+    "recentFilesNone": "No recent files",
+    "recentFileNotFound": "File not found. Remove from recent files?",
+    "recentFileNotFoundTitle": "File not found",
+    "clearRecentFiles": "Clear recent files"
   },
   "driveUI": {
     "syncErrorTitle": "Drive sync error",
