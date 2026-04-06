@@ -44,6 +44,7 @@ import {
   type Mock,
   vi,
 } from 'vitest';
+
 import {
   GetModifiedTime,
   OpenFile,
@@ -53,9 +54,10 @@ import {
   SelectSaveFileUri,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
-import type { FileNote, Note } from '../../types';
 import { isBinaryFile } from '../../utils/fileUtils';
 import { useFileOperations } from '../useFileOperations';
+
+import type { FileNote, Note } from '../../types';
 
 describe('useFileOperations', () => {
   const mockNote: Note = {
@@ -85,6 +87,7 @@ describe('useFileOperations', () => {
   const mockHandleSaveFileNotes = vi.fn();
   const mockIsSplitRef = { current: false };
   const mockOpenNoteInPaneRef = { current: null };
+  const mockAddRecentFileRef = { current: null };
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -118,6 +121,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -149,6 +153,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -176,6 +181,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -215,6 +221,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -244,6 +251,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -275,6 +283,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -307,6 +316,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -341,6 +351,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -370,6 +381,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -401,6 +413,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -428,6 +441,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -461,6 +475,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -490,6 +505,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -521,6 +537,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -550,6 +567,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -586,6 +604,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -620,6 +639,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 

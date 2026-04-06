@@ -1,6 +1,6 @@
+import { useTranslation } from 'react-i18next';
 import { FileOpen, NoteAdd, Save } from '@mui/icons-material';
 import { Box, Button, Tooltip, Typography } from '@mui/material';
-import { useTranslation } from 'react-i18next';
 
 export const AppBar: React.FC<{
   platform: string;

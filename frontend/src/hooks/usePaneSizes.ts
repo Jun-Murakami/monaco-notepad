@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+
 import type { Settings } from '../types';
 
 const DEFAULT_SIDEBAR_WIDTH = 242;

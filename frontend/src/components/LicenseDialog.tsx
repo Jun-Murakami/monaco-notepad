@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Button,
@@ -12,8 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { DataGrid, type GridColDef } from '@mui/x-data-grid';
-import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+
 import { GetAppVersion, OpenURL } from '../../wailsjs/go/backend/App';
 
 interface LicenseEntry {
@@ -41,21 +42,31 @@ export const LicenseDialog: React.FC<LicenseDialogProps> = ({
   useEffect(() => {
     if (!open) return;
 
-    GetAppVersion().then((v) => setVersion(v));
+    const controller = new AbortController();
 
-    fetch('/frontend-licenses.json')
+    GetAppVersion().then((v) => {
+      if (!controller.signal.aborted) setVersion(v);
+    });
+
+    fetch('/frontend-licenses.json', { signal: controller.signal })
       .then((res) => res.json())
       .then((data: Omit<LicenseEntry, 'id'>[]) =>
         setFrontendLicenses(data.map((entry, i) => ({ ...entry, id: i }))),
       )
-      .catch(() => setFrontendLicenses([]));
+      .catch(() => {
+        if (!controller.signal.aborted) setFrontendLicenses([]);
+      });
 
-    fetch('/backend-licenses.json')
+    fetch('/backend-licenses.json', { signal: controller.signal })
       .then((res) => res.json())
       .then((data: Omit<LicenseEntry, 'id'>[]) =>
         setBackendLicenses(data.map((entry, i) => ({ ...entry, id: i }))),
       )
-      .catch(() => setBackendLicenses([]));
+      .catch(() => {
+        if (!controller.signal.aborted) setBackendLicenses([]);
+      });
+
+    return () => controller.abort();
   }, [open]);
 
   const columns: GridColDef[] = [

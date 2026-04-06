@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+
 import type { FileNote, Note, TopLevelItem } from '../types';
 
 type SearchMatch = {

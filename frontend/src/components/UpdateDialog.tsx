@@ -1,3 +1,6 @@
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
 import {
   Box,
   Button,
@@ -10,11 +13,9 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import { useCallback, useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+
 import {
   Console,
   GetReleaseInfo,
@@ -75,21 +76,28 @@ export const UpdateDialog = ({ open, version, onClose }: UpdateDialogProps) => {
   useEffect(() => {
     if (!open) return;
 
+    let cancelled = false;
     setLoading(true);
     setError('');
     setReleaseBody('');
 
     GetReleaseInfo()
       .then((info) => {
+        if (cancelled) return;
         setReleaseBody(info.body);
         setDownloadUrl(info.downloadUrl);
         setAssetName(info.assetName);
         setLoading(false);
       })
       .catch((err) => {
+        if (cancelled) return;
         setError(String(err));
         setLoading(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -258,9 +266,7 @@ export const UpdateDialog = ({ open, version, onClose }: UpdateDialogProps) => {
       fullWidth
       disableRestoreFocus
     >
-      <DialogTitle>
-        {t('update.title', { version })}
-      </DialogTitle>
+      <DialogTitle>{t('update.title', { version })}</DialogTitle>
       <DialogContent dividers>{renderContent()}</DialogContent>
       {!updating && (
         <DialogActions>

@@ -1,3 +1,5 @@
+declare module 'monaco-editor/esm/vs/basic-languages/_.contribution.js' {}
+
 declare module 'monaco-editor/esm/vs/language/typescript/monaco.contribution.js' {
   export const javascriptDefaults: {
     setDiagnosticsOptions: (options: unknown) => void;

@@ -1,6 +1,7 @@
-import { HotkeysProvider } from '@tanstack/react-hotkeys';
 import React from 'react';
+import { HotkeysProvider } from '@tanstack/react-hotkeys';
 import { createRoot } from 'react-dom/client';
+
 import App from './App';
 import { initI18n } from './i18n';
 

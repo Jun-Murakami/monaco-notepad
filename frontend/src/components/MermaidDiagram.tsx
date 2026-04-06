@@ -1,7 +1,13 @@
-import { Box, IconButton, Paper, Typography } from '@mui/material';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { RestartAlt, ZoomIn, ZoomOut } from '@mui/icons-material';
+import { Box, IconButton, Paper, Typography } from '@mui/material';
 import mermaid from 'mermaid';
-import { useCallback, useEffect, useRef, useState } from 'react';
 
 const initMermaid = (isDark: boolean) => {
   mermaid.initialize({
@@ -18,7 +24,10 @@ interface MermaidDiagramProps {
 
 let renderCounter = 0;
 
-export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, isDark }) => {
+export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
+  code,
+  isDark,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGElement | null>(null);
@@ -28,12 +37,6 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, isDark }) 
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [error, setError] = useState<string | null>(null);
-
-  const applyTransform = useCallback(() => {
-    if (svgRef.current) {
-      svgRef.current.style.transform = `translate(${position.x}px, ${position.y}px) scale(${zoom})`;
-    }
-  }, [position.x, position.y, zoom]);
 
   /** コンテナサイズに合わせて図全体が収まるズーム・位置を計算 */
   const calcFit = useCallback((svgEl: SVGElement) => {
@@ -94,12 +97,17 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, isDark }) 
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [code, isDark, calcFit]);
 
-  useEffect(() => {
-    applyTransform();
-  }, [applyTransform]);
+  // position/zoom → SVG の CSS transform を同期（視覚的DOM更新なので useLayoutEffect）
+  useLayoutEffect(() => {
+    if (svgRef.current) {
+      svgRef.current.style.transform = `translate(${position.x}px, ${position.y}px) scale(${zoom})`;
+    }
+  }, [position.x, position.y, zoom]);
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev * 1.2, 5));
   const handleZoomOut = () => setZoom((prev) => Math.max(prev / 1.2, 0.1));
@@ -165,7 +173,9 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, isDark }) 
         borderColor: 'divider',
         borderRadius: 2,
         overflow: 'hidden',
-        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.9)',
+        backgroundColor: isDark
+          ? 'rgba(255,255,255,0.03)'
+          : 'rgba(255,255,255,0.9)',
         my: 1.5,
       }}
     >

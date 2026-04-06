@@ -1,4 +1,4 @@
-import type { SelectProps, Theme } from '@mui/material';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   FormControl,
@@ -8,7 +8,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useTranslation } from 'react-i18next';
+
+import type { SelectProps, Theme } from '@mui/material';
 import type { LanguageInfo } from '../lib/monaco';
 import type { FileNote, Note } from '../types';
 

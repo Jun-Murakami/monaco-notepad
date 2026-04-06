@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import {
   ApplyIntegrityFixes,
   GetArchivedTopLevelOrder,
@@ -12,6 +13,7 @@ import {
 import * as runtime from '../../wailsjs/runtime';
 import i18n from '../i18n';
 import { getSupportedLanguages, type LanguageInfo } from '../lib/monaco';
+
 import type {
   FileNote,
   Folder,

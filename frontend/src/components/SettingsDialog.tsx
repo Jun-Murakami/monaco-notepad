@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Button,
@@ -16,17 +18,17 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+
 import {
   OpenAppFolder,
   OpenConflictBackupFolder,
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { THEME_PAIRS } from '../lib/theme-pairs';
-import type { Settings } from '../types';
 import { DEFAULT_EDITOR_SETTINGS } from '../types';
 import { LightDarkSwitch } from './LightDarkSwitch';
+
+import type { Settings } from '../types';
 
 interface SettingsDialogProps {
   open: boolean;

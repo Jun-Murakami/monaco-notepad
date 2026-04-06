@@ -1,7 +1,9 @@
 import { render } from '@testing-library/react';
-import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { Mock } from 'vitest';
 import '@testing-library/jest-dom';
+
 import {
   createEditor,
   disposeEditorInstance,

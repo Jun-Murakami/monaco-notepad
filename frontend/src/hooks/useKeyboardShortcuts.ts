@@ -1,5 +1,6 @@
-import { useHotkeys } from '@tanstack/react-hotkeys';
 import { useRef } from 'react';
+import { useHotkeys } from '@tanstack/react-hotkeys';
+
 import type { FileNote, Note } from '../types';
 
 interface UseKeyboardShortcutsProps {

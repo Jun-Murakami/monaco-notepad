@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
+
 import {
   CheckFileExists,
   CheckFileModified,
@@ -8,6 +15,7 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import i18n from '../i18n';
+
 import type { FileNote, Note } from '../types';
 
 interface UseFileNotesProps {
@@ -155,15 +163,16 @@ export const useFileNotes = ({
     [],
   );
 
-  // ウィンドウフォーカス時のファイル変更チェック（ref経由で一度だけ登録） ------------------------------------------------------------
-  const checkAndReloadFileRef = useRef(checkAndReloadFile);
-  checkAndReloadFileRef.current = checkAndReloadFile;
+  // ウィンドウフォーカス時のファイル変更チェック（useEffectEvent経由で一度だけ登録） ------------------------------------------------------------
+  const onFocusCheckFile = useEffectEvent(async () => {
+    if (currentFileNoteRef.current) {
+      await checkAndReloadFile(currentFileNoteRef.current);
+    }
+  });
 
   useEffect(() => {
-    const handleFocus = async () => {
-      if (currentFileNoteRef.current) {
-        await checkAndReloadFileRef.current(currentFileNoteRef.current);
-      }
+    const handleFocus = () => {
+      onFocusCheckFile();
     };
 
     window.addEventListener('focus', handleFocus);

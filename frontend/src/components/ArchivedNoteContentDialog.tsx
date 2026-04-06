@@ -1,3 +1,5 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowBack,
   ArrowForward,
@@ -17,8 +19,7 @@ import {
   Typography,
 } from '@mui/material';
 import * as monaco from 'monaco-editor';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+
 import { LoadArchivedNote } from '../../wailsjs/go/backend/App';
 import { DEFAULT_EDITOR_FONT_FAMILY, type Note } from '../types';
 import dayjs from '../utils/dayjs';
@@ -75,13 +76,21 @@ export const ArchivedNoteContentDialog: React.FC<
       setContent('');
       return;
     }
+    let cancelled = false;
     setLoading(true);
     LoadArchivedNote(note.id)
       .then((loaded) => {
-        setContent(loaded?.content || '');
+        if (!cancelled) setContent(loaded?.content || '');
       })
-      .catch(() => setContent(''))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled) setContent('');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, note]);
 
   useEffect(() => {
@@ -107,7 +116,7 @@ export const ArchivedNoteContentDialog: React.FC<
       editor.dispose();
       editorRef.current = null;
     };
-  }, [open, loading, content, note?.language, isDarkMode]);
+  }, [open, loading, note?.language, isDarkMode, content]);
 
   const handleRestore = () => {
     if (note) {

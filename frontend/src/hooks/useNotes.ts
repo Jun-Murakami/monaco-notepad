@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import {
   ArchiveFolder,
   CreateFolder,
@@ -23,6 +24,7 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
+
 import type {
   EditorPane,
   FileNote,

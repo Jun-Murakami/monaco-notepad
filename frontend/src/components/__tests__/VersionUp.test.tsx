@@ -1,13 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import {
-  beforeEach,
-  describe,
-  expect,
-  it,
-  type Mock,
-  vi,
-} from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import '@testing-library/jest-dom';
+
 import {
   Console,
   GetAppVersion,

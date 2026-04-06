@@ -1,3 +1,14 @@
+import {
+  type ComponentProps,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import {
   draggable,
@@ -38,19 +49,8 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import {
-  type ComponentProps,
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { createPortal } from 'react-dom';
-import { useTranslation } from 'react-i18next';
+
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
-import type { FileNote, Folder, Note, TopLevelItem } from '../types';
 import { NotePreviewPopper } from './NotePreviewPopper';
 import {
   insertTopLevelNote,
@@ -59,6 +59,8 @@ import {
   moveTopLevelItem,
   removeTopLevelNote,
 } from './noteListShared';
+
+import type { FileNote, Folder, Note, TopLevelItem } from '../types';
 
 // 1) 表示ユーティリティ
 const detectTargetPane = (x: number, y: number): 'left' | 'right' | null => {
@@ -132,7 +134,10 @@ interface NoteListProps {
   onToggleFolderCollapse?: (folderId: string) => void;
   onRenameFolder?: (id: string, name: string) => void;
   onDeleteFolder?: (id: string) => void;
-  onMoveNoteToFolder?: (noteID: string, folderID: string) => Promise<void> | void;
+  onMoveNoteToFolder?: (
+    noteID: string,
+    folderID: string,
+  ) => Promise<void> | void;
   editingFolderId?: string | null;
   onEditingFolderDone?: () => void;
   topLevelOrder?: TopLevelItem[];
@@ -1629,7 +1634,11 @@ export const NoteList: React.FC<NoteListProps> = ({
           if (targetIndex === -1) return;
           const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
           const insertIndex = edge === 'bottom' ? targetIndex + 1 : targetIndex;
-          await moveNoteToTopLevel(dragItem.noteId, insertIndex, sourceFolderId);
+          await moveNoteToTopLevel(
+            dragItem.noteId,
+            insertIndex,
+            sourceFolderId,
+          );
           return;
         }
         case 'folder': {
@@ -1638,7 +1647,11 @@ export const NoteList: React.FC<NoteListProps> = ({
           if (targetIndex === -1 || !targetFolderId) return;
           const edge = isDropEdge(hover.edge) ? hover.edge : 'top';
           if (edge === 'top') {
-            await moveNoteToTopLevel(dragItem.noteId, targetIndex, sourceFolderId);
+            await moveNoteToTopLevel(
+              dragItem.noteId,
+              targetIndex,
+              sourceFolderId,
+            );
             return;
           }
           if (!hover.boundaryIndented) {

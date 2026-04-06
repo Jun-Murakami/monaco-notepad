@@ -8,8 +8,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('monaco-editor/esm/vs/editor/editor.worker') ||
-              id.includes('monaco-editor/esm/vs/language/typescript/ts.worker')) {
+          if (
+            id.includes('monaco-editor/esm/vs/editor/editor.worker') ||
+            id.includes('monaco-editor/esm/vs/language/typescript/ts.worker')
+          ) {
             return 'monaco-workers';
           }
           if (id.includes('monaco-editor')) {
@@ -21,7 +23,11 @@ export default defineConfig({
           if (id.includes('mermaid')) {
             return 'mermaid';
           }
-          if (id.includes('react-markdown') || id.includes('rehype') || id.includes('remark')) {
+          if (
+            id.includes('react-markdown') ||
+            id.includes('rehype') ||
+            id.includes('remark')
+          ) {
             return 'markdown';
           }
         },

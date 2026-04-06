@@ -8,6 +8,7 @@ import {
   type Mock,
   vi,
 } from 'vitest';
+
 import {
   CreateFolder,
   DeleteFolder,
@@ -25,8 +26,9 @@ import {
   UpdateTopLevelOrder,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
-import type { Note } from '../../types';
 import { useNotes } from '../useNotes';
+
+import type { Note } from '../../types';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({

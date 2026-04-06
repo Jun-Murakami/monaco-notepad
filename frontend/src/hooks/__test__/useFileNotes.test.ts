@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
-import type { MockInstance } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   CheckFileExists,
   CheckFileModified,
@@ -8,8 +8,10 @@ import {
   OpenFile,
   SaveFileNotes,
 } from '../../../wailsjs/go/backend/App';
-import type { FileNote, Note } from '../../types';
 import { useFileNotes } from '../useFileNotes';
+
+import type { MockInstance } from 'vitest';
+import type { FileNote, Note } from '../../types';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({

@@ -8,9 +8,11 @@ import {
   type Mock,
   vi,
 } from 'vitest';
+
 import { SaveNote } from '../../../wailsjs/go/backend/App';
-import type { Note } from '../../types';
 import { useSplitEditor } from '../useSplitEditor';
+
+import type { Note } from '../../types';
 
 vi.mock('../../../wailsjs/go/backend/App', () => ({
   SaveNote: vi.fn().mockResolvedValue(undefined),

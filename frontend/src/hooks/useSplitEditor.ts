@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { SaveNote } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
+
 import type { EditorPane, FileNote, Note, TopLevelItem } from '../types';
 
 const STORAGE_KEY = 'splitEditorState';

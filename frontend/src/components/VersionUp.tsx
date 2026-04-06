@@ -1,6 +1,7 @@
-import { Chip } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Chip } from '@mui/material';
+
 import { Console, GetAppVersion } from '../../wailsjs/go/backend/App';
 import { UpdateDialog } from './UpdateDialog';
 
@@ -38,11 +39,14 @@ export const VersionUp = () => {
   const [dialogOpen, setDialogOpen] = useState<boolean>(false);
 
   useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
     const fetchVersion = async () => {
       try {
         const ver = await GetAppVersion();
 
-        const response = await fetch(repoUrl);
+        const response = await fetch(repoUrl, { signal: controller.signal });
         const data = await response.json();
         if (!data) {
           await Console('App version data not found', []);
@@ -50,17 +54,27 @@ export const VersionUp = () => {
         }
 
         const latestVersion = data.tag_name.replace('v', '');
-        setVersion(latestVersion);
+        if (!cancelled) setVersion(latestVersion);
         if (compareVersions(latestVersion, ver) > 0) {
-          setShowChip(true);
+          if (!cancelled) setShowChip(true);
         } else {
-			await Console(`Latest version: ${latestVersion} (current: ${ver})`, []);
+          await Console(
+            `Latest version: ${latestVersion} (current: ${ver})`,
+            [],
+          );
         }
       } catch (error) {
-        await Console('Failed to get version', [error]);
+        if (!controller.signal.aborted) {
+          await Console('Failed to get version', [error]);
+        }
       }
     };
     fetchVersion();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, []);
 
   const handleClick = () => {

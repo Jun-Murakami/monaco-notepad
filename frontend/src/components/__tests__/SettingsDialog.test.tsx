@@ -1,10 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
+
 import * as runtime from '../../../wailsjs/runtime';
-import type { Settings } from '../../types';
 import { DEFAULT_EDITOR_SETTINGS } from '../../types';
 import { SettingsDialog } from '../SettingsDialog';
+
+import type { Settings } from '../../types';
 
 // runtimeのモック
 vi.mock('../../../wailsjs/runtime', () => ({

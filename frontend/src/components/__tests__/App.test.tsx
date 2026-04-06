@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import '@testing-library/jest-dom';
+
 import {
   GetArchivedTopLevelOrder,
   ListNotes,
@@ -16,6 +17,7 @@ import {
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
 import App from '../../App';
+
 import type { FileNote, Note } from '../../types';
 
 // monaco-editorのモック

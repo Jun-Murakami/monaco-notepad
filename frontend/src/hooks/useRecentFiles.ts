@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import {
   CheckFileExists,
   LoadRecentFiles,
   SaveRecentFiles,
 } from '../../wailsjs/go/backend/App';
 import i18n from '../i18n';
+
 import type { FileNote } from '../types';
 
 const MAX_RECENT_FILES = 20;
@@ -86,26 +88,6 @@ export const useRecentFiles = ({
     },
     [handleOpenFileByPath, showMessage, removeRecentFile],
   );
-
-  // ファイルが開かれたら自動的に最近開いたファイルに追加
-  const prevFilePathsRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const currentPaths = new Set(
-      fileNotes.map((f) => f.filePath).filter(Boolean),
-    );
-    // 初回は初期化のみ
-    if (prevFilePathsRef.current.size === 0 && currentPaths.size > 0) {
-      prevFilePathsRef.current = currentPaths;
-      return;
-    }
-    // 新しく追加されたパスを検出
-    for (const path of currentPaths) {
-      if (!prevFilePathsRef.current.has(path)) {
-        addRecentFile(path);
-      }
-    }
-    prevFilePathsRef.current = currentPaths;
-  }, [fileNotes, addRecentFile]);
 
   // 現在開いているファイルを除外したリスト
   const availableRecentFiles = recentFiles.filter(

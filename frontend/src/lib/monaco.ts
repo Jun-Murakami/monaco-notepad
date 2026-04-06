@@ -1,12 +1,12 @@
 // monaco-editor の Web Worker 設定用にグローバル型を拡張
 declare global {
-	interface Window {
-		MonacoEnvironment?: monaco.Environment;
-	}
+  interface Window {
+    MonacoEnvironment?: monaco.Environment;
+  }
 }
 
 import * as monaco from 'monaco-editor';
-import 'monaco-editor/esm/vs/basic-languages/monaco.contribution.js';
+import 'monaco-editor/esm/vs/basic-languages/_.contribution.js';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
@@ -20,6 +20,7 @@ import {
   typescriptDefaults,
 } from 'monaco-editor/esm/vs/language/typescript/monaco.contribution.js';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+
 // Theme imports from local themes directory (copied from monaco-themes package)
 import cloudsTheme from '../themes/Clouds.json';
 import cloudsMidnightTheme from '../themes/Clouds Midnight.json';
@@ -35,7 +36,7 @@ import tomorrowTheme from '../themes/Tomorrow.json';
 import tomorrowNightTheme from '../themes/Tomorrow-Night.json';
 
 // Re-export theme pairs from separate module to avoid pulling Monaco into light consumers
-export { type ThemePair, THEME_PAIRS, getThemePair } from './theme-pairs';
+export { getThemePair, THEME_PAIRS, type ThemePair } from './theme-pairs';
 
 // シングルトンとしてのモジュール初期化
 let _isInitialized = false;

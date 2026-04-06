@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Dialog,
@@ -6,7 +7,7 @@ import {
   DialogContentText,
   DialogTitle,
 } from '@mui/material';
-import { useTranslation } from 'react-i18next';
+
 import { RespondToMigration } from '../../wailsjs/go/backend/App';
 
 interface MigrationDialogProps {

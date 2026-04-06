@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+
 import * as wailsRuntime from '../../wailsjs/runtime';
 import i18n from '../i18n';
 

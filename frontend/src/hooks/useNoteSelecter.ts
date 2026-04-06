@@ -1,5 +1,7 @@
 import { useCallback } from 'react';
+
 import { SetLastActiveNote } from '../../wailsjs/go/backend/App';
+
 import type { FileNote, Note } from '../types';
 
 interface NoteSelecterProps {

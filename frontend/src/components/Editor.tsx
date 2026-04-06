@@ -1,6 +1,6 @@
+import { useEffect, useEffectEvent, useRef } from 'react';
 import { Box } from '@mui/material';
-import type { editor } from 'monaco-editor';
-import { useEffect, useRef } from 'react';
+
 import {
   createEditor,
   disposeEditorInstance,
@@ -13,6 +13,8 @@ import {
   type Note,
   type Settings,
 } from '../types';
+
+import type { editor } from 'monaco-editor';
 
 interface EditorProps {
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
@@ -53,25 +55,22 @@ export const Editor: React.FC<EditorProps> = ({
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // コールバックをrefで保持し、リスナーの再登録を防止
-  const onFocusRef = useRef(onFocus);
-  const onChangeRef = useRef(onChange);
-  const onNewRef = useRef(onNew);
-  const onOpenRef = useRef(onOpen);
-  const onSaveRef = useRef(onSave);
-  const onSaveAsRef = useRef(onSaveAs);
-  const onCloseRef = useRef(onClose);
-  const onSelectNextRef = useRef(onSelectNext);
-  const onSelectPreviousRef = useRef(onSelectPrevious);
-  onFocusRef.current = onFocus;
-  onChangeRef.current = onChange;
-  onNewRef.current = onNew;
-  onOpenRef.current = onOpen;
-  onSaveRef.current = onSave;
-  onSaveAsRef.current = onSaveAs;
-  onCloseRef.current = onClose;
-  onSelectNextRef.current = onSelectNext;
-  onSelectPreviousRef.current = onSelectPrevious;
+  // useEffectEvent経由でコールバックを参照し、リスナーの再登録を防止
+  const onFocusEvent = useEffectEvent(() => onFocus?.());
+  const onChangeEvent = useEffectEvent((value: string) =>
+    onChange?.(value || ''),
+  );
+  const onNewEvent = useEffectEvent(() => onNew?.());
+  const onOpenEvent = useEffectEvent(() => onOpen?.());
+  const onSaveEvent = useEffectEvent(() => onSave?.());
+  const onSaveAsEvent = useEffectEvent(() => onSaveAs?.());
+  const onCloseEvent = useEffectEvent(() => onClose?.());
+  const onSelectNextEvent = useEffectEvent(async () => {
+    await onSelectNext?.();
+  });
+  const onSelectPreviousEvent = useEffectEvent(async () => {
+    await onSelectPrevious?.();
+  });
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -100,12 +99,12 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current = instance;
 
     const focusDisposable = instance.onDidFocusEditorText(() => {
-      onFocusRef.current?.();
+      onFocusEvent();
     });
 
     const contentDisposable = instance.onDidChangeModelContent(() => {
       const currentValue = instance.getValue();
-      onChangeRef.current?.(currentValue || '');
+      onChangeEvent(currentValue);
     });
 
     return () => {
@@ -209,7 +208,7 @@ export const Editor: React.FC<EditorProps> = ({
     }
   }, [settings, editorInstanceRef]);
 
-  // キーボードコマンドの設定（一度だけ登録、ref経由で最新コールバックを参照）
+  // キーボードコマンドの設定（一度だけ登録、useEffectEvent経由で最新コールバックを参照）
   useEffect(() => {
     if (!editorInstanceRef.current) return;
 
@@ -218,7 +217,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN,
       () => {
-        onNewRef.current?.();
+        onNewEvent();
       },
       'editorTextFocus',
     );
@@ -226,7 +225,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyO,
       () => {
-        onOpenRef.current?.();
+        onOpenEvent();
       },
       'editorTextFocus',
     );
@@ -234,7 +233,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
       () => {
-        onSaveRef.current?.();
+        onSaveEvent();
       },
       'editorTextFocus',
     );
@@ -242,7 +241,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.Alt | monaco.KeyCode.KeyS,
       () => {
-        onSaveAsRef.current?.();
+        onSaveAsEvent();
       },
       'editorTextFocus',
     );
@@ -250,7 +249,7 @@ export const Editor: React.FC<EditorProps> = ({
     editorInstanceRef.current.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW,
       () => {
-        onCloseRef.current?.();
+        onCloseEvent();
       },
       'editorTextFocus',
     );
@@ -259,7 +258,7 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab,
         async () => {
-          await onSelectNextRef.current?.();
+          await onSelectNextEvent();
         },
         'editorTextFocus',
       );
@@ -267,7 +266,7 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyCode.Tab,
         async () => {
-          await onSelectNextRef.current?.();
+          await onSelectNextEvent();
         },
         'editorTextFocus',
       );
@@ -277,7 +276,7 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
         async () => {
-          await onSelectPreviousRef.current?.();
+          await onSelectPreviousEvent();
         },
         'editorTextFocus',
       );
@@ -285,7 +284,7 @@ export const Editor: React.FC<EditorProps> = ({
       editorInstanceRef.current.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Tab,
         async () => {
-          await onSelectPreviousRef.current?.();
+          await onSelectPreviousEvent();
         },
         'editorTextFocus',
       );

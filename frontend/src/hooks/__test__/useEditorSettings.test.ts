@@ -8,6 +8,7 @@ import {
   type Mock,
   vi,
 } from 'vitest';
+
 import {
   GetSystemLocale,
   LoadSettings,

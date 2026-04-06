@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -26,11 +26,16 @@ function generateFrontendLicenses() {
         name,
         version,
         license: value.licenses || 'Unknown',
-        repository: (value.repository || '').replace(/^git\+/, '').replace(/\.git$/, ''),
+        repository: (value.repository || '')
+          .replace(/^git\+/, '')
+          .replace(/\.git$/, ''),
       };
     });
     licenses.sort((a, b) => a.name.localeCompare(b.name));
-    writeFileSync(resolve(publicDir, 'frontend-licenses.json'), JSON.stringify(licenses, null, 2));
+    writeFileSync(
+      resolve(publicDir, 'frontend-licenses.json'),
+      JSON.stringify(licenses, null, 2),
+    );
     console.log(`  -> ${licenses.length} frontend packages`);
   } catch (err) {
     console.warn('Warning: Failed to generate frontend licenses:', err.message);
@@ -60,10 +65,16 @@ function generateBackendLicenses() {
         };
       });
     licenses.sort((a, b) => a.name.localeCompare(b.name));
-    writeFileSync(resolve(publicDir, 'backend-licenses.json'), JSON.stringify(licenses, null, 2));
+    writeFileSync(
+      resolve(publicDir, 'backend-licenses.json'),
+      JSON.stringify(licenses, null, 2),
+    );
     console.log(`  -> ${licenses.length} backend packages`);
   } catch (err) {
-    console.warn('Warning: Failed to generate backend licenses (is go-licenses installed?):', err.message);
+    console.warn(
+      'Warning: Failed to generate backend licenses (is go-licenses installed?):',
+      err.message,
+    );
     writeFileSync(resolve(publicDir, 'backend-licenses.json'), '[]');
   }
 }

@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
   GetArchivedTopLevelOrder,
   GetTopLevelOrder,
@@ -9,8 +10,9 @@ import {
   NotifyFrontendReady,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
-import type { FileNote, Note } from '../../types';
 import { useInitialize } from '../useInitialize';
+
+import type { FileNote, Note } from '../../types';
 
 // Vitestのモック型定義
 type MockFunction = {

@@ -1,3 +1,5 @@
+import { useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Close,
   KeyboardArrowDown,
@@ -5,8 +7,6 @@ import {
   Search,
 } from '@mui/icons-material';
 import { Box, IconButton, InputAdornment, InputBase } from '@mui/material';
-import { useCallback, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 
 interface NoteSearchBoxProps {
   value: string;

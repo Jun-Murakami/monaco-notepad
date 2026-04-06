@@ -1,3 +1,14 @@
+import {
+  type ComponentProps,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import {
   draggable,
@@ -37,20 +48,9 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import {
-  type ComponentProps,
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { createPortal } from 'react-dom';
-import { useTranslation } from 'react-i18next';
 import SimpleBar from 'simplebar-react';
+
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
-import type { Folder, Note, TopLevelItem } from '../types';
 import { ArchivedNoteContentDialog } from './ArchivedNoteContentDialog';
 import { NotePreviewPopper } from './NotePreviewPopper';
 import {
@@ -60,6 +60,8 @@ import {
   moveTopLevelItem,
   removeTopLevelNote,
 } from './noteListShared';
+
+import type { Folder, Note, TopLevelItem } from '../types';
 import 'simplebar-react/dist/simplebar.min.css';
 
 interface ArchivedNoteListProps {

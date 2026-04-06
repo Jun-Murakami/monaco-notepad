@@ -1,5 +1,6 @@
-import { Box, Paper, Popper, Typography } from '@mui/material';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { Box, Paper, Popper, Typography } from '@mui/material';
+
 import { DEFAULT_EDITOR_FONT_FAMILY } from '../types';
 
 interface NotePreviewPopperProps {

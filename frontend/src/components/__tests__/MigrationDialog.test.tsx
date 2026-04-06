@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
+
 import { RespondToMigration } from '../../../wailsjs/go/backend/App';
 import { MigrationDialog } from '../MigrationDialog';
 

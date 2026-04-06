@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import type { editor } from 'monaco-editor';
-import type { Mock } from 'vitest';
+
 import * as runtime from '../../../wailsjs/runtime';
 import { EditorStatusBar } from '../EditorStatusBar';
+
+import type { editor } from 'monaco-editor';
+import type { Mock } from 'vitest';
 
 // runtimeのモック
 vi.mock('../../../wailsjs/runtime', () => ({

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Dialog,
@@ -5,7 +6,7 @@ import {
   DialogContent,
   DialogTitle,
 } from '@mui/material';
-import { useTranslation } from 'react-i18next';
+
 import { Console } from '../../wailsjs/go/backend/App';
 
 interface MessageDialogProps {

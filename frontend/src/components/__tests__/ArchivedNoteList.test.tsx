@@ -1,12 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
-import type { Folder, Note, TopLevelItem } from '../../types';
+
 import {
   ArchivedNoteList,
   insertTopLevelNote,
   moveTopLevelItem,
 } from '../ArchivedNoteList';
+
+import type { Folder, Note, TopLevelItem } from '../../types';
 
 describe('ArchivedNoteList', () => {
   const mockNotes: Note[] = [

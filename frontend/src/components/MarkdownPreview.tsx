@@ -1,13 +1,15 @@
-import { Box, Link, useTheme } from '@mui/material';
-import type { editor } from 'monaco-editor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { Box, Link, useTheme } from '@mui/material';
 import rehypeHighlight from 'rehype-highlight';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+
 import { OpenURL } from '../../wailsjs/go/backend/App';
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_UI_FONT_FAMILY } from '../types';
 import { MermaidDiagram } from './MermaidDiagram';
+
+import type { editor } from 'monaco-editor';
 
 const DEBOUNCE_MS = 300;
 

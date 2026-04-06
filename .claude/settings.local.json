@@ -26,7 +26,9 @@
       "Bash(npm list:*)",
       "Bash(ls:*)",
       "WebFetch(domain:zenn.dev)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Skill(useeffect-guard)",
+      "Bash(npx biome:*)"
     ]
   }
 }

@@ -1,4 +1,5 @@
 import { createTheme } from '@mui/material';
+
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_UI_FONT_FAMILY } from '../types';
 
 // プライマリカラーの補色を計算する

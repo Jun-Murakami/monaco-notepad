@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef } from 'react';
+
 import {
   GetModifiedTime,
   OpenFile,
@@ -11,8 +12,9 @@ import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
 import i18n from '../i18n';
 import { getExtensionByLanguage, getLanguageByExtension } from '../lib/monaco';
-import type { FileNote, Note } from '../types';
 import { isBinaryFile } from '../utils/fileUtils';
+
+import type { FileNote, Note } from '../types';
 
 // ドロップ座標からエディタペインを判定する
 const detectTargetPane = (x: number, y: number): 'left' | 'right' | null => {
@@ -43,6 +45,9 @@ export function useFileOperations(
   isSplitRef: React.RefObject<boolean>,
   openNoteInPaneRef: React.RefObject<
     ((note: Note | FileNote, pane: 'left' | 'right') => void) | null
+  >,
+  addRecentFileRef: React.RefObject<
+    ((filePath: string) => Promise<void>) | null
   >,
 ) {
   // ファイルを開く共通処理
@@ -90,7 +95,7 @@ export function useFileOperations(
     [],
   );
 
-  // ref経由で最新値を参照し、イベントリスナーの再登録を防止
+  // ref経由で最新値を参照（effect外のハンドラからも参照するためref維持）
   const fileNotesRef = useRef(fileNotes);
   const handleSelecAnyNoteRef = useRef(handleSelecAnyNote);
   const setFileNotesRef = useRef(setFileNotes);
@@ -127,6 +132,7 @@ export function useFileOperations(
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
       await handleSelecAnyNote(newFileNote);
+      addRecentFileRef.current?.(filePath);
     } catch (error) {
       console.error('Failed to open file:', error);
     }
@@ -166,11 +172,12 @@ export function useFileOperations(
         } else {
           await handleSelecAnyNoteRef.current(newFileNote);
         }
+        addRecentFileRef.current?.(filePath);
       } catch (error) {
         console.error('Failed to handle dropped file:', error);
       }
     },
-    [createFileNote, isSplitRef, openNoteInPaneRef],
+    [createFileNote, isSplitRef, openNoteInPaneRef, addRecentFileRef],
   );
 
   // パスを指定してファイルを開く（最近開いたファイル用）
@@ -199,6 +206,7 @@ export function useFileOperations(
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
       await handleSelecAnyNote(newFileNote);
+      addRecentFileRef.current?.(filePath);
     } catch (error) {
       console.error('Failed to open file by path:', error);
     }
@@ -273,63 +281,68 @@ export function useFileOperations(
     await handleSelecAnyNote(newNote);
   };
 
-  // ref経由で最新のhandleFileDropを参照
-  const handleFileDropRef = useRef(handleFileDrop);
-  handleFileDropRef.current = handleFileDrop;
+  // useEffectEvent経由でイベントハンドラの再登録を防止
+  const onOpenExternal = useEffectEvent(
+    async (data: {
+      path: string;
+      content: string;
+      sourceEncoding?: string;
+    }) => {
+      // 既に同じファイルが開かれているかチェック
+      const existingFile = fileNotesRef.current.find(
+        (note) => note.filePath === data.path,
+      );
+      if (existingFile) {
+        await handleSelecAnyNoteRef.current(existingFile);
+        return;
+      }
 
-  useEffect(() => {
-    const cleanup = runtime.EventsOn(
-      'file:open-external',
-      async (data: {
-        path: string;
-        content: string;
-        sourceEncoding?: string;
-      }) => {
-        // 既に同じファイルが開かれているかチェック
-        const existingFile = fileNotesRef.current.find(
-          (note) => note.filePath === data.path,
-        );
-        if (existingFile) {
-          await handleSelecAnyNoteRef.current(existingFile);
-          return;
-        }
+      const newFileNote = await createFileNote(
+        data.content,
+        data.path,
+        data.sourceEncoding || undefined,
+      );
+      if (!newFileNote) return;
 
-        const newFileNote = await createFileNote(
-          data.content,
-          data.path,
-          data.sourceEncoding || undefined,
-        );
-        if (!newFileNote) return;
+      const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
+      setFileNotesRef.current(updatedFileNotes);
+      await handleSaveFileNotesRef.current(updatedFileNotes);
 
-        const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
-        setFileNotesRef.current(updatedFileNotes);
-        await handleSaveFileNotesRef.current(updatedFileNotes);
+      if (isSplitRef.current && openNoteInPaneRef.current) {
+        openNoteInPaneRef.current(newFileNote, 'left');
+      } else {
+        await handleSelecAnyNoteRef.current(newFileNote);
+      }
+      addRecentFileRef.current?.(data.path);
+    },
+  );
 
-        if (isSplitRef.current && openNoteInPaneRef.current) {
-          openNoteInPaneRef.current(newFileNote, 'left');
-        } else {
-          await handleSelecAnyNoteRef.current(newFileNote);
-        }
-      },
-    );
-
-    runtime.OnFileDrop(async (x, y, paths) => {
+  const onFileDrop = useEffectEvent(
+    async (x: number, y: number, paths: string[]) => {
       if (paths.length > 0) {
         const file = paths[0];
         if (file) {
           const targetPane = isSplitRef.current
             ? (detectTargetPane(x, y) ?? 'left')
             : undefined;
-          await handleFileDropRef.current(file, targetPane);
+          await handleFileDrop(file, targetPane);
         }
       }
+    },
+  );
+
+  useEffect(() => {
+    const cleanup = runtime.EventsOn('file:open-external', onOpenExternal);
+
+    runtime.OnFileDrop(async (x, y, paths) => {
+      await onFileDrop(x, y, paths);
     }, true);
 
     return () => {
       cleanup();
       runtime.OnFileDropOff();
     };
-  }, [createFileNote, isSplitRef, openNoteInPaneRef]);
+  }, []);
 
   const handleCloseFile = async (note: FileNote) => {
     const updatedFileNotes = fileNotes.filter((f) => f.id !== note.id);

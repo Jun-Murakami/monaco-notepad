@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
+
 import {
   AuthorizeDrive,
   CancelLoginDrive,
@@ -9,8 +16,9 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { EventsOff, EventsOn } from '../../wailsjs/runtime';
 import i18n from '../i18n';
-import type { MessageCode } from '../utils/messageCode';
 import { isMessageCode, translateMessageCode } from '../utils/messageCode';
+
+import type { MessageCode } from '../utils/messageCode';
 
 const SYNC_TIMEOUT = 5 * 60 * 1000; // 5分のタイムアウト
 
@@ -94,9 +102,8 @@ export const useDriveSync = (
     }, 10000);
   }, [stopSyncMonitoring]);
 
-  // ドライブの状態を監視（イベントハンドラはrefで管理し、effectの再登録を防ぐ）
-  const handleDriveStatusRef = useRef((_status: string) => {});
-  handleDriveStatusRef.current = (status: string) => {
+  // ドライブの状態を監視（useEffectEvent経由でeffectの再登録を防ぐ）
+  const onDriveStatus = useEffectEvent((status: string) => {
     setSyncStatus(status as 'synced' | 'syncing' | 'logging in' | 'offline');
     if (status === 'syncing') {
       startSyncMonitoring();
@@ -110,25 +117,20 @@ export const useDriveSync = (
         }, 500);
       }
     }
-  };
+  });
 
-  const handleDriveErrorRef = useRef((_error: string | MessageCode) => {});
-  handleDriveErrorRef.current = (error: string | MessageCode) => {
+  const onDriveError = useEffectEvent((error: string | MessageCode) => {
     const message = isMessageCode(error)
       ? translateMessageCode(error)
       : String(error);
     showMessage(i18n.t('driveUI.syncErrorTitle'), message);
     console.error('Drive error:', error);
-  };
+  });
 
   useEffect(() => {
     EventsOn('notes:updated', handleSync);
-    EventsOn('drive:status', (status: string) =>
-      handleDriveStatusRef.current(status),
-    );
-    EventsOn('drive:error', (error: string | MessageCode) =>
-      handleDriveErrorRef.current(error),
-    );
+    EventsOn('drive:status', onDriveStatus);
+    EventsOn('drive:error', onDriveError);
     EventsOn('drive:migration-needed', () => {
       setIsMigrationDialogOpen(true);
     });

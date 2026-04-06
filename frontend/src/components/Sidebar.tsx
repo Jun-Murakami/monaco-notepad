@@ -1,0 +1,388 @@
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { CreateNewFolder, History, Inventory } from '@mui/icons-material';
+import {
+  Box,
+  Button,
+  Divider,
+  IconButton,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import SimpleBar from 'simplebar-react';
+import 'simplebar-react/dist/simplebar.min.css';
+
+import { AppBar } from './AppBar';
+import { type FileDropInsertionTarget, NoteList } from './NoteList';
+import { NoteSearchBox } from './NoteSearchBox';
+
+import type { FileNote, Folder, Note, TopLevelItem } from '../types';
+
+interface SidebarProps {
+  platform: string;
+  onNew: () => Promise<void>;
+  onOpen: () => Promise<void>;
+  onSaveAs: () => Promise<void>;
+  // Search
+  noteSearch: string;
+  onSearchChange: (value: string) => void;
+  onSearchNavigate: (dir: 'next' | 'prev') => void;
+  searchMatchIndex: number;
+  totalSearchMatches: number;
+  // File notes
+  fileNotes: FileNote[];
+  filteredFileNotes: FileNote[];
+  currentFileNote: FileNote | null;
+  // Notes
+  notes: Note[];
+  filteredNotes: Note[];
+  currentNote: Note | null;
+  // Split
+  isSplit: boolean;
+  leftNote: Note | null;
+  leftFileNote: FileNote | null;
+  secondarySelectedNoteId?: string;
+  canSplit: boolean;
+  // Handlers
+  onNoteSelect: (note: Note | FileNote) => Promise<void>;
+  onArchive: (noteId: string) => Promise<void>;
+  onCloseFile: (fileNote: FileNote) => Promise<void>;
+  onSaveFile: (fileNote: FileNote) => Promise<void>;
+  onConvertToNote: (fileNote: FileNote) => Promise<void>;
+  onDropFileNoteToNotes: (
+    fileNoteId: string,
+    target: FileDropInsertionTarget,
+  ) => Promise<void>;
+  onOpenInPane: (note: Note | FileNote, pane: 'left' | 'right') => void;
+  isFileModified: (fileId: string) => boolean;
+  // Folders
+  folders: Folder[];
+  collapsedFolders: Set<string>;
+  onToggleFolderCollapse: (folderId: string) => void;
+  onMoveNoteToFolder: (noteId: string, folderId: string) => Promise<void>;
+  onRenameFolder: (id: string, name: string) => Promise<void>;
+  onDeleteFolder: (id: string) => Promise<void>;
+  onArchiveFolder: (id: string) => Promise<void>;
+  onCreateFolder: (name: string) => Promise<Folder>;
+  topLevelOrder: TopLevelItem[];
+  onUpdateTopLevelOrder: (order: TopLevelItem[]) => Promise<void>;
+  // Recent files
+  recentFiles: string[];
+  openRecentFile: (filePath: string) => Promise<void>;
+  clearRecentFiles: () => Promise<void>;
+  // Archive
+  showArchived: boolean;
+  onToggleShowArchived: () => void;
+  // State setters for NoteList reorder
+  setNotes: React.Dispatch<React.SetStateAction<Note[]>>;
+  setFileNotes: (files: FileNote[]) => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  platform,
+  onNew,
+  onOpen,
+  onSaveAs,
+  noteSearch,
+  onSearchChange,
+  onSearchNavigate,
+  searchMatchIndex,
+  totalSearchMatches,
+  fileNotes,
+  filteredFileNotes,
+  currentFileNote,
+  notes,
+  filteredNotes,
+  currentNote,
+  isSplit,
+  leftNote,
+  leftFileNote,
+  secondarySelectedNoteId,
+  canSplit,
+  onNoteSelect,
+  onArchive,
+  onCloseFile,
+  onSaveFile,
+  onConvertToNote,
+  onDropFileNoteToNotes,
+  onOpenInPane,
+  isFileModified,
+  folders,
+  collapsedFolders,
+  onToggleFolderCollapse,
+  onMoveNoteToFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onArchiveFolder,
+  onCreateFolder,
+  topLevelOrder,
+  onUpdateTopLevelOrder,
+  recentFiles,
+  openRecentFile,
+  clearRecentFiles,
+  showArchived,
+  onToggleShowArchived,
+  setNotes,
+  setFileNotes,
+}) => {
+  const { t } = useTranslation();
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [recentFilesAnchorEl, setRecentFilesAnchorEl] =
+    useState<HTMLElement | null>(null);
+
+  const archivedCount = notes.filter((note) => note.archived).length;
+  const hasArchivedFolders = folders.some((f) => f.archived);
+
+  return (
+    <Box
+      aria-label={t('app.noteListAriaLabel')}
+      sx={{
+        width: '100%',
+        height: '100%',
+        borderRight: 1,
+        borderColor: 'divider',
+        display: 'flex',
+        flexDirection: 'column',
+        '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
+          backgroundColor: 'text.secondary',
+        },
+      }}
+    >
+      <AppBar
+        platform={platform}
+        onNew={onNew}
+        onOpen={onOpen}
+        onSave={onSaveAs}
+      />
+      <Divider />
+      <NoteSearchBox
+        value={noteSearch}
+        onChange={onSearchChange}
+        onNext={() => onSearchNavigate('next')}
+        onPrevious={() => onSearchNavigate('prev')}
+        matchIndex={searchMatchIndex}
+        matchCount={totalSearchMatches}
+      />
+      <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
+        <SimpleBar style={{ height: '100%' }}>
+          {/* Local Files ヘッダー */}
+          <Box
+            sx={{
+              height: 32,
+              justifyContent: 'center',
+              alignItems: 'center',
+              display: 'flex',
+              backgroundColor: 'action.disabledBackground',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+              m: 1,
+              mb: 0,
+              position: 'relative',
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              {t('app.localFiles')}{' '}
+              <Typography
+                component="span"
+                variant="caption"
+                sx={{
+                  fontWeight: 'normal',
+                  display: 'inline-block',
+                  ml: 1,
+                }}
+              >
+                {noteSearch ? filteredFileNotes.length : fileNotes.length}
+              </Typography>
+            </Typography>
+            {recentFiles.length > 0 && (
+              <Tooltip title={t('file.recentFiles')}>
+                <IconButton
+                  onClick={(e) => setRecentFilesAnchorEl(e.currentTarget)}
+                  sx={{ position: 'absolute', right: 4 }}
+                >
+                  <History sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Menu
+              anchorEl={recentFilesAnchorEl}
+              open={Boolean(recentFilesAnchorEl)}
+              onClose={() => setRecentFilesAnchorEl(null)}
+              slotProps={{
+                paper: {
+                  sx: { maxHeight: 320, maxWidth: 360 },
+                },
+              }}
+            >
+              {recentFiles.map((filePath) => (
+                <MenuItem
+                  key={filePath}
+                  onClick={async () => {
+                    setRecentFilesAnchorEl(null);
+                    await openRecentFile(filePath);
+                  }}
+                  sx={{ py: 0.5 }}
+                >
+                  <ListItemText
+                    primary={filePath.split(/[/\\]/).pop()}
+                    secondary={filePath}
+                    slotProps={{
+                      primary: { variant: 'body2', noWrap: true },
+                      secondary: {
+                        variant: 'caption',
+                        noWrap: true,
+                        sx: { opacity: 0.7 },
+                      },
+                    }}
+                  />
+                </MenuItem>
+              ))}
+              <Divider />
+              <MenuItem
+                onClick={async () => {
+                  setRecentFilesAnchorEl(null);
+                  await clearRecentFiles();
+                }}
+                sx={{ py: 0.5 }}
+              >
+                <ListItemText
+                  primary={t('file.clearRecentFiles')}
+                  slotProps={{
+                    primary: {
+                      variant: 'body2',
+                      color: 'text.secondary',
+                      textAlign: 'center',
+                    },
+                  }}
+                />
+              </MenuItem>
+            </Menu>
+          </Box>
+
+          {/* File Notes リスト */}
+          {(noteSearch
+            ? filteredFileNotes.length > 0
+            : fileNotes.length > 0) && (
+            <>
+              <NoteList
+                notes={noteSearch ? filteredFileNotes : fileNotes}
+                currentNote={isSplit ? leftFileNote : currentFileNote}
+                onNoteSelect={onNoteSelect}
+                allowReselect={showArchived}
+                onConvertToNote={onConvertToNote}
+                onSaveFile={onSaveFile}
+                onReorder={async (newNotes) => {
+                  setFileNotes(newNotes as FileNote[]);
+                }}
+                isFileMode={true}
+                onCloseFile={onCloseFile}
+                isFileModified={isFileModified}
+                platform={platform}
+                secondarySelectedNoteId={secondarySelectedNoteId}
+                onOpenInPane={onOpenInPane}
+                canSplit={canSplit}
+              />
+              <Divider />
+            </>
+          )}
+
+          {/* Notes ヘッダー */}
+          <Box
+            sx={{
+              height: 32,
+              justifyContent: 'center',
+              alignItems: 'center',
+              display: 'flex',
+              backgroundColor: 'action.disabledBackground',
+              position: 'relative',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+              m: 1,
+              mb: 0,
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              {t('app.notes')}{' '}
+              <Typography
+                component="span"
+                variant="caption"
+                sx={{
+                  fontWeight: 'normal',
+                  display: 'inline-block',
+                  ml: 1,
+                }}
+              >
+                {noteSearch
+                  ? filteredNotes.length
+                  : notes.filter((note) => !note.archived).length}
+              </Typography>
+            </Typography>
+            <Tooltip title={t('app.newFolder')} arrow placement="bottom">
+              <IconButton
+                sx={{ position: 'absolute', right: 4 }}
+                onClick={async () => {
+                  const folder = await onCreateFolder(t('app.newFolder'));
+                  setEditingFolderId(folder.id);
+                }}
+              >
+                <CreateNewFolder sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          {/* Notes リスト */}
+          <NoteList
+            notes={noteSearch ? filteredNotes : notes}
+            currentNote={isSplit ? leftNote : currentNote}
+            onNoteSelect={onNoteSelect}
+            allowReselect={showArchived}
+            onArchive={onArchive}
+            onReorder={async (newNotes) => {
+              setNotes(newNotes as Note[]);
+            }}
+            platform={platform}
+            folders={folders}
+            collapsedFolders={collapsedFolders}
+            onToggleFolderCollapse={onToggleFolderCollapse}
+            onMoveNoteToFolder={onMoveNoteToFolder}
+            onRenameFolder={onRenameFolder}
+            onDeleteFolder={onDeleteFolder}
+            onArchiveFolder={onArchiveFolder}
+            editingFolderId={editingFolderId}
+            onEditingFolderDone={() => setEditingFolderId(null)}
+            topLevelOrder={topLevelOrder}
+            onUpdateTopLevelOrder={onUpdateTopLevelOrder}
+            secondarySelectedNoteId={secondarySelectedNoteId}
+            onOpenInPane={onOpenInPane}
+            canSplit={canSplit}
+            onDropFileNoteToNotes={onDropFileNoteToNotes}
+          />
+        </SimpleBar>
+      </Box>
+
+      {/* Archive ボタン */}
+      <Button
+        fullWidth
+        disabled={archivedCount === 0 && !hasArchivedFolders}
+        sx={{
+          mt: 'auto',
+          borderRadius: 0,
+          borderTop: 1,
+          borderColor: 'divider',
+          zIndex: 1000,
+          backgroundColor: 'background.paper',
+          '&:hover': { backgroundColor: 'action.hover' },
+        }}
+        onClick={onToggleShowArchived}
+        startIcon={<Inventory />}
+      >
+        {t('app.archives')} {archivedCount ? `(${archivedCount})` : ''}
+      </Button>
+    </Box>
+  );
+};

@@ -1,3 +1,11 @@
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
+import { useTranslation } from 'react-i18next';
 import { Logout, Settings } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
@@ -13,11 +21,11 @@ import {
   Typography,
 } from '@mui/material';
 import { keyframes } from '@mui/system';
-import type { editor, IDisposable } from 'monaco-editor';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import SimpleBar from 'simplebar-react';
+
+import type { editor, IDisposable } from 'monaco-editor';
 import 'simplebar-react/dist/simplebar.min.css';
+
 import * as wailsRuntime from '../../wailsjs/runtime';
 import { useDriveSync } from '../hooks/useDriveSync';
 import { isMessageCode, translateMessageCode } from '../utils/messageCode';
@@ -31,7 +39,10 @@ const fadeAnimation = keyframes`
   100% { opacity: 1; }
 `;
 
+let logEntryId = 0;
+
 interface LogEntry {
+  id: number;
   message: string;
   timestamp: Date;
 }
@@ -132,15 +143,14 @@ export const EditorStatusBar = ({
 
   const [info, setInfo] = useState<string[]>(getEditorInfo());
 
-  // ref経由でgetEditorInfoを保持し、購読の再登録を防止
-  const getEditorInfoRef = useRef(getEditorInfo);
-  getEditorInfoRef.current = getEditorInfo;
+  // useEffectEvent経由でgetEditorInfoを参照し、購読の再登録を防止
+  const getEditorInfoEvent = useEffectEvent(() => getEditorInfo());
 
   useEffect(() => {
     const editor = editorInstanceRef?.current;
     if (!editor) return;
 
-    const update = () => setInfo(getEditorInfoRef.current());
+    const update = () => setInfo(getEditorInfoEvent());
     update();
 
     const disposables: IDisposable[] = [
@@ -157,10 +167,10 @@ export const EditorStatusBar = ({
     };
   }, [editorInstanceRef]);
 
-  // 言語切替時にステータスバーのテキストを更新
+  // 言語切替時にステータスバーのテキストを更新（getEditorInfoのidentity変化=t変化で再実行）
   useEffect(() => {
-    setInfo(getEditorInfoRef.current());
-  }, [t]);
+    setInfo(getEditorInfo());
+  }, [getEditorInfo]);
 
   const appendStatusMessage = useCallback((message: string) => {
     if (logTimeoutRef.current) {
@@ -171,7 +181,7 @@ export const EditorStatusBar = ({
     setOpacity(1);
 
     const history = messageHistoryRef.current;
-    history.push({ message, timestamp: new Date() });
+    history.push({ id: ++logEntryId, message, timestamp: new Date() });
     if (history.length > MAX_HISTORY) {
       history.splice(0, history.length - MAX_HISTORY);
     }
@@ -474,9 +484,9 @@ export const EditorStatusBar = ({
           }}
         >
           <List dense sx={{ py: 0 }}>
-            {messageHistoryRef.current.map((entry, index) => (
+            {messageHistoryRef.current.map((entry) => (
               <ListItem
-                key={`${entry.timestamp.getTime()}-${index}`}
+                key={entry.id}
                 sx={{
                   py: 0.25,
                   px: 2,
