@@ -74,7 +74,9 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       contentDisposable.dispose();
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [editorInstanceRef]);
+    // editorInstanceRefはRefオブジェクト（参照不変）のため実質マウント時のみ実行
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Box

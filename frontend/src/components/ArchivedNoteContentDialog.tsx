@@ -70,20 +70,23 @@ export const ArchivedNoteContentDialog: React.FC<
     [t],
   );
 
+  const noteId = note?.id ?? null;
+
   useEffect(() => {
-    if (!open || !note) {
+    if (!open || !noteId) {
       setContent('');
       return;
     }
     setLoading(true);
-    LoadArchivedNote(note.id)
+    LoadArchivedNote(noteId)
       .then((loaded) => {
         setContent(loaded?.content || '');
       })
       .catch(() => setContent(''))
       .finally(() => setLoading(false));
-  }, [open, note]);
+  }, [open, noteId]);
 
+  // エディタの生成・破棄（open/isDarkModeの変化時のみ）
   useEffect(() => {
     if (!open || loading || !containerRef.current) return;
 
@@ -107,7 +110,25 @@ export const ArchivedNoteContentDialog: React.FC<
       editor.dispose();
       editorRef.current = null;
     };
-  }, [open, loading, content, note?.language, isDarkMode]);
+    // content/note?.languageは下のuseEffectでmodel経由で更新するため、ここでは依存に含めない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, loading, isDarkMode]);
+
+  // コンテンツ・言語の変化はmodelを直接更新（エディタ再生成を回避）
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const model = editor.getModel();
+    if (!model) return;
+
+    if (model.getValue() !== content) {
+      model.setValue(content);
+    }
+    const lang = note?.language || 'plaintext';
+    if (model.getLanguageId() !== lang) {
+      monaco.editor.setModelLanguage(model, lang);
+    }
+  }, [content, note?.language]);
 
   const handleRestore = () => {
     if (note) {

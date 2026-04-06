@@ -92,6 +92,7 @@ function App() {
   const closeFileRef = useRef<(file: FileNote) => Promise<void>>(
     async () => {},
   );
+  const addRecentFileRef = useRef<((filePath: string) => void) | null>(null);
   const settingsOpenCountRef = useRef(0);
 
   const leftEditorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(
@@ -231,6 +232,7 @@ function App() {
       handleSaveFileNotes,
       isSplitRef,
       openNoteInPaneRef,
+      addRecentFileRef,
     );
 
   // ノート分割管理
@@ -299,6 +301,7 @@ function App() {
       handleOpenFileByPath,
       showMessage,
     });
+  addRecentFileRef.current = addRecentFile;
 
   // 検索
   const {

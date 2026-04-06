@@ -85,6 +85,7 @@ describe('useFileOperations', () => {
   const mockHandleSaveFileNotes = vi.fn();
   const mockIsSplitRef = { current: false };
   const mockOpenNoteInPaneRef = { current: null };
+  const mockAddRecentFileRef = { current: vi.fn() };
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -118,6 +119,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -149,6 +151,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -176,6 +179,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -215,6 +219,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -244,6 +249,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -275,6 +281,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -307,6 +314,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -341,6 +349,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -370,6 +379,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -401,6 +411,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -428,6 +439,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -461,6 +473,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -490,6 +503,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -521,6 +535,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -550,6 +565,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -586,6 +602,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 
@@ -620,6 +637,7 @@ describe('useFileOperations', () => {
           mockHandleSaveFileNotes,
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
         ),
       );
 

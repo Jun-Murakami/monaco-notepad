@@ -44,6 +44,7 @@ export function useFileOperations(
   openNoteInPaneRef: React.RefObject<
     ((note: Note | FileNote, pane: 'left' | 'right') => void) | null
   >,
+  addRecentFileRef: React.RefObject<((filePath: string) => void) | null>,
 ) {
   // ファイルを開く共通処理
   const createFileNote = useCallback(
@@ -126,6 +127,7 @@ export function useFileOperations(
       const updatedFileNotes = [newFileNote, ...fileNotes];
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
+      addRecentFileRef.current?.(filePath);
       await handleSelecAnyNote(newFileNote);
     } catch (error) {
       console.error('Failed to open file:', error);
@@ -160,6 +162,7 @@ export function useFileOperations(
         const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
         setFileNotesRef.current(updatedFileNotes);
         await handleSaveFileNotesRef.current(updatedFileNotes);
+        addRecentFileRef.current?.(filePath);
 
         if (targetPane && isSplitRef.current && openNoteInPaneRef.current) {
           openNoteInPaneRef.current(newFileNote, targetPane);
@@ -170,7 +173,7 @@ export function useFileOperations(
         console.error('Failed to handle dropped file:', error);
       }
     },
-    [createFileNote, isSplitRef, openNoteInPaneRef],
+    [createFileNote, isSplitRef, openNoteInPaneRef, addRecentFileRef],
   );
 
   // パスを指定してファイルを開く（最近開いたファイル用）
@@ -198,6 +201,7 @@ export function useFileOperations(
       const updatedFileNotes = [newFileNote, ...fileNotes];
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
+      addRecentFileRef.current?.(filePath);
       await handleSelecAnyNote(newFileNote);
     } catch (error) {
       console.error('Failed to open file by path:', error);
@@ -304,6 +308,7 @@ export function useFileOperations(
         const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
         setFileNotesRef.current(updatedFileNotes);
         await handleSaveFileNotesRef.current(updatedFileNotes);
+        addRecentFileRef.current?.(data.path);
 
         if (isSplitRef.current && openNoteInPaneRef.current) {
           openNoteInPaneRef.current(newFileNote, 'left');

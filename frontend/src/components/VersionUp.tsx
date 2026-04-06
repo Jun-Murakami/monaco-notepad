@@ -38,29 +38,37 @@ export const VersionUp = () => {
   const [dialogOpen, setDialogOpen] = useState<boolean>(false);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchVersion = async () => {
       try {
         const ver = await GetAppVersion();
 
         const response = await fetch(repoUrl);
         const data = await response.json();
+        if (cancelled) return;
         if (!data) {
           await Console('App version data not found', []);
           return;
         }
 
         const latestVersion = data.tag_name.replace('v', '');
+        if (cancelled) return;
         setVersion(latestVersion);
         if (compareVersions(latestVersion, ver) > 0) {
           setShowChip(true);
         } else {
-			await Console(`Latest version: ${latestVersion} (current: ${ver})`, []);
+          await Console(`Latest version: ${latestVersion} (current: ${ver})`, []);
         }
       } catch (error) {
-        await Console('Failed to get version', [error]);
+        if (!cancelled) {
+          await Console('Failed to get version', [error]);
+        }
       }
     };
     fetchVersion();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleClick = () => {

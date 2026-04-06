@@ -155,7 +155,9 @@ export const EditorStatusBar = ({
         d.dispose();
       }
     };
-  }, [editorInstanceRef]);
+    // editorInstanceRefはRefオブジェクト（参照不変）のため実質マウント時のみ実行
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 言語切替時にステータスバーのテキストを更新
   useEffect(() => {

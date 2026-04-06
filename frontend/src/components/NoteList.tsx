@@ -562,8 +562,9 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
     if (autoEdit) {
       setEditValue(folder.name);
       setIsEditing(true);
-      setTimeout(() => inputRef.current?.select(), 0);
+      const timerId = setTimeout(() => inputRef.current?.select(), 0);
       onAutoEditDone?.();
+      return () => clearTimeout(timerId);
     }
   }, [autoEdit, folder.name, onAutoEditDone]);
 
@@ -1818,6 +1819,22 @@ export const NoteList: React.FC<NoteListProps> = ({
     [activeNotes, archivedNotes, isFileMode, onDropFileNoteToNotes, onReorder],
   );
 
+  // ref経由で最新値を参照し、DnDモニターの再登録を防止
+  const activeNotesRef = useRef(activeNotes);
+  activeNotesRef.current = activeNotes;
+  const resolveHoverStateRef = useRef(resolveHoverState);
+  resolveHoverStateRef.current = resolveHoverState;
+  const handleFlatModeDropRef = useRef(handleFlatModeDrop);
+  handleFlatModeDropRef.current = handleFlatModeDrop;
+  const handleFolderModeDropRef = useRef(handleFolderModeDrop);
+  handleFolderModeDropRef.current = handleFolderModeDrop;
+  const isFolderModeRef = useRef(isFolderMode);
+  isFolderModeRef.current = isFolderMode;
+  const onNoteSelectRef = useRef(onNoteSelect);
+  onNoteSelectRef.current = onNoteSelect;
+  const onOpenInPaneRef = useRef(onOpenInPane);
+  onOpenInPaneRef.current = onOpenInPane;
+
   useEffect(() => {
     if (isTestEnv) return;
 
@@ -1826,7 +1843,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       onDragStart: ({ source, location }) => {
         const dragItem = readDragData(source.data);
         if (!dragItem) return;
-        const hover = resolveHoverState(location.current, dragItem);
+        const hover = resolveHoverStateRef.current(location.current, dragItem);
 
         setActiveDrag({
           item: dragItem,
@@ -1846,7 +1863,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               x: location.current.input.clientX,
               y: location.current.input.clientY,
             },
-            hover: resolveHoverState(location.current, prev.item),
+            hover: resolveHoverStateRef.current(location.current, prev.item),
           };
         });
       },
@@ -1859,7 +1876,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               x: location.current.input.clientX,
               y: location.current.input.clientY,
             },
-            hover: resolveHoverState(location.current, prev.item),
+            hover: resolveHoverStateRef.current(location.current, prev.item),
           };
         });
       },
@@ -1876,14 +1893,14 @@ export const NoteList: React.FC<NoteListProps> = ({
           location.current.input.clientY,
         );
         if (pane && dragItem.kind === 'note') {
-          const note = activeNotes.find(
+          const note = activeNotesRef.current.find(
             (value) => value.id === dragItem.noteId,
           );
           if (note) {
-            if (onOpenInPane) {
-              onOpenInPane(note, pane);
+            if (onOpenInPaneRef.current) {
+              onOpenInPaneRef.current(note, pane);
             } else {
-              void onNoteSelect(note);
+              void onNoteSelectRef.current(note);
             }
           }
           setActiveDrag(null);
@@ -1891,32 +1908,25 @@ export const NoteList: React.FC<NoteListProps> = ({
           return;
         }
 
-        const hover = resolveHoverState(location.current, dragItem);
+        const hover = resolveHoverStateRef.current(location.current, dragItem);
         if (!hover) {
           setActiveDrag(null);
           setNativePreview(null);
           return;
         }
 
-        if (isFolderMode) {
-          void handleFolderModeDrop(dragItem, hover);
+        if (isFolderModeRef.current) {
+          void handleFolderModeDropRef.current(dragItem, hover);
         } else {
-          void handleFlatModeDrop(dragItem, hover);
+          void handleFlatModeDropRef.current(dragItem, hover);
         }
 
         setActiveDrag(null);
         setNativePreview(null);
       },
     });
-  }, [
-    activeNotes,
-    handleFlatModeDrop,
-    handleFolderModeDrop,
-    isFolderMode,
-    onNoteSelect,
-    onOpenInPane,
-    resolveHoverState,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTestEnv]);
 
   useEffect(() => {
     if (!activeDrag) return;
