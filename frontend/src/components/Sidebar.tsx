@@ -7,8 +7,8 @@ import {
   Divider,
   IconButton,
   ListItemText,
-  Menu,
   MenuItem,
+  Popover,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -208,39 +208,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </IconButton>
               </Tooltip>
             )}
-            <Menu
+            <Popover
               anchorEl={recentFilesAnchorEl}
               open={Boolean(recentFilesAnchorEl)}
               onClose={() => setRecentFilesAnchorEl(null)}
               slotProps={{
                 paper: {
-                  sx: { maxHeight: 320, maxWidth: 360 },
+                  sx: {
+                    width: 420,
+                    overflow: 'hidden',
+                    '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before':
+                      {
+                        backgroundColor: 'text.secondary',
+                      },
+                  },
                 },
               }}
             >
-              {recentFiles.map((filePath) => (
-                <MenuItem
-                  key={filePath}
-                  onClick={async () => {
-                    setRecentFilesAnchorEl(null);
-                    await openRecentFile(filePath);
-                  }}
-                  sx={{ py: 0.5 }}
-                >
-                  <ListItemText
-                    primary={filePath.split(/[/\\]/).pop()}
-                    secondary={filePath}
-                    slotProps={{
-                      primary: { variant: 'body2', noWrap: true },
-                      secondary: {
-                        variant: 'caption',
-                        noWrap: true,
-                        sx: { opacity: 0.7 },
-                      },
+              <SimpleBar style={{ maxHeight: 320 }}>
+                {recentFiles.map((filePath) => (
+                  <MenuItem
+                    key={filePath}
+                    onClick={async () => {
+                      setRecentFilesAnchorEl(null);
+                      await openRecentFile(filePath);
                     }}
-                  />
-                </MenuItem>
-              ))}
+                    sx={{ py: 0.5 }}
+                  >
+                    <ListItemText
+                      primary={filePath.split(/[/\\]/).pop()}
+                      secondary={filePath}
+                      slotProps={{
+                        primary: { variant: 'body2', noWrap: true },
+                        secondary: {
+                          variant: 'caption',
+                          noWrap: true,
+                          sx: { opacity: 0.7 },
+                        },
+                      }}
+                    />
+                  </MenuItem>
+                ))}
+              </SimpleBar>
               <Divider />
               <MenuItem
                 onClick={async () => {
@@ -260,7 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                 />
               </MenuItem>
-            </Menu>
+            </Popover>
           </Box>
 
           {/* File Notes リスト */}
