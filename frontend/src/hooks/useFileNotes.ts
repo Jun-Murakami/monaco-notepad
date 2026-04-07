@@ -68,19 +68,27 @@ export const useFileNotes = ({
               modifiedTime: fileNote.modifiedTime,
             };
             setCurrentFileNote(newFileNote);
-            setFileNotes((prev) =>
-              prev.map((note) =>
-                note.id === fileNote.id ? newFileNote : note,
+            // fileNotesRef.currentで最新のファイルノート一覧を参照
+            // （awaitの後なのでrefはレンダー済みの最新値に同期されている）
+            const updatedFileNotes = fileNotesRef.current.map((note) =>
+              note.id === fileNote.id ? newFileNote : note,
+            );
+            setFileNotes(updatedFileNotes);
+            await SaveFileNotes(
+              updatedFileNotes.map((note) =>
+                backend.FileNote.createFrom(note),
               ),
             );
-            await SaveFileNotes([newFileNote]);
           } else {
             // ファイルノートを削除
-            const newFileNotes = fileNotes.filter(
+            // fileNotesRef.currentで最新のファイルノート一覧を参照
+            const newFileNotes = fileNotesRef.current.filter(
               (note) => note.id !== fileNote.id,
             );
             setFileNotes(newFileNotes);
-            await SaveFileNotes(newFileNotes);
+            await SaveFileNotes(
+              newFileNotes.map((note) => backend.FileNote.createFrom(note)),
+            );
 
             // 他のノートに切り替え
             if (newFileNotes.length > 0) {
@@ -138,14 +146,7 @@ export const useFileNotes = ({
         return false;
       }
     },
-    [
-      showMessage,
-      fileNotes,
-      notes,
-      handleSelectNote,
-      handleNewNote,
-      setCurrentNote,
-    ],
+    [showMessage, notes, handleSelectNote, handleNewNote, setCurrentNote],
   );
 
   // ファイルノートを保存したときの処理 ------------------------------------------------------------

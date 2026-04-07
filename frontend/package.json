@@ -8,6 +8,8 @@
     "generate-licenses": "node scripts/generate-licenses.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "lint": "biome check",
+    "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage"

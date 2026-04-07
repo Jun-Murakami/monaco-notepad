@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.unmock('../monaco');
+
 describe('lib/monaco language registration', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -7,8 +9,6 @@ describe('lib/monaco language registration', () => {
 
   it('基本言語contributionを読み込み、Markdownをサポート言語に含めること', async () => {
     let basicContributionLoaded = false;
-
-    vi.unmock('../monaco');
 
     vi.doMock('monaco-editor', () => ({
       editor: {
@@ -31,11 +31,7 @@ describe('lib/monaco language registration', () => {
     }));
 
     vi.doMock(
-      'monaco-editor/esm/vs/features/unicodeHighlighter/register.js',
-      () => ({}),
-    );
-    vi.doMock(
-      'monaco-editor/esm/vs/basic-languages/monaco.contribution.js',
+      'monaco-editor/esm/vs/basic-languages/_.contribution.js',
       () => {
         basicContributionLoaded = true;
         return {};

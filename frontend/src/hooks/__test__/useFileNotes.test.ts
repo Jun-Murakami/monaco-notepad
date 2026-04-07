@@ -81,6 +81,9 @@ describe('useFileNotes', () => {
     vi.useFakeTimers();
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mockProps.showMessage.mockResolvedValue(true);
+    // デフォルトではファイルが存在するものとする
+    mockCheckFileExists.mockResolvedValue(true);
+    mockCheckFileModified.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -429,6 +432,131 @@ describe('useFileNotes', () => {
       });
 
       expect(SaveFileNotes).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ファイルが見つからない場合', () => {
+    const fileNoteA: FileNote = {
+      id: 'a',
+      filePath: '/path/to/a.txt',
+      fileName: 'a.txt',
+      content: 'Content A',
+      originalContent: 'Content A',
+      language: 'plaintext',
+      modifiedTime: new Date().toISOString(),
+    };
+    const fileNoteB: FileNote = {
+      id: 'b',
+      filePath: '/path/to/b.txt',
+      fileName: 'b.txt',
+      content: 'Content B',
+      originalContent: 'Content B',
+      language: 'plaintext',
+      modifiedTime: new Date().toISOString(),
+    };
+    const fileNoteC: FileNote = {
+      id: 'c',
+      filePath: '/path/to/c.txt',
+      fileName: 'c.txt',
+      content: 'Content C',
+      originalContent: 'Content C',
+      language: 'plaintext',
+      modifiedTime: new Date().toISOString(),
+    };
+
+    it('「破棄」を選択した場合、該当ファイルのみ削除され他のファイルは残ること', async () => {
+      const { result } = renderHook(() => useFileNotes(mockProps));
+
+      // 3つのファイルノートをセット
+      await act(async () => {
+        result.current.setFileNotes([fileNoteA, fileNoteB, fileNoteC]);
+      });
+
+      // fileNoteBが見つからない → 「破棄」を選択
+      mockCheckFileExists.mockResolvedValue(false);
+      mockProps.showMessage.mockResolvedValueOnce(false); // 破棄
+
+      await act(async () => {
+        await result.current.handleSelectFileNote(fileNoteB);
+      });
+
+      // fileNoteBだけが削除され、A・Cが残る
+      expect(result.current.fileNotes).toHaveLength(2);
+      expect(result.current.fileNotes.map((f) => f.id)).toEqual(['a', 'c']);
+
+      // SaveFileNotesにも2件が渡される
+      expect(mockSaveFileNotes).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'a' }),
+          expect.objectContaining({ id: 'c' }),
+        ]),
+      );
+      const savedArg = mockSaveFileNotes.mock.calls.at(-1)?.[0] as FileNote[];
+      expect(savedArg).toHaveLength(2);
+    });
+
+    it('「破棄」後にファイルが残っている場合、先頭のファイルが選択されること', async () => {
+      const { result } = renderHook(() => useFileNotes(mockProps));
+
+      await act(async () => {
+        result.current.setFileNotes([fileNoteA, fileNoteB]);
+      });
+
+      mockCheckFileExists.mockResolvedValue(false);
+      mockProps.showMessage.mockResolvedValueOnce(false); // 破棄
+
+      await act(async () => {
+        await result.current.handleSelectFileNote(fileNoteA);
+      });
+
+      expect(result.current.currentFileNote?.id).toBe('b');
+    });
+
+    it('「破棄」で全ファイルがなくなった場合、通常ノートに切り替わること', async () => {
+      const { result } = renderHook(() => useFileNotes(mockProps));
+
+      await act(async () => {
+        result.current.setFileNotes([fileNoteA]);
+      });
+
+      mockCheckFileExists.mockResolvedValue(false);
+      mockProps.showMessage.mockResolvedValueOnce(false); // 破棄
+
+      await act(async () => {
+        await result.current.handleSelectFileNote(fileNoteA);
+      });
+
+      expect(result.current.fileNotes).toHaveLength(0);
+      expect(result.current.currentFileNote).toBeNull();
+      expect(mockProps.handleSelectNote).toHaveBeenCalledWith(mockNote);
+    });
+
+    it('「保持」を選択した場合、全ファイルノートが保存されること', async () => {
+      const { result } = renderHook(() => useFileNotes(mockProps));
+
+      await act(async () => {
+        result.current.setFileNotes([fileNoteA, fileNoteB, fileNoteC]);
+      });
+
+      // fileNoteBが見つからない → 「保持」を選択
+      mockCheckFileExists.mockResolvedValue(false);
+      mockProps.showMessage.mockResolvedValueOnce(true); // 保持
+
+      await act(async () => {
+        await result.current.handleSelectFileNote(fileNoteB);
+      });
+
+      // 3件すべてが残っている
+      expect(result.current.fileNotes).toHaveLength(3);
+
+      // 保持されたファイルのfilePathが空になる
+      const kept = result.current.fileNotes.find((f) => f.id === 'b');
+      expect(kept?.filePath).toBe('');
+      expect(kept?.originalContent).toBe('');
+
+      // SaveFileNotesに全3件が渡される
+      const savedArg = mockSaveFileNotes.mock.calls.at(-1)?.[0] as FileNote[];
+      expect(savedArg).toHaveLength(3);
     });
   });
 

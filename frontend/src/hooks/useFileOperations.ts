@@ -49,6 +49,7 @@ export function useFileOperations(
   addRecentFileRef: React.RefObject<
     ((filePath: string) => Promise<void>) | null
   >,
+  pendingContentRef: React.RefObject<string | null>,
 ) {
   // ファイルを開く共通処理
   const createFileNote = useCallback(
@@ -215,11 +216,14 @@ export function useFileOperations(
   // ファイルをエクスポートする
   const handleSaveAsFile = async () => {
     try {
-      if (
-        (!currentNote?.content || currentNote.content === '') &&
-        (!currentFileNote?.content || currentFileNote.content === '')
-      )
-        return;
+      // pendingContentRefから最新のコンテンツを取得（Noteのコンテンツ変更はpendingContentRefに
+      // 保持され、currentNote.contentには反映されないため）
+      const latestNoteContent = currentNote
+        ? (pendingContentRef.current ?? currentNote.content)
+        : null;
+      const latestContent = latestNoteContent || currentFileNote?.content;
+
+      if (!latestContent || latestContent === '') return;
 
       const saveNote = currentNote || currentFileNote;
       if (!saveNote) return;
@@ -231,9 +235,7 @@ export function useFileOperations(
       const filePath = await SelectSaveFileUri(title, extension);
       if (!filePath || Array.isArray(filePath)) return;
 
-      if (saveNote.content) {
-        await SaveFile(filePath, saveNote.content);
-      }
+      await SaveFile(filePath, latestContent);
     } catch (error) {
       console.error('Failed to save file:', error);
       runtime.EventsEmit('logMessage', i18n.t('file.saveAsFailed'));
@@ -245,13 +247,14 @@ export function useFileOperations(
     try {
       if (!fileNote.content) return;
       await SaveFile(fileNote.filePath, fileNote.content);
-      const updatedFileNote = {
-        ...fileNote,
-        originalContent: fileNote.content,
-        modifiedTime: new Date().toISOString(),
-      };
-      const updatedFileNotes = fileNotes.map((note) =>
-        note.id === updatedFileNote.id ? updatedFileNote : note,
+      const savedContent = fileNote.content;
+      const savedTime = new Date().toISOString();
+      // refから最新のfileNotesを取得して更新する（await中にユーザーが編集した場合、
+      // クロージャの古いfileNotesで上書きしてしまうのを防ぐ）
+      const updatedFileNotes = fileNotesRef.current.map((note) =>
+        note.id === fileNote.id
+          ? { ...note, originalContent: savedContent, modifiedTime: savedTime }
+          : note,
       );
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);

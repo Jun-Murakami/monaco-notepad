@@ -88,6 +88,7 @@ describe('useFileOperations', () => {
   const mockIsSplitRef = { current: false };
   const mockOpenNoteInPaneRef = { current: null };
   const mockAddRecentFileRef = { current: null };
+  const mockPendingContentRef = { current: null as string | null };
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -122,6 +123,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -154,6 +156,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -182,6 +185,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -222,6 +226,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -252,6 +257,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -284,6 +290,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -317,6 +324,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -352,6 +360,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -382,6 +391,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -414,6 +424,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -442,6 +453,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -476,6 +488,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -506,6 +519,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -538,6 +552,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -568,6 +583,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -605,6 +621,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 
@@ -640,6 +657,7 @@ describe('useFileOperations', () => {
           mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
+          mockPendingContentRef,
         ),
       );
 

@@ -142,6 +142,7 @@ function App() {
     handleDeleteArchivedFolder,
     handleUpdateArchivedTopLevelOrder,
     toggleFolderCollapse,
+    pendingContentRef,
   } = useNotes({
     onNotesReloaded: onNotesReloadedRef,
     isSplit: false,
@@ -202,6 +203,7 @@ function App() {
     isSplitRef,
     openNoteInPaneRef,
     addRecentFileRef,
+    pendingContentRef,
   );
 
   // ノート分割管理

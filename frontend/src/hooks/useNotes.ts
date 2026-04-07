@@ -758,5 +758,6 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     handleDeleteArchivedFolder,
     handleUpdateArchivedTopLevelOrder,
     toggleFolderCollapse,
+    pendingContentRef,
   };
 };
