@@ -86,12 +86,14 @@ export const useEditorSettings = () => {
           runtime.WindowSetPosition(settings.windowX, settings.windowY);
           runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
           if (settings.isMaximized) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
             runtime.WindowMaximise();
           }
         } else {
           runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
           runtime.WindowCenter();
           if (settings.isMaximized) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
             runtime.WindowMaximise();
           }
         }
