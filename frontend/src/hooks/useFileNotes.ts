@@ -14,6 +14,7 @@ import {
   SaveFileNotes,
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
+import * as runtime from '../../wailsjs/runtime';
 import i18n from '../i18n';
 
 import type { FileNote, Note } from '../types';
@@ -43,6 +44,9 @@ export const useFileNotes = ({
   const [currentFileNote, setCurrentFileNote] = useState<FileNote | null>(null);
   const currentFileNoteRef = useRef(currentFileNote);
   currentFileNoteRef.current = currentFileNote;
+
+  // BringToFront起因のフォーカスチェックを一時的に抑制するフラグ
+  const suppressFocusCheckRef = useRef(false);
 
   // ファイルの変更チェックとリロードの共通処理 ------------------------------------------------------------
   const checkAndReloadFile = useCallback(
@@ -131,12 +135,15 @@ export const useFileNotes = ({
               modifiedTime: modifiedTime.toString(),
             };
             setCurrentFileNote(newFileNote);
-            setFileNotes((prev) =>
-              prev.map((note) =>
-                note.id === fileNote.id ? newFileNote : note,
+            const updatedFileNotes = fileNotesRef.current.map((note) =>
+              note.id === fileNote.id ? newFileNote : note,
+            );
+            setFileNotes(updatedFileNotes);
+            await SaveFileNotes(
+              updatedFileNotes.map((note) =>
+                backend.FileNote.createFrom(note),
               ),
             );
-            await SaveFileNotes([newFileNote]);
             return true;
           }
         }
@@ -166,6 +173,10 @@ export const useFileNotes = ({
 
   // ウィンドウフォーカス時のファイル変更チェック（useEffectEvent経由で一度だけ登録） ------------------------------------------------------------
   const onFocusCheckFile = useEffectEvent(async () => {
+    if (suppressFocusCheckRef.current) {
+      suppressFocusCheckRef.current = false;
+      return;
+    }
     if (currentFileNoteRef.current) {
       await checkAndReloadFile(currentFileNoteRef.current);
     }
@@ -176,9 +187,22 @@ export const useFileNotes = ({
       onFocusCheckFile();
     };
 
+    // BringToFront起因のフォーカスチェック抑制イベントを受信
+    const cleanupSuppress = runtime.EventsOn(
+      'file:suppress-focus-check',
+      () => {
+        suppressFocusCheckRef.current = true;
+        // 安全のため、一定時間後に自動解除
+        setTimeout(() => {
+          suppressFocusCheckRef.current = false;
+        }, 3000);
+      },
+    );
+
     window.addEventListener('focus', handleFocus);
     return () => {
       window.removeEventListener('focus', handleFocus);
+      cleanupSuppress();
     };
   }, []);
 

@@ -94,6 +94,10 @@ export function InitializeDrive() {
   return window['go']['backend']['App']['InitializeDrive']();
 }
 
+export function IsWindowPositionValid(arg1, arg2, arg3, arg4) {
+  return window['go']['backend']['App']['IsWindowPositionValid'](arg1, arg2, arg3, arg4);
+}
+
 export function ListFolders() {
   return window['go']['backend']['App']['ListFolders']();
 }

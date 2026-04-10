@@ -50,6 +50,8 @@ export function GetTopLevelOrder():Promise<Array<backend.TopLevelItem>>;
 
 export function InitializeDrive():Promise<void>;
 
+export function IsWindowPositionValid(arg1:number,arg2:number,arg3:number,arg4:number):Promise<boolean>;
+
 export function ListFolders():Promise<Array<backend.Folder>>;
 
 export function ListNotes():Promise<Array<backend.Note>>;

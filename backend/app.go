@@ -236,6 +236,14 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 		return false
 	}
 
+	settings.IsMaximized = wailsRuntime.WindowIsMaximised(a.ctx.ctx)
+
+	// 最大化中は位置・サイズがモニター全体の値になるため、
+	// 一旦解除して通常時の値を取得する（終了直前なので視覚的影響なし）
+	if settings.IsMaximized {
+		wailsRuntime.WindowUnmaximise(a.ctx.ctx)
+	}
+
 	width, height := wailsRuntime.WindowGetSize(a.ctx.ctx)
 	settings.WindowWidth = width
 	settings.WindowHeight = height
@@ -243,8 +251,6 @@ func (a *App) BeforeClose(ctx context.Context) (prevent bool) {
 	x, y := wailsRuntime.WindowGetPosition(a.ctx.ctx)
 	settings.WindowX = x
 	settings.WindowY = y
-
-	settings.IsMaximized = wailsRuntime.WindowIsMaximised(a.ctx.ctx)
 
 	settings.LastActiveNoteId = a.lastActiveNoteId
 	settings.LastActiveNoteIsFile = a.lastActiveNoteIsFile
@@ -771,9 +777,21 @@ func (a *App) SaveWindowState(ctx *Context) error {
 }
 
 // ウィンドウを前面に表示する
+// フォーカスチェックの抑制イベントを先に発行し、BringToFront起因の
+// ウィンドウフォーカスで「外部で変更されました」ダイアログが出るのを防ぐ
 func (a *App) BringToFront() {
+	isMaximized := wailsRuntime.WindowIsMaximised(a.ctx.ctx)
+	wailsRuntime.EventsEmit(a.ctx.ctx, "file:suppress-focus-check")
 	wailsRuntime.WindowUnminimise(a.ctx.ctx)
 	wailsRuntime.Show(a.ctx.ctx)
+	if isMaximized {
+		wailsRuntime.WindowMaximise(a.ctx.ctx)
+	}
+}
+
+// 保存されたウィンドウ位置が現在のモニター配置で表示可能かを返す
+func (a *App) IsWindowPositionValid(x, y, width, height int) bool {
+	return isWindowPositionValid(x, y, width, height)
 }
 
 // アプリケーションのバージョンを返す

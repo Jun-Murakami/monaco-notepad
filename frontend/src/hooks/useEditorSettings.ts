@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import {
   GetSystemLocale,
+  IsWindowPositionValid,
   LoadSettings,
   SaveSettings,
 } from '../../wailsjs/go/backend/App';
@@ -73,10 +74,26 @@ export const useEditorSettings = () => {
         };
 
         // ウィンドウの位置とサイズを復元
-        runtime.WindowSetPosition(settings.windowX, settings.windowY);
-        runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
-        if (settings.isMaximized) {
-          runtime.WindowMaximise();
+        // マルチディスプレイで非プライマリモニター上で閉じた後、
+        // モニター配置が変わると画面外に配置されるのを防ぐ
+        const isValid = await IsWindowPositionValid(
+          settings.windowX,
+          settings.windowY,
+          settings.windowWidth,
+          settings.windowHeight,
+        );
+        if (isValid) {
+          runtime.WindowSetPosition(settings.windowX, settings.windowY);
+          runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
+          if (settings.isMaximized) {
+            runtime.WindowMaximise();
+          }
+        } else {
+          runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
+          runtime.WindowCenter();
+          if (settings.isMaximized) {
+            runtime.WindowMaximise();
+          }
         }
 
         const envinronment = await runtime.Environment();

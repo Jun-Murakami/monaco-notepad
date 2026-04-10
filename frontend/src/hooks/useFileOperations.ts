@@ -296,7 +296,20 @@ export function useFileOperations(
         (note) => note.filePath === data.path,
       );
       if (existingFile) {
-        await handleSelecAnyNoteRef.current(existingFile);
+        // 外部からの再オープン時はダイアログなしで最新内容に更新する
+        const modifiedTime = await GetModifiedTime(data.path);
+        const updatedFile: FileNote = {
+          ...existingFile,
+          content: data.content,
+          originalContent: data.sourceEncoding ? '' : data.content,
+          modifiedTime: modifiedTime.toString(),
+        };
+        const updatedFileNotes = fileNotesRef.current.map((note) =>
+          note.id === existingFile.id ? updatedFile : note,
+        );
+        setFileNotesRef.current(updatedFileNotes);
+        await handleSaveFileNotesRef.current(updatedFileNotes);
+        await handleSelecAnyNoteRef.current(updatedFile);
         return;
       }
 
