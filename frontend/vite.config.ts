@@ -1,9 +1,23 @@
 import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vite';
+
+function reactDevtoolsPlugin(): Plugin {
+  return {
+    name: 'react-devtools',
+    apply: 'serve',
+    transformIndexHtml(html) {
+      return html.replace(
+        '<head>',
+        '<head><script src="http://localhost:8097"></script>',
+      );
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [reactDevtoolsPlugin(), react()],
   build: {
     rollupOptions: {
       output: {

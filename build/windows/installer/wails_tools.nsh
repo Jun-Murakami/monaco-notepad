@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "Monaco Notepad"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "1.4.4"
+    !define INFO_PRODUCTVERSION "1.4.5"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "Copyright........."

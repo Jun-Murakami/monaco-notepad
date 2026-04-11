@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "devtools": "npx react-devtools",
     "generate-licenses": "node scripts/generate-licenses.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
