@@ -39,6 +39,7 @@ export const useDriveSync = (
   const [isMigrationDialogOpen, setIsMigrationDialogOpen] = useState(false);
   const syncStartTime = useRef<number | null>(null);
   const syncCheckInterval = useRef<NodeJS.Timeout | null>(null);
+  const hoverLockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleBackendReady = useCallback(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -112,8 +113,12 @@ export const useDriveSync = (
       if (status === 'synced') {
         setIsHoveringSync(false);
         setIsHoverLocked(true);
-        setTimeout(() => {
+        if (hoverLockTimer.current) {
+          clearTimeout(hoverLockTimer.current);
+        }
+        hoverLockTimer.current = setTimeout(() => {
           setIsHoverLocked(false);
+          hoverLockTimer.current = null;
         }, 500);
       }
     }
@@ -143,6 +148,10 @@ export const useDriveSync = (
       EventsOff('drive:error');
       EventsOff('drive:migration-needed');
       stopSyncMonitoring();
+      if (hoverLockTimer.current) {
+        clearTimeout(hoverLockTimer.current);
+        hoverLockTimer.current = null;
+      }
     };
   }, [handleBackendReady, handleSync, stopSyncMonitoring]);
 

@@ -559,23 +559,31 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
   onAutoEditDone,
 }) => {
   const { t } = useTranslation();
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(Boolean(autoEdit));
   const [editValue, setEditValue] = useState(folder.name);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const shouldSelectInputRef = useRef(Boolean(autoEdit));
+  const autoEditRef = useRef(autoEdit);
+  const onAutoEditDoneRef = useRef(onAutoEditDone);
+  autoEditRef.current = autoEdit;
+  onAutoEditDoneRef.current = onAutoEditDone;
 
-  useEffect(() => {
-    if (autoEdit) {
-      setEditValue(folder.name);
-      setIsEditing(true);
-      setTimeout(() => inputRef.current?.select(), 0);
-      onAutoEditDone?.();
+  const setInputElement = useCallback((node: HTMLInputElement | null) => {
+    if (!node) return;
+
+    if (autoEditRef.current) {
+      onAutoEditDoneRef.current?.();
     }
-  }, [autoEdit, folder.name, onAutoEditDone]);
+
+    if (autoEditRef.current || shouldSelectInputRef.current) {
+      shouldSelectInputRef.current = false;
+      requestAnimationFrame(() => node.select());
+    }
+  }, []);
 
   const handleStartEdit = () => {
     setEditValue(folder.name);
+    shouldSelectInputRef.current = true;
     setIsEditing(true);
-    setTimeout(() => inputRef.current?.select(), 0);
   };
 
   const handleFinishEdit = () => {
@@ -634,7 +642,7 @@ const FolderHeader: React.FC<FolderHeaderProps> = ({
       )}
       {isEditing ? (
         <InputBase
-          inputRef={inputRef}
+          inputRef={setInputElement}
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
           onBlur={handleFinishEdit}
@@ -2070,6 +2078,7 @@ export const NoteList: React.FC<NoteListProps> = ({
                 }}
               >
                 <FolderHeader
+                  key={`${row.folder.id}:${editingFolderId === row.folder.id ? 'auto-edit' : 'idle'}`}
                   folder={row.folder}
                   isCollapsed={row.isCollapsed || isDraggingThis}
                   onToggle={() => onToggleFolderCollapse?.(row.folder.id)}

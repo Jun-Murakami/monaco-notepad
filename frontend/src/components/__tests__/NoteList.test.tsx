@@ -229,6 +229,37 @@ describe('NoteList', () => {
     expect(screen.getByText('New Note')).toBeInTheDocument();
   });
 
+  it('新規フォルダ作成直後に自動で編集状態へ入ること', () => {
+    const onEditingFolderDone = vi.fn();
+    const folders: Folder[] = [{ id: 'f1', name: 'New Folder' }];
+    const folderNotes: Note[] = [
+      {
+        id: 'folder-note-1',
+        title: 'Inside Folder',
+        content: 'Content 1',
+        contentHeader: null,
+        language: 'typescript',
+        modifiedTime: '2024-01-01T10:00:00.000Z',
+        archived: false,
+        folderId: 'f1',
+      },
+    ];
+
+    render(
+      <NoteList
+        {...defaultProps}
+        notes={folderNotes}
+        folders={folders}
+        editingFolderId="f1"
+        onEditingFolderDone={onEditingFolderDone}
+        topLevelOrder={[{ type: 'folder', id: 'f1' }]}
+      />,
+    );
+
+    expect(screen.getByDisplayValue('New Folder')).toBeInTheDocument();
+    expect(onEditingFolderDone).toHaveBeenCalledTimes(1);
+  });
+
   it('非ドラッグ時はフラットモードの末尾ドロップ領域を表示しないこと', () => {
     render(<NoteList {...defaultProps} />);
     const list = screen.getByRole('list');

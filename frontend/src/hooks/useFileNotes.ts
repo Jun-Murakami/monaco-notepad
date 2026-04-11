@@ -47,6 +47,9 @@ export const useFileNotes = ({
 
   // BringToFront起因のフォーカスチェックを一時的に抑制するフラグ
   const suppressFocusCheckRef = useRef(false);
+  const suppressFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // ファイルの変更チェックとリロードの共通処理 ------------------------------------------------------------
   const checkAndReloadFile = useCallback(
@@ -79,9 +82,7 @@ export const useFileNotes = ({
             );
             setFileNotes(updatedFileNotes);
             await SaveFileNotes(
-              updatedFileNotes.map((note) =>
-                backend.FileNote.createFrom(note),
-              ),
+              updatedFileNotes.map((note) => backend.FileNote.createFrom(note)),
             );
           } else {
             // ファイルノートを削除
@@ -140,9 +141,7 @@ export const useFileNotes = ({
             );
             setFileNotes(updatedFileNotes);
             await SaveFileNotes(
-              updatedFileNotes.map((note) =>
-                backend.FileNote.createFrom(note),
-              ),
+              updatedFileNotes.map((note) => backend.FileNote.createFrom(note)),
             );
             return true;
           }
@@ -193,8 +192,12 @@ export const useFileNotes = ({
       () => {
         suppressFocusCheckRef.current = true;
         // 安全のため、一定時間後に自動解除
-        setTimeout(() => {
+        if (suppressFocusTimerRef.current) {
+          clearTimeout(suppressFocusTimerRef.current);
+        }
+        suppressFocusTimerRef.current = setTimeout(() => {
           suppressFocusCheckRef.current = false;
+          suppressFocusTimerRef.current = null;
         }, 3000);
       },
     );
@@ -203,6 +206,10 @@ export const useFileNotes = ({
     return () => {
       window.removeEventListener('focus', handleFocus);
       cleanupSuppress();
+      if (suppressFocusTimerRef.current) {
+        clearTimeout(suppressFocusTimerRef.current);
+        suppressFocusTimerRef.current = null;
+      }
     };
   }, []);
 

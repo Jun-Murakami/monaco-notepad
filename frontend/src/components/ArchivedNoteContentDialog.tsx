@@ -52,10 +52,15 @@ export const ArchivedNoteContentDialog: React.FC<
   hasNext = false,
 }) => {
   const { t } = useTranslation();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerElement, setContainerElement] =
+    useState<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState('');
+
+  const handleContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setContainerElement(node);
+  }, []);
 
   const getNoteTitle = useCallback(
     (n: Note): { text: string; isFallback: boolean } => {
@@ -73,11 +78,13 @@ export const ArchivedNoteContentDialog: React.FC<
 
   useEffect(() => {
     if (!open || !note) {
+      setLoading(false);
       setContent('');
       return;
     }
     let cancelled = false;
     setLoading(true);
+    setContent('');
     LoadArchivedNote(note.id)
       .then((loaded) => {
         if (!cancelled) setContent(loaded?.content || '');
@@ -94,11 +101,11 @@ export const ArchivedNoteContentDialog: React.FC<
   }, [open, note]);
 
   useEffect(() => {
-    if (!open || loading || !containerRef.current) return;
+    if (!open || !containerElement || editorRef.current) return;
 
-    const editor = monaco.editor.create(containerRef.current, {
-      value: content,
-      language: note?.language || 'plaintext',
+    const editor = monaco.editor.create(containerElement, {
+      value: '',
+      language: 'plaintext',
       readOnly: true,
       domReadOnly: true,
       fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
@@ -113,10 +120,32 @@ export const ArchivedNoteContentDialog: React.FC<
     editorRef.current = editor;
 
     return () => {
+      editor.getModel()?.dispose();
       editor.dispose();
       editorRef.current = null;
     };
-  }, [open, loading, note?.language, isDarkMode, content]);
+  }, [open, containerElement]);
+
+  useEffect(() => {
+    if (!open || !editorRef.current) return;
+
+    const model = editorRef.current.getModel();
+    if (!model) return;
+
+    if (model.getValue() !== content) {
+      model.setValue(content);
+    }
+
+    const nextLanguage = note?.language || 'plaintext';
+    if (model.getLanguageId() !== nextLanguage) {
+      monaco.editor.setModelLanguage(model, nextLanguage);
+    }
+  }, [open, note?.language, content]);
+
+  useEffect(() => {
+    if (!open || !editorRef.current) return;
+    monaco.editor.setTheme(isDarkMode ? 'vs-dark' : 'vs');
+  }, [open, isDarkMode]);
 
   const handleRestore = () => {
     if (note) {
@@ -171,20 +200,26 @@ export const ArchivedNoteContentDialog: React.FC<
         </IconButton>
       </DialogTitle>
       <DialogContent sx={{ p: 0 }}>
-        {loading ? (
+        <Box sx={{ position: 'relative', height: '60vh', width: '100%' }}>
           <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              height: '60vh',
-            }}
-          >
-            <CircularProgress />
-          </Box>
-        ) : (
-          <Box ref={containerRef} sx={{ height: '60vh', width: '100%' }} />
-        )}
+            ref={handleContainerRef}
+            sx={{ height: '100%', width: '100%' }}
+          />
+          {loading ? (
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: 'background.paper',
+              }}
+            >
+              <CircularProgress />
+            </Box>
+          ) : null}
+        </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 1.5 }}>
         <Button
