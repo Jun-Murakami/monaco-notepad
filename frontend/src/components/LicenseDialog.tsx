@@ -131,7 +131,7 @@ export const LicenseDialog: React.FC<LicenseDialogProps> = ({
             py: 2,
           }}
         >
-          <Typography variant="h5" fontWeight="bold">
+          <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
             Monaco Notepad
           </Typography>
           <Typography variant="body2" color="text.secondary">

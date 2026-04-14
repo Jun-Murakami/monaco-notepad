@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Logout, Settings } from '@mui/icons-material';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
@@ -143,14 +137,13 @@ export const EditorStatusBar = ({
 
   const [info, setInfo] = useState<string[]>(getEditorInfo());
 
-  // useEffectEvent経由でgetEditorInfoを参照し、購読の再登録を防止
-  const getEditorInfoEvent = useEffectEvent(() => getEditorInfo());
-
+  // エディタイベント購読 + 言語切替時の再計算を統合
+  // getEditorInfo が依存配列にあるため、t（翻訳関数）変更時にも再購読される
   useEffect(() => {
     const editor = editorInstanceRef?.current;
     if (!editor) return;
 
-    const update = () => setInfo(getEditorInfoEvent());
+    const update = () => setInfo(getEditorInfo());
     update();
 
     const disposables: IDisposable[] = [
@@ -165,12 +158,7 @@ export const EditorStatusBar = ({
         d.dispose();
       }
     };
-  }, [editorInstanceRef]);
-
-  // 言語切替時にステータスバーのテキストを更新（getEditorInfoのidentity変化=t変化で再実行）
-  useEffect(() => {
-    setInfo(getEditorInfo());
-  }, [getEditorInfo]);
+  }, [editorInstanceRef, getEditorInfo]);
 
   const appendStatusMessage = useCallback((message: string) => {
     if (logTimeoutRef.current) {

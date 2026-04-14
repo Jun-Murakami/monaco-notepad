@@ -11,6 +11,7 @@ import { EditorArea } from './components/EditorArea';
 import { MessageDialog } from './components/MessageDialog';
 import { insertTopLevelNote } from './components/NoteList';
 import { Sidebar } from './components/Sidebar';
+import { applyLanguageToEditor } from './stores/useEditorSettingsStore';
 
 import type { editor } from 'monaco-editor';
 
@@ -652,6 +653,10 @@ function App() {
 
   const TITLE_BAR_HEIGHT = platform === 'darwin' ? 26 : 0;
 
+  const handleToggleShowArchived = useCallback(() => {
+    setShowArchived((prev) => !prev);
+  }, [setShowArchived]);
+
   const handleSidebarSelectAnyNote = useCallback(
     async (note: Note | FileNote) => {
       if (showArchived) {
@@ -725,6 +730,8 @@ function App() {
       } else {
         handleLanguageChange(language);
       }
+      // ハンドラから直接Monacoに言語を適用（useEffect不要）
+      applyLanguageToEditor(leftEditorInstanceRef.current, language);
     },
     [
       isSplit,
@@ -794,6 +801,8 @@ function App() {
       } else if (rightFileNote) {
         setRightFileNote((prev) => (prev ? { ...prev, language } : prev));
       }
+      // ハンドラから直接Monacoに言語を適用（useEffect不要）
+      applyLanguageToEditor(rightEditorInstanceRef.current, language);
     },
     [rightNote, rightFileNote, handleRightNoteLanguageChange, setRightFileNote],
   );
@@ -854,8 +863,11 @@ function App() {
             <Typography
               variant="body2"
               color="text.secondary"
-              fontWeight="bold"
-              sx={{ userSelect: 'none', pointerEvents: 'none' }}
+              sx={{
+                fontWeight: 'bold',
+                userSelect: 'none',
+                pointerEvents: 'none',
+              }}
             >
               {t('app.titleBar')}
             </Typography>
@@ -942,7 +954,7 @@ function App() {
                 openRecentFile={openRecentFile}
                 clearRecentFiles={clearRecentFiles}
                 showArchived={showArchived}
-                onToggleShowArchived={() => setShowArchived((prev) => !prev)}
+                onToggleShowArchived={handleToggleShowArchived}
                 setNotes={setNotes}
                 setFileNotes={setFileNotes}
               />
@@ -975,7 +987,6 @@ function App() {
                 onMoveNoteToFolder={handleMoveNoteToFolder}
                 isSplit={isSplit}
                 isMarkdownPreview={isMarkdownPreview}
-                settings={editorSettings}
                 getAllotmentSizes={getAllotmentSizes}
                 onAllotmentChange={handleEditorAllotmentChange}
                 languages={languages}

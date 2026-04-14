@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import {
   GetSystemLocale,
@@ -8,91 +8,77 @@ import {
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { changeLanguage } from '../i18n';
+import {
+  applySettingsToAllEditors,
+  useEditorSettingsStore,
+} from '../stores/useEditorSettingsStore';
 import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../types';
 
 export const useEditorSettings = () => {
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [editorSettings, setEditorSettings] = useState<Settings>({
-    fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
-    fontSize: 14,
-    isDarkMode: false,
-    editorTheme: 'default',
-    wordWrap: 'off',
-    minimap: true,
-    windowWidth: 800,
-    windowHeight: 600,
-    windowX: 0,
-    windowY: 0,
-    isMaximized: false,
-    isDebug: false,
-    enableConflictBackup: true,
-    markdownPreviewOnLeft: false,
-    uiLanguage: 'system',
-  });
-  const [isInitialized, setIsInitialized] = useState(false);
+  const settings = useEditorSettingsStore((s) => s.settings);
+  const isInitialized = useEditorSettingsStore((s) => s.isInitialized);
+  const setSettings = useEditorSettingsStore((s) => s.setSettings);
+  const setInitialized = useEditorSettingsStore((s) => s.setInitialized);
 
   // 初期設定の読み込み
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const settings = await LoadSettings();
+        const loaded = await LoadSettings();
 
         // 言語設定の解決
         let resolvedLanguage: 'en' | 'ja';
-        if (settings.uiLanguage === 'system' || !settings.uiLanguage) {
+        if (loaded.uiLanguage === 'system' || !loaded.uiLanguage) {
           const systemLocale = await GetSystemLocale();
           resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
         } else {
-          resolvedLanguage = settings.uiLanguage as 'en' | 'ja';
+          resolvedLanguage = loaded.uiLanguage as 'en' | 'ja';
         }
 
         // i18nの言語を設定
         await changeLanguage(resolvedLanguage);
 
         const editorSettings: Settings = {
-          fontFamily: settings.fontFamily || DEFAULT_EDITOR_FONT_FAMILY,
-          fontSize: settings.fontSize,
-          isDarkMode: settings.isDarkMode,
-          editorTheme: settings.editorTheme || 'default',
-          wordWrap: settings.wordWrap,
-          minimap: settings.minimap,
-          windowWidth: settings.windowWidth,
-          windowHeight: settings.windowHeight,
-          windowX: settings.windowX,
-          windowY: settings.windowY,
-          isMaximized: settings.isMaximized,
-          isDebug: settings.isDebug,
-          enableConflictBackup: settings.enableConflictBackup ?? true,
-          markdownPreviewOnLeft: settings.markdownPreviewOnLeft ?? false,
-          sidebarWidth: settings.sidebarWidth,
-          splitPaneSize: settings.splitPaneSize,
-          markdownPreviewPaneSize: settings.markdownPreviewPaneSize,
-          markdownPreviewVisible: settings.markdownPreviewVisible,
-          isSplit: settings.isSplit,
-          uiLanguage:
-            (settings.uiLanguage as Settings['uiLanguage']) || 'system',
+          fontFamily: loaded.fontFamily || DEFAULT_EDITOR_FONT_FAMILY,
+          fontSize: loaded.fontSize,
+          isDarkMode: loaded.isDarkMode,
+          editorTheme: loaded.editorTheme || 'default',
+          wordWrap: loaded.wordWrap,
+          minimap: loaded.minimap,
+          windowWidth: loaded.windowWidth,
+          windowHeight: loaded.windowHeight,
+          windowX: loaded.windowX,
+          windowY: loaded.windowY,
+          isMaximized: loaded.isMaximized,
+          isDebug: loaded.isDebug,
+          enableConflictBackup: loaded.enableConflictBackup ?? true,
+          markdownPreviewOnLeft: loaded.markdownPreviewOnLeft ?? false,
+          sidebarWidth: loaded.sidebarWidth,
+          splitPaneSize: loaded.splitPaneSize,
+          markdownPreviewPaneSize: loaded.markdownPreviewPaneSize,
+          markdownPreviewVisible: loaded.markdownPreviewVisible,
+          isSplit: loaded.isSplit,
+          uiLanguage: (loaded.uiLanguage as Settings['uiLanguage']) || 'system',
         };
 
         // ウィンドウの位置とサイズを復元
-        // マルチディスプレイで非プライマリモニター上で閉じた後、
-        // モニター配置が変わると画面外に配置されるのを防ぐ
         const isValid = await IsWindowPositionValid(
-          settings.windowX,
-          settings.windowY,
-          settings.windowWidth,
-          settings.windowHeight,
+          loaded.windowX,
+          loaded.windowY,
+          loaded.windowWidth,
+          loaded.windowHeight,
         );
         if (isValid) {
-          runtime.WindowSetPosition(settings.windowX, settings.windowY);
-          runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
-          if (settings.isMaximized) {
+          runtime.WindowSetPosition(loaded.windowX, loaded.windowY);
+          runtime.WindowSetSize(loaded.windowWidth, loaded.windowHeight);
+          if (loaded.isMaximized) {
             await new Promise((resolve) => setTimeout(resolve, 50));
             runtime.WindowMaximise();
           }
         } else {
-          runtime.WindowSetSize(settings.windowWidth, settings.windowHeight);
+          runtime.WindowSetSize(loaded.windowWidth, loaded.windowHeight);
           runtime.WindowCenter();
-          if (settings.isMaximized) {
+          if (loaded.isMaximized) {
             await new Promise((resolve) => setTimeout(resolve, 50));
             runtime.WindowMaximise();
           }
@@ -106,39 +92,25 @@ export const useEditorSettings = () => {
             runtime.WindowSetLightTheme();
           }
         }
-        setEditorSettings(editorSettings);
-        setIsInitialized(true);
+        setSettings(editorSettings);
+        setInitialized(true);
+
+        // 初期設定をエディタに適用（エディタがまだマウントされていない場合は何もしない）
+        applySettingsToAllEditors(editorSettings);
       } catch (error) {
         console.error('Failed to load settings:', error);
-        setIsInitialized(true);
+        setInitialized(true);
       }
     };
 
     loadSettings();
-  }, []);
+  }, [setSettings, setInitialized]);
 
-  const handleSettingsChange = async (newSettings: Settings) => {
-    // 言語が変更された場合はi18nも更新
-    if (newSettings.uiLanguage !== editorSettings.uiLanguage) {
-      let resolvedLanguage: 'en' | 'ja';
-      if (newSettings.uiLanguage === 'system') {
-        const systemLocale = await GetSystemLocale();
-        resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
-      } else {
-        resolvedLanguage = newSettings.uiLanguage as 'en' | 'ja';
-      }
-      await changeLanguage(resolvedLanguage);
-    }
-
-    setEditorSettings(newSettings);
-    setIsSettingsOpen(false);
-    SaveSettings(newSettings);
-  };
-
-  const handleSetEditorSettings = useCallback(
+  // 設定ダイアログから「保存」時に呼ばれるハンドラ
+  const handleSettingsChange = useCallback(
     async (newSettings: Settings) => {
       // 言語が変更された場合はi18nも更新
-      if (newSettings.uiLanguage !== editorSettings.uiLanguage) {
+      if (newSettings.uiLanguage !== settings.uiLanguage) {
         let resolvedLanguage: 'en' | 'ja';
         if (newSettings.uiLanguage === 'system') {
           const systemLocale = await GetSystemLocale();
@@ -149,18 +121,43 @@ export const useEditorSettings = () => {
         await changeLanguage(resolvedLanguage);
       }
 
-      setEditorSettings(newSettings);
+      setSettings(newSettings);
+      SaveSettings(newSettings);
+
+      // ハンドラから直接Monacoに適用（useEffect不要）
+      applySettingsToAllEditors(newSettings);
+    },
+    [settings.uiLanguage, setSettings],
+  );
+
+  // 設定のリアルタイムプレビュー用（SettingsDialogのonChange）
+  const handleSetEditorSettings = useCallback(
+    async (newSettings: Settings) => {
+      // 言語が変更された場合はi18nも更新
+      if (newSettings.uiLanguage !== settings.uiLanguage) {
+        let resolvedLanguage: 'en' | 'ja';
+        if (newSettings.uiLanguage === 'system') {
+          const systemLocale = await GetSystemLocale();
+          resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
+        } else {
+          resolvedLanguage = newSettings.uiLanguage as 'en' | 'ja';
+        }
+        await changeLanguage(resolvedLanguage);
+      }
+
+      setSettings(newSettings);
       if (isInitialized) {
         SaveSettings(newSettings);
       }
+
+      // ハンドラから直接Monacoに適用（useEffect不要）
+      applySettingsToAllEditors(newSettings);
     },
-    [isInitialized, editorSettings.uiLanguage],
+    [isInitialized, settings.uiLanguage, setSettings],
   );
 
   return {
-    isSettingsOpen,
-    setIsSettingsOpen,
-    editorSettings,
+    editorSettings: settings,
     setEditorSettings: handleSetEditorSettings,
     handleSettingsChange,
   };

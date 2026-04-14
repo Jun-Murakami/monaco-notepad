@@ -11,16 +11,19 @@ import {
 
 import {
   GetSystemLocale,
+  IsWindowPositionValid,
   LoadSettings,
   SaveSettings,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
+import { useEditorSettingsStore } from '../../stores/useEditorSettingsStore';
 import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../../types';
 import { useEditorSettings } from '../useEditorSettings';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({
   GetSystemLocale: vi.fn(),
+  IsWindowPositionValid: vi.fn().mockResolvedValue(true),
   LoadSettings: vi.fn(),
   SaveSettings: vi.fn(),
 }));
@@ -29,10 +32,22 @@ vi.mock('../../../wailsjs/runtime', () => ({
   WindowSetPosition: vi.fn(),
   WindowSetSize: vi.fn(),
   WindowMaximise: vi.fn(),
+  WindowCenter: vi.fn(),
   WindowSetDarkTheme: vi.fn(),
   WindowSetLightTheme: vi.fn(),
   Environment: vi.fn(),
 }));
+
+vi.mock('../../stores/useEditorSettingsStore', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('../../stores/useEditorSettingsStore')
+    >();
+  return {
+    ...actual,
+    applySettingsToAllEditors: vi.fn(),
+  };
+});
 
 describe('useEditorSettings フック', () => {
   const mockSettings: Settings = {
@@ -57,9 +72,31 @@ describe('useEditorSettings フック', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Zustandストアをリセット
+    useEditorSettingsStore.setState({
+      settings: {
+        fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
+        fontSize: 14,
+        isDarkMode: false,
+        editorTheme: 'default',
+        wordWrap: 'off',
+        minimap: true,
+        windowWidth: 800,
+        windowHeight: 600,
+        windowX: 0,
+        windowY: 0,
+        isMaximized: false,
+        isDebug: false,
+        enableConflictBackup: true,
+        markdownPreviewOnLeft: false,
+        uiLanguage: 'system',
+      },
+      isInitialized: false,
+    });
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     (LoadSettings as unknown as Mock).mockResolvedValue(mockSettings);
     (GetSystemLocale as unknown as Mock).mockResolvedValue('en-US');
+    (IsWindowPositionValid as unknown as Mock).mockResolvedValue(true);
     (runtime.Environment as unknown as Mock).mockResolvedValue({
       platform: 'windows',
     });
@@ -94,7 +131,7 @@ describe('useEditorSettings フック', () => {
 
       // 非同期処理の完了を待つ
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       });
 
       expect(result.current.editorSettings).toEqual(mockSettings);
@@ -149,7 +186,7 @@ describe('useEditorSettings フック', () => {
 
       // 非同期処理の完了を待つ
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       });
 
       expect(result.current.editorSettings).toEqual(mockSettings);
@@ -165,28 +202,7 @@ describe('useEditorSettings フック', () => {
       });
 
       expect(result.current.editorSettings).toEqual(newSettings);
-      expect(result.current.isSettingsOpen).toBe(false);
       expect(SaveSettings).toHaveBeenCalledWith(newSettings);
-    });
-  });
-
-  describe('設定ダイアログの制御', () => {
-    it('ダイアログの開閉状態が正しく制御されること', async () => {
-      const { result } = renderHook(() => useEditorSettings());
-
-      expect(result.current.isSettingsOpen).toBe(false);
-
-      await act(async () => {
-        result.current.setIsSettingsOpen(true);
-      });
-
-      expect(result.current.isSettingsOpen).toBe(true);
-
-      await act(async () => {
-        result.current.setIsSettingsOpen(false);
-      });
-
-      expect(result.current.isSettingsOpen).toBe(false);
     });
   });
 });

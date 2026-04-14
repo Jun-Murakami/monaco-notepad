@@ -108,7 +108,7 @@ wails dev          # ホットリロード付き開発サーバー
 
 ### TypeScript / React
 - **ビジネスロジックの分離**: コンポーネント内にはUIのみを記述し、ロジックはカスタム hook に集約する。
-- **Props Drilling**: 状態管理ライブラリ（Redux/Zustand等）は使用せず、`App.tsx` から props で各コンポーネントへ渡す。
+- **状態管理**: エディタ設定（`Settings`）は Zustand ストア（`useEditorSettingsStore`）で管理。それ以外の状態は `App.tsx` から props で各コンポーネントへ渡す。
 - **Biome**: リンターおよびフォーマッターとして Biome を使用する。
 - **型定義**: `types.ts` に集約。Wails自動生成型は `wailsjs/go/models.ts`。
 - **インデント**: タブ。

@@ -9,8 +9,36 @@ import {
   disposeEditorInstance,
   getMonaco,
 } from '../../lib/monaco';
-import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../../types';
+import { DEFAULT_EDITOR_FONT_FAMILY } from '../../types';
 import { Editor } from '../Editor';
+
+// Zustandストアのモック
+vi.mock('../../stores/useEditorSettingsStore', () => {
+  const mockSettings = {
+    fontFamily: 'Test Font',
+    fontSize: 14,
+    isDarkMode: false,
+    editorTheme: 'default',
+    wordWrap: 'off',
+    minimap: true,
+    windowWidth: 800,
+    windowHeight: 600,
+    windowX: 0,
+    windowY: 0,
+    isMaximized: false,
+    isDebug: false,
+    enableConflictBackup: true,
+    markdownPreviewOnLeft: false,
+  };
+  return {
+    useEditorSettingsStore: vi.fn(
+      (selector: (s: { settings: typeof mockSettings }) => unknown) =>
+        selector({ settings: mockSettings }),
+    ),
+    registerEditorRef: vi.fn(),
+    unregisterEditorRef: vi.fn(),
+  };
+});
 
 // lib/monacoのモック化をファイルの先頭で行う
 let changeContentCallback: (() => void) | null = null;
@@ -137,29 +165,11 @@ const getMockFunctions = () => {
 };
 
 describe('Editor', () => {
-  const mockSettings: Settings = {
-    fontFamily: 'Test Font',
-    fontSize: 14,
-    isDarkMode: false,
-    editorTheme: 'default',
-    wordWrap: 'off',
-    minimap: true,
-    windowWidth: 800,
-    windowHeight: 600,
-    windowX: 0,
-    windowY: 0,
-    isMaximized: false,
-    isDebug: false,
-    enableConflictBackup: true,
-    markdownPreviewOnLeft: false,
-  };
-
   const defaultProps = {
+    paneId: 'left',
     editorInstanceRef: { current: null },
     value: 'Test Content',
     onChange: vi.fn(),
-    language: 'typescript',
-    settings: mockSettings,
     platform: 'win32',
     currentNote: {
       id: '1',
@@ -219,35 +229,11 @@ describe('Editor', () => {
     );
   });
 
-  it('設定変更が反映されること', () => {
-    const { rerender } = render(<Editor {...defaultProps} />);
-    const { editor, monaco } = getMockFunctions();
+  // 設定変更テスト: Zustandストア経由でapplySettingsToAllEditors()が直接呼ばれるため、
+  // useEffectベースのテストは不要。ストア側のテストで検証する。
 
-    // ダークモードに変更
-    rerender(
-      <Editor
-        {...defaultProps}
-        settings={{ ...mockSettings, isDarkMode: true }}
-      />,
-    );
-
-    expect(monaco.editor.setTheme).toHaveBeenCalledWith('vs-dark');
-    expect(editor.updateOptions).toHaveBeenCalled();
-  });
-
-  it('言語変更が反映されること', () => {
-    const { rerender } = render(<Editor {...defaultProps} />);
-    const { editor, monaco } = getMockFunctions();
-    editor.getModel.mockReturnValue({});
-
-    // 言語を変更
-    rerender(<Editor {...defaultProps} language="javascript" />);
-
-    expect(monaco.editor.setModelLanguage).toHaveBeenCalledWith(
-      expect.any(Object),
-      'javascript',
-    );
-  });
+  // 言語変更テスト: applyLanguageToEditor()がハンドラから直接呼ばれるため、
+  // useEffectベースのテストは不要。ハンドラ側のテストで検証する。
 
   it('Windowsでのキーボードショートカットが正しく設定されること', () => {
     render(<Editor {...defaultProps} platform="win32" />);

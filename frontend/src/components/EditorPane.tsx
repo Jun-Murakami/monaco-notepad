@@ -5,7 +5,7 @@ import { PaneHeader } from './PaneHeader';
 
 import type { editor } from 'monaco-editor';
 import type { LanguageInfo } from '../lib/monaco';
-import type { FileNote, Note, Settings } from '../types';
+import type { FileNote, Note } from '../types';
 
 interface EditorPaneProps {
   paneId: 'left' | 'right';
@@ -13,7 +13,6 @@ interface EditorPaneProps {
   fileNote: FileNote | null;
   languages: LanguageInfo[];
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
-  settings: Settings;
   platform: string;
   // PaneHeader
   isSplit: boolean;
@@ -42,7 +41,6 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   fileNote,
   languages,
   editorInstanceRef,
-  settings,
   platform,
   isSplit,
   paneColor,
@@ -98,10 +96,9 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
       />
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <Editor
+          paneId={paneId}
           editorInstanceRef={editorInstanceRef}
           onChange={onChange}
-          language={note?.language || fileNote?.language || 'plaintext'}
-          settings={settings}
           platform={platform}
           currentNote={note || fileNote}
           searchKeyword={searchKeyword}

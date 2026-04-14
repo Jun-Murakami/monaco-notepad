@@ -31,6 +31,13 @@ vi.mock('../../../wailsjs/go/models', () => ({
   },
 }));
 
+// Wailsランタイムのモック
+vi.mock('../../../wailsjs/runtime', () => ({
+  EventsOn: vi.fn(() => vi.fn()),
+  EventsOff: vi.fn(),
+  EventsOnMultiple: vi.fn(() => vi.fn()),
+}));
+
 // モック関数の型付け
 const mockSaveFileNotes = SaveFileNotes as unknown as MockInstance<
   typeof SaveFileNotes

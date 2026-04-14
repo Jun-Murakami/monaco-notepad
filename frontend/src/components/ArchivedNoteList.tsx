@@ -1322,7 +1322,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
         <IconButton onClick={onClose} sx={{ ml: -1, width: 32, height: 32 }}>
           <ArrowBack />
         </IconButton>
-        <Typography variant="subtitle1" fontWeight={600}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
           {t('archived.title')}
         </Typography>
         <Box sx={{ flexGrow: 1 }} />

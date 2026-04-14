@@ -1,26 +1,20 @@
 import { useEffect, useEffectEvent, useRef } from 'react';
 import { Box } from '@mui/material';
 
+import { createEditor, disposeEditorInstance, getMonaco } from '../lib/monaco';
 import {
-  createEditor,
-  disposeEditorInstance,
-  getMonaco,
-  getThemePair,
-} from '../lib/monaco';
-import {
-  DEFAULT_EDITOR_FONT_FAMILY,
-  type FileNote,
-  type Note,
-  type Settings,
-} from '../types';
+  registerEditorRef,
+  unregisterEditorRef,
+  useEditorSettingsStore,
+} from '../stores/useEditorSettingsStore';
+import { DEFAULT_EDITOR_FONT_FAMILY, type FileNote, type Note } from '../types';
 
 import type { editor } from 'monaco-editor';
 
 interface EditorProps {
+  paneId: string;
   editorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
   onChange?: (value: string) => void;
-  language?: string;
-  settings: Settings;
   platform: string;
   currentNote: Note | FileNote | null;
   searchKeyword?: string;
@@ -36,10 +30,9 @@ interface EditorProps {
 }
 
 export const Editor: React.FC<EditorProps> = ({
+  paneId,
   editorInstanceRef,
   onChange,
-  language = 'plaintext',
-  settings,
   platform,
   currentNote,
   searchKeyword,
@@ -53,6 +46,7 @@ export const Editor: React.FC<EditorProps> = ({
   onSelectNext,
   onSelectPrevious,
 }) => {
+  const settings = useEditorSettingsStore((s) => s.settings);
   const editorRef = useRef<HTMLDivElement>(null);
 
   // useEffectEvent経由でコールバックを参照し、リスナーの再登録を防止
@@ -98,6 +92,9 @@ export const Editor: React.FC<EditorProps> = ({
     });
     editorInstanceRef.current = instance;
 
+    // ストアにエディタインスタンスを登録（ハンドラからのMonaco同期用）
+    registerEditorRef(paneId, editorInstanceRef);
+
     const focusDisposable = instance.onDidFocusEditorText(() => {
       onFocusEvent();
     });
@@ -108,12 +105,13 @@ export const Editor: React.FC<EditorProps> = ({
     });
 
     return () => {
+      unregisterEditorRef(paneId);
       focusDisposable.dispose();
       contentDisposable.dispose();
       disposeEditorInstance(instance);
       editorInstanceRef.current = null;
     };
-  }, [editorInstanceRef]);
+  }, [paneId, editorInstanceRef]);
 
   const currentNoteRef = useRef(currentNote);
   currentNoteRef.current = currentNote;
@@ -181,32 +179,8 @@ export const Editor: React.FC<EditorProps> = ({
     }
   }, [searchKeyword, searchMatchIndexInNote, currentNoteId, editorInstanceRef]);
 
-  useEffect(() => {
-    if (!editorInstanceRef.current) return;
-
-    const model = editorInstanceRef.current.getModel();
-    if (!model) return;
-
-    const monaco = getMonaco();
-    monaco.editor.setModelLanguage(model, language);
-  }, [language, editorInstanceRef]);
-
-  useEffect(() => {
-    if (editorInstanceRef.current) {
-      const monaco = getMonaco();
-      const pair = getThemePair(settings.editorTheme);
-      const themeName = settings.isDarkMode ? pair.dark : pair.light;
-      monaco.editor.setTheme(themeName);
-      editorInstanceRef.current.updateOptions({
-        fontFamily: settings.fontFamily,
-        fontSize: settings.fontSize,
-        wordWrap: settings.wordWrap === 'on' ? 'on' : 'off',
-        minimap: {
-          enabled: settings.minimap,
-        },
-      });
-    }
-  }, [settings, editorInstanceRef]);
+  // 【削除済み】settings → Monaco sync useEffect: applySettingsToAllEditors() がハンドラから直接呼ばれるため不要
+  // 【削除済み】language → Monaco sync useEffect: applyLanguageToEditor() がハンドラから直接呼ばれるため不要
 
   // キーボードコマンドの設定（一度だけ登録、useEffectEvent経由で最新コールバックを参照）
   useEffect(() => {

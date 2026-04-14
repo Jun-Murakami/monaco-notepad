@@ -79,9 +79,7 @@ export const useFileNotes = ({
             );
             setFileNotes(updatedFileNotes);
             await SaveFileNotes(
-              updatedFileNotes.map((note) =>
-                backend.FileNote.createFrom(note),
-              ),
+              updatedFileNotes.map((note) => backend.FileNote.createFrom(note)),
             );
           } else {
             // ファイルノートを削除
@@ -140,9 +138,7 @@ export const useFileNotes = ({
             );
             setFileNotes(updatedFileNotes);
             await SaveFileNotes(
-              updatedFileNotes.map((note) =>
-                backend.FileNote.createFrom(note),
-              ),
+              updatedFileNotes.map((note) => backend.FileNote.createFrom(note)),
             );
             return true;
           }

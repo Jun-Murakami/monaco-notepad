@@ -1,4 +1,5 @@
-import react from '@vitejs/plugin-react';
+import babelPlugin from '@rolldown/plugin-babel';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vite';
 
@@ -17,7 +18,13 @@ function reactDevtoolsPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [reactDevtoolsPlugin(), react()],
+  plugins: [
+    reactDevtoolsPlugin(),
+    react(),
+    babelPlugin({
+      presets: [reactCompilerPreset()],
+    }),
+  ],
   build: {
     rollupOptions: {
       output: {

@@ -2,12 +2,13 @@ import React, { Suspense } from 'react';
 import { Box } from '@mui/material';
 import { Allotment } from 'allotment';
 
+import { useEditorSettingsStore } from '../stores/useEditorSettingsStore';
 import { EditorPane } from './EditorPane';
 import { EditorStatusBar } from './EditorStatusBar';
 
 import type { editor } from 'monaco-editor';
 import type { LanguageInfo } from '../lib/monaco';
-import type { FileNote, Folder, Note, Settings, TopLevelItem } from '../types';
+import type { FileNote, Folder, Note, TopLevelItem } from '../types';
 
 // Lazy-loaded components
 const ArchivedNoteList = React.lazy(() =>
@@ -38,7 +39,6 @@ interface EditorAreaProps {
   // Split / Markdown
   isSplit: boolean;
   isMarkdownPreview: boolean;
-  settings: Settings;
   getAllotmentSizes: (
     isSplit: boolean,
     isMarkdownPreview: boolean,
@@ -105,7 +105,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
   onMoveNoteToFolder,
   isSplit,
   isMarkdownPreview,
-  settings,
   getAllotmentSizes,
   onAllotmentChange,
   languages,
@@ -142,6 +141,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
   currentNote,
   currentFileNote,
 }) => {
+  const settings = useEditorSettingsStore((s) => s.settings);
   const editorInstanceRef = leftEditorInstanceRef;
 
   return (
@@ -195,7 +195,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
               fileNote={isSplit ? leftFileNote : currentFileNote}
               languages={languages}
               editorInstanceRef={leftEditorInstanceRef}
-              settings={settings}
               platform={platform}
               isSplit={isSplit}
               paneColor="primary"
@@ -229,7 +228,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 fileNote={rightFileNote}
                 languages={languages}
                 editorInstanceRef={rightEditorInstanceRef}
-                settings={settings}
                 platform={platform}
                 isSplit={isSplit}
                 paneColor="secondary"

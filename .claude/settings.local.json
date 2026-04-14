@@ -28,7 +28,8 @@
       "WebFetch(domain:zenn.dev)",
       "Bash(npx vite:*)",
       "Skill(useeffect-guard)",
-      "Bash(npx biome:*)"
+      "Bash(npx biome:*)",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }

@@ -30,13 +30,10 @@ describe('lib/monaco language registration', () => {
       },
     }));
 
-    vi.doMock(
-      'monaco-editor/esm/vs/basic-languages/_.contribution.js',
-      () => {
-        basicContributionLoaded = true;
-        return {};
-      },
-    );
+    vi.doMock('monaco-editor/esm/vs/basic-languages/_.contribution.js', () => {
+      basicContributionLoaded = true;
+      return {};
+    });
     vi.doMock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({
       default: class MockWorker {},
     }));
