@@ -55,9 +55,14 @@ export const useFileNotes = ({
         // ファイルの存在チェックを追加
         const exists = await CheckFileExists(fileNote.filePath);
         if (!exists) {
+          const fileName =
+            fileNote.filePath.split(/[\\/]/).pop() || fileNote.filePath;
           const shouldKeep = await showMessage(
             i18n.t('file.notFoundTitle'),
-            i18n.t('file.notFoundMessage'),
+            i18n.t('file.notFoundMessage', {
+              fileName,
+              filePath: fileNote.filePath,
+            }),
             true,
             i18n.t('dialog.keep'),
             i18n.t('dialog.discard'),
@@ -115,9 +120,14 @@ export const useFileNotes = ({
           fileNote.modifiedTime,
         );
         if (isModified) {
+          const fileName =
+            fileNote.filePath.split(/[\\/]/).pop() || fileNote.filePath;
           const shouldReload = await showMessage(
             i18n.t('file.changedExternallyTitle'),
-            i18n.t('file.changedExternallyMessage'),
+            i18n.t('file.changedExternallyMessage', {
+              fileName,
+              filePath: fileNote.filePath,
+            }),
             true,
             i18n.t('dialog.reload'),
             i18n.t('dialog.keepCurrent'),

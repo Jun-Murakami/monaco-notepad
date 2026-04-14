@@ -107,9 +107,9 @@
   },
   "file": {
     "notFoundTitle": "ファイルが見つかりません",
-    "notFoundMessage": "このファイルは移動または削除されました。内容を未保存バッファとして保持しますか？",
+    "notFoundMessage": "「{{fileName}}」は移動または削除されました。内容を未保存バッファとして保持しますか？\n\nパス: {{filePath}}",
     "changedExternallyTitle": "ファイルが外部で変更されました",
-    "changedExternallyMessage": "このファイルはアプリ外で変更されました。再読み込みしますか？（エディタの未保存変更は失われます）",
+    "changedExternallyMessage": "「{{fileName}}」はアプリ外で変更されました。再読み込みしますか？（エディタの未保存変更は失われます）\n\nパス: {{filePath}}",
     "unsavedChangesTitle": "未保存の変更があります",
     "unsavedChangesMessage": "変更を破棄してファイルを閉じますか？",
     "encodingConverted": "文字コードを{{encoding}}からUTF-8に自動変換しました。保存すると文字コードがUTF-8に変更されます。",

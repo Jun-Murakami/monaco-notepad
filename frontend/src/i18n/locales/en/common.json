@@ -107,9 +107,9 @@
   },
   "file": {
     "notFoundTitle": "File not found",
-    "notFoundMessage": "This file was moved or deleted. Keep the content as an unsaved buffer?",
+    "notFoundMessage": "\"{{fileName}}\" was moved or deleted. Keep the content as an unsaved buffer?\n\nPath: {{filePath}}",
     "changedExternallyTitle": "File changed externally",
-    "changedExternallyMessage": "This file was modified outside the app. Reload? (Unsaved editor changes will be lost)",
+    "changedExternallyMessage": "\"{{fileName}}\" was modified outside the app. Reload? (Unsaved editor changes will be lost)\n\nPath: {{filePath}}",
     "unsavedChangesTitle": "Unsaved changes",
     "unsavedChangesMessage": "Discard changes and close the file?",
     "encodingConverted": "Encoding auto-converted from {{encoding}} to UTF-8. Saving will change the file encoding to UTF-8.",
