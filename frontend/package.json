@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.4.6",
+  "version": "1.4.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -45,6 +45,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.11",
     "@rolldown/plugin-babel": "^0.2.2",
+    "@testing-library/dom": "^10.0.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

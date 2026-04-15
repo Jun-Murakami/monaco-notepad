@@ -8,6 +8,7 @@ import {
   IconButton,
   ListItemText,
   MenuItem,
+  MenuList,
   Popover,
   Tooltip,
   Typography,
@@ -245,49 +246,53 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                 }}
               >
                 <SimpleBar style={{ maxHeight: 320 }}>
-                  {recentFiles.map((filePath) => (
-                    <MenuItem
-                      key={filePath}
-                      onClick={async () => {
-                        setRecentFilesAnchorEl(null);
-                        await openRecentFile(filePath);
-                      }}
-                      sx={{ py: 0.5 }}
-                    >
-                      <ListItemText
-                        primary={filePath.split(/[/\\]/).pop()}
-                        secondary={filePath}
-                        slotProps={{
-                          primary: { variant: 'body2', noWrap: true },
-                          secondary: {
-                            variant: 'caption',
-                            noWrap: true,
-                            sx: { opacity: 0.7 },
-                          },
+                  <MenuList disablePadding>
+                    {recentFiles.map((filePath) => (
+                      <MenuItem
+                        key={filePath}
+                        onClick={async () => {
+                          setRecentFilesAnchorEl(null);
+                          await openRecentFile(filePath);
                         }}
-                      />
-                    </MenuItem>
-                  ))}
+                        sx={{ py: 0.5 }}
+                      >
+                        <ListItemText
+                          primary={filePath.split(/[/\\]/).pop()}
+                          secondary={filePath}
+                          slotProps={{
+                            primary: { variant: 'body2', noWrap: true },
+                            secondary: {
+                              variant: 'caption',
+                              noWrap: true,
+                              sx: { opacity: 0.7 },
+                            },
+                          }}
+                        />
+                      </MenuItem>
+                    ))}
+                  </MenuList>
                 </SimpleBar>
                 <Divider />
-                <MenuItem
-                  onClick={async () => {
-                    setRecentFilesAnchorEl(null);
-                    await clearRecentFiles();
-                  }}
-                  sx={{ py: 0.5 }}
-                >
-                  <ListItemText
-                    primary={t('file.clearRecentFiles')}
-                    slotProps={{
-                      primary: {
-                        variant: 'body2',
-                        color: 'text.secondary',
-                        sx: { textAlign: 'center' },
-                      },
+                <MenuList disablePadding>
+                  <MenuItem
+                    onClick={async () => {
+                      setRecentFilesAnchorEl(null);
+                      await clearRecentFiles();
                     }}
-                  />
-                </MenuItem>
+                    sx={{ py: 0.5 }}
+                  >
+                    <ListItemText
+                      primary={t('file.clearRecentFiles')}
+                      slotProps={{
+                        primary: {
+                          variant: 'body2',
+                          color: 'text.secondary',
+                          sx: { textAlign: 'center' },
+                        },
+                      }}
+                    />
+                  </MenuItem>
+                </MenuList>
               </Popover>
             </Box>
 
