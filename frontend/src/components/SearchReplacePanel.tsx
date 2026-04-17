@@ -469,6 +469,16 @@ const OptionToggle: React.FC<{
         minWidth: 24,
         lineHeight: 1.4,
         border: 1,
+        // 選択時は MUI Button variant="contained" 相当の見た目にする（AppBar のボタンと統一）
+        '&.Mui-selected': {
+          backgroundColor: 'primary.main',
+          color: 'primary.contrastText',
+          borderColor: 'primary.main',
+        },
+        '&.Mui-selected:hover': {
+          backgroundColor: 'primary.dark',
+          borderColor: 'primary.dark',
+        },
       }}
     >
       {label}
