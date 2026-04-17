@@ -85,7 +85,7 @@
   "notes": {
     "loading": "Loading...",
     "newNote": "New Note",
-    "emptyNote": "Empty Note",
+    "emptyNote": "Untitled Note",
     "saveShortcut": "Save ({{shortcut}} + S)",
     "convertToNote": "Convert to Note",
     "closeShortcut": "Close ({{shortcut}} + W)",
