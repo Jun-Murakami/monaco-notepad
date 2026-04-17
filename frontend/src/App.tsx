@@ -975,6 +975,7 @@ function App() {
                   currentMatches: searchReplace.currentMatches,
                   currentMatchIndex: searchReplace.currentMatchIndex,
                   crossNoteResults: searchReplace.crossNoteResults,
+                  activeNoteId: getActiveNoteId(),
                   canUndo: searchReplace.canUndo,
                   canRedo: searchReplace.canRedo,
                   focusToken: searchReplace.focusToken,

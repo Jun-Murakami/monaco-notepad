@@ -46,6 +46,7 @@ interface SidebarProps {
     currentMatches: SearchMatch[];
     currentMatchIndex: number;
     crossNoteResults: NoteMatchGroup[];
+    activeNoteId: string | null;
     canUndo: boolean;
     canRedo: boolean;
     focusToken: number;
@@ -220,6 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(
           currentMatches={searchReplace.currentMatches}
           currentMatchIndex={searchReplace.currentMatchIndex}
           crossNoteResults={searchReplace.crossNoteResults}
+          activeNoteId={searchReplace.activeNoteId}
           canUndo={searchReplace.canUndo}
           canRedo={searchReplace.canRedo}
           focusToken={searchReplace.focusToken}

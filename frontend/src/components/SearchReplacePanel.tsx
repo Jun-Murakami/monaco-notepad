@@ -43,10 +43,12 @@ interface SearchReplacePanelProps {
   currentMatches: SearchMatch[];
   currentMatchIndex: number;
   crossNoteResults: NoteMatchGroup[];
+  // 現在フォーカスされているノートの ID。カウンタのグローバル位置計算に使う。
+  activeNoteId: string | null;
   canUndo: boolean;
   canRedo: boolean;
   focusToken: number;
-  // サイドバーの既存ノートリスト用に、絞り込み件数を右側バッジに出す
+  // 検索クエリが空のとき、サイドバー絞り込み件数をバッジに表示
   sidebarMatchCount: number;
   onSetQuery: (v: string) => void;
   onSetReplacement: (v: string) => void;
@@ -87,6 +89,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   currentMatches,
   currentMatchIndex,
   crossNoteResults,
+  activeNoteId,
   canUndo,
   canRedo,
   focusToken,
@@ -140,10 +143,22 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
     (s, g) => s + g.matches.length,
     0,
   );
-  // 現在ノートのヒット番号を主に見せ、横断ヒット総数を副次表示
+  // 全検索結果中のグローバル位置を算出。
+  // 現ノートグループより前のヒット数 + 現ノート内のインデックス。
+  let globalIndex = -1;
+  if (currentMatches.length > 0 && activeNoteId) {
+    let before = 0;
+    for (const group of crossNoteResults) {
+      if (group.noteId === activeNoteId) {
+        globalIndex = before + currentMatchIndex;
+        break;
+      }
+      before += group.matches.length;
+    }
+  }
   const matchBadge =
-    currentMatches.length > 0
-      ? `${currentMatchIndex + 1}/${currentMatches.length}`
+    globalIndex >= 0
+      ? `${globalIndex + 1}/${totalAllMatches}`
       : totalAllMatches > 0
         ? `0/${totalAllMatches}`
         : query
