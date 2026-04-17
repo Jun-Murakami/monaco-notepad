@@ -214,8 +214,10 @@ export const useSearchReplace = ({
   }, [options, query, patternError]);
 
   // クエリ／オプション変更時に再計算（query が空なら内部でデコレーション解除）
+  // タイピング中の連打でも決定版だけ走るよう debounce する
   useEffect(() => {
-    recomputeCurrentMatches();
+    const timer = setTimeout(() => recomputeCurrentMatches(), 150);
+    return () => clearTimeout(timer);
   }, [recomputeCurrentMatches]);
 
   // クエリが空になったらハイライト消去
@@ -240,7 +242,7 @@ export const useSearchReplace = ({
       if (!model) return;
       contentDisposable = model.onDidChangeContent(() => {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => recomputeCurrentMatches(), 120);
+        timer = setTimeout(() => recomputeCurrentMatches(), 250);
       });
     };
     attachToModel();
@@ -317,9 +319,11 @@ export const useSearchReplace = ({
     setCrossNoteResults(results);
   }, [options, query, patternError]);
 
-  // ノート横断検索は常時有効（UI にトグルを持たない）
+  // ノート横断検索は常時有効（UI にトグルを持たない）。
+  // 横断スキャンは件数が多いほど重いので、クエリ変更時は少し長めに debounce する。
   useEffect(() => {
-    recomputeCrossNoteMatches();
+    const timer = setTimeout(() => recomputeCrossNoteMatches(), 250);
+    return () => clearTimeout(timer);
   }, [recomputeCrossNoteMatches]);
 
   // --- ナビゲーション ---
