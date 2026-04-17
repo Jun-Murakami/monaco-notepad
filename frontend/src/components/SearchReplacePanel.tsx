@@ -452,7 +452,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
               </Tooltip>
             </Box>
           )}
-          <SimpleBar style={{ maxHeight: 240 }}>
+          <SimpleBar style={{ maxHeight: '50vh' }}>
             {crossNoteResults.map((group) => (
               <CrossNoteGroup
                 key={group.noteId}

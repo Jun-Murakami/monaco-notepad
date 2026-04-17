@@ -223,19 +223,36 @@ export const useSearchReplace = ({
     if (!query) clearDecorations();
   }, [query, clearDecorations]);
 
-  // エディタの内容が変わったら再計算（デバウンス）
+  // エディタ側の変化（内容変更 / モデル入替）に追随して再計算する。
+  // - onDidChangeContent: 入力中のタイピング（デバウンス）
+  // - onDidChangeModel: ノート切替時に、新しいモデルに対するリスナを張り直し、即時再計算
   useEffect(() => {
     const ed = getActiveEditorRef.current();
-    const model = ed?.getModel();
-    if (!ed || !model) return;
+    if (!ed) return;
+    let contentDisposable: { dispose: () => void } | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const dispose = model.onDidChangeContent(() => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => recomputeCurrentMatches(), 120);
+    const attachToModel = () => {
+      if (contentDisposable) {
+        contentDisposable.dispose();
+        contentDisposable = null;
+      }
+      const model = ed.getModel();
+      if (!model) return;
+      contentDisposable = model.onDidChangeContent(() => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => recomputeCurrentMatches(), 120);
+      });
+    };
+    attachToModel();
+    const modelDisposable = ed.onDidChangeModel(() => {
+      attachToModel();
+      // 切替直後に新しいモデルへハイライトが即時適用されるよう同期的に再計算
+      recomputeCurrentMatches();
     });
     return () => {
       if (timer) clearTimeout(timer);
-      dispose.dispose();
+      contentDisposable?.dispose();
+      modelDisposable.dispose();
     };
   }, [recomputeCurrentMatches]);
 
