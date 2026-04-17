@@ -6,15 +6,15 @@ import {
   KeyboardArrowDown,
   KeyboardArrowUp,
   Redo,
+  Search,
   Undo,
 } from '@mui/icons-material';
 import {
   Box,
-  Collapse,
   IconButton,
+  InputAdornment,
   InputBase,
   ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -28,7 +28,6 @@ import type {
 import type { SearchMatch } from '../utils/searchUtils';
 
 interface SearchReplacePanelProps {
-  isOpen: boolean;
   mode: SearchPanelMode;
   query: string;
   replacement: string;
@@ -41,13 +40,16 @@ interface SearchReplacePanelProps {
   crossNoteResults: NoteMatchGroup[];
   canUndo: boolean;
   canRedo: boolean;
+  focusToken: number;
+  // サイドバーの既存ノートリスト用に、絞り込み件数を右側バッジに出す
+  sidebarMatchCount: number;
   onSetQuery: (v: string) => void;
   onSetReplacement: (v: string) => void;
   onToggleCaseSensitive: () => void;
   onToggleWholeWord: () => void;
   onToggleUseRegex: () => void;
   onSetMode: (m: SearchPanelMode) => void;
-  onClose: () => void;
+  onClear: () => void;
   onFindNext: () => void;
   onFindPrevious: () => void;
   onReplaceCurrent: () => void;
@@ -59,8 +61,14 @@ interface SearchReplacePanelProps {
   onRedo: () => void;
 }
 
+const deriveMode = (replaceOn: boolean, allOn: boolean): SearchPanelMode => {
+  if (replaceOn && allOn) return 'replaceInAll';
+  if (replaceOn) return 'replace';
+  if (allOn) return 'findInAll';
+  return 'find';
+};
+
 export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
-  isOpen,
   mode,
   query,
   replacement,
@@ -73,13 +81,15 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   crossNoteResults,
   canUndo,
   canRedo,
+  focusToken,
+  sidebarMatchCount,
   onSetQuery,
   onSetReplacement,
   onToggleCaseSensitive,
   onToggleWholeWord,
   onToggleUseRegex,
   onSetMode,
-  onClose,
+  onClear,
   onFindNext,
   onFindPrevious,
   onReplaceCurrent,
@@ -93,18 +103,17 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   const { t } = useTranslation();
   const findInputRef = useRef<HTMLInputElement>(null);
 
-  const showReplace = mode === 'replace' || mode === 'replaceInAll';
-  const isAll = mode === 'findInAll' || mode === 'replaceInAll';
+  const replaceOn = mode === 'replace' || mode === 'replaceInAll';
+  const allOn = mode === 'findInAll' || mode === 'replaceInAll';
 
+  // 外部フォーカス要求に反応
   useEffect(() => {
-    if (isOpen) {
-      // 次のフレームで確実にフォーカス
-      requestAnimationFrame(() => {
-        findInputRef.current?.focus();
-        findInputRef.current?.select();
-      });
-    }
-  }, [isOpen]);
+    if (focusToken === 0) return;
+    requestAnimationFrame(() => {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    });
+  }, [focusToken]);
 
   const handleFindKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -114,344 +123,345 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
         else onFindNext();
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        onClear();
       }
     },
-    [onFindNext, onFindPrevious, onClose],
+    [onFindNext, onFindPrevious, onClear],
   );
 
-  const totalMatchCount = isAll
-    ? crossNoteResults.reduce((s, g) => s + g.matches.length, 0)
-    : currentMatches.length;
-  const matchBadge = isAll
-    ? `${totalMatchCount} in ${crossNoteResults.length}`
-    : totalMatchCount > 0
-      ? `${currentMatchIndex + 1}/${totalMatchCount}`
-      : '0/0';
-
-  const handleModeChange = useCallback(
-    (_: unknown, value: SearchPanelMode | null) => {
-      if (!value) return;
-      onSetMode(value);
-    },
-    [onSetMode],
+  const totalAllMatches = crossNoteResults.reduce(
+    (s, g) => s + g.matches.length,
+    0,
   );
+  const matchBadge = allOn
+    ? totalAllMatches > 0
+      ? `${totalAllMatches} / ${crossNoteResults.length}`
+      : '0'
+    : currentMatches.length > 0
+      ? `${currentMatchIndex + 1}/${currentMatches.length}`
+      : query
+        ? '0'
+        : `${sidebarMatchCount}`;
+
+  const toggleReplace = useCallback(() => {
+    onSetMode(deriveMode(!replaceOn, allOn));
+  }, [onSetMode, replaceOn, allOn]);
+  const toggleAll = useCallback(() => {
+    onSetMode(deriveMode(replaceOn, !allOn));
+  }, [onSetMode, replaceOn, allOn]);
+
+  const hasQuery = query.length > 0;
 
   return (
-    <Collapse in={isOpen} mountOnEnter unmountOnExit>
+    <Box
+      sx={{
+        borderBottom: 1,
+        borderColor: 'divider',
+        backgroundColor: 'background.paper',
+        display: 'flex',
+        flexDirection: 'column',
+        '& .app-search-match': {
+          backgroundColor: 'rgba(255, 193, 7, 0.30)',
+          border: '1px solid rgba(255, 193, 7, 0.45)',
+          borderRadius: '2px',
+          boxSizing: 'border-box',
+        },
+        '& .app-search-match-current': {
+          backgroundColor: 'rgba(255, 112, 67, 0.45)',
+          border: '1px solid rgba(255, 112, 67, 0.80)',
+          borderRadius: '2px',
+          boxSizing: 'border-box',
+        },
+      }}
+    >
+      {/* 検索行 */}
       <Box
         sx={{
-          borderBottom: 1,
-          borderColor: 'divider',
-          backgroundColor: 'background.paper',
-          p: 1,
+          px: 1,
+          py: 0.5,
           display: 'flex',
-          flexDirection: 'column',
-          gap: 0.5,
-          '& .app-search-match': {
-            backgroundColor: 'rgba(255, 193, 7, 0.30)',
-            border: '1px solid rgba(255, 193, 7, 0.45)',
-            borderRadius: '2px',
-            boxSizing: 'border-box',
-          },
-          '& .app-search-match-current': {
-            backgroundColor: 'rgba(255, 112, 67, 0.45)',
-            border: '1px solid rgba(255, 112, 67, 0.80)',
-            borderRadius: '2px',
-            boxSizing: 'border-box',
-          },
-        }}
-        // エディタ操作中にフォーカスが奪われないよう、パネル自体はマウスダウンで focus を保持
-        onMouseDown={(e) => {
-          // 入力系以外ではフォーカス奪取を抑止
-          if (
-            !(e.target instanceof HTMLInputElement) &&
-            !(e.target instanceof HTMLButtonElement)
-          ) {
-            e.preventDefault();
-          }
+          alignItems: 'center',
+          gap: 0.25,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={mode}
-            onChange={handleModeChange}
-            sx={{
-              '& .MuiToggleButton-root': { py: 0, px: 1, fontSize: '0.72rem' },
-            }}
-          >
-            <ToggleButton value="find">
-              {t('searchReplace.mode.find')}
-            </ToggleButton>
-            <ToggleButton value="replace">
-              {t('searchReplace.mode.replace')}
-            </ToggleButton>
-            <ToggleButton value="findInAll">
-              {t('searchReplace.mode.findInAll')}
-            </ToggleButton>
-            <ToggleButton value="replaceInAll">
-              {t('searchReplace.mode.replaceInAll')}
-            </ToggleButton>
-          </ToggleButtonGroup>
+        <InputBase
+          inputRef={findInputRef}
+          value={query}
+          onChange={(e) => onSetQuery(e.target.value)}
+          onKeyDown={handleFindKeyDown}
+          placeholder={t('search.placeholder')}
+          size="small"
+          sx={{
+            flexGrow: 1,
+            fontSize: '0.8rem',
+            border: 1,
+            borderColor: patternError ? 'error.main' : 'divider',
+            borderRadius: 1,
+            '& .MuiInputBase-input': {
+              py: 0.5,
+              px: 0.5,
+              fontFamily: useRegex ? 'monospace' : undefined,
+            },
+          }}
+          startAdornment={
+            <InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
+              <Search sx={{ fontSize: 16, color: 'text.secondary' }} />
+            </InputAdornment>
+          }
+          endAdornment={
+            hasQuery ? (
+              <InputAdornment position="end" sx={{ mr: 0.25 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: '0.7rem',
+                    color: patternError ? 'error.main' : 'text.secondary',
+                    whiteSpace: 'nowrap',
+                    minWidth: 36,
+                    textAlign: 'center',
+                  }}
+                >
+                  {patternError
+                    ? t('searchReplace.invalidPattern')
+                    : matchBadge}
+                </Box>
+                <IconButton
+                  size="small"
+                  onClick={onFindPrevious}
+                  disabled={currentMatches.length === 0 || allOn}
+                  sx={{ p: 0.25 }}
+                >
+                  <KeyboardArrowUp sx={{ fontSize: 16 }} />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  onClick={onFindNext}
+                  disabled={currentMatches.length === 0 || allOn}
+                  sx={{ p: 0.25 }}
+                >
+                  <KeyboardArrowDown sx={{ fontSize: 16 }} />
+                </IconButton>
+                <IconButton size="small" onClick={onClear} sx={{ p: 0.25 }}>
+                  <Close sx={{ fontSize: 14 }} />
+                </IconButton>
+              </InputAdornment>
+            ) : null
+          }
+        />
+      </Box>
 
-          <Box sx={{ flexGrow: 1 }} />
-
-          <Tooltip title={t('searchReplace.undo')}>
-            <span>
-              <IconButton
-                size="small"
-                onClick={onUndo}
-                disabled={!canUndo}
-                sx={{ p: 0.25 }}
-              >
-                <Undo sx={{ fontSize: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={t('searchReplace.redo')}>
-            <span>
-              <IconButton
-                size="small"
-                onClick={onRedo}
-                disabled={!canRedo}
-                sx={{ p: 0.25 }}
-              >
-                <Redo sx={{ fontSize: 18 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={t('dialog.close')}>
-            <IconButton size="small" onClick={onClose} sx={{ p: 0.25 }}>
-              <Close sx={{ fontSize: 18 }} />
+      {/* オプショントグル行 */}
+      <Box
+        sx={{
+          px: 1,
+          pb: 0.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.25,
+          flexWrap: 'wrap',
+        }}
+      >
+        <OptionToggle
+          selected={caseSensitive}
+          onChange={onToggleCaseSensitive}
+          title={t('searchReplace.caseMatch')}
+          label="Aa"
+        />
+        <OptionToggle
+          selected={wholeWord}
+          onChange={onToggleWholeWord}
+          title={t('searchReplace.wholeWord')}
+          label="ab"
+        />
+        <OptionToggle
+          selected={useRegex}
+          onChange={onToggleUseRegex}
+          title={t('searchReplace.regex')}
+          label=".*"
+        />
+        <Box sx={{ flexGrow: 1 }} />
+        <OptionToggle
+          selected={replaceOn}
+          onChange={toggleReplace}
+          title={t('searchReplace.toggleReplace')}
+          label={t('searchReplace.mode.replace')}
+        />
+        <OptionToggle
+          selected={allOn}
+          onChange={toggleAll}
+          title={t('searchReplace.toggleAll')}
+          label={t('searchReplace.allLabel')}
+        />
+        <Tooltip title={t('searchReplace.undo')}>
+          <span>
+            <IconButton
+              size="small"
+              onClick={onUndo}
+              disabled={!canUndo}
+              sx={{ p: 0.25 }}
+            >
+              <Undo sx={{ fontSize: 16 }} />
             </IconButton>
-          </Tooltip>
-        </Box>
+          </span>
+        </Tooltip>
+        <Tooltip title={t('searchReplace.redo')}>
+          <span>
+            <IconButton
+              size="small"
+              onClick={onRedo}
+              disabled={!canRedo}
+              sx={{ p: 0.25 }}
+            >
+              <Redo sx={{ fontSize: 16 }} />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      {/* 置換行 */}
+      {replaceOn && (
+        <Box
+          sx={{
+            px: 1,
+            pb: 0.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.25,
+          }}
+        >
           <InputBase
-            inputRef={findInputRef}
-            value={query}
-            onChange={(e) => onSetQuery(e.target.value)}
-            onKeyDown={handleFindKeyDown}
-            placeholder={t('searchReplace.findPlaceholder')}
+            value={replacement}
+            onChange={(e) => onSetReplacement(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                onClear();
+              }
+            }}
+            placeholder={t('searchReplace.replacePlaceholder')}
             size="small"
             sx={{
               flexGrow: 1,
               fontSize: '0.8rem',
               border: 1,
-              borderColor: patternError ? 'error.main' : 'divider',
+              borderColor: 'divider',
               borderRadius: 1,
-              px: 0.5,
-              py: 0.25,
-              fontFamily: 'monospace',
+              '& .MuiInputBase-input': {
+                py: 0.5,
+                px: 0.5,
+                fontFamily: useRegex ? 'monospace' : undefined,
+              },
             }}
           />
-          <ToggleButton
-            value="case"
-            size="small"
-            selected={caseSensitive}
-            onChange={onToggleCaseSensitive}
-            sx={{
-              py: 0,
-              px: 0.75,
-              fontSize: '0.7rem',
-              fontWeight: 'bold',
-              minWidth: 28,
-            }}
-            title={t('searchReplace.caseMatch')}
-          >
-            Aa
-          </ToggleButton>
-          <ToggleButton
-            value="word"
-            size="small"
-            selected={wholeWord}
-            onChange={onToggleWholeWord}
-            sx={{
-              py: 0,
-              px: 0.75,
-              fontSize: '0.7rem',
-              fontWeight: 'bold',
-              minWidth: 28,
-            }}
-            title={t('searchReplace.wholeWord')}
-          >
-            ab
-          </ToggleButton>
-          <ToggleButton
-            value="regex"
-            size="small"
-            selected={useRegex}
-            onChange={onToggleUseRegex}
-            sx={{
-              py: 0,
-              px: 0.75,
-              fontSize: '0.7rem',
-              fontWeight: 'bold',
-              minWidth: 28,
-            }}
-            title={t('searchReplace.regex')}
-          >
-            .*
-          </ToggleButton>
-
-          <Box
-            component="span"
-            sx={{
-              fontSize: '0.7rem',
-              color: patternError ? 'error.main' : 'text.secondary',
-              whiteSpace: 'nowrap',
-              minWidth: 60,
-              textAlign: 'center',
-              px: 0.5,
-            }}
-          >
-            {patternError ? t('searchReplace.invalidPattern') : matchBadge}
-          </Box>
-
-          {!isAll && (
+          {!allOn && (
             <>
-              <Tooltip title={t('searchReplace.previous')}>
+              <Tooltip title={t('searchReplace.replaceOne')}>
                 <span>
                   <IconButton
                     size="small"
-                    onClick={onFindPrevious}
-                    disabled={currentMatches.length === 0}
+                    onClick={onReplaceCurrent}
+                    disabled={currentMatches.length === 0 || !!patternError}
                     sx={{ p: 0.25 }}
                   >
-                    <KeyboardArrowUp sx={{ fontSize: 18 }} />
+                    <FindReplace sx={{ fontSize: 16 }} />
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title={t('searchReplace.next')}>
+              <Tooltip title={t('searchReplace.replaceAllInCurrent')}>
                 <span>
                   <IconButton
                     size="small"
-                    onClick={onFindNext}
-                    disabled={currentMatches.length === 0}
-                    sx={{ p: 0.25 }}
-                  >
-                    <KeyboardArrowDown sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </>
-          )}
-        </Box>
-
-        {showReplace && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <InputBase
-              value={replacement}
-              onChange={(e) => onSetReplacement(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  onClose();
-                }
-              }}
-              placeholder={t('searchReplace.replacePlaceholder')}
-              size="small"
-              sx={{
-                flexGrow: 1,
-                fontSize: '0.8rem',
-                border: 1,
-                borderColor: 'divider',
-                borderRadius: 1,
-                px: 0.5,
-                py: 0.25,
-                fontFamily: 'monospace',
-              }}
-            />
-            {mode === 'replace' && (
-              <>
-                <Tooltip title={t('searchReplace.replaceOne')}>
-                  <span>
-                    <IconButton
-                      size="small"
-                      onClick={onReplaceCurrent}
-                      disabled={currentMatches.length === 0 || !!patternError}
-                      sx={{ p: 0.25 }}
-                    >
-                      <FindReplace sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title={t('searchReplace.replaceAllInCurrent')}>
-                  <span>
-                    <IconButton
-                      size="small"
-                      onClick={onReplaceAllInCurrent}
-                      disabled={currentMatches.length === 0 || !!patternError}
-                      sx={{
-                        p: 0.25,
-                        fontSize: '0.7rem',
-                        fontWeight: 'bold',
-                      }}
-                    >
-                      <Typography
-                        component="span"
-                        sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
-                      >
-                        {t('searchReplace.all')}
-                      </Typography>
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </>
-            )}
-            {mode === 'replaceInAll' && (
-              <Tooltip title={t('searchReplace.replaceAllInAll')}>
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={onReplaceAllInAllNotes}
-                    disabled={crossNoteResults.length === 0 || !!patternError}
-                    sx={{ p: 0.25 }}
+                    onClick={onReplaceAllInCurrent}
+                    disabled={currentMatches.length === 0 || !!patternError}
+                    sx={{ p: 0.25, px: 0.5 }}
                   >
                     <Typography
                       component="span"
                       sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
                     >
-                      {t('searchReplace.replaceAllInAll')}
+                      {t('searchReplace.all')}
                     </Typography>
                   </IconButton>
                 </span>
               </Tooltip>
-            )}
-          </Box>
-        )}
+            </>
+          )}
+          {allOn && (
+            <Tooltip title={t('searchReplace.replaceAllInAll')}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={onReplaceAllInAllNotes}
+                  disabled={crossNoteResults.length === 0 || !!patternError}
+                  sx={{ p: 0.25, px: 0.5 }}
+                >
+                  <Typography
+                    component="span"
+                    sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
+                  >
+                    {t('searchReplace.all')}
+                  </Typography>
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+        </Box>
+      )}
 
-        {isAll && crossNoteResults.length > 0 && (
-          <Box
-            sx={{
-              maxHeight: 260,
-              overflowY: 'auto',
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 1,
-              mt: 0.5,
-              fontSize: '0.75rem',
-            }}
-          >
-            {crossNoteResults.map((group) => (
-              <CrossNoteGroup
-                key={group.noteId}
-                group={group}
-                onJump={async (idx) => {
-                  await onSelectNote(group.noteId);
-                  onJumpToNoteMatch(group.noteId, idx);
-                }}
-              />
-            ))}
-          </Box>
-        )}
-      </Box>
-    </Collapse>
+      {/* ノート横断結果ツリー */}
+      {allOn && crossNoteResults.length > 0 && (
+        <Box
+          sx={{
+            maxHeight: 220,
+            overflowY: 'auto',
+            borderTop: 1,
+            borderColor: 'divider',
+            fontSize: '0.75rem',
+          }}
+        >
+          {crossNoteResults.map((group) => (
+            <CrossNoteGroup
+              key={group.noteId}
+              group={group}
+              onJump={async (idx) => {
+                await onSelectNote(group.noteId);
+                onJumpToNoteMatch(group.noteId, idx);
+              }}
+            />
+          ))}
+        </Box>
+      )}
+    </Box>
   );
 };
+
+// 汎用小さなトグルボタン
+const OptionToggle: React.FC<{
+  selected: boolean;
+  onChange: () => void;
+  title: string;
+  label: string;
+}> = ({ selected, onChange, title, label }) => (
+  <Tooltip title={title}>
+    <ToggleButton
+      value="t"
+      size="small"
+      selected={selected}
+      onChange={onChange}
+      sx={{
+        py: 0,
+        px: 0.75,
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+        minWidth: 24,
+        lineHeight: 1.4,
+        border: 1,
+      }}
+    >
+      {label}
+    </ToggleButton>
+  </Tooltip>
+);
 
 // 結果ツリーの各ノートブロック
 const CrossNoteGroup: React.FC<{
@@ -474,13 +484,25 @@ const CrossNoteGroup: React.FC<{
       >
         <Typography
           component="span"
-          sx={{ fontSize: '0.75rem', fontWeight: 'bold' }}
+          sx={{
+            fontSize: '0.75rem',
+            fontWeight: 'bold',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flexGrow: 1,
+            minWidth: 0,
+          }}
         >
           {group.noteTitle || t('notes.emptyNote')}
         </Typography>
         <Typography
           component="span"
-          sx={{ fontSize: '0.7rem', color: 'text.secondary' }}
+          sx={{
+            fontSize: '0.7rem',
+            color: 'text.secondary',
+            flexShrink: 0,
+          }}
         >
           {t('searchReplace.matchCount', { count: group.matches.length })}
         </Typography>

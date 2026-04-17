@@ -123,8 +123,7 @@ export const useSearchReplace = ({
   const tRef = useRef(t);
   tRef.current = t;
 
-  // UI 状態
-  const [isOpen, setIsOpen] = useState(false);
+  // UI 状態（パネルは常時表示なので isOpen は持たない）
   const [mode, setMode] = useState<SearchPanelMode>('find');
   const scope: SearchScope =
     mode === 'findInAll' || mode === 'replaceInAll' ? 'all' : 'current';
@@ -134,6 +133,8 @@ export const useSearchReplace = ({
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [useRegex, setUseRegex] = useState(false);
+  // 外部（Ctrl+F 等のショートカット）から入力フィールドへフォーカスを要求するトークン
+  const [focusToken, setFocusToken] = useState(0);
 
   const options: SearchOptions = useMemo(
     () => ({ query, caseSensitive, wholeWord, useRegex }),
@@ -214,18 +215,18 @@ export const useSearchReplace = ({
     });
   }, [options, query, patternError]);
 
-  // クエリ／オプション変更時、およびパネル開閉時に再計算
+  // クエリ／オプション変更時に再計算（query が空なら内部でデコレーション解除）
   useEffect(() => {
-    if (!isOpen) {
-      clearDecorations();
-      return;
-    }
     recomputeCurrentMatches();
-  }, [isOpen, recomputeCurrentMatches, clearDecorations]);
+  }, [recomputeCurrentMatches]);
+
+  // クエリが空になったらハイライト消去
+  useEffect(() => {
+    if (!query) clearDecorations();
+  }, [query, clearDecorations]);
 
   // エディタの内容が変わったら再計算（デバウンス）
   useEffect(() => {
-    if (!isOpen) return;
     const ed = getActiveEditorRef.current();
     const model = ed?.getModel();
     if (!ed || !model) return;
@@ -238,11 +239,10 @@ export const useSearchReplace = ({
       if (timer) clearTimeout(timer);
       dispose.dispose();
     };
-  }, [isOpen, recomputeCurrentMatches]);
+  }, [recomputeCurrentMatches]);
 
   // current match が変わったらハイライト更新＋スクロール
   useEffect(() => {
-    if (!isOpen) return;
     updateDecorations(currentMatches, currentMatchIndex);
     const m = currentMatches[currentMatchIndex];
     const ed = getActiveEditorRef.current();
@@ -261,7 +261,7 @@ export const useSearchReplace = ({
         ed.revealRangeInCenterIfOutsideViewport(range);
       }
     }
-  }, [currentMatches, currentMatchIndex, isOpen, updateDecorations]);
+  }, [currentMatches, currentMatchIndex, updateDecorations]);
 
   // --- ノート横断検索 ---
   const [crossNoteResults, setCrossNoteResults] = useState<NoteMatchGroup[]>(
@@ -301,13 +301,12 @@ export const useSearchReplace = ({
   }, [options, query, patternError]);
 
   useEffect(() => {
-    if (!isOpen) return;
     if (scope !== 'all') {
       setCrossNoteResults([]);
       return;
     }
     recomputeCrossNoteMatches();
-  }, [isOpen, scope, recomputeCrossNoteMatches]);
+  }, [scope, recomputeCrossNoteMatches]);
 
   // --- ナビゲーション ---
   const findNext = useCallback(() => {
@@ -619,18 +618,19 @@ export const useSearchReplace = ({
     recomputeCrossNoteMatches,
   ]);
 
-  // 開閉
-  const open = useCallback((nextMode: SearchPanelMode) => {
+  // 外部からフォーカス要求（モードも合わせて切替）
+  const focusFind = useCallback((nextMode: SearchPanelMode = 'find') => {
     setMode(nextMode);
-    setIsOpen(true);
+    setFocusToken((t) => t + 1);
   }, []);
-  const close = useCallback(() => {
-    setIsOpen(false);
+  // クエリ・置換文字列を消去（Escape で使用）
+  const clearQuery = useCallback(() => {
+    setQuery('');
+    setReplacement('');
   }, []);
 
   return {
     // 状態
-    isOpen,
     mode,
     scope,
     query,
@@ -644,6 +644,7 @@ export const useSearchReplace = ({
     crossNoteResults,
     canUndo: history.canUndo,
     canRedo: history.canRedo,
+    focusToken,
     // アクション
     setQuery,
     setReplacement,
@@ -651,8 +652,8 @@ export const useSearchReplace = ({
     setWholeWord,
     setUseRegex,
     setMode,
-    open,
-    close,
+    focusFind,
+    clearQuery,
     findNext,
     findPrevious,
     jumpToNoteMatch,

@@ -5,16 +5,10 @@ import { Allotment } from 'allotment';
 import { useEditorSettingsStore } from '../stores/useEditorSettingsStore';
 import { EditorPane } from './EditorPane';
 import { EditorStatusBar } from './EditorStatusBar';
-import { SearchReplacePanel } from './SearchReplacePanel';
 
 import type { editor } from 'monaco-editor';
-import type {
-  NoteMatchGroup,
-  SearchPanelMode,
-} from '../hooks/useSearchReplace';
 import type { LanguageInfo } from '../lib/monaco';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
-import type { SearchMatch } from '../utils/searchUtils';
 
 // Lazy-loaded components
 const ArchivedNoteList = React.lazy(() =>
@@ -94,41 +88,10 @@ interface EditorAreaProps {
   // Current note (for non-split mode)
   currentNote: Note | null;
   currentFileNote: FileNote | null;
-  // 検索・置換パネル
-  searchReplace: {
-    isOpen: boolean;
-    mode: SearchPanelMode;
-    query: string;
-    replacement: string;
-    caseSensitive: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
-    patternError: string | null;
-    currentMatches: SearchMatch[];
-    currentMatchIndex: number;
-    crossNoteResults: NoteMatchGroup[];
-    canUndo: boolean;
-    canRedo: boolean;
-    onSetQuery: (v: string) => void;
-    onSetReplacement: (v: string) => void;
-    onToggleCaseSensitive: () => void;
-    onToggleWholeWord: () => void;
-    onToggleUseRegex: () => void;
-    onSetMode: (m: SearchPanelMode) => void;
-    onClose: () => void;
-    onFindNext: () => void;
-    onFindPrevious: () => void;
-    onReplaceCurrent: () => void;
-    onReplaceAllInCurrent: () => void;
-    onReplaceAllInAllNotes: () => void;
-    onJumpToNoteMatch: (noteId: string, indexInNote: number) => void;
-    onSelectNote: (noteId: string) => Promise<void> | void;
-    onUndo: () => void;
-    onRedo: () => void;
-    onOpenFind: () => void;
-    onOpenReplace: () => void;
-    onOpenFindInAll: () => void;
-  };
+  // 検索・置換パネル（パネル本体はサイドバー内。ここでは開閉要求コールバックのみ受け取る）
+  onOpenFind: () => void;
+  onOpenReplace: () => void;
+  onOpenFindInAll: () => void;
 }
 
 export const EditorArea: React.FC<EditorAreaProps> = ({
@@ -181,7 +144,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
   showMessage,
   currentNote,
   currentFileNote,
-  searchReplace,
+  onOpenFind,
+  onOpenReplace,
+  onOpenFindInAll,
 }) => {
   const settings = useEditorSettingsStore((s) => s.settings);
   const editorInstanceRef = leftEditorInstanceRef;
@@ -196,39 +161,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
         minWidth: 0,
       }}
     >
-      {!showArchived && (
-        <SearchReplacePanel
-          isOpen={searchReplace.isOpen}
-          mode={searchReplace.mode}
-          query={searchReplace.query}
-          replacement={searchReplace.replacement}
-          caseSensitive={searchReplace.caseSensitive}
-          wholeWord={searchReplace.wholeWord}
-          useRegex={searchReplace.useRegex}
-          patternError={searchReplace.patternError}
-          currentMatches={searchReplace.currentMatches}
-          currentMatchIndex={searchReplace.currentMatchIndex}
-          crossNoteResults={searchReplace.crossNoteResults}
-          canUndo={searchReplace.canUndo}
-          canRedo={searchReplace.canRedo}
-          onSetQuery={searchReplace.onSetQuery}
-          onSetReplacement={searchReplace.onSetReplacement}
-          onToggleCaseSensitive={searchReplace.onToggleCaseSensitive}
-          onToggleWholeWord={searchReplace.onToggleWholeWord}
-          onToggleUseRegex={searchReplace.onToggleUseRegex}
-          onSetMode={searchReplace.onSetMode}
-          onClose={searchReplace.onClose}
-          onFindNext={searchReplace.onFindNext}
-          onFindPrevious={searchReplace.onFindPrevious}
-          onReplaceCurrent={searchReplace.onReplaceCurrent}
-          onReplaceAllInCurrent={searchReplace.onReplaceAllInCurrent}
-          onReplaceAllInAllNotes={searchReplace.onReplaceAllInAllNotes}
-          onJumpToNoteMatch={searchReplace.onJumpToNoteMatch}
-          onSelectNote={searchReplace.onSelectNote}
-          onUndo={searchReplace.onUndo}
-          onRedo={searchReplace.onRedo}
-        />
-      )}
       {showArchived ? (
         <Suspense fallback={null}>
           <ArchivedNoteList
@@ -292,9 +224,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
               onClose={leftOnClose}
               onSelectNext={onSelectNext}
               onSelectPrevious={onSelectPrevious}
-              onOpenFind={searchReplace.onOpenFind}
-              onOpenReplace={searchReplace.onOpenReplace}
-              onOpenFindInAll={searchReplace.onOpenFindInAll}
+              onOpenFind={onOpenFind}
+              onOpenReplace={onOpenReplace}
+              onOpenFindInAll={onOpenFindInAll}
             />
           </Allotment.Pane>
 
@@ -326,9 +258,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 onClose={rightOnClose}
                 onSelectNext={onSelectNext}
                 onSelectPrevious={onSelectPrevious}
-                onOpenFind={searchReplace.onOpenFind}
-                onOpenReplace={searchReplace.onOpenReplace}
-                onOpenFindInAll={searchReplace.onOpenFindInAll}
+                onOpenFind={onOpenFind}
+                onOpenReplace={onOpenReplace}
+                onOpenFindInAll={onOpenFindInAll}
               />
             </Allotment.Pane>
           )}

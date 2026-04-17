@@ -18,21 +18,55 @@ import 'simplebar-react/dist/simplebar.min.css';
 
 import { AppBar } from './AppBar';
 import { type FileDropInsertionTarget, NoteList } from './NoteList';
-import { NoteSearchBox } from './NoteSearchBox';
+import { SearchReplacePanel } from './SearchReplacePanel';
 
+import type {
+  NoteMatchGroup,
+  SearchPanelMode,
+} from '../hooks/useSearchReplace';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
+import type { SearchMatch } from '../utils/searchUtils';
 
 interface SidebarProps {
   platform: string;
   onNew: () => Promise<void>;
   onOpen: () => Promise<void>;
   onSaveAs: () => Promise<void>;
-  // Search
+  // 既存のサイドバー絞り込みフラグ（統合検索クエリが空でないとき true）
   noteSearch: string;
-  onSearchChange: (value: string) => void;
-  onSearchNavigate: (dir: 'next' | 'prev') => void;
-  searchMatchIndex: number;
-  totalSearchMatches: number;
+  // Search / Replace panel (統合検索・置換、常時表示)
+  searchReplace: {
+    mode: SearchPanelMode;
+    query: string;
+    replacement: string;
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+    patternError: string | null;
+    currentMatches: SearchMatch[];
+    currentMatchIndex: number;
+    crossNoteResults: NoteMatchGroup[];
+    canUndo: boolean;
+    canRedo: boolean;
+    focusToken: number;
+    sidebarMatchCount: number;
+    onSetQuery: (v: string) => void;
+    onSetReplacement: (v: string) => void;
+    onToggleCaseSensitive: () => void;
+    onToggleWholeWord: () => void;
+    onToggleUseRegex: () => void;
+    onSetMode: (m: SearchPanelMode) => void;
+    onClear: () => void;
+    onFindNext: () => void;
+    onFindPrevious: () => void;
+    onReplaceCurrent: () => void;
+    onReplaceAllInCurrent: () => void;
+    onReplaceAllInAllNotes: () => void;
+    onJumpToNoteMatch: (noteId: string, indexInNote: number) => void;
+    onSelectNote: (noteId: string) => Promise<void> | void;
+    onUndo: () => void;
+    onRedo: () => void;
+  };
   // File notes
   fileNotes: FileNote[];
   filteredFileNotes: FileNote[];
@@ -89,10 +123,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(
     onOpen,
     onSaveAs,
     noteSearch,
-    onSearchChange,
-    onSearchNavigate,
-    searchMatchIndex,
-    totalSearchMatches,
+    searchReplace,
     fileNotes,
     filteredFileNotes,
     currentFileNote,
@@ -178,13 +209,37 @@ export const Sidebar: React.FC<SidebarProps> = memo(
           onSave={onSaveAs}
         />
         <Divider />
-        <NoteSearchBox
-          value={noteSearch}
-          onChange={onSearchChange}
-          onNext={() => onSearchNavigate('next')}
-          onPrevious={() => onSearchNavigate('prev')}
-          matchIndex={searchMatchIndex}
-          matchCount={totalSearchMatches}
+        <SearchReplacePanel
+          mode={searchReplace.mode}
+          query={searchReplace.query}
+          replacement={searchReplace.replacement}
+          caseSensitive={searchReplace.caseSensitive}
+          wholeWord={searchReplace.wholeWord}
+          useRegex={searchReplace.useRegex}
+          patternError={searchReplace.patternError}
+          currentMatches={searchReplace.currentMatches}
+          currentMatchIndex={searchReplace.currentMatchIndex}
+          crossNoteResults={searchReplace.crossNoteResults}
+          canUndo={searchReplace.canUndo}
+          canRedo={searchReplace.canRedo}
+          focusToken={searchReplace.focusToken}
+          sidebarMatchCount={searchReplace.sidebarMatchCount}
+          onSetQuery={searchReplace.onSetQuery}
+          onSetReplacement={searchReplace.onSetReplacement}
+          onToggleCaseSensitive={searchReplace.onToggleCaseSensitive}
+          onToggleWholeWord={searchReplace.onToggleWholeWord}
+          onToggleUseRegex={searchReplace.onToggleUseRegex}
+          onSetMode={searchReplace.onSetMode}
+          onClear={searchReplace.onClear}
+          onFindNext={searchReplace.onFindNext}
+          onFindPrevious={searchReplace.onFindPrevious}
+          onReplaceCurrent={searchReplace.onReplaceCurrent}
+          onReplaceAllInCurrent={searchReplace.onReplaceAllInCurrent}
+          onReplaceAllInAllNotes={searchReplace.onReplaceAllInAllNotes}
+          onJumpToNoteMatch={searchReplace.onJumpToNoteMatch}
+          onSelectNote={searchReplace.onSelectNote}
+          onUndo={searchReplace.onUndo}
+          onRedo={searchReplace.onRedo}
         />
         <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
           <SimpleBar style={{ height: '100%' }}>

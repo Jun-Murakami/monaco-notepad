@@ -1,7 +1,13 @@
 import { Box, CssBaseline, ThemeProvider, Typography } from '@mui/material';
 import { Allotment } from 'allotment';
 import 'allotment/dist/style.css';
-import React, { Suspense, useCallback, useRef, useState } from 'react';
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { SaveNote, UpdateNoteOrder } from '../wailsjs/go/backend/App';
@@ -276,16 +282,13 @@ function App() {
     });
   addRecentFileRef.current = addRecentFile;
 
-  // 検索
+  // サイドバーノートリスト絞り込み（統合検索クエリから駆動、useEffect で同期）
   const {
-    noteSearch,
-    searchMatchIndex,
     filteredNotes,
     filteredFileNotes,
     totalSearchMatches,
     searchMatchIndexInNote,
     handleSearchChange,
-    handleSearchNavigate,
   } = useNoteSearch({
     notes,
     fileNotes,
@@ -319,6 +322,12 @@ function App() {
     showMessage,
     t,
   });
+
+  // 統合検索クエリを既存のサイドバー絞り込み（useNoteSearch）にも流し込む。
+  // 正規表現/大小区別は編集面のみ適用し、絞り込みは従来通り部分一致で動作させる。
+  useEffect(() => {
+    handleSearchChange(searchReplace.query);
+  }, [searchReplace.query, handleSearchChange]);
 
   // 3) ハンドラ・派生値
   // refを使って常に最新のeditorSettingsを参照し、デバウンスタイマー内のステールクロージャを防止する
@@ -675,13 +684,16 @@ function App() {
     handleSelectNextAnyNote,
     handleSelectPreviousAnyNote,
     isFileModified,
-    onOpenFind: useCallback(() => searchReplace.open('find'), [searchReplace]),
+    onOpenFind: useCallback(
+      () => searchReplace.focusFind('find'),
+      [searchReplace],
+    ),
     onOpenReplace: useCallback(
-      () => searchReplace.open('replace'),
+      () => searchReplace.focusFind('replace'),
       [searchReplace],
     ),
     onOpenFindInAll: useCallback(
-      () => searchReplace.open('findInAll'),
+      () => searchReplace.focusFind('findInAll'),
       [searchReplace],
     ),
   });
@@ -951,11 +963,49 @@ function App() {
                 onNew={handleNewNote}
                 onOpen={handleOpenFile}
                 onSaveAs={handleSaveAsFile}
-                noteSearch={noteSearch}
-                onSearchChange={handleSearchChange}
-                onSearchNavigate={handleSearchNavigate}
-                searchMatchIndex={searchMatchIndex}
-                totalSearchMatches={totalSearchMatches}
+                noteSearch={searchReplace.query}
+                searchReplace={{
+                  mode: searchReplace.mode,
+                  query: searchReplace.query,
+                  replacement: searchReplace.replacement,
+                  caseSensitive: searchReplace.caseSensitive,
+                  wholeWord: searchReplace.wholeWord,
+                  useRegex: searchReplace.useRegex,
+                  patternError: searchReplace.patternError,
+                  currentMatches: searchReplace.currentMatches,
+                  currentMatchIndex: searchReplace.currentMatchIndex,
+                  crossNoteResults: searchReplace.crossNoteResults,
+                  canUndo: searchReplace.canUndo,
+                  canRedo: searchReplace.canRedo,
+                  focusToken: searchReplace.focusToken,
+                  sidebarMatchCount: totalSearchMatches,
+                  onSetQuery: searchReplace.setQuery,
+                  onSetReplacement: searchReplace.setReplacement,
+                  onToggleCaseSensitive: () =>
+                    searchReplace.setCaseSensitive(
+                      !searchReplace.caseSensitive,
+                    ),
+                  onToggleWholeWord: () =>
+                    searchReplace.setWholeWord(!searchReplace.wholeWord),
+                  onToggleUseRegex: () =>
+                    searchReplace.setUseRegex(!searchReplace.useRegex),
+                  onSetMode: searchReplace.setMode,
+                  onClear: searchReplace.clearQuery,
+                  onFindNext: searchReplace.findNext,
+                  onFindPrevious: searchReplace.findPrevious,
+                  onReplaceCurrent: searchReplace.replaceCurrent,
+                  onReplaceAllInCurrent: searchReplace.replaceAllInCurrent,
+                  onReplaceAllInAllNotes: searchReplace.replaceAllInAllNotes,
+                  onJumpToNoteMatch: searchReplace.jumpToNoteMatch,
+                  onSelectNote: async (noteId: string) => {
+                    const n = notes.find((note) => note.id === noteId);
+                    if (!n) return;
+                    if (isSplit) await handleSelectNoteForPane(n);
+                    else await handleSelecAnyNote(n);
+                  },
+                  onUndo: searchReplace.undo,
+                  onRedo: searchReplace.redo,
+                }}
                 fileNotes={fileNotes}
                 filteredFileNotes={filteredFileNotes}
                 currentFileNote={currentFileNote}
@@ -1044,7 +1094,7 @@ function App() {
                 rightOnClose={rightOnClose}
                 focusedPane={focusedPane}
                 onFocusPane={handleFocusPane}
-                noteSearch={noteSearch}
+                noteSearch={searchReplace.query}
                 searchMatchIndexInNote={searchMatchIndexInNote}
                 onNew={handleNewNote}
                 onOpen={handleOpenFile}
@@ -1060,50 +1110,9 @@ function App() {
                 showMessage={showMessage}
                 currentNote={currentNote}
                 currentFileNote={currentFileNote}
-                searchReplace={{
-                  isOpen: searchReplace.isOpen,
-                  mode: searchReplace.mode,
-                  query: searchReplace.query,
-                  replacement: searchReplace.replacement,
-                  caseSensitive: searchReplace.caseSensitive,
-                  wholeWord: searchReplace.wholeWord,
-                  useRegex: searchReplace.useRegex,
-                  patternError: searchReplace.patternError,
-                  currentMatches: searchReplace.currentMatches,
-                  currentMatchIndex: searchReplace.currentMatchIndex,
-                  crossNoteResults: searchReplace.crossNoteResults,
-                  canUndo: searchReplace.canUndo,
-                  canRedo: searchReplace.canRedo,
-                  onSetQuery: searchReplace.setQuery,
-                  onSetReplacement: searchReplace.setReplacement,
-                  onToggleCaseSensitive: () =>
-                    searchReplace.setCaseSensitive(
-                      !searchReplace.caseSensitive,
-                    ),
-                  onToggleWholeWord: () =>
-                    searchReplace.setWholeWord(!searchReplace.wholeWord),
-                  onToggleUseRegex: () =>
-                    searchReplace.setUseRegex(!searchReplace.useRegex),
-                  onSetMode: searchReplace.setMode,
-                  onClose: searchReplace.close,
-                  onFindNext: searchReplace.findNext,
-                  onFindPrevious: searchReplace.findPrevious,
-                  onReplaceCurrent: searchReplace.replaceCurrent,
-                  onReplaceAllInCurrent: searchReplace.replaceAllInCurrent,
-                  onReplaceAllInAllNotes: searchReplace.replaceAllInAllNotes,
-                  onJumpToNoteMatch: searchReplace.jumpToNoteMatch,
-                  onSelectNote: async (noteId: string) => {
-                    const n = notes.find((note) => note.id === noteId);
-                    if (!n) return;
-                    if (isSplit) await handleSelectNoteForPane(n);
-                    else await handleSelecAnyNote(n);
-                  },
-                  onUndo: searchReplace.undo,
-                  onRedo: searchReplace.redo,
-                  onOpenFind: () => searchReplace.open('find'),
-                  onOpenReplace: () => searchReplace.open('replace'),
-                  onOpenFindInAll: () => searchReplace.open('findInAll'),
-                }}
+                onOpenFind={() => searchReplace.focusFind('find')}
+                onOpenReplace={() => searchReplace.focusFind('replace')}
+                onOpenFindInAll={() => searchReplace.focusFind('findInAll')}
               />
             </Allotment.Pane>
           </Allotment>
