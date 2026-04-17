@@ -73,10 +73,10 @@ const toggleReplaceMode = (mode: SearchPanelMode): SearchPanelMode =>
 
 // 検索ヒットの配色。Monaco 内のデコレーションとサイドバー結果ツリーで共通。
 // ライト/ダーク両方で視認しやすい濃さの黄色（＋枠線）を採用。
-const HIT_BG = 'rgba(255, 213, 0, 0.55)';
-const HIT_BORDER = 'rgba(214, 166, 0, 0.95)';
-const HIT_CURRENT_BG = 'rgba(255, 140, 0, 0.65)';
-const HIT_CURRENT_BORDER = 'rgba(230, 105, 0, 1)';
+const HIT_BG = 'rgba(255, 213, 0, 0.28)';
+const HIT_BORDER = 'rgba(214, 166, 0, 0.50)';
+const HIT_CURRENT_BG = 'rgba(255, 140, 0, 0.32)';
+const HIT_CURRENT_BORDER = 'rgba(230, 105, 0, 0.55)';
 
 export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   mode,
