@@ -423,6 +423,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                       minWidth: 0,
                       fontSize: '0.7rem',
                       lineHeight: 1.6,
+                      textTransform: 'none',
                     }}
                   >
                     {t('searchReplace.replaceAllInAllShort')}
@@ -469,6 +470,7 @@ const OptionToggle: React.FC<{
         fontWeight: 'bold',
         minWidth: 24,
         lineHeight: 1.4,
+        textTransform: 'none',
         // 未選択時は MUI Button variant="outlined" color="primary" 相当
         border: 1,
         borderColor: 'primary.main',
