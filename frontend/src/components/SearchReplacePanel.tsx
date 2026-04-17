@@ -11,6 +11,7 @@ import {
 } from '@mui/icons-material';
 import {
   Box,
+  Button,
   IconButton,
   InputAdornment,
   InputBase,
@@ -18,6 +19,8 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import SimpleBar from 'simplebar-react';
+import 'simplebar-react/dist/simplebar.min.css';
 
 import { extractLineAt } from '../utils/searchUtils';
 
@@ -61,12 +64,8 @@ interface SearchReplacePanelProps {
   onRedo: () => void;
 }
 
-const deriveMode = (replaceOn: boolean, allOn: boolean): SearchPanelMode => {
-  if (replaceOn && allOn) return 'replaceInAll';
-  if (replaceOn) return 'replace';
-  if (allOn) return 'findInAll';
-  return 'find';
-};
+const toggleReplaceMode = (mode: SearchPanelMode): SearchPanelMode =>
+  mode === 'replace' ? 'find' : 'replace';
 
 export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   mode,
@@ -103,8 +102,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   const { t } = useTranslation();
   const findInputRef = useRef<HTMLInputElement>(null);
 
-  const replaceOn = mode === 'replace' || mode === 'replaceInAll';
-  const allOn = mode === 'findInAll' || mode === 'replaceInAll';
+  const replaceOn = mode === 'replace';
 
   // 外部フォーカス要求に反応
   useEffect(() => {
@@ -133,22 +131,19 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
     (s, g) => s + g.matches.length,
     0,
   );
-  const matchBadge = allOn
-    ? totalAllMatches > 0
-      ? `${totalAllMatches} / ${crossNoteResults.length}`
-      : '0'
-    : currentMatches.length > 0
+  // 現在ノートのヒット番号を主に見せ、横断ヒット総数を副次表示
+  const matchBadge =
+    currentMatches.length > 0
       ? `${currentMatchIndex + 1}/${currentMatches.length}`
-      : query
-        ? '0'
-        : `${sidebarMatchCount}`;
+      : totalAllMatches > 0
+        ? `0/${totalAllMatches}`
+        : query
+          ? '0'
+          : `${sidebarMatchCount}`;
 
   const toggleReplace = useCallback(() => {
-    onSetMode(deriveMode(!replaceOn, allOn));
-  }, [onSetMode, replaceOn, allOn]);
-  const toggleAll = useCallback(() => {
-    onSetMode(deriveMode(replaceOn, !allOn));
-  }, [onSetMode, replaceOn, allOn]);
+    onSetMode(toggleReplaceMode(mode));
+  }, [onSetMode, mode]);
 
   const hasQuery = query.length > 0;
 
@@ -228,7 +223,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                 <IconButton
                   size="small"
                   onClick={onFindPrevious}
-                  disabled={currentMatches.length === 0 || allOn}
+                  disabled={currentMatches.length === 0}
                   sx={{ p: 0.25 }}
                 >
                   <KeyboardArrowUp sx={{ fontSize: 16 }} />
@@ -236,7 +231,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                 <IconButton
                   size="small"
                   onClick={onFindNext}
-                  disabled={currentMatches.length === 0 || allOn}
+                  disabled={currentMatches.length === 0}
                   sx={{ p: 0.25 }}
                 >
                   <KeyboardArrowDown sx={{ fontSize: 16 }} />
@@ -285,12 +280,6 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           onChange={toggleReplace}
           title={t('searchReplace.toggleReplace')}
           label={t('searchReplace.mode.replace')}
-        />
-        <OptionToggle
-          selected={allOn}
-          onChange={toggleAll}
-          title={t('searchReplace.toggleAll')}
-          label={t('searchReplace.allLabel')}
         />
         <Tooltip title={t('searchReplace.undo')}>
           <span>
@@ -353,82 +342,106 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
               },
             }}
           />
-          {!allOn && (
-            <>
-              <Tooltip title={t('searchReplace.replaceOne')}>
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={onReplaceCurrent}
-                    disabled={currentMatches.length === 0 || !!patternError}
-                    sx={{ p: 0.25 }}
-                  >
-                    <FindReplace sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title={t('searchReplace.replaceAllInCurrent')}>
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={onReplaceAllInCurrent}
-                    disabled={currentMatches.length === 0 || !!patternError}
-                    sx={{ p: 0.25, px: 0.5 }}
-                  >
-                    <Typography
-                      component="span"
-                      sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
-                    >
-                      {t('searchReplace.all')}
-                    </Typography>
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </>
-          )}
-          {allOn && (
-            <Tooltip title={t('searchReplace.replaceAllInAll')}>
-              <span>
-                <IconButton
-                  size="small"
-                  onClick={onReplaceAllInAllNotes}
-                  disabled={crossNoteResults.length === 0 || !!patternError}
-                  sx={{ p: 0.25, px: 0.5 }}
+          <Tooltip title={t('searchReplace.replaceOne')}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={onReplaceCurrent}
+                disabled={currentMatches.length === 0 || !!patternError}
+                sx={{ p: 0.25 }}
+              >
+                <FindReplace sx={{ fontSize: 16 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title={t('searchReplace.replaceAllInCurrent')}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={onReplaceAllInCurrent}
+                disabled={currentMatches.length === 0 || !!patternError}
+                sx={{ p: 0.25, px: 0.5 }}
+              >
+                <Typography
+                  component="span"
+                  sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
                 >
-                  <Typography
-                    component="span"
-                    sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
-                  >
-                    {t('searchReplace.all')}
-                  </Typography>
-                </IconButton>
-              </span>
-            </Tooltip>
-          )}
+                  {t('searchReplace.all')}
+                </Typography>
+              </IconButton>
+            </span>
+          </Tooltip>
         </Box>
       )}
 
-      {/* ノート横断結果ツリー */}
-      {allOn && crossNoteResults.length > 0 && (
+      {/* ノート横断結果ツリー（常時表示、SimpleBar でスタイル統一） */}
+      {crossNoteResults.length > 0 && (
         <Box
           sx={{
-            maxHeight: 220,
-            overflowY: 'auto',
             borderTop: 1,
             borderColor: 'divider',
             fontSize: '0.75rem',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
           }}
         >
-          {crossNoteResults.map((group) => (
-            <CrossNoteGroup
-              key={group.noteId}
-              group={group}
-              onJump={async (idx) => {
-                await onSelectNote(group.noteId);
-                onJumpToNoteMatch(group.noteId, idx);
+          {replaceOn && crossNoteResults.length > 0 && (
+            <Box
+              sx={{
+                px: 1,
+                py: 0.5,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                borderBottom: 1,
+                borderColor: 'divider',
+                backgroundColor: 'action.hover',
               }}
-            />
-          ))}
+            >
+              <Typography
+                component="span"
+                sx={{ fontSize: '0.7rem', color: 'text.secondary' }}
+              >
+                {t('searchReplace.crossNoteSummary', {
+                  matchCount: totalAllMatches,
+                  noteCount: crossNoteResults.length,
+                })}
+              </Typography>
+              <Box sx={{ flexGrow: 1 }} />
+              <Tooltip title={t('searchReplace.replaceAllInAll')}>
+                <span>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={onReplaceAllInAllNotes}
+                    disabled={!!patternError}
+                    sx={{
+                      py: 0,
+                      px: 0.75,
+                      minWidth: 0,
+                      fontSize: '0.7rem',
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    {t('searchReplace.replaceAllInAllShort')}
+                  </Button>
+                </span>
+              </Tooltip>
+            </Box>
+          )}
+          <SimpleBar style={{ maxHeight: 240 }}>
+            {crossNoteResults.map((group) => (
+              <CrossNoteGroup
+                key={group.noteId}
+                group={group}
+                onJump={async (idx) => {
+                  await onSelectNote(group.noteId);
+                  onJumpToNoteMatch(group.noteId, idx);
+                }}
+              />
+            ))}
+          </SimpleBar>
         </Box>
       )}
     </Box>

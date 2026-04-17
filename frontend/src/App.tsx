@@ -693,7 +693,7 @@ function App() {
       [searchReplace],
     ),
     onOpenFindInAll: useCallback(
-      () => searchReplace.focusFind('findInAll'),
+      () => searchReplace.focusFind('find'),
       [searchReplace],
     ),
   });
@@ -1112,7 +1112,7 @@ function App() {
                 currentFileNote={currentFileNote}
                 onOpenFind={() => searchReplace.focusFind('find')}
                 onOpenReplace={() => searchReplace.focusFind('replace')}
-                onOpenFindInAll={() => searchReplace.focusFind('findInAll')}
+                onOpenFindInAll={() => searchReplace.focusFind('find')}
               />
             </Allotment.Pane>
           </Allotment>

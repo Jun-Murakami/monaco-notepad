@@ -21,8 +21,8 @@ import {
 import type { editor } from 'monaco-editor';
 import type { Note } from '../types';
 
-export type SearchPanelMode = 'find' | 'replace' | 'findInAll' | 'replaceInAll';
-export type SearchScope = 'current' | 'all';
+// ノート横断検索は常に有効。find / replace は置換欄の表示切替のみ。
+export type SearchPanelMode = 'find' | 'replace';
 
 export interface NoteMatchGroup {
   noteId: string;
@@ -125,8 +125,6 @@ export const useSearchReplace = ({
 
   // UI 状態（パネルは常時表示なので isOpen は持たない）
   const [mode, setMode] = useState<SearchPanelMode>('find');
-  const scope: SearchScope =
-    mode === 'findInAll' || mode === 'replaceInAll' ? 'all' : 'current';
 
   const [query, setQuery] = useState('');
   const [replacement, setReplacement] = useState('');
@@ -300,13 +298,10 @@ export const useSearchReplace = ({
     setCrossNoteResults(results);
   }, [options, query, patternError]);
 
+  // ノート横断検索は常時有効（UI にトグルを持たない）
   useEffect(() => {
-    if (scope !== 'all') {
-      setCrossNoteResults([]);
-      return;
-    }
     recomputeCrossNoteMatches();
-  }, [scope, recomputeCrossNoteMatches]);
+  }, [recomputeCrossNoteMatches]);
 
   // --- ナビゲーション ---
   const findNext = useCallback(() => {
@@ -632,7 +627,6 @@ export const useSearchReplace = ({
   return {
     // 状態
     mode,
-    scope,
     query,
     replacement,
     caseSensitive,
