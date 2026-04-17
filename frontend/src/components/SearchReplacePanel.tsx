@@ -197,6 +197,10 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
               py: 0.5,
               px: 0.5,
               fontFamily: useRegex ? 'monospace' : undefined,
+              // プレースホルダは UI フォントに固定し、regex モード切替によるサイズ揺れを回避
+              '&::placeholder': {
+                fontFamily: (theme) => theme.typography.fontFamily,
+              },
             },
           }}
           startAdornment={
@@ -340,6 +344,9 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                 py: 0.5,
                 px: 0.5,
                 fontFamily: useRegex ? 'monospace' : undefined,
+                '&::placeholder': {
+                  fontFamily: (theme) => theme.typography.fontFamily,
+                },
               },
             }}
           />
