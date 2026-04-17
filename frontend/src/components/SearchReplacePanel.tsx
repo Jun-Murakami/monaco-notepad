@@ -10,6 +10,7 @@ import {
   Undo,
 } from '@mui/icons-material';
 import {
+  alpha,
   Box,
   Button,
   IconButton,
@@ -281,7 +282,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           title={t('searchReplace.toggleReplace')}
           label={t('searchReplace.mode.replace')}
         />
-        <Tooltip title={t('searchReplace.undo')}>
+        <Tooltip arrow title={t('searchReplace.undo')}>
           <span>
             <IconButton
               size="small"
@@ -293,7 +294,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title={t('searchReplace.redo')}>
+        <Tooltip arrow title={t('searchReplace.redo')}>
           <span>
             <IconButton
               size="small"
@@ -342,7 +343,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
               },
             }}
           />
-          <Tooltip title={t('searchReplace.replaceOne')}>
+          <Tooltip arrow title={t('searchReplace.replaceOne')}>
             <span>
               <IconButton
                 size="small"
@@ -354,7 +355,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title={t('searchReplace.replaceAllInCurrent')}>
+          <Tooltip arrow title={t('searchReplace.replaceAllInCurrent')}>
             <span>
               <IconButton
                 size="small"
@@ -409,7 +410,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                 })}
               </Typography>
               <Box sx={{ flexGrow: 1 }} />
-              <Tooltip title={t('searchReplace.replaceAllInAll')}>
+              <Tooltip arrow title={t('searchReplace.replaceAllInAll')}>
                 <span>
                   <Button
                     size="small"
@@ -455,7 +456,7 @@ const OptionToggle: React.FC<{
   title: string;
   label: string;
 }> = ({ selected, onChange, title, label }) => (
-  <Tooltip title={title}>
+  <Tooltip arrow title={title}>
     <ToggleButton
       value="t"
       size="small"
@@ -468,8 +469,19 @@ const OptionToggle: React.FC<{
         fontWeight: 'bold',
         minWidth: 24,
         lineHeight: 1.4,
+        // 未選択時は MUI Button variant="outlined" color="primary" 相当
         border: 1,
-        // 選択時は MUI Button variant="contained" 相当の見た目にする（AppBar のボタンと統一）
+        borderColor: 'primary.main',
+        color: 'primary.main',
+        '&:hover': {
+          backgroundColor: (theme) =>
+            alpha(
+              theme.palette.primary.main,
+              theme.palette.action.hoverOpacity,
+            ),
+          borderColor: 'primary.main',
+        },
+        // 選択時は MUI Button variant="contained" 相当（AppBar と統一）
         '&.Mui-selected': {
           backgroundColor: 'primary.main',
           color: 'primary.contrastText',
