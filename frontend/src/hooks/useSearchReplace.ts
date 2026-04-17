@@ -340,8 +340,15 @@ export const useSearchReplace = ({
   const pendingJumpRef = useRef<{ noteId: string; index: number } | null>(null);
   const jumpToNoteMatch = useCallback(
     (noteId: string, matchIndexInNote: number) => {
-      // 呼び出し側で該当ノートを選択した後にエディタモデルが切り替わる。
-      // ここでは目的位置だけ記憶し、currentMatches が再計算されてから適用する。
+      // 既に対象ノートが開かれているなら即時反映。
+      // （currentMatches は最新のはずで、setCurrentMatchIndex で reveal effect が発火する）
+      const activeId = getActiveNoteIdRef.current();
+      if (activeId === noteId) {
+        pendingJumpRef.current = null;
+        setCurrentMatchIndex(matchIndexInNote);
+        return;
+      }
+      // ノート切替が必要な場合は、モデル入替→再計算を待ってから適用する。
       pendingJumpRef.current = { noteId, index: matchIndexInNote };
     },
     [],
