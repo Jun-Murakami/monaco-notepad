@@ -33,6 +33,9 @@ interface EditorPaneProps {
   onClose: () => void;
   onSelectNext: () => Promise<void>;
   onSelectPrevious: () => Promise<void>;
+  onOpenFind?: () => void;
+  onOpenReplace?: () => void;
+  onOpenFindInAll?: () => void;
 }
 
 export const EditorPane: React.FC<EditorPaneProps> = ({
@@ -59,6 +62,9 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   onClose,
   onSelectNext,
   onSelectPrevious,
+  onOpenFind,
+  onOpenReplace,
+  onOpenFindInAll,
 }) => {
   return (
     <Box
@@ -110,6 +116,9 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
           onClose={onClose}
           onSelectNext={onSelectNext}
           onSelectPrevious={onSelectPrevious}
+          onOpenFind={onOpenFind}
+          onOpenReplace={onOpenReplace}
+          onOpenFindInAll={onOpenFindInAll}
         />
       </Box>
     </Box>

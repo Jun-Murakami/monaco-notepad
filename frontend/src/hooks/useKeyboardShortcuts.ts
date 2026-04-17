@@ -16,6 +16,10 @@ interface UseKeyboardShortcutsProps {
   handleSelectNextAnyNote: () => Promise<void>;
   handleSelectPreviousAnyNote: () => Promise<void>;
   isFileModified: (fileId: string) => boolean;
+  // 検索・置換パネル
+  onOpenFind: () => void;
+  onOpenReplace: () => void;
+  onOpenFindInAll: () => void;
 }
 
 export const useKeyboardShortcuts = ({
@@ -31,6 +35,9 @@ export const useKeyboardShortcuts = ({
   handleSelectNextAnyNote,
   handleSelectPreviousAnyNote,
   isFileModified,
+  onOpenFind,
+  onOpenReplace,
+  onOpenFindInAll,
 }: UseKeyboardShortcutsProps) => {
   // ref経由で最新値を参照し、コールバックの再生成を防止
   const currentFileNoteRef = useRef(currentFileNote);
@@ -45,6 +52,9 @@ export const useKeyboardShortcuts = ({
   const handleSelectNextAnyNoteRef = useRef(handleSelectNextAnyNote);
   const handleSelectPreviousAnyNoteRef = useRef(handleSelectPreviousAnyNote);
   const isFileModifiedRef = useRef(isFileModified);
+  const onOpenFindRef = useRef(onOpenFind);
+  const onOpenReplaceRef = useRef(onOpenReplace);
+  const onOpenFindInAllRef = useRef(onOpenFindInAll);
   currentFileNoteRef.current = currentFileNote;
   currentNoteRef.current = currentNote;
   setCurrentFileNoteRef.current = setCurrentFileNote;
@@ -57,6 +67,9 @@ export const useKeyboardShortcuts = ({
   handleSelectNextAnyNoteRef.current = handleSelectNextAnyNote;
   handleSelectPreviousAnyNoteRef.current = handleSelectPreviousAnyNote;
   isFileModifiedRef.current = isFileModified;
+  onOpenFindRef.current = onOpenFind;
+  onOpenReplaceRef.current = onOpenReplace;
+  onOpenFindInAllRef.current = onOpenFindInAll;
 
   useHotkeys([
     {
@@ -111,6 +124,25 @@ export const useKeyboardShortcuts = ({
       hotkey: 'Mod+Shift+Tab',
       callback: () => {
         void handleSelectPreviousAnyNoteRef.current();
+      },
+    },
+    // エディタ外から押された場合のフォールバック（エディタ内ではEditor.tsxの addCommand が先に拾う）
+    {
+      hotkey: 'Mod+F',
+      callback: () => {
+        onOpenFindRef.current();
+      },
+    },
+    {
+      hotkey: 'Mod+H',
+      callback: () => {
+        onOpenReplaceRef.current();
+      },
+    },
+    {
+      hotkey: 'Mod+Shift+F',
+      callback: () => {
+        onOpenFindInAllRef.current();
       },
     },
   ]);

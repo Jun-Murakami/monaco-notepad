@@ -49,6 +49,36 @@
   "search": {
     "placeholder": "Search..."
   },
+  "searchReplace": {
+    "findPlaceholder": "Find",
+    "replacePlaceholder": "Replace",
+    "caseMatch": "Match case",
+    "wholeWord": "Whole word",
+    "regex": "Regular expression",
+    "previous": "Previous match (Shift+Enter)",
+    "next": "Next match (Enter)",
+    "replaceOne": "Replace",
+    "replaceAllInCurrent": "Replace all in current note",
+    "replaceAllInAll": "Replace all in all notes",
+    "all": "All",
+    "undo": "Undo bulk edit",
+    "redo": "Redo bulk edit",
+    "matchCount": "{{count}} matches",
+    "invalidPattern": "Invalid pattern",
+    "confirmReplaceAllTitle": "Replace in all notes",
+    "confirmReplaceAllMessage": "Replace {{matchCount}} matches across {{noteCount}} notes?",
+    "conflictTitle": "Cannot undo cleanly",
+    "conflictMessage": "The target text has been modified after the bulk replace. The undo was cancelled to avoid overwriting your edits.",
+    "historyReplace": "Replace",
+    "historyReplaceAll": "Replace all in note ({{count}})",
+    "historyReplaceAllNotes": "Replace all in {{noteCount}} notes ({{matchCount}})",
+    "mode": {
+      "find": "Find",
+      "replace": "Replace",
+      "findInAll": "Find in All",
+      "replaceInAll": "Replace in All"
+    }
+  },
   "notes": {
     "loading": "Loading...",
     "newNote": "New Note",

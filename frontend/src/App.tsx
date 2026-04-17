@@ -39,6 +39,7 @@ import { useNoteSelecter } from './hooks/useNoteSelecter';
 import { useNotes } from './hooks/useNotes';
 import { usePaneSizes } from './hooks/usePaneSizes';
 import { useRecentFiles } from './hooks/useRecentFiles';
+import { useSearchReplace } from './hooks/useSearchReplace';
 import { useSplitEditor } from './hooks/useSplitEditor';
 
 import type { FileNote, Note, TopLevelItem } from './types';
@@ -292,6 +293,31 @@ function App() {
     isSplit,
     onSelectInSplit: handleSelectNoteForPane,
     onSelectSingle: handleSelecAnyNote,
+  });
+
+  // 検索・置換パネル（アプリ統合、Monaco 標準検索は Editor 側で抑制済み）
+  const getActiveEditor = useCallback(
+    () =>
+      (isSplit && focusedPane === 'right'
+        ? rightEditorInstanceRef.current
+        : leftEditorInstanceRef.current) ?? null,
+    [isSplit, focusedPane],
+  );
+  const getActiveNoteId = useCallback((): string | null => {
+    if (isSplit) {
+      if (focusedPane === 'left') return leftNote?.id ?? null;
+      return rightNote?.id ?? null;
+    }
+    return currentNote?.id ?? null;
+  }, [isSplit, focusedPane, leftNote, rightNote, currentNote]);
+
+  const searchReplace = useSearchReplace({
+    notes,
+    setNotes,
+    getActiveEditor,
+    getActiveNoteId,
+    showMessage,
+    t,
   });
 
   // 3) ハンドラ・派生値
@@ -649,6 +675,15 @@ function App() {
     handleSelectNextAnyNote,
     handleSelectPreviousAnyNote,
     isFileModified,
+    onOpenFind: useCallback(() => searchReplace.open('find'), [searchReplace]),
+    onOpenReplace: useCallback(
+      () => searchReplace.open('replace'),
+      [searchReplace],
+    ),
+    onOpenFindInAll: useCallback(
+      () => searchReplace.open('findInAll'),
+      [searchReplace],
+    ),
   });
 
   const TITLE_BAR_HEIGHT = platform === 'darwin' ? 26 : 0;
@@ -1025,6 +1060,50 @@ function App() {
                 showMessage={showMessage}
                 currentNote={currentNote}
                 currentFileNote={currentFileNote}
+                searchReplace={{
+                  isOpen: searchReplace.isOpen,
+                  mode: searchReplace.mode,
+                  query: searchReplace.query,
+                  replacement: searchReplace.replacement,
+                  caseSensitive: searchReplace.caseSensitive,
+                  wholeWord: searchReplace.wholeWord,
+                  useRegex: searchReplace.useRegex,
+                  patternError: searchReplace.patternError,
+                  currentMatches: searchReplace.currentMatches,
+                  currentMatchIndex: searchReplace.currentMatchIndex,
+                  crossNoteResults: searchReplace.crossNoteResults,
+                  canUndo: searchReplace.canUndo,
+                  canRedo: searchReplace.canRedo,
+                  onSetQuery: searchReplace.setQuery,
+                  onSetReplacement: searchReplace.setReplacement,
+                  onToggleCaseSensitive: () =>
+                    searchReplace.setCaseSensitive(
+                      !searchReplace.caseSensitive,
+                    ),
+                  onToggleWholeWord: () =>
+                    searchReplace.setWholeWord(!searchReplace.wholeWord),
+                  onToggleUseRegex: () =>
+                    searchReplace.setUseRegex(!searchReplace.useRegex),
+                  onSetMode: searchReplace.setMode,
+                  onClose: searchReplace.close,
+                  onFindNext: searchReplace.findNext,
+                  onFindPrevious: searchReplace.findPrevious,
+                  onReplaceCurrent: searchReplace.replaceCurrent,
+                  onReplaceAllInCurrent: searchReplace.replaceAllInCurrent,
+                  onReplaceAllInAllNotes: searchReplace.replaceAllInAllNotes,
+                  onJumpToNoteMatch: searchReplace.jumpToNoteMatch,
+                  onSelectNote: async (noteId: string) => {
+                    const n = notes.find((note) => note.id === noteId);
+                    if (!n) return;
+                    if (isSplit) await handleSelectNoteForPane(n);
+                    else await handleSelecAnyNote(n);
+                  },
+                  onUndo: searchReplace.undo,
+                  onRedo: searchReplace.redo,
+                  onOpenFind: () => searchReplace.open('find'),
+                  onOpenReplace: () => searchReplace.open('replace'),
+                  onOpenFindInAll: () => searchReplace.open('findInAll'),
+                }}
               />
             </Allotment.Pane>
           </Allotment>

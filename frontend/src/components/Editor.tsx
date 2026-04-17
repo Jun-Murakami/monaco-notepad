@@ -27,6 +27,10 @@ interface EditorProps {
   onClose?: () => void;
   onSelectNext?: () => Promise<void>;
   onSelectPrevious?: () => Promise<void>;
+  // アプリ統合の検索・置換パネルを開く
+  onOpenFind?: () => void;
+  onOpenReplace?: () => void;
+  onOpenFindInAll?: () => void;
 }
 
 export const Editor: React.FC<EditorProps> = ({
@@ -45,6 +49,9 @@ export const Editor: React.FC<EditorProps> = ({
   onClose,
   onSelectNext,
   onSelectPrevious,
+  onOpenFind,
+  onOpenReplace,
+  onOpenFindInAll,
 }) => {
   const settings = useEditorSettingsStore((s) => s.settings);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -65,6 +72,9 @@ export const Editor: React.FC<EditorProps> = ({
   const onSelectPreviousEvent = useEffectEvent(async () => {
     await onSelectPrevious?.();
   });
+  const onOpenFindEvent = useEffectEvent(() => onOpenFind?.());
+  const onOpenReplaceEvent = useEffectEvent(() => onOpenReplace?.());
+  const onOpenFindInAllEvent = useEffectEvent(() => onOpenFindInAll?.());
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -224,6 +234,31 @@ export const Editor: React.FC<EditorProps> = ({
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW,
       () => {
         onCloseEvent();
+      },
+      'editorTextFocus',
+    );
+
+    // Monaco 標準の検索ウィジェットを抑制し、アプリ統合のパネルを開く
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF,
+      () => {
+        onOpenFindEvent();
+      },
+      'editorTextFocus',
+    );
+
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyH,
+      () => {
+        onOpenReplaceEvent();
+      },
+      'editorTextFocus',
+    );
+
+    editorInstanceRef.current.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
+      () => {
+        onOpenFindInAllEvent();
       },
       'editorTextFocus',
     );
