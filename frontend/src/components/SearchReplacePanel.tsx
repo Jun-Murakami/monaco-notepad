@@ -542,13 +542,25 @@ const CrossNoteGroup: React.FC<{
 }> = ({ group, onJump }) => {
   const { t } = useTranslation();
   return (
-    <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+    <Box
+      sx={{
+        // サイドバーの「ローカルファイル」「ノート」見出しと同じく左右に余白を取る
+        mx: 1,
+        mt: 1,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+        overflow: 'hidden',
+      }}
+    >
       <Box
         sx={{
           px: 1,
           py: 0.5,
           fontWeight: 'bold',
-          backgroundColor: 'action.hover',
+          backgroundColor: 'action.disabledBackground',
+          borderBottom: 1,
+          borderColor: 'divider',
           display: 'flex',
           alignItems: 'center',
           gap: 1,
