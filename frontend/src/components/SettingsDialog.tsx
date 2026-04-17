@@ -34,7 +34,6 @@ interface SettingsDialogProps {
   open: boolean;
   settings: Settings;
   onClose: () => void;
-  onSave: (settings: Settings) => void;
   onChange: (settings: Settings) => void;
   onOpenAbout: () => void;
 }
@@ -43,7 +42,6 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   open,
   settings,
   onClose,
-  onSave,
   onChange,
   onOpenAbout,
 }) => {
@@ -62,8 +60,6 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
-    // キャンセル時は元の設定に戻す
-    onChange(settings);
     onClose();
   };
 
@@ -342,9 +338,8 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
           {t('settings.aboutLicense')}
         </Button>
         <Box sx={{ flex: '1 0 0' }} />
-        <Button onClick={handleClose}>{t('settings.cancel')}</Button>
-        <Button onClick={() => onSave(localSettings)} variant="contained">
-          {t('settings.save')}
+        <Button onClick={handleClose} variant="contained">
+          {t('settings.close')}
         </Button>
       </DialogActions>
     </Dialog>

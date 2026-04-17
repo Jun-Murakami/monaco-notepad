@@ -89,8 +89,7 @@ function App() {
 
   // 2) カスタムフック
   // エディタ設定
-  const { editorSettings, setEditorSettings, handleSettingsChange } =
-    useEditorSettings();
+  const { editorSettings, setEditorSettings } = useEditorSettings();
 
   // ペインサイズ管理
   const {
@@ -1127,7 +1126,6 @@ function App() {
           settings={editorSettings}
           onClose={() => setIsSettingsOpen(false)}
           onChange={setEditorSettings}
-          onSave={handleSettingsChange}
           onOpenAbout={() => {
             setIsSettingsOpen(false);
             setIsAboutOpen(true);

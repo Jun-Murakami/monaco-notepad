@@ -37,7 +37,6 @@ describe('SettingsDialog', () => {
     open: true,
     settings: mockSettings,
     onClose: vi.fn(),
-    onSave: vi.fn(),
     onChange: vi.fn(),
     onOpenAbout: vi.fn(),
   };
@@ -152,31 +151,12 @@ describe('SettingsDialog', () => {
     );
   });
 
-  it('キャンセルボタンが正しく動作すること', () => {
+  it('閉じるボタンが正しく動作すること', () => {
     render(<SettingsDialog {...defaultProps} />);
 
-    const cancelButton = screen.getByRole('button', { name: /Cancel/i });
-    fireEvent.click(cancelButton);
+    const closeButton = screen.getByRole('button', { name: /Close/i });
+    fireEvent.click(closeButton);
 
-    expect(defaultProps.onChange).toHaveBeenCalledWith(mockSettings);
     expect(defaultProps.onClose).toHaveBeenCalled();
-  });
-
-  it('保存ボタンが正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
-
-    // 設定を変更
-    const input = screen.getByLabelText('Font Family');
-    fireEvent.change(input, { target: { value: 'New Font' } });
-
-    // 保存
-    const saveButton = screen.getByRole('button', { name: /Save/i });
-    fireEvent.click(saveButton);
-
-    expect(defaultProps.onSave).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fontFamily: 'New Font',
-      }),
-    );
   });
 });

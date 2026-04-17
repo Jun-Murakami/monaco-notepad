@@ -106,31 +106,7 @@ export const useEditorSettings = () => {
     loadSettings();
   }, [setSettings, setInitialized]);
 
-  // 設定ダイアログから「保存」時に呼ばれるハンドラ
-  const handleSettingsChange = useCallback(
-    async (newSettings: Settings) => {
-      // 言語が変更された場合はi18nも更新
-      if (newSettings.uiLanguage !== settings.uiLanguage) {
-        let resolvedLanguage: 'en' | 'ja';
-        if (newSettings.uiLanguage === 'system') {
-          const systemLocale = await GetSystemLocale();
-          resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
-        } else {
-          resolvedLanguage = newSettings.uiLanguage as 'en' | 'ja';
-        }
-        await changeLanguage(resolvedLanguage);
-      }
-
-      setSettings(newSettings);
-      SaveSettings(newSettings);
-
-      // ハンドラから直接Monacoに適用（useEffect不要）
-      applySettingsToAllEditors(newSettings);
-    },
-    [settings.uiLanguage, setSettings],
-  );
-
-  // 設定のリアルタイムプレビュー用（SettingsDialogのonChange）
+  // 設定変更ハンドラ（SettingsDialogのonChange、即時反映・即時保存）
   const handleSetEditorSettings = useCallback(
     async (newSettings: Settings) => {
       // 言語が変更された場合はi18nも更新
@@ -159,6 +135,5 @@ export const useEditorSettings = () => {
   return {
     editorSettings: settings,
     setEditorSettings: handleSetEditorSettings,
-    handleSettingsChange,
   };
 };

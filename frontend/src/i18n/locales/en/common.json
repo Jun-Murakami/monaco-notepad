@@ -23,8 +23,7 @@
     "conflictBackupDescriptionLink": "backup folder",
     "conflictBackupDescriptionAfterLink": ".",
     "resetToDefault": "Reset to Default",
-    "cancel": "Cancel",
-    "save": "Save",
+    "close": "Close",
     "aboutLicense": "About / License"
   },
   "app": {

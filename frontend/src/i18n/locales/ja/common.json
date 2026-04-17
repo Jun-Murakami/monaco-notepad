@@ -23,8 +23,7 @@
     "conflictBackupDescriptionLink": "バックアップフォルダ",
     "conflictBackupDescriptionAfterLink": " に保存します。",
     "resetToDefault": "デフォルトにリセット",
-    "cancel": "キャンセル",
-    "save": "保存",
+    "close": "閉じる",
     "aboutLicense": "このアプリについて / ライセンス"
   },
   "app": {

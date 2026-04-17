@@ -198,7 +198,7 @@ describe('useEditorSettings フック', () => {
       };
 
       await act(async () => {
-        result.current.handleSettingsChange(newSettings);
+        result.current.setEditorSettings(newSettings);
       });
 
       expect(result.current.editorSettings).toEqual(newSettings);
