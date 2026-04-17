@@ -256,7 +256,9 @@ export const useSearchReplace = ({
           endPos.lineNumber,
           endPos.column,
         );
-        ed.revealRangeInCenterIfOutsideViewport(range);
+        // 選択＋中央寄せで「ロケート」。確実に可視化するため revealRangeInCenter を使う。
+        ed.setSelection(range);
+        ed.revealRangeInCenter(range);
       }
     }
   }, [currentMatches, currentMatchIndex, updateDecorations]);

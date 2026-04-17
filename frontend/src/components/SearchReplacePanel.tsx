@@ -13,6 +13,7 @@ import {
   alpha,
   Box,
   Button,
+  GlobalStyles,
   IconButton,
   InputAdornment,
   InputBase,
@@ -67,6 +68,13 @@ interface SearchReplacePanelProps {
 
 const toggleReplaceMode = (mode: SearchPanelMode): SearchPanelMode =>
   mode === 'replace' ? 'find' : 'replace';
+
+// 検索ヒットの配色。Monaco 内のデコレーションとサイドバー結果ツリーで共通。
+// ライト/ダーク両方で視認しやすい濃さの黄色（＋枠線）を採用。
+const HIT_BG = 'rgba(255, 213, 0, 0.55)';
+const HIT_BORDER = 'rgba(214, 166, 0, 0.95)';
+const HIT_CURRENT_BG = 'rgba(255, 140, 0, 0.65)';
+const HIT_CURRENT_BORDER = 'rgba(230, 105, 0, 1)';
 
 export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   mode,
@@ -156,20 +164,25 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
         backgroundColor: 'background.paper',
         display: 'flex',
         flexDirection: 'column',
-        '& .app-search-match': {
-          backgroundColor: 'rgba(255, 193, 7, 0.30)',
-          border: '1px solid rgba(255, 193, 7, 0.45)',
-          borderRadius: '2px',
-          boxSizing: 'border-box',
-        },
-        '& .app-search-match-current': {
-          backgroundColor: 'rgba(255, 112, 67, 0.45)',
-          border: '1px solid rgba(255, 112, 67, 0.80)',
-          borderRadius: '2px',
-          boxSizing: 'border-box',
-        },
       }}
     >
+      {/* Monaco デコレーションはエディタ DOM 内に描画されるため、GlobalStyles で当てる */}
+      <GlobalStyles
+        styles={{
+          '.app-search-match': {
+            backgroundColor: HIT_BG,
+            border: `1px solid ${HIT_BORDER}`,
+            borderRadius: '2px',
+            boxSizing: 'border-box',
+          },
+          '.app-search-match-current': {
+            backgroundColor: HIT_CURRENT_BG,
+            border: `1px solid ${HIT_CURRENT_BORDER}`,
+            borderRadius: '2px',
+            boxSizing: 'border-box',
+          },
+        }}
+      />
       {/* 検索行 */}
       <Box
         sx={{
@@ -599,7 +612,9 @@ const CrossNoteGroup: React.FC<{
               sx={{
                 fontSize: '0.75rem',
                 fontFamily: 'monospace',
-                backgroundColor: 'rgba(255, 193, 7, 0.30)',
+                backgroundColor: HIT_BG,
+                border: `1px solid ${HIT_BORDER}`,
+                borderRadius: '2px',
                 fontWeight: 'bold',
               }}
             >
