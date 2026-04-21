@@ -12,16 +12,16 @@ export interface RetryOptions {
 
 export class RetryableError extends Error {
 	readonly retryable = true;
-	constructor(message: string, readonly cause?: unknown) {
+	constructor(
+		message: string,
+		readonly cause?: unknown,
+	) {
 		super(message);
 	}
 }
 
 export class AuthError extends Error {
 	readonly authError = true;
-	constructor(message: string) {
-		super(message);
-	}
 }
 
 export async function withRetry<T>(
@@ -46,7 +46,9 @@ export async function withRetry<T>(
 			delay = Math.min(delay * 2, opts.maxDelayMs);
 		}
 	}
-	throw lastErr instanceof Error ? lastErr : new Error(`${label}: unknown error`);
+	throw lastErr instanceof Error
+		? lastErr
+		: new Error(`${label}: unknown error`);
 }
 
 function isRetryable(err: unknown): boolean {
@@ -54,7 +56,11 @@ function isRetryable(err: unknown): boolean {
 	if (err instanceof RetryableError) return true;
 	if (err instanceof Error) {
 		const msg = err.message.toLowerCase();
-		if (msg.includes('network') || msg.includes('timeout') || msg.includes('fetch')) {
+		if (
+			msg.includes('network') ||
+			msg.includes('timeout') ||
+			msg.includes('fetch')
+		) {
 			return true;
 		}
 	}

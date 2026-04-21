@@ -14,7 +14,9 @@ import type { Note } from './types';
  * デスクトップ版 drive_service.go:1880-1893 の挙動を移植。
  */
 
-export async function recoverLocalOrphans(noteService: NoteService): Promise<number> {
+export async function recoverLocalOrphans(
+	noteService: NoteService,
+): Promise<number> {
 	const orphans = await noteService.scanOrphans();
 	for (const note of orphans) {
 		await noteService.recoverOrphanNote(note);
@@ -30,13 +32,18 @@ export async function recoverCloudOrphans(
 	driveSync: DriveSyncService,
 	noteService: NoteService,
 ): Promise<number> {
-	const list = noteService.getNoteList();
+	// ❗ cloud orphan の定義は「Drive notes/ にファイルがあるのに **cloud の noteList** に登録が無い」。
+	// ローカル noteList で判定すると、新規インストール / 長期オフライン等でローカルが空 or 古い時に
+	// 正常な cloud ノートを全部 orphan と誤判定し、不明ノートへ移動してしまう（pullCloudChanges
+	// で list は正常化されるが note file のディスク上 folderId は戻らず、編集→保存で伝搬する事故になる）。
+	const cloudList = await driveSync.downloadNoteList();
 	const files = await driveSync.listNoteFiles();
-	const registered = new Set(list.notes.map((n) => n.id));
+	const registered = new Set(cloudList.notes.map((n) => n.id));
 
-	// 既存ノートのハッシュ集合（Conflict Copy 重複判定用）
+	// 既存ノート（ローカル側）のハッシュ集合（Conflict Copy 重複判定用）
+	const localList = noteService.getNoteList();
 	const existingDedupHashes = new Set<string>();
-	for (const meta of list.notes) {
+	for (const meta of localList.notes) {
 		const local = await noteService.readNote(meta.id);
 		if (local) {
 			existingDedupHashes.add(await computeConflictCopyDedupHash(local));
@@ -57,7 +64,9 @@ export async function recoverCloudOrphans(
 	for (const [id, group] of byId) {
 		if (registered.has(id)) continue;
 		// 最新のみ残す
-		group.sort((a, b) => (b.modifiedTime ?? '').localeCompare(a.modifiedTime ?? ''));
+		group.sort((a, b) =>
+			(b.modifiedTime ?? '').localeCompare(a.modifiedTime ?? ''),
+		);
 		const latest = group[0];
 		for (let i = 1; i < group.length; i++) {
 			await driveSync.deleteNoteByFileId(group[i].id).catch(() => {});

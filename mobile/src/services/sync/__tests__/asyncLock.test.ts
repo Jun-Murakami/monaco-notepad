@@ -15,7 +15,14 @@ describe('AsyncLock', () => {
 		await Promise.all([task('A', 30), task('B', 5), task('C', 5)]);
 
 		// どのタスクも end を出してから次のタスクが start する
-		expect(log).toEqual(['A:start', 'A:end', 'B:start', 'B:end', 'C:start', 'C:end']);
+		expect(log).toEqual([
+			'A:start',
+			'A:end',
+			'B:start',
+			'B:end',
+			'C:start',
+			'C:end',
+		]);
 	});
 
 	it('エラーを呼び出し側へ伝播しつつロックは解放する', async () => {

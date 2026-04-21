@@ -8,22 +8,25 @@ import { makeNoteList } from './helpers';
  * DriveSyncService と同じ API 形状を持つ in-memory 偽クラウド。
  * orchestrator/polling/orphanRecovery のテストで driveSync の代わりに注入する。
  */
-export class FakeCloud implements Pick<
-	DriveSyncService,
-	| 'listNoteFiles'
-	| 'resolveNoteFileId'
-	| 'createNote'
-	| 'updateNote'
-	| 'deleteNote'
-	| 'deleteNoteByFileId'
-	| 'downloadNote'
-	| 'downloadNoteByFileId'
-	| 'downloadNoteList'
-	| 'updateNoteList'
-	| 'getNoteListMetadata'
-	| 'clearCache'
-	| 'updateLayout'
-> {
+export class FakeCloud
+	implements
+		Pick<
+			DriveSyncService,
+			| 'listNoteFiles'
+			| 'resolveNoteFileId'
+			| 'createNote'
+			| 'updateNote'
+			| 'deleteNote'
+			| 'deleteNoteByFileId'
+			| 'downloadNote'
+			| 'downloadNoteByFileId'
+			| 'downloadNoteList'
+			| 'updateNoteList'
+			| 'getNoteListMetadata'
+			| 'clearCache'
+			| 'updateLayout'
+		>
+{
 	/** noteId -> Note */
 	notes = new Map<string, Note>();
 	/** noteId -> modifiedTime on cloud */
@@ -87,7 +90,8 @@ export class FakeCloud implements Pick<
 		this.calls.listNoteFiles++;
 		const out: DriveFile[] = [];
 		for (const [id, note] of this.notes) {
-			if (!this.fileIds.has(id)) this.fileIds.set(id, `fid-${this.fileIdSeq++}`);
+			if (!this.fileIds.has(id))
+				this.fileIds.set(id, `fid-${this.fileIdSeq++}`);
 			out.push({
 				id: this.fileIds.get(id)!,
 				name: `${id}.json`,
@@ -160,7 +164,11 @@ export class FakeCloud implements Pick<
 		this.calls.updateNoteList++;
 		this.noteList = structuredClone(list);
 		this.noteListModifiedTime = new Date().toISOString();
-		return { id: 'note-list-file-id', name: 'noteList_v2.json', modifiedTime: this.noteListModifiedTime };
+		return {
+			id: 'note-list-file-id',
+			name: 'noteList_v2.json',
+			modifiedTime: this.noteListModifiedTime,
+		};
 	}
 
 	async getNoteListMetadata(): Promise<DriveFile> {

@@ -1,13 +1,19 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { Appbar, Menu, SegmentedButtons, useTheme } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
+import {
+	Platform,
+	ScrollView,
+	StyleSheet,
+	TextInput,
+	View,
+} from 'react-native';
+import { Appbar, Menu, SegmentedButtons, useTheme } from 'react-native-paper';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { SyntaxHighlightView } from '@/components/SyntaxHighlightView';
 import { driveService } from '@/services/sync/driveService';
-import { useNotesStore } from '@/stores/notesStore';
 import type { Note } from '@/services/sync/types';
+import { useNotesStore } from '@/stores/notesStore';
 
 type Mode = 'view' | 'edit';
 
@@ -88,7 +94,11 @@ export default function NoteEditorScreen() {
 	};
 
 	const handleArchive = () => {
-		const next = { ...note, archived: !note.archived, modifiedTime: new Date().toISOString() };
+		const next = {
+			...note,
+			archived: !note.archived,
+			modifiedTime: new Date().toISOString(),
+		};
 		scheduleSave(next);
 	};
 
@@ -101,7 +111,10 @@ export default function NoteEditorScreen() {
 					visible={langMenuOpen}
 					onDismiss={() => setLangMenuOpen(false)}
 					anchor={
-						<Appbar.Action icon="code-tags" onPress={() => setLangMenuOpen(true)} />
+						<Appbar.Action
+							icon="code-tags"
+							onPress={() => setLangMenuOpen(true)}
+						/>
 					}
 				>
 					{LANGUAGES.map((lang) => (
@@ -110,7 +123,11 @@ export default function NoteEditorScreen() {
 							title={lang}
 							onPress={() => {
 								setLangMenuOpen(false);
-								scheduleSave({ ...note, language: lang, modifiedTime: new Date().toISOString() });
+								scheduleSave({
+									...note,
+									language: lang,
+									modifiedTime: new Date().toISOString(),
+								});
 							}}
 							trailingIcon={note.language === lang ? 'check' : undefined}
 						/>
@@ -148,7 +165,10 @@ export default function NoteEditorScreen() {
 			/>
 			{mode === 'view' ? (
 				<ScrollView style={styles.viewer}>
-					<SyntaxHighlightView content={note.content} language={note.language} />
+					<SyntaxHighlightView
+						content={note.content}
+						language={note.language}
+					/>
 				</ScrollView>
 			) : (
 				<TextInput
@@ -171,7 +191,11 @@ export default function NoteEditorScreen() {
 	);
 }
 
-const monoFamily = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
+const monoFamily = Platform.select({
+	ios: 'Menlo',
+	android: 'monospace',
+	default: 'monospace',
+});
 
 const styles = StyleSheet.create({
 	container: { flex: 1 },

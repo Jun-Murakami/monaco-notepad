@@ -61,14 +61,19 @@ export interface SyncStateSnapshot {
 	lastSyncedNoteHash: Record<string, string>;
 }
 
-export const EMPTY_SYNC_STATE: SyncStateSnapshot = {
+/**
+ * 初期状態サンプル。必ず deep copy（ネスト Record を再生成）してから
+ * ミュータブルに扱うこと。直接 `{ ...EMPTY_SYNC_STATE }` すると内部の
+ * dirtyNoteIds 等が共有参照になり壊れる。
+ */
+export const EMPTY_SYNC_STATE: Readonly<SyncStateSnapshot> = Object.freeze({
 	dirty: false,
 	lastSyncedDriveTs: '',
-	dirtyNoteIds: {},
-	deletedNoteIds: {},
-	deletedFolderIds: {},
-	lastSyncedNoteHash: {},
-};
+	dirtyNoteIds: Object.freeze({}) as Record<string, true>,
+	deletedNoteIds: Object.freeze({}) as Record<string, true>,
+	deletedFolderIds: Object.freeze({}) as Record<string, true>,
+	lastSyncedNoteHash: Object.freeze({}) as Record<string, string>,
+});
 
 export const EMPTY_NOTE_LIST: NoteList = {
 	version: 'v2',

@@ -1,47 +1,42 @@
-import * as FileSystem from 'expo-file-system';
+import { Directory, File } from 'expo-file-system';
 
 /**
  * 原子的なファイル書き込み（tempfile → rename）。
  * デスクトップ版の sync_state.go saveLocked() と同等の耐障害性を確保する。
+ *
+ * 新 File API: create/write/delete/move は同期。async を維持しているのは
+ * 呼び出し側 API の後方互換のため（I/O 自体は新 API ではブロッキング）。
  */
-export async function writeAtomic(path: string, content: string): Promise<void> {
+export async function writeAtomic(
+	path: string,
+	content: string,
+): Promise<void> {
 	const tmpPath = `${path}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-	await FileSystem.writeAsStringAsync(tmpPath, content, {
-		encoding: FileSystem.EncodingType.UTF8,
-	});
-	// expo-file-system には rename API がないため、移動で代替する。
+	const tmp = new File(tmpPath);
+	tmp.create({ intermediates: true, overwrite: true });
+	tmp.write(content);
 	try {
-		// 既存ファイルがあれば削除してから移動（rename 相当）。
-		const info = await FileSystem.getInfoAsync(path);
-		if (info.exists) {
-			await FileSystem.deleteAsync(path, { idempotent: true });
-		}
-		await FileSystem.moveAsync({ from: tmpPath, to: path });
+		const dst = new File(path);
+		if (dst.exists) dst.delete();
+		tmp.move(dst);
 	} catch (e) {
-		// 失敗時は tmp を掃除
-		await FileSystem.deleteAsync(tmpPath, { idempotent: true }).catch(() => {});
+		if (tmp.exists) tmp.delete();
 		throw e;
 	}
 }
 
 export async function readString(path: string): Promise<string | null> {
-	const info = await FileSystem.getInfoAsync(path);
-	if (!info.exists) return null;
-	return FileSystem.readAsStringAsync(path, {
-		encoding: FileSystem.EncodingType.UTF8,
-	});
+	const f = new File(path);
+	if (!f.exists) return null;
+	return f.text();
 }
 
 export async function ensureDir(path: string): Promise<void> {
-	const info = await FileSystem.getInfoAsync(path);
-	if (!info.exists) {
-		await FileSystem.makeDirectoryAsync(path, { intermediates: true });
-	}
+	const d = new Directory(path);
+	if (!d.exists) d.create({ intermediates: true, idempotent: true });
 }
 
 export async function deleteIfExists(path: string): Promise<void> {
-	const info = await FileSystem.getInfoAsync(path);
-	if (info.exists) {
-		await FileSystem.deleteAsync(path, { idempotent: true });
-	}
+	const f = new File(path);
+	if (f.exists) f.delete();
 }

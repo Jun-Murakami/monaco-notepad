@@ -1,9 +1,14 @@
-import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, IconButton, Text, useTheme } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
+import { StyleSheet, View } from 'react-native';
+import {
+	ActivityIndicator,
+	IconButton,
+	Text,
+	useTheme,
+} from 'react-native-paper';
 import { driveService } from '@/services/sync/driveService';
-import { useSyncStore } from '@/stores/syncStore';
 import type { SyncStatus } from '@/services/sync/types';
+import { useSyncStore } from '@/stores/syncStore';
 
 const statusKeys: Record<SyncStatus, string> = {
 	idle: 'sync.status_idle',
@@ -20,14 +25,28 @@ export function SyncStatusBar() {
 	const theme = useTheme();
 	const status = useSyncStore((s) => s.status);
 	const connected = useSyncStore((s) => s.connected);
+	const progress = useSyncStore((s) => s.progress);
 
-	const busy = status === 'pushing' || status === 'pulling' || status === 'merging' || status === 'resolving';
+	const busy =
+		status === 'pushing' ||
+		status === 'pulling' ||
+		status === 'merging' ||
+		status === 'resolving';
+
+	const label = progress
+		? `${t(statusKeys[status])}  ${progress.current}/${progress.total}`
+		: t(statusKeys[status]);
 
 	return (
-		<View style={[styles.container, { backgroundColor: theme.colors.elevation.level1 }]}>
+		<View
+			style={[
+				styles.container,
+				{ backgroundColor: theme.colors.elevation.level1 },
+			]}
+		>
 			{busy && <ActivityIndicator size="small" style={styles.indicator} />}
 			<Text variant="bodySmall" style={styles.text}>
-				{t(statusKeys[status])}
+				{label}
 			</Text>
 			{connected && (
 				<IconButton

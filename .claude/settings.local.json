@@ -29,7 +29,24 @@
       "Bash(npx vite:*)",
       "Skill(useeffect-guard)",
       "Bash(npx biome:*)",
-      "Bash(echo \"EXIT: $?\")"
+      "Bash(echo \"EXIT: $?\")",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(git stash *)",
+      "Bash(npx expo *)",
+      "Bash(keytool -list -v -keystore __TRACKED_VAR__/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android)",
+      "Bash(keytool -help)",
+      "Read(//c/Program Files/Android/Android Studio/jbr/bin/**)",
+      "Read(//c/Program Files/Java/**)",
+      "Bash('/c/Program Files/Java/jdk-22/bin/keytool.exe' -list -v -keystore __TRACKED_VAR__/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android)",
+      "Bash(git check-ignore *)",
+      "Bash(export MSYS_NO_PATHCONV=1)",
+      "Bash(pwsh -Command \"Get-Process -Id 11952 | Select-Object Id, ProcessName, Path | Format-List\")",
+      "Bash(pwsh -Command \"Get-Process -Id 11952 | Select-Object -ExpandProperty Path\")",
+      "Bash(taskkill /PID 11952 /F)",
+      "Bash(netstat -ano)",
+      "Bash(tasklist /FI \"IMAGENAME eq NTKDaemon.exe\")",
+      "Bash(npm uninstall *)"
     ]
   }
 }

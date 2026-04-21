@@ -1,11 +1,10 @@
 import { Platform, StyleSheet } from 'react-native';
-import SyntaxHighlighter from 'react-native-syntax-highlighter';
+import CodeHighlighter from 'react-native-code-highlighter';
 import { useTheme } from 'react-native-paper';
-
-// react-native-syntax-highlighter は react-syntax-highlighter のスタイルを受け取れる。
-// 型定義が不完全なので require で読み込んで any として扱う。
-// biome-ignore lint/suspicious/noExplicitAny: 動的 import
-const hljsStyles = require('react-syntax-highlighter/dist/esm/styles/hljs') as any;
+import {
+	atomOneDark,
+	atomOneLight,
+} from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
 interface Props {
 	content: string;
@@ -18,22 +17,25 @@ interface Props {
  */
 export function SyntaxHighlightView({ content, language }: Props) {
 	const theme = useTheme();
-	const style = theme.dark ? hljsStyles.atomOneDark : hljsStyles.atomOneLight;
+	const hljsStyle = theme.dark ? atomOneDark : atomOneLight;
 	return (
-		<SyntaxHighlighter
+		<CodeHighlighter
+			hljsStyle={hljsStyle}
 			language={normalizeLang(language)}
-			highlighter="hljs"
-			style={style}
-			customStyle={styles.code}
-			fontFamily={MONO}
-			fontSize={14}
+			textStyle={styles.text}
+			scrollViewProps={{ contentContainerStyle: styles.container }}
 		>
 			{content || ' '}
-		</SyntaxHighlighter>
+		</CodeHighlighter>
 	);
 }
 
-const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }) ?? 'monospace';
+const MONO =
+	Platform.select({
+		ios: 'Menlo',
+		android: 'monospace',
+		default: 'monospace',
+	}) ?? 'monospace';
 
 function normalizeLang(lang: string): string {
 	const map: Record<string, string> = {
@@ -52,8 +54,12 @@ function normalizeLang(lang: string): string {
 }
 
 const styles = StyleSheet.create({
-	code: {
+	container: {
 		padding: 16,
-		margin: 0,
+		minWidth: '100%',
+	},
+	text: {
+		fontFamily: MONO,
+		fontSize: 14,
 	},
 });

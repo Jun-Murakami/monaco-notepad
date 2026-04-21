@@ -44,9 +44,13 @@ describe('SyncStateManager', () => {
 		const s = await freshState();
 		await s.markNoteDirty('n1');
 		const snap = await s.getDirtySnapshotWithRevision();
-		const cleared = await s.clearDirtyIfUnchanged(snap.revision, '2026-02-01T00:00:00Z', {
-			n1: 'hash-1',
-		});
+		const cleared = await s.clearDirtyIfUnchanged(
+			snap.revision,
+			'2026-02-01T00:00:00Z',
+			{
+				n1: 'hash-1',
+			},
+		);
 		expect(cleared).toBe(true);
 		expect(s.isDirty()).toBe(false);
 		expect(s.lastSyncedDriveTs()).toBe('2026-02-01T00:00:00Z');
@@ -59,9 +63,13 @@ describe('SyncStateManager', () => {
 		const snap = await s.getDirtySnapshotWithRevision();
 		// 同期中に別編集
 		await s.markNoteDirty('n2');
-		const cleared = await s.clearDirtyIfUnchanged(snap.revision, '2026-02-01T00:00:00Z', {
-			n1: 'h1',
-		});
+		const cleared = await s.clearDirtyIfUnchanged(
+			snap.revision,
+			'2026-02-01T00:00:00Z',
+			{
+				n1: 'h1',
+			},
+		);
 		expect(cleared).toBe(false);
 		expect(s.isDirty()).toBe(true);
 		// n1/n2 の両方がまだ dirty

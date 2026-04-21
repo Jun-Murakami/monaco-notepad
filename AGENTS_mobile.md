@@ -229,12 +229,38 @@ npm start                      # Dev server (Expo Go ではネイティブ依存
 ```
 
 ### OAuth 設定 (Google Cloud Console 作業)
-- プロジェクトは**デスクトップ版と同じで OK**（クライアント ID だけ別途作成）
+- プロジェクトは**デスクトップ版と同じで OK**（クライアント ID だけプラットフォームごとに作成）
 - iOS OAuth Client: Bundle ID = `app.monaconotepad.mobile`
 - Android OAuth Client: パッケージ名 = `app.monaconotepad.mobile` + デバッグ／リリース SHA-1 両方
 - スコープ: `https://www.googleapis.com/auth/drive.appdata` のみ
-- 取得した Client ID は `mobile/app.json` の `extra.googleOAuth{Ios,Android,Web}ClientId` に入れる
 - OAuth 同意画面の「アプリの確認」を通しておく（テストユーザーのみなら未認証でも可）
+
+### Client ID の注入 (OSS 方針)
+本リポジトリは OSS のため、Client ID を git 管理対象には入れない。`app.config.ts` が `process.env` から読み、`.env.local` でローカル注入する。
+
+1. `mobile/.env.example` を `mobile/.env.local` にコピー
+2. Google Cloud Console で発行した値を貼り付け:
+   ```
+   GOOGLE_OAUTH_IOS_CLIENT_ID=xxxxx.apps.googleusercontent.com
+   GOOGLE_OAUTH_ANDROID_CLIENT_ID=yyyyy.apps.googleusercontent.com
+   ```
+3. `.env.local` は `.gitignore` 済。コミットされないことを `git check-ignore` で確認可能
+4. EAS Build では `eas secret:create --scope project --name GOOGLE_OAUTH_IOS_CLIENT_ID --value ...` で同名のシークレットを登録
+5. 未設定のまま起動すると `authService.resolveClientId` が明示エラーを投げる（プレースホルダのまま通さない）
+
+### Android デバッグ SHA-1 の取得
+```powershell
+# Windows (keytool は JDK / Android Studio JBR 同梱)
+& "C:\Program Files\Java\jdk-22\bin\keytool.exe" -list -v `
+  -keystore "$env:USERPROFILE\.android\debug.keystore" `
+  -alias androiddebugkey -storepass android -keypass android
+```
+```bash
+# macOS / Linux
+keytool -list -v -keystore ~/.android/debug.keystore \
+  -alias androiddebugkey -storepass android -keypass android
+```
+出力の `SHA1:` 行を Google Cloud Console の Android OAuth Client 作成画面に貼り付ける。リリース用は EAS Credentials 画面（`eas credentials` コマンドでも可）から別途取得し、同じ OAuth Client に追加登録する。
 
 ---
 
@@ -258,10 +284,34 @@ npm start                      # Dev server (Expo Go ではネイティブ依存
 - `FakeCloud` は呼び出しカウンタを持つので、テスト中は期待呼び出し回数で検証するのが確実
 - Drive 側の状態を調べたい時は Google OAuth 2 Playground で `drive.appdata` スコープをリクエストし、`spaces=appDataFolder` で `files.list` を叩く
 
+### 開発環境の引っかかりポイント（Windows Android debug）
+
+- **adb にゾンビエミュレータが残る**: 他アプリ（Nahimic の `NTKDaemon.exe` 等）が port 5563 を掴んでいると、adb はそれを「emulator-5562」と誤認し永続的な offline エントリを作る。`setx ADB_LOCAL_TRANSPORT_MAX_PORT 5561` で adb の emulator スキャン範囲を絞ると回避できる
+- **Quick Boot スナップショット**: AVD がクイックブートで前回の状態（他アプリのスプラッシュ等）を復元することがある。`emulator -avd <name> -no-snapshot-load` でコールドブート
+- **`react-native-worklets` の 0.7.x ピン留め**: Expo SDK 55 は `reanimated@4.2.1` + `worklets@0.8.1` を同梱するが、reanimated がビルド時に worklets 0.7.x を要求する。`package.json` で `"react-native-worklets": "0.7.4"` 相当に固定する必要あり（将来 Expo が reanimated 4.3+ / worklets 0.8.x セットに更新したら解除可）
+
+### OAuth2 関連の設計メモ
+
+- **GCP の「カスタム URI スキームを有効にする」をオンにすること**: 2024 年以降の新規 Android OAuth クライアントはデフォルト OFF。GCP コンソール → クライアント編集 → 詳細設定で ON にする。反映に 5 分〜数時間
+- **iOS/Android の OAuth Client ID は環境変数経由で注入**: OSS リポジトリなので `.env.local` (gitignore) で管理。`app.config.ts` の `process.env.GOOGLE_OAUTH_*_CLIENT_ID` が参照する
+- **redirect URI は `com.googleusercontent.apps.<client-id>:/oauth2redirect` を指定**: ただし expo-auth-session は内部的に `<scheme>://oauth2redirect` に変換して deep link を聴取する。ユーザー視点で deep link が `monaconotepad://oauth2redirect` で戻ってくるのは正常
+- **`app/oauth2redirect.tsx`** はこの戻りを catch して Expo Router の "Unmatched Route" を回避する目的のダミールート。削除不可
+
 ---
 
 ## 未実装 / 後続タスク
 
+### 動作検証（着手予定）
+- [x] OAuth2 サインインフロー（Android debug build で 2026-04-22 確認）
+- [ ] 初回同期: 空 Drive ↔ 空 local / 既存 Drive → local 取り込みの両シナリオ
+- [ ] ノート CRUD → Drive 反映（create / edit / archive / delete / move）
+- [ ] アプリ再起動後の refresh_token 自動更新
+- [ ] **デスクトップ版で作成した既存ノートがモバイルで読める** ことの検証（同期ロジック 1:1 互換の生命線）
+- [ ] 競合解決シナリオ（同じノートをデスクトップとモバイルで同時編集）
+- [ ] オフライン → オンライン復帰時の operationQueue 再生
+- [ ] iOS 実機ビルド（現状 Android debug のみ動作確認済）
+
+### 実装タスク
 - [ ] `expo-background-fetch` による true bg 同期（iOS は制約多いため優先度低）
 - [ ] UI コンポーネントの render テスト（Vitest + react-native-web or Jest + jest-expo）
 - [ ] `polling.ts` / `driveService.ts` の結合テスト
@@ -270,3 +320,10 @@ npm start                      # Dev server (Expo Go ではネイティブ依存
 - [ ] セルラー回線時の同期抑制オプション（UI は設定画面にあるが、`polling.ts` で未参照）
 - [ ] 設定の永続化（現状メモリのみ）
 - [ ] フォルダ UI（noteList 上はサポート、画面側未対応）
+
+### 将来の検討事項
+- [ ] `@react-native-google-signin/google-signin` への移行（Google 推奨の Credential Manager 方式）
+  - 現状は expo-auth-session + Custom URI scheme（GCP 側で「おすすめしません」と警告が出る方式）
+  - 移行すると: Chrome 遷移なしの in-app 認証 / refresh_token 不要 / URL hijacking リスク解消
+  - 影響範囲: `authService.ts` 全面書き換え、`StoredToken` スキーマ変更、iOS/Android ともに config plugin 追加
+  - タイミングの目安: ストア公開前、もしくは Google から deprecation 通知が来た時

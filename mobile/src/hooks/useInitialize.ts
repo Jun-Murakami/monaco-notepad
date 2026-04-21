@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { applySavedLanguage } from '@/i18n';
 import { authService } from '@/services/auth/authService';
 import { driveService } from '@/services/sync/driveService';
 import { useAuthStore } from '@/stores/authStore';
@@ -18,6 +19,7 @@ export function useInitialize(): { ready: boolean; error: Error | null } {
 		let cancelled = false;
 		(async () => {
 			try {
+				await applySavedLanguage();
 				await useNotesStore.getState().loadAll();
 				await driveService.initialize();
 				if (cancelled) return;

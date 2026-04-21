@@ -1,10 +1,10 @@
-import { writeAsStringAsync } from 'expo-file-system';
+import { File } from 'expo-file-system';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { NoteService } from '@/services/notes/noteService';
-import { NOTES_DIR, noteFilePath } from '@/services/storage/paths';
 import { ensureDir } from '@/services/storage/atomicFile';
+import { NOTES_DIR, noteFilePath } from '@/services/storage/paths';
 import { FakeCloud } from '@/test/fakeCloud';
-import { iso, makeNote } from '@/test/helpers';
+import { makeNote } from '@/test/helpers';
 import type { DriveSyncService } from '../driveSyncService';
 import { recoverCloudOrphans, recoverLocalOrphans } from '../orphanRecovery';
 
@@ -20,13 +20,14 @@ beforeEach(async () => {
 describe('recoverLocalOrphans', () => {
 	it('notes/ 内で noteList に無いファイルを「不明ノート」フォルダへ登録', async () => {
 		await ensureDir(NOTES_DIR);
-		await writeAsStringAsync(
-			noteFilePath('orphan-1'),
-			JSON.stringify(makeNote({ id: 'orphan-1', content: 'lost' })),
-		);
+		const f = new File(noteFilePath('orphan-1'));
+		f.create({ intermediates: true, overwrite: true });
+		f.write(JSON.stringify(makeNote({ id: 'orphan-1', content: 'lost' })));
 		const count = await recoverLocalOrphans(notes);
 		expect(count).toBe(1);
-		const folder = notes.getNoteList().folders.find((f) => f.name === '不明ノート');
+		const folder = notes
+			.getNoteList()
+			.folders.find((f) => f.name === '不明ノート');
 		expect(folder).toBeDefined();
 		expect(notes.getNoteList().notes[0]).toMatchObject({
 			id: 'orphan-1',
@@ -63,7 +64,11 @@ describe('recoverCloudOrphans', () => {
 
 	it('Conflict Copy タイトルは既存ノートと内容が同じならクラウドから削除', async () => {
 		// 既存ノートを local + cloud に入れる（registered 状態）
-		const existing = makeNote({ id: 'existing', content: 'payload', language: 'markdown' });
+		const existing = makeNote({
+			id: 'existing',
+			content: 'payload',
+			language: 'markdown',
+		});
 		await notes.saveNote(existing);
 
 		// 孤立として Conflict Copy (同じ content+language) をクラウドに置く
@@ -84,8 +89,33 @@ describe('recoverCloudOrphans', () => {
 		expect(cloud.notes.has('conflict-copy-1')).toBe(false);
 	});
 
+	it('cloud の noteList に登録済みのノートは orphan 扱いしない（新規インストール対応）', async () => {
+		// 新規インストールのローカルは空だが、cloud には正しく noteList と note ファイルが揃っている状態。
+		// 以前の実装はローカル noteList で判定していたため、このケースで全ノートを「不明ノート」に
+		// 誤分類していた。現在は cloud の noteList を参照するため対象外となる。
+		const note = makeNote({
+			id: 'cloud-registered',
+			title: 'Properly Registered',
+		});
+		cloud.setCloudNote(note);
+		await cloud.rebuildNoteListFromCloud('2026-05-01T00:00:00.000Z');
+
+		const count = await recoverCloudOrphans(
+			cloud as unknown as DriveSyncService,
+			notes,
+		);
+		expect(count).toBe(0);
+		const list = notes.getNoteList();
+		// 不明ノートフォルダも作られないこと
+		expect(list.folders.find((f) => f.name === '不明ノート')).toBeUndefined();
+	});
+
 	it('Conflict Copy でも内容が違えば復元する', async () => {
-		const existing = makeNote({ id: 'existing', content: 'payload', language: 'markdown' });
+		const existing = makeNote({
+			id: 'existing',
+			content: 'payload',
+			language: 'markdown',
+		});
 		await notes.saveNote(existing);
 		const copy = makeNote({
 			id: 'conflict-copy-1',
@@ -126,7 +156,11 @@ describe('recoverCloudOrphans', () => {
 		const origDl = cloud.downloadNoteByFileId.bind(cloud);
 		cloud.downloadNoteByFileId = async (fid) => {
 			if (fid === 'fid-old')
-				return makeNote({ id: 'dup', content: 'old', modifiedTime: '2025-01-01T00:00:00.000Z' });
+				return makeNote({
+					id: 'dup',
+					content: 'old',
+					modifiedTime: '2025-01-01T00:00:00.000Z',
+				});
 			return origDl(fid);
 		};
 		// deleteNoteByFileId の呼び出しを観測できるよう calls を拡張

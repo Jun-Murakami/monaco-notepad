@@ -5,12 +5,15 @@
 
 type Handler<T> = (payload: T) => void;
 
-export class EventEmitter<Events extends Record<string, unknown>> {
+export class EventEmitter<Events extends object> {
 	private handlers: Partial<{
 		[K in keyof Events]: Set<Handler<Events[K]>>;
 	}> = {};
 
-	on<K extends keyof Events>(event: K, handler: Handler<Events[K]>): () => void {
+	on<K extends keyof Events>(
+		event: K,
+		handler: Handler<Events[K]>,
+	): () => void {
 		let set = this.handlers[event];
 		if (!set) {
 			set = new Set();
@@ -51,6 +54,8 @@ export interface SyncEvents {
 	'integrity:issues': { count: number };
 	'sync:message': { code: MessageCodeValue; args?: Record<string, unknown> };
 	'sync:error': { error: Error };
+	/** 長時間操作の進捗。`current === total` または `total === 0` でクリア。 */
+	'sync:progress': { current: number; total: number };
 }
 
 export const syncEvents = new EventEmitter<SyncEvents>();

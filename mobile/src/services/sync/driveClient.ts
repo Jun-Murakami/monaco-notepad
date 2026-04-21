@@ -43,7 +43,9 @@ export class DriveClient {
 		headers.set('Authorization', `Bearer ${token}`);
 		const res = await fetch(url, { ...init, headers, signal });
 		if (res.status === 401 || res.status === 403) {
-			throw new AuthError(`Drive auth error: ${res.status} ${await safeText(res)}`);
+			throw new AuthError(
+				`Drive auth error: ${res.status} ${await safeText(res)}`,
+			);
 		}
 		if (res.status === 429 || res.status >= 500) {
 			throw new RetryableError(`Drive retryable error: ${res.status}`);
@@ -67,7 +69,8 @@ export class DriveClient {
 			const params = new URLSearchParams({
 				q: query,
 				spaces: 'appDataFolder',
-				fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, parents, trashed)',
+				fields:
+					'nextPageToken, files(id, name, mimeType, modifiedTime, parents, trashed)',
 				pageSize: String(pageSize),
 			});
 			if (pageToken) params.set('pageToken', pageToken);
@@ -127,20 +130,20 @@ export class DriveClient {
 			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
 		});
 
-		const res = await this.request(
-			`/files?${params.toString()}`,
-			{
-				method: 'POST',
-				headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-				body,
-				baseUrl: DRIVE_UPLOAD,
-			},
-		);
+		const res = await this.request(`/files?${params.toString()}`, {
+			method: 'POST',
+			headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+			body,
+			baseUrl: DRIVE_UPLOAD,
+		});
 		return (await res.json()) as DriveFile;
 	}
 
 	/** 新規フォルダ作成。 */
-	async createFolder(name: string, parents: string[] | null): Promise<DriveFile> {
+	async createFolder(
+		name: string,
+		parents: string[] | null,
+	): Promise<DriveFile> {
 		const metadata = {
 			name,
 			mimeType: 'application/vnd.google-apps.folder',
@@ -167,15 +170,12 @@ export class DriveClient {
 			uploadType: 'media',
 			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
 		});
-		const res = await this.request(
-			`/files/${fileId}?${params.toString()}`,
-			{
-				method: 'PATCH',
-				headers: { 'Content-Type': mimeType },
-				body: content,
-				baseUrl: DRIVE_UPLOAD,
-			},
-		);
+		const res = await this.request(`/files/${fileId}?${params.toString()}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': mimeType },
+			body: content,
+			baseUrl: DRIVE_UPLOAD,
+		});
 		return (await res.json()) as DriveFile;
 	}
 
@@ -186,7 +186,9 @@ export class DriveClient {
 	/** Changes API: 初期トークン取得。 */
 	async getStartPageToken(): Promise<string> {
 		const params = new URLSearchParams({ supportsAllDrives: 'false' });
-		const res = await this.request(`/changes/startPageToken?${params.toString()}`);
+		const res = await this.request(
+			`/changes/startPageToken?${params.toString()}`,
+		);
 		const body = (await res.json()) as { startPageToken: string };
 		return body.startPageToken;
 	}
@@ -207,7 +209,8 @@ export class DriveClient {
 			const res = await this.request(`/changes?${params.toString()}`);
 			const body = (await res.json()) as ListChangesResult;
 			aggregated.changes.push(...body.changes);
-			if (body.newStartPageToken) aggregated.newStartPageToken = body.newStartPageToken;
+			if (body.newStartPageToken)
+				aggregated.newStartPageToken = body.newStartPageToken;
 			token = body.nextPageToken;
 		}
 		return aggregated;

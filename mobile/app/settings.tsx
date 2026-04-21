@@ -1,22 +1,53 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { Appbar, Divider, List, Switch, Text } from 'react-native-paper';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import {
+	Appbar,
+	Divider,
+	List,
+	RadioButton,
+	Switch,
+	Text,
+} from 'react-native-paper';
+import { setLanguage } from '@/i18n';
+import {
+	appSettings,
+	type LanguagePref,
+} from '@/services/settings/appSettings';
 import { driveService } from '@/services/sync/driveService';
 import { useAuthStore } from '@/stores/authStore';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import i18n from '@/i18n';
 
 export default function SettingsScreen() {
 	const { t } = useTranslation();
 	const router = useRouter();
 	const signedIn = useAuthStore((s) => s.signedIn);
-	const [syncOnCellular, setSyncOnCellular] = useState(true);
-	const [conflictBackup, setConflictBackup] = useState(true);
+	const [languagePref, setLanguagePref] = useState<LanguagePref>(
+		() => appSettings.snapshot().language,
+	);
+	const [syncOnCellular, setSyncOnCellular] = useState(
+		() => appSettings.snapshot().syncOnCellular,
+	);
+	const [conflictBackup, setConflictBackup] = useState(
+		() => appSettings.snapshot().conflictBackup,
+	);
 
-	const cycleLanguage = () => {
-		const next = i18n.language === 'ja' ? 'en' : 'ja';
-		i18n.changeLanguage(next);
+	useEffect(() => {
+		return appSettings.subscribe((s) => {
+			setLanguagePref(s.language);
+			setSyncOnCellular(s.syncOnCellular);
+			setConflictBackup(s.conflictBackup);
+		});
+	}, []);
+
+	const onLanguageChange = async (value: string) => {
+		await setLanguage(value as LanguagePref);
+	};
+	const onSyncOnCellularChange = async (value: boolean) => {
+		await appSettings.update({ syncOnCellular: value });
+	};
+	const onConflictBackupChange = async (value: boolean) => {
+		await appSettings.update({ conflictBackup: value });
 	};
 
 	return (
@@ -30,9 +61,19 @@ export default function SettingsScreen() {
 					<List.Subheader>{t('auth.signedInAs')}</List.Subheader>
 					<List.Item
 						title={signedIn ? t('auth.signedInAs') : t('auth.notSignedIn')}
-						left={(props) => <List.Icon {...props} icon={signedIn ? 'cloud-check' : 'cloud-off-outline'} />}
+						left={(props) => (
+							<List.Icon
+								{...props}
+								icon={signedIn ? 'cloud-check' : 'cloud-off-outline'}
+							/>
+						)}
 						right={() => (
-							<Text style={styles.action} onPress={() => (signedIn ? driveService.signOut() : router.push('/signin'))}>
+							<Text
+								style={styles.action}
+								onPress={() =>
+									signedIn ? driveService.signOut() : router.push('/signin')
+								}
+							>
 								{signedIn ? t('auth.signOut') : t('auth.signIn')}
 							</Text>
 						)}
@@ -41,11 +82,17 @@ export default function SettingsScreen() {
 				<Divider />
 				<List.Section>
 					<List.Subheader>{t('settings.language')}</List.Subheader>
-					<List.Item
-						title={i18n.language === 'ja' ? t('settings.language_ja') : t('settings.language_en')}
-						onPress={cycleLanguage}
-						left={(props) => <List.Icon {...props} icon="translate" />}
-					/>
+					<RadioButton.Group
+						onValueChange={onLanguageChange}
+						value={languagePref}
+					>
+						<RadioButton.Item
+							label={t('settings.language_system')}
+							value="auto"
+						/>
+						<RadioButton.Item label={t('settings.language_ja')} value="ja" />
+						<RadioButton.Item label={t('settings.language_en')} value="en" />
+					</RadioButton.Group>
 				</List.Section>
 				<Divider />
 				<List.Section>
@@ -53,12 +100,22 @@ export default function SettingsScreen() {
 					<List.Item
 						title={t('settings.syncOnCellular')}
 						left={(props) => <List.Icon {...props} icon="signal" />}
-						right={() => <Switch value={syncOnCellular} onValueChange={setSyncOnCellular} />}
+						right={() => (
+							<Switch
+								value={syncOnCellular}
+								onValueChange={onSyncOnCellularChange}
+							/>
+						)}
 					/>
 					<List.Item
 						title={t('settings.conflictBackup')}
 						left={(props) => <List.Icon {...props} icon="backup-restore" />}
-						right={() => <Switch value={conflictBackup} onValueChange={setConflictBackup} />}
+						right={() => (
+							<Switch
+								value={conflictBackup}
+								onValueChange={onConflictBackupChange}
+							/>
+						)}
 					/>
 				</List.Section>
 			</ScrollView>

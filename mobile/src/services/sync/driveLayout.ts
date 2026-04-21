@@ -1,8 +1,8 @@
 import type { DriveClient } from './driveClient';
 import { RETRY_LIST, withRetry } from './retry';
 import {
-	DRIVE_NOTES_FOLDER,
 	DRIVE_NOTE_LIST_FILENAME,
+	DRIVE_NOTES_FOLDER,
 	DRIVE_ROOT_FOLDER,
 } from './types';
 
@@ -61,20 +61,34 @@ async function findFile(
 	return f ? { id: f.id, modifiedTime: f.modifiedTime ?? '' } : null;
 }
 
-export async function ensureDriveLayout(client: DriveClient): Promise<DriveLayout> {
-	let rootFolderId = await findFolder(client, DRIVE_ROOT_FOLDER, 'appDataFolder');
+export async function ensureDriveLayout(
+	client: DriveClient,
+): Promise<DriveLayout> {
+	let rootFolderId = await findFolder(
+		client,
+		DRIVE_ROOT_FOLDER,
+		'appDataFolder',
+	);
 	if (!rootFolderId) {
 		const f = await client.createFolder(DRIVE_ROOT_FOLDER, null);
 		rootFolderId = f.id;
 	}
 
-	let notesFolderId = await findFolder(client, DRIVE_NOTES_FOLDER, rootFolderId);
+	let notesFolderId = await findFolder(
+		client,
+		DRIVE_NOTES_FOLDER,
+		rootFolderId,
+	);
 	if (!notesFolderId) {
 		const f = await client.createFolder(DRIVE_NOTES_FOLDER, [rootFolderId]);
 		notesFolderId = f.id;
 	}
 
-	const existing = await findFile(client, DRIVE_NOTE_LIST_FILENAME, rootFolderId);
+	const existing = await findFile(
+		client,
+		DRIVE_NOTE_LIST_FILENAME,
+		rootFolderId,
+	);
 	let noteListFileId: string;
 	let noteListModifiedTime: string;
 	if (existing) {

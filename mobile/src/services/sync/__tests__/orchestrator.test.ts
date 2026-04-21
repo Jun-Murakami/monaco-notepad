@@ -1,4 +1,4 @@
-import { readDirectoryAsync } from 'expo-file-system';
+import { Directory } from 'expo-file-system';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { NoteService } from '@/services/notes/noteService';
 import { CONFLICT_BACKUP_DIR } from '@/services/storage/paths';
@@ -53,7 +53,9 @@ describe('SyncOrchestrator.syncNotes: no-op', () => {
 	it('クラウドもローカルも変化なしなら何もしない', async () => {
 		await orch.syncNotes();
 		expect(cloud.calls.updateNoteList).toBe(0);
-		expect(cloud.calls.create + cloud.calls.update + cloud.calls.delete).toBe(0);
+		expect(cloud.calls.create + cloud.calls.update + cloud.calls.delete).toBe(
+			0,
+		);
 	});
 });
 
@@ -82,7 +84,11 @@ describe('SyncOrchestrator.syncNotes: push only (local dirty, cloud unchanged)',
 		});
 
 		// ローカルだけ編集
-		const edited = makeNote({ id: 'a', content: 'v2', modifiedTime: iso(10_000) });
+		const edited = makeNote({
+			id: 'a',
+			content: 'v2',
+			modifiedTime: iso(10_000),
+		});
 		await notes.saveNote(edited);
 		await state.markNoteDirty('a');
 
@@ -245,8 +251,12 @@ describe('SyncOrchestrator.syncNotes: conflict', () => {
 		await orch.syncNotes();
 
 		expect((await notes.readNote('a'))?.content).toBe('cloud-wins');
-		const backups = await readDirectoryAsync(CONFLICT_BACKUP_DIR);
-		expect(backups.some((n) => n.startsWith('cloud_wins_') && n.endsWith('_a.json'))).toBe(true);
+		const backups = new Directory(CONFLICT_BACKUP_DIR)
+			.list()
+			.map((e) => e.name);
+		expect(
+			backups.some((n) => n.startsWith('cloud_wins_') && n.endsWith('_a.json')),
+		).toBe(true);
 	});
 
 	it('enableConflictBackup=false ならバックアップを書かない', async () => {
@@ -259,18 +269,21 @@ describe('SyncOrchestrator.syncNotes: conflict', () => {
 			a: await computeContentHash(base),
 		});
 
-		await notes.saveNote(makeNote({ id: 'a', content: 'local-loses', modifiedTime: iso(10_000) }));
+		await notes.saveNote(
+			makeNote({ id: 'a', content: 'local-loses', modifiedTime: iso(10_000) }),
+		);
 		await state.markNoteDirty('a');
-		cloud.setCloudNote(makeNote({ id: 'a', content: 'cloud-wins', modifiedTime: iso(20_000) }));
+		cloud.setCloudNote(
+			makeNote({ id: 'a', content: 'cloud-wins', modifiedTime: iso(20_000) }),
+		);
 		await cloud.rebuildNoteListFromCloud(iso(20_000));
 
 		await orch.syncNotes();
 
 		// バックアップディレクトリは存在しないか空
-		const info = await (await import('expo-file-system')).getInfoAsync(CONFLICT_BACKUP_DIR);
-		if (info.exists) {
-			const entries = await readDirectoryAsync(CONFLICT_BACKUP_DIR);
-			expect(entries.length).toBe(0);
+		const backupDir = new Directory(CONFLICT_BACKUP_DIR);
+		if (backupDir.exists) {
+			expect(backupDir.list().length).toBe(0);
 		}
 	});
 
@@ -283,7 +296,11 @@ describe('SyncOrchestrator.syncNotes: conflict', () => {
 		await state.updateSyncedState(cloud.noteListModifiedTime, { a: baseHash });
 
 		// ローカルは変更して dirty
-		const localV2 = makeNote({ id: 'a', content: 'local-v2', modifiedTime: iso(50_000) });
+		const localV2 = makeNote({
+			id: 'a',
+			content: 'local-v2',
+			modifiedTime: iso(50_000),
+		});
 		await notes.saveNote(localV2);
 		await state.markNoteDirty('a');
 
@@ -310,16 +327,26 @@ describe('SyncOrchestrator.syncNotes: conflict', () => {
 		await state.markNoteDeleted('a');
 
 		// 同期のタイミングでクラウド側も改変（=異なる hash）
-		cloud.setCloudNote(makeNote({ id: 'a', content: 'cloud-changed', modifiedTime: iso(30_000) }));
+		cloud.setCloudNote(
+			makeNote({
+				id: 'a',
+				content: 'cloud-changed',
+				modifiedTime: iso(30_000),
+			}),
+		);
 		await cloud.rebuildNoteListFromCloud(iso(30_000));
 
 		await orch.syncNotes();
 
 		expect(cloud.notes.has('a')).toBe(false);
-		const backups = await readDirectoryAsync(CONFLICT_BACKUP_DIR);
-		expect(backups.some((n) => n.startsWith('cloud_delete_') && n.endsWith('_a.json'))).toBe(
-			true,
-		);
+		const backups = new Directory(CONFLICT_BACKUP_DIR)
+			.list()
+			.map((e) => e.name);
+		expect(
+			backups.some(
+				(n) => n.startsWith('cloud_delete_') && n.endsWith('_a.json'),
+			),
+		).toBe(true);
 	});
 
 	it('race: conflict 解決中に別ノートが dirty → dirty を維持しつつ解決済み hash は保存', async () => {
@@ -331,9 +358,13 @@ describe('SyncOrchestrator.syncNotes: conflict', () => {
 			a: await computeContentHash(base),
 		});
 		// ローカル/クラウド双方変更
-		await notes.saveNote(makeNote({ id: 'a', content: 'local', modifiedTime: iso(10_000) }));
+		await notes.saveNote(
+			makeNote({ id: 'a', content: 'local', modifiedTime: iso(10_000) }),
+		);
 		await state.markNoteDirty('a');
-		cloud.setCloudNote(makeNote({ id: 'a', content: 'cloud', modifiedTime: iso(20_000) }));
+		cloud.setCloudNote(
+			makeNote({ id: 'a', content: 'cloud', modifiedTime: iso(20_000) }),
+		);
 		await cloud.rebuildNoteListFromCloud(iso(20_000));
 
 		// updateNoteList の直前で別ノート b を dirty に
@@ -361,7 +392,11 @@ describe('SyncOrchestrator.saveNoteAndUpdateList', () => {
 		expect(cloud.calls.create).toBe(1);
 		expect(cloud.notes.get('a')?.content).toBe('first');
 
-		const a2 = makeNote({ id: 'a', content: 'second', modifiedTime: iso(10_000) });
+		const a2 = makeNote({
+			id: 'a',
+			content: 'second',
+			modifiedTime: iso(10_000),
+		});
 		await notes.saveNote(a2);
 		await state.markNoteDirty('a');
 		await orch.saveNoteAndUpdateList(a2);
@@ -378,7 +413,10 @@ describe('SyncOrchestrator.saveNoteAndUpdateList', () => {
 		await state.markNoteDirty('b');
 
 		// 並行に呼ぶ
-		await Promise.all([orch.saveNoteAndUpdateList(a), orch.saveNoteAndUpdateList(b)]);
+		await Promise.all([
+			orch.saveNoteAndUpdateList(a),
+			orch.saveNoteAndUpdateList(b),
+		]);
 
 		expect(cloud.calls.create + cloud.calls.update).toBeGreaterThanOrEqual(2);
 		expect(cloud.notes.has('a')).toBe(true);

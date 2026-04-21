@@ -1,6 +1,12 @@
 import type { DriveClient, DriveFile } from './driveClient';
 import type { DriveLayout } from './driveLayout';
-import { RETRY_DEFAULTS, RETRY_DOWNLOAD, RETRY_LIST, RETRY_UPLOAD, withRetry } from './retry';
+import {
+	RETRY_DEFAULTS,
+	RETRY_DOWNLOAD,
+	RETRY_LIST,
+	RETRY_UPLOAD,
+	withRetry,
+} from './retry';
 import type { Note, NoteList } from './types';
 
 /**
@@ -67,7 +73,11 @@ export class DriveSyncService {
 		const body = serializeNote(note);
 		const file = await withRetry(
 			() =>
-				this.client.createFile(`${note.id}.json`, [this.layout.notesFolderId], body),
+				this.client.createFile(
+					`${note.id}.json`,
+					[this.layout.notesFolderId],
+					body,
+				),
 			'createNote',
 			RETRY_UPLOAD,
 		);
@@ -82,18 +92,30 @@ export class DriveSyncService {
 			return this.createNote(note);
 		}
 		const body = serializeNote(note);
-		return withRetry(() => this.client.updateFile(fileId, body), 'updateNote', RETRY_UPLOAD);
+		return withRetry(
+			() => this.client.updateFile(fileId, body),
+			'updateNote',
+			RETRY_UPLOAD,
+		);
 	}
 
 	async deleteNote(noteId: string): Promise<void> {
 		const fileId = await this.resolveNoteFileId(noteId);
 		if (!fileId) return;
-		await withRetry(() => this.client.deleteFile(fileId), 'deleteNote', RETRY_DEFAULTS);
+		await withRetry(
+			() => this.client.deleteFile(fileId),
+			'deleteNote',
+			RETRY_DEFAULTS,
+		);
 		this.fileIdCache.delete(noteId);
 	}
 
 	async deleteNoteByFileId(fileId: string): Promise<void> {
-		await withRetry(() => this.client.deleteFile(fileId), 'deleteNoteByFileId', RETRY_DEFAULTS);
+		await withRetry(
+			() => this.client.deleteFile(fileId),
+			'deleteNoteByFileId',
+			RETRY_DEFAULTS,
+		);
 		for (const [noteId, cached] of this.fileIdCache) {
 			if (cached === fileId) {
 				this.fileIdCache.delete(noteId);

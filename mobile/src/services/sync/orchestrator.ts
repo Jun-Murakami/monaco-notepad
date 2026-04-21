@@ -5,7 +5,7 @@ import type { DriveSyncService } from './driveSyncService';
 import { syncEvents } from './events';
 import { computeContentHash } from './hash';
 import type { SyncStateManager } from './syncState';
-import { MessageCode, type Folder, type Note, type NoteList } from './types';
+import { type Folder, MessageCode, type Note, type NoteList } from './types';
 
 export interface SyncOrchestratorOptions {
 	/** 競合時にローカル版をバックアップするか（デフォルト true）。 */
@@ -50,7 +50,9 @@ export class SyncOrchestrator {
 
 			if (!cloudChanged && localDirty) {
 				syncEvents.emit('drive:status', { status: 'pushing' });
-				syncEvents.emit('sync:message', { code: MessageCode.DriveSyncPushLocal });
+				syncEvents.emit('sync:message', {
+					code: MessageCode.DriveSyncPushLocal,
+				});
 				await this.pushLocalChanges(cloudTs);
 				syncEvents.emit('drive:status', { status: 'idle' });
 				return;
@@ -58,7 +60,9 @@ export class SyncOrchestrator {
 
 			if (cloudChanged && !localDirty) {
 				syncEvents.emit('drive:status', { status: 'pulling' });
-				syncEvents.emit('sync:message', { code: MessageCode.DriveSyncPullCloud });
+				syncEvents.emit('sync:message', {
+					code: MessageCode.DriveSyncPullCloud,
+				});
 				await this.pullCloudChanges(cloudTs);
 				syncEvents.emit('drive:status', { status: 'idle' });
 				return;
@@ -76,32 +80,54 @@ export class SyncOrchestrator {
 	 * 単一ノート保存のトリガからも呼ぶ。
 	 * SyncNotes と同じ syncLock を取るため直列化される。
 	 * dirty フラグは syncState 側で立てる前提（markNoteDirty を呼んだ後にこれを呼ぶ）。
+	 *
+	 * 引数の `note` だけでなく、**全 dirty ノート・deleted ノートをここで一括 push する**。
+	 * そうしないと noteList だけが先に更新され、Drive に実体のないノート参照が残り、
+	 * 他クライアント（デスクトップ版等）が整合性エラーを起こす。
 	 */
 	async saveNoteAndUpdateList(note: Note): Promise<void> {
 		await this.syncLock.run(async () => {
 			const snap = await this.syncState.getDirtySnapshotWithRevision();
+			const hashes: Record<string, string> = {};
 			try {
-				const existingId = await this.driveSync.resolveNoteFileId(note.id);
-				if (existingId) {
-					await this.driveSync.updateNote(note);
-				} else {
-					await this.driveSync.createNote(note);
+				// dirty な全ノートをアップロード（引数の note 以外の pending 変更も取りこぼさない）
+				const dirtyIds = new Set(snap.dirtyIds);
+				dirtyIds.add(note.id); // 呼出元の markNoteDirty が race で未反映でも確実に含める
+
+				for (const noteId of dirtyIds) {
+					const n =
+						noteId === note.id ? note : await this.noteService.readNote(noteId);
+					if (!n) continue;
+					const existingId = await this.driveSync.resolveNoteFileId(noteId);
+					if (existingId) {
+						await this.driveSync.updateNote(n);
+					} else {
+						await this.driveSync.createNote(n);
+					}
+					hashes[noteId] = await computeContentHash(n);
+				}
+
+				// 削除ペンディング分を Drive からも削除
+				for (const noteId of snap.deletedIds) {
+					await this.driveSync.deleteNote(noteId);
 				}
 
 				const list = this.noteService.getNoteList();
 				const updated = await this.driveSync.updateNoteList(list);
-				const hash = await computeContentHash(note);
 
 				const cleared = await this.syncState.clearDirtyIfUnchanged(
 					snap.revision,
 					updated.modifiedTime ?? '',
-					{ [note.id]: hash },
+					hashes,
 				);
 				if (!cleared) {
-					await this.syncState.updateSyncedState(updated.modifiedTime ?? '', {
-						[note.id]: hash,
-					});
+					await this.syncState.updateSyncedState(
+						updated.modifiedTime ?? '',
+						hashes,
+					);
 				}
+				for (const id of snap.deletedIds)
+					await this.syncState.forgetNoteHash(id);
 			} catch (e) {
 				syncEvents.emit('sync:error', { error: toError(e) });
 				throw e;
@@ -147,7 +173,10 @@ export class SyncOrchestrator {
 			hashes,
 		);
 		if (!cleared) {
-			await this.syncState.updateSyncedState(updated.modifiedTime ?? cloudTs, hashes);
+			await this.syncState.updateSyncedState(
+				updated.modifiedTime ?? cloudTs,
+				hashes,
+			);
 		}
 		for (const id of snap.deletedIds) await this.syncState.forgetNoteHash(id);
 
@@ -159,25 +188,48 @@ export class SyncOrchestrator {
 		const cloudList = await this.driveSync.downloadNoteList();
 		const localList = this.noteService.getNoteList();
 
-		// ローカルに無い / ハッシュが違うものをダウンロード
+		// 事前にダウンロード対象を決定して総数を把握する（進捗表示のため）
+		const toDownload: typeof cloudList.notes = [];
 		const mergedHashes: Record<string, string> = {};
 		for (const meta of cloudList.notes) {
 			const local = localList.notes.find((n) => n.id === meta.id);
 			const lastHash = this.syncState.lastSyncedHash(meta.id);
-			if (!local || local.contentHash !== meta.contentHash || lastHash !== meta.contentHash) {
-				syncEvents.emit('sync:message', {
-					code: MessageCode.DriveSyncDownloadNote,
-					args: { noteId: meta.id },
-				});
-				const note = await this.driveSync.downloadNote(meta.id);
-				if (note) {
-					await this.noteService.saveNoteFromSync(note);
-					mergedHashes[meta.id] = meta.contentHash;
-				}
+			if (
+				!local ||
+				local.contentHash !== meta.contentHash ||
+				lastHash !== meta.contentHash
+			) {
+				toDownload.push(meta);
 			} else {
 				mergedHashes[meta.id] = meta.contentHash;
 			}
 		}
+
+		if (toDownload.length > 0) {
+			syncEvents.emit('sync:progress', {
+				current: 0,
+				total: toDownload.length,
+			});
+		}
+		let downloaded = 0;
+		for (const meta of toDownload) {
+			syncEvents.emit('sync:message', {
+				code: MessageCode.DriveSyncDownloadNote,
+				args: { noteId: meta.id },
+			});
+			const note = await this.driveSync.downloadNote(meta.id);
+			if (note) {
+				await this.noteService.saveNoteFromSync(note);
+				mergedHashes[meta.id] = meta.contentHash;
+			}
+			downloaded++;
+			syncEvents.emit('sync:progress', {
+				current: downloaded,
+				total: toDownload.length,
+			});
+		}
+		// 念のため progress をクリア
+		syncEvents.emit('sync:progress', { current: 0, total: 0 });
 
 		// クラウドから消えたノートをローカルからも削除
 		for (const local of localList.notes) {
@@ -309,7 +361,10 @@ export class SyncOrchestrator {
 			resultHashes,
 		);
 		if (!cleared) {
-			await this.syncState.updateSyncedState(updated.modifiedTime ?? cloudTs, resultHashes);
+			await this.syncState.updateSyncedState(
+				updated.modifiedTime ?? cloudTs,
+				resultHashes,
+			);
 		}
 		syncEvents.emit('notes:reload', undefined);
 	}
@@ -338,12 +393,18 @@ function mergeNoteListMeta(local: NoteList, cloud: NoteList): NoteList {
 		notes: [],
 		folders: [...folderMap.values()],
 		topLevelOrder: mergeOrder(local.topLevelOrder, cloud.topLevelOrder),
-		archivedTopLevelOrder: mergeOrder(local.archivedTopLevelOrder, cloud.archivedTopLevelOrder),
+		archivedTopLevelOrder: mergeOrder(
+			local.archivedTopLevelOrder,
+			cloud.archivedTopLevelOrder,
+		),
 		collapsedFolderIds: local.collapsedFolderIds,
 	};
 }
 
-function mergeOrder<T extends { type: string; id: string }>(localOrder: T[], cloudOrder: T[]): T[] {
+function mergeOrder<T extends { type: string; id: string }>(
+	localOrder: T[],
+	cloudOrder: T[],
+): T[] {
 	const seen = new Set(localOrder.map((i) => `${i.type}:${i.id}`));
 	const merged = [...localOrder];
 	for (const item of cloudOrder) {
@@ -355,4 +416,3 @@ function mergeOrder<T extends { type: string; id: string }>(localOrder: T[], clo
 	}
 	return merged;
 }
-

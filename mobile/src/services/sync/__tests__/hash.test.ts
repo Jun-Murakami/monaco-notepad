@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { makeNote } from '@/test/helpers';
 import {
-	computeContentHash,
 	computeConflictCopyDedupHash,
+	computeContentHash,
 	isConflictCopyTitle,
 } from '../hash';
 
@@ -19,9 +19,15 @@ describe('computeContentHash', () => {
 		const base = makeNote({ id: 'a', title: 't', content: 'c' });
 		const baseH = await computeContentHash(base);
 		expect(await computeContentHash({ ...base, title: 't2' })).not.toBe(baseH);
-		expect(await computeContentHash({ ...base, content: 'c2' })).not.toBe(baseH);
-		expect(await computeContentHash({ ...base, language: 'typescript' })).not.toBe(baseH);
-		expect(await computeContentHash({ ...base, archived: true })).not.toBe(baseH);
+		expect(await computeContentHash({ ...base, content: 'c2' })).not.toBe(
+			baseH,
+		);
+		expect(
+			await computeContentHash({ ...base, language: 'typescript' }),
+		).not.toBe(baseH);
+		expect(await computeContentHash({ ...base, archived: true })).not.toBe(
+			baseH,
+		);
 	});
 
 	it('folderId の変更はハッシュに影響しない（ローカルメタデータ扱い）', async () => {
@@ -32,24 +38,44 @@ describe('computeContentHash', () => {
 	});
 
 	it('modifiedTime の変更はハッシュに影響しない', async () => {
-		const base = makeNote({ id: 'a', modifiedTime: '2026-01-01T00:00:00.000Z' });
+		const base = makeNote({
+			id: 'a',
+			modifiedTime: '2026-01-01T00:00:00.000Z',
+		});
 		const h1 = await computeContentHash(base);
-		const h2 = await computeContentHash({ ...base, modifiedTime: '2026-06-01T12:00:00.000Z' });
+		const h2 = await computeContentHash({
+			...base,
+			modifiedTime: '2026-06-01T12:00:00.000Z',
+		});
 		expect(h1).toBe(h2);
 	});
 });
 
 describe('computeConflictCopyDedupHash', () => {
 	it('content と language のみで判定する（id/title は無視）', async () => {
-		const a = makeNote({ id: 'a', title: 'Conflict Copy of X', content: 'same', language: 'go' });
-		const b = makeNote({ id: 'b', title: 'Conflict Copy of X', content: 'same', language: 'go' });
-		expect(await computeConflictCopyDedupHash(a)).toBe(await computeConflictCopyDedupHash(b));
+		const a = makeNote({
+			id: 'a',
+			title: 'Conflict Copy of X',
+			content: 'same',
+			language: 'go',
+		});
+		const b = makeNote({
+			id: 'b',
+			title: 'Conflict Copy of X',
+			content: 'same',
+			language: 'go',
+		});
+		expect(await computeConflictCopyDedupHash(a)).toBe(
+			await computeConflictCopyDedupHash(b),
+		);
 	});
 
 	it('content が違えばハッシュも違う', async () => {
 		const a = makeNote({ id: 'a', content: 'x', language: 'go' });
 		const b = makeNote({ id: 'b', content: 'y', language: 'go' });
-		expect(await computeConflictCopyDedupHash(a)).not.toBe(await computeConflictCopyDedupHash(b));
+		expect(await computeConflictCopyDedupHash(a)).not.toBe(
+			await computeConflictCopyDedupHash(b),
+		);
 	});
 });
 

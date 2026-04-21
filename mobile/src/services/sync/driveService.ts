@@ -72,13 +72,17 @@ class DriveService {
 		if (this.orchestrator) {
 			try {
 				await this.orchestrator.saveNoteAndUpdateList(note);
-			} catch (e) {
+			} catch {
 				// 失敗はキューに残して後で再試行させる
-				await operationQueue.enqueue('UPDATE', `note:${note.id}`, { noteId: note.id });
+				await operationQueue.enqueue('UPDATE', `note:${note.id}`, {
+					noteId: note.id,
+				});
 			}
 		} else {
 			// オフライン: キューに入れて後で実行
-			await operationQueue.enqueue('UPDATE', `note:${note.id}`, { noteId: note.id });
+			await operationQueue.enqueue('UPDATE', `note:${note.id}`, {
+				noteId: note.id,
+			});
 		}
 	}
 
@@ -93,19 +97,32 @@ class DriveService {
 	}
 
 	private async connect(): Promise<void> {
+		// サインイン直後に「オフライン→突然ダウンロード」に見えるのを避けるため、
+		// 準備段階に入った時点で接続済み + pulling を即 emit する。
+		// 以降の status は polling/orchestrator が自分のフェーズに応じて上書きする。
+		syncEvents.emit('drive:connected', undefined);
+		syncEvents.emit('drive:status', { status: 'pulling' });
+
 		this.client = new DriveClient(() => authService.getAccessToken());
 		const layout = await ensureDriveLayout(this.client);
 		this.driveSync = new DriveSyncService(this.client, layout);
-		this.orchestrator = new SyncOrchestrator(this.driveSync, noteService, syncStateManager);
+		this.orchestrator = new SyncOrchestrator(
+			this.driveSync,
+			noteService,
+			syncStateManager,
+		);
 
 		// クラウド孤立復元（noteList 取得後）
 		await this.driveSync.listNoteFiles();
 		await recoverCloudOrphans(this.driveSync, noteService);
 
-		this.polling = new PollingService(this.client, this.driveSync, this.orchestrator);
+		this.polling = new PollingService(
+			this.client,
+			this.driveSync,
+			this.orchestrator,
+		);
 		await this.polling.start();
 		operationQueue.wake();
-		syncEvents.emit('drive:connected', undefined);
 	}
 
 	private async executeQueuedOp(
@@ -113,7 +130,8 @@ class DriveService {
 		_mapKey: string,
 		payload: unknown,
 	): Promise<void> {
-		if (!this.driveSync || !this.orchestrator) throw new Error('Drive not connected');
+		if (!this.driveSync || !this.orchestrator)
+			throw new Error('Drive not connected');
 		const p = (payload ?? {}) as { noteId?: string };
 		switch (opType) {
 			case 'UPDATE':

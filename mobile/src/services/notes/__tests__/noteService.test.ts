@@ -1,8 +1,8 @@
+import { Directory, File } from 'expo-file-system';
 import { describe, expect, it } from 'vitest';
-import { writeAsStringAsync, readDirectoryAsync } from 'expo-file-system';
-import { makeNote } from '@/test/helpers';
-import { NOTES_DIR, noteFilePath } from '@/services/storage/paths';
 import { ensureDir } from '@/services/storage/atomicFile';
+import { NOTES_DIR, noteFilePath } from '@/services/storage/paths';
+import { makeNote } from '@/test/helpers';
 import { NoteService } from '../noteService';
 
 async function fresh(): Promise<NoteService> {
@@ -17,7 +17,11 @@ describe('NoteService', () => {
 		await s.saveNote(makeNote({ id: 'a', title: 'T', content: 'C' }));
 		const list = s.getNoteList();
 		expect(list.notes).toHaveLength(1);
-		expect(list.notes[0]).toMatchObject({ id: 'a', title: 'T', language: 'plaintext' });
+		expect(list.notes[0]).toMatchObject({
+			id: 'a',
+			title: 'T',
+			language: 'plaintext',
+		});
 		expect(list.notes[0].contentHash).toMatch(/^[a-f0-9]{64}$/);
 		expect(list.topLevelOrder).toContainEqual({ type: 'note', id: 'a' });
 	});
@@ -29,7 +33,9 @@ describe('NoteService', () => {
 		expect(s.getNoteList().notes).toHaveLength(1);
 		expect(s.getNoteList().notes[0].title).toBe('v2');
 		expect(
-			s.getNoteList().topLevelOrder.filter((i) => i.type === 'note' && i.id === 'a').length,
+			s
+				.getNoteList()
+				.topLevelOrder.filter((i) => i.type === 'note' && i.id === 'a').length,
 		).toBe(1);
 	});
 
@@ -54,7 +60,10 @@ describe('NoteService', () => {
 		const s = await fresh();
 		const folder = await s.createFolder('Work');
 		expect(s.getNoteList().folders).toHaveLength(1);
-		expect(s.getNoteList().topLevelOrder).toContainEqual({ type: 'folder', id: folder.id });
+		expect(s.getNoteList().topLevelOrder).toContainEqual({
+			type: 'folder',
+			id: folder.id,
+		});
 	});
 
 	it('deleteFolder で配下ノートは FolderId="" へ繰り上げられる', async () => {
@@ -78,10 +87,9 @@ describe('NoteService', () => {
 		const s = await fresh();
 		await ensureDir(NOTES_DIR);
 		// noteList に無い note ファイルを直接書く
-		await writeAsStringAsync(
-			noteFilePath('orphan-1'),
-			JSON.stringify(makeNote({ id: 'orphan-1', content: 'orphan' })),
-		);
+		const f = new File(noteFilePath('orphan-1'));
+		f.create({ intermediates: true, overwrite: true });
+		f.write(JSON.stringify(makeNote({ id: 'orphan-1', content: 'orphan' })));
 		const orphans = await s.scanOrphans();
 		expect(orphans).toHaveLength(1);
 		expect(orphans[0].id).toBe('orphan-1');
@@ -94,7 +102,10 @@ describe('NoteService', () => {
 		const list = s.getNoteList();
 		const folder = list.folders.find((f) => f.name === '不明ノート');
 		expect(folder).toBeDefined();
-		expect(list.notes[0]).toMatchObject({ id: 'orphan-1', folderId: folder!.id });
+		expect(list.notes[0]).toMatchObject({
+			id: 'orphan-1',
+			folderId: folder!.id,
+		});
 	});
 
 	it('replaceNoteList でクラウド同期結果を丸ごと取り込める', async () => {
@@ -127,7 +138,7 @@ describe('NoteService', () => {
 		const orphans = await s.scanOrphans();
 		expect(orphans).toEqual([]);
 		// notes/ が存在することは保証されない前提を確認（ここでは作成されている）
-		const entries = await readDirectoryAsync(NOTES_DIR);
+		const entries = new Directory(NOTES_DIR).list().map((e) => e.name);
 		expect(entries).toEqual([]);
 	});
 });

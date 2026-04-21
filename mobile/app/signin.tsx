@@ -1,8 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
-import { useTranslation } from 'react-i18next';
 import { driveService } from '@/services/sync/driveService';
 
 export default function SignInScreen() {
@@ -17,7 +17,10 @@ export default function SignInScreen() {
 		setError(null);
 		try {
 			await driveService.signIn();
-			router.back();
+			// OAuth 完了時点では `/signin` が top になっている（oauth2redirect は自分で back 済み）。
+			// ここで router.back() すると / まで戻れるが、timing race で /signin が top でないこともあるため、
+			// 安全のため replace('/') で確実に home に差し替える。
+			router.replace('/');
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -26,7 +29,9 @@ export default function SignInScreen() {
 	};
 
 	return (
-		<View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+		<View
+			style={[styles.container, { backgroundColor: theme.colors.background }]}
+		>
 			<Text variant="headlineSmall" style={styles.title}>
 				{t('app.title')}
 			</Text>
@@ -34,7 +39,10 @@ export default function SignInScreen() {
 				{t('auth.signInPrompt')}
 			</Text>
 			{error && (
-				<Text variant="bodySmall" style={{ color: theme.colors.error, marginBottom: 16 }}>
+				<Text
+					variant="bodySmall"
+					style={{ color: theme.colors.error, marginBottom: 16 }}
+				>
 					{error}
 				</Text>
 			)}

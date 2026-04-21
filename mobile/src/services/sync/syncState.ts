@@ -1,7 +1,23 @@
-import { writeAtomic, readString, ensureDir } from '../storage/atomicFile';
+import { ensureDir, readString, writeAtomic } from '../storage/atomicFile';
 import { APP_DATA_DIR, SYNC_STATE_PATH } from '../storage/paths';
 import { AsyncLock } from './asyncLock';
-import { EMPTY_SYNC_STATE, type SyncStateSnapshot } from './types';
+import type { SyncStateSnapshot } from './types';
+
+/**
+ * 毎回新しい空スナップショットを生成する。
+ * EMPTY_SYNC_STATE を直接スプレッドすると dirtyNoteIds などのネスト Record が
+ * 共有参照になり、状態が他インスタンスへ漏れるため必ずこの関数を使う。
+ */
+function freshSnapshot(): SyncStateSnapshot {
+	return {
+		dirty: false,
+		lastSyncedDriveTs: '',
+		dirtyNoteIds: {},
+		deletedNoteIds: {},
+		deletedFolderIds: {},
+		lastSyncedNoteHash: {},
+	};
+}
 
 /**
  * 同期状態の永続管理。
@@ -14,7 +30,7 @@ import { EMPTY_SYNC_STATE, type SyncStateSnapshot } from './types';
  * - 全書き込みは atomic（tempfile→rename）
  */
 export class SyncStateManager {
-	private state: SyncStateSnapshot = { ...EMPTY_SYNC_STATE };
+	private state: SyncStateSnapshot = freshSnapshot();
 	private revision = 0;
 	private readonly lock = new AsyncLock();
 	private loaded = false;
@@ -27,7 +43,7 @@ export class SyncStateManager {
 			try {
 				const parsed = JSON.parse(raw) as Partial<SyncStateSnapshot>;
 				this.state = {
-					...EMPTY_SYNC_STATE,
+					...freshSnapshot(),
 					...parsed,
 					dirtyNoteIds: { ...(parsed.dirtyNoteIds ?? {}) },
 					deletedNoteIds: { ...(parsed.deletedNoteIds ?? {}) },
@@ -35,8 +51,11 @@ export class SyncStateManager {
 					lastSyncedNoteHash: { ...(parsed.lastSyncedNoteHash ?? {}) },
 				};
 			} catch (e) {
-				console.warn('[SyncState] failed to parse sync_state.json, resetting', e);
-				this.state = { ...EMPTY_SYNC_STATE };
+				console.warn(
+					'[SyncState] failed to parse sync_state.json, resetting',
+					e,
+				);
+				this.state = freshSnapshot();
 			}
 		}
 		this.loaded = true;
@@ -149,7 +168,10 @@ export class SyncStateManager {
 	 * dirty と dirty IDs は保持したまま、既に確定した hash と driveTs のみ更新する。
 	 * 次回同期で「変わっていない既知ノート」を再 resolve しないようにする。
 	 */
-	async updateSyncedState(driveTs: string, noteHashes: Record<string, string>): Promise<void> {
+	async updateSyncedState(
+		driveTs: string,
+		noteHashes: Record<string, string>,
+	): Promise<void> {
 		await this.lock.run(async () => {
 			this.state.lastSyncedDriveTs = driveTs;
 			for (const [id, hash] of Object.entries(noteHashes)) {
@@ -172,7 +194,7 @@ export class SyncStateManager {
 	/** ログアウト時などに全リセット。 */
 	async reset(): Promise<void> {
 		await this.lock.run(async () => {
-			this.state = { ...EMPTY_SYNC_STATE };
+			this.state = freshSnapshot();
 			this.revision++;
 			await this.persist();
 		});

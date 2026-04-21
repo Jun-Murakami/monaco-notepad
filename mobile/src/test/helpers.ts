@@ -16,7 +16,9 @@ export function makeNote(overrides: Partial<Note> = {}): Note {
 	};
 }
 
-export function makeMetadata(overrides: Partial<NoteMetadata> = {}): NoteMetadata {
+export function makeMetadata(
+	overrides: Partial<NoteMetadata> = {},
+): NoteMetadata {
 	return {
 		id: overrides.id ?? 'm',
 		title: overrides.title ?? '',

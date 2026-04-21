@@ -34,7 +34,8 @@ export const useNotesStore = create<NotesStoreState>((set, get) => ({
 
 	getNote: (id: string) => noteService.readNote(id),
 
-	getMetadata: (id: string) => get().noteList.notes.find((n) => n.id === id) ?? null,
+	getMetadata: (id: string) =>
+		get().noteList.notes.find((n) => n.id === id) ?? null,
 }));
 
 // 同期側からの reload 通知で自動更新

@@ -1,6 +1,12 @@
-import * as FileSystem from 'expo-file-system';
-import { deleteIfExists, ensureDir, readString, writeAtomic } from '../storage/atomicFile';
-import { NOTES_DIR, NOTE_LIST_PATH, noteFilePath } from '../storage/paths';
+import { Directory, File } from 'expo-file-system';
+import { uuidv4 } from '@/utils/uuid';
+import {
+	deleteIfExists,
+	ensureDir,
+	readString,
+	writeAtomic,
+} from '../storage/atomicFile';
+import { NOTE_LIST_PATH, NOTES_DIR, noteFilePath } from '../storage/paths';
 import { computeContentHash } from '../sync/hash';
 import {
 	EMPTY_NOTE_LIST,
@@ -10,7 +16,6 @@ import {
 	type NoteMetadata,
 	ORPHAN_FOLDER_NAME,
 } from '../sync/types';
-import { uuidv4 } from '@/utils/uuid';
 
 function cloneDeep<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
@@ -41,7 +46,10 @@ export class NoteService {
 					};
 				}
 			} catch (e) {
-				console.warn('[NoteService] failed to parse noteList.json, resetting', e);
+				console.warn(
+					'[NoteService] failed to parse noteList.json, resetting',
+					e,
+				);
 			}
 		}
 		this.loaded = true;
@@ -90,11 +98,25 @@ export class NoteService {
 		await this.persistList();
 	}
 
+	/** フォルダの折りたたみ状態を切り替え、noteList.json に永続化する。 */
+	async setFolderCollapsed(
+		folderId: string,
+		collapsed: boolean,
+	): Promise<void> {
+		const set = new Set(this.list.collapsedFolderIds);
+		if (collapsed) set.add(folderId);
+		else set.delete(folderId);
+		this.list.collapsedFolderIds = [...set];
+		await this.persistList();
+	}
+
 	async createFolder(name: string, archived = false): Promise<Folder> {
 		const id = uuidv4();
 		const folder: Folder = { id, name, archived };
 		this.list.folders.push(folder);
-		const order = archived ? this.list.archivedTopLevelOrder : this.list.topLevelOrder;
+		const order = archived
+			? this.list.archivedTopLevelOrder
+			: this.list.topLevelOrder;
 		order.push({ type: 'folder', id });
 		await this.persistList();
 		return folder;
@@ -115,23 +137,38 @@ export class NoteService {
 		await this.persistList();
 	}
 
-	/** 孤立ノートを「不明ノート」フォルダへ復元する。 */
+	/**
+	 * 孤立ノートを「不明ノート」フォルダへ復元する。
+	 *
+	 * ⚠️ note file 本体の folderId は書き換えない（元のまま保存する）。
+	 * list metadata だけを不明ノートに紐付ける。
+	 *
+	 * 理由: 本体の folderId を不明ノートに書き換えてしまうと、後で同期が正常化しても
+	 * 編集時にディスクから読んだ note の folderId が不明ノートのままで、保存→同期で伝搬する。
+	 * list metadata は pullCloudChanges で cloudList の正しい値にすぐ上書きされるので安全。
+	 */
 	async recoverOrphanNote(note: Note): Promise<void> {
 		await this.saveNote(note);
 		const folderId = await this.ensureFolder(ORPHAN_FOLDER_NAME);
 		const existing = this.list.notes.find((n) => n.id === note.id);
-		const metadata = await this.buildMetadata(note, folderId);
 		if (existing) {
-			Object.assign(existing, metadata);
-		} else {
-			this.list.notes.push(metadata);
-			this.list.topLevelOrder.push({ type: 'note', id: note.id });
+			existing.folderId = folderId;
 		}
+		// note.folderId が元々空でなければ upsertMetadata 経由で topLevelOrder には入っていない。
+		// 空だった場合は topLevelOrder に残るが、不明ノートに再分類したので top から外す。
+		this.list.topLevelOrder = this.list.topLevelOrder.filter(
+			(i) => !(i.type === 'note' && i.id === note.id),
+		);
+		this.list.archivedTopLevelOrder = this.list.archivedTopLevelOrder.filter(
+			(i) => !(i.type === 'note' && i.id === note.id),
+		);
 		await this.persistList();
 	}
 
 	async ensureFolder(name: string): Promise<string> {
-		const existing = this.list.folders.find((f) => f.name === name && !f.archived);
+		const existing = this.list.folders.find(
+			(f) => f.name === name && !f.archived,
+		);
 		if (existing) return existing.id;
 		const folder = await this.createFolder(name, false);
 		return folder.id;
@@ -141,12 +178,12 @@ export class NoteService {
 	async scanOrphans(): Promise<Note[]> {
 		const list = new Set(this.list.notes.map((n) => n.id));
 		const orphans: Note[] = [];
-		const info = await FileSystem.getInfoAsync(NOTES_DIR);
-		if (!info.exists) return orphans;
-		const entries = await FileSystem.readDirectoryAsync(NOTES_DIR);
-		for (const entry of entries) {
-			if (!entry.endsWith('.json')) continue;
-			const id = entry.slice(0, -5);
+		const dir = new Directory(NOTES_DIR);
+		if (!dir.exists) return orphans;
+		for (const entry of dir.list()) {
+			if (!(entry instanceof File)) continue;
+			if (!entry.name.endsWith('.json')) continue;
+			const id = entry.name.slice(0, -5);
 			if (list.has(id)) continue;
 			const note = await this.readNote(id);
 			if (note) orphans.push(note);
@@ -161,15 +198,23 @@ export class NoteService {
 			this.list.notes[index] = metadata;
 		} else {
 			this.list.notes.push(metadata);
-			const order = note.archived ? this.list.archivedTopLevelOrder : this.list.topLevelOrder;
-			if (!order.some((i) => i.type === 'note' && i.id === note.id)) {
-				order.push({ type: 'note', id: note.id });
+			// フォルダに属するノートは topLevelOrder に含めない（data model の整合性）
+			if (!note.folderId) {
+				const order = note.archived
+					? this.list.archivedTopLevelOrder
+					: this.list.topLevelOrder;
+				if (!order.some((i) => i.type === 'note' && i.id === note.id)) {
+					order.push({ type: 'note', id: note.id });
+				}
 			}
 		}
 		await this.persistList();
 	}
 
-	private async buildMetadata(note: Note, folderId: string): Promise<NoteMetadata> {
+	private async buildMetadata(
+		note: Note,
+		folderId: string,
+	): Promise<NoteMetadata> {
 		return {
 			id: note.id,
 			title: note.title,

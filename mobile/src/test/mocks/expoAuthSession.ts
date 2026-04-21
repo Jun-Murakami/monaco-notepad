@@ -9,7 +9,10 @@ export const ResponseType = { Code: 'code' } as const;
 export class AuthRequest {
 	codeVerifier = 'stub-verifier';
 	constructor(public readonly params: unknown) {}
-	async promptAsync(): Promise<{ type: 'success' | 'cancel'; params?: Record<string, string> }> {
+	async promptAsync(): Promise<{
+		type: 'success' | 'cancel';
+		params?: Record<string, string>;
+	}> {
 		return { type: 'cancel' };
 	}
 }
@@ -23,7 +26,10 @@ export async function refreshAsync(): Promise<TokenResponse> {
 export async function revokeAsync(): Promise<boolean> {
 	return true;
 }
-export function makeRedirectUri(opts?: { scheme?: string; path?: string }): string {
+export function makeRedirectUri(opts?: {
+	scheme?: string;
+	path?: string;
+}): string {
 	return `${opts?.scheme ?? 'monaconotepad'}://${opts?.path ?? 'oauth'}`;
 }
 

@@ -58,13 +58,14 @@ export class PollingService {
 		const initial = await NetInfo.fetch();
 		this.connectivity = initial.isConnected ? 'online' : 'offline';
 
-		this.appStateSub = AppState.addEventListener('change', (s) => this.handleAppState(s));
+		this.appStateSub = AppState.addEventListener('change', (s) =>
+			this.handleAppState(s),
+		);
 		this.appState = AppState.currentState;
 
-		// 初回同期を先に実行してから loop に入る
-		if (this.isActive()) {
-			await this.runSyncSafe();
-		}
+		// 初回同期は runLoop 内で interval を待たずに即実行する。
+		// ここで await すると signin 画面が初回同期完了まで閉じられず、
+		// 大量ノートの初回取り込み中に UI がブロックされてしまう。
 		this.loopPromise = this.runLoop();
 	}
 
@@ -86,16 +87,22 @@ export class PollingService {
 	}
 
 	private async runLoop(): Promise<void> {
+		// 初回は interval を待たずに即実行する
+		let skipInitialWait = true;
 		while (!this.stopFlag) {
 			if (!this.isActive()) {
 				// オフラインまたは background: wake まで待つ
 				syncEvents.emit('drive:status', { status: 'offline' });
 				await Promise.race([this.wakeUp, sleep(30000)]);
+				skipInitialWait = true; // 復帰後も即同期
 				continue;
 			}
 
-			await Promise.race([this.wakeUp, sleep(this.intervalMs)]);
-			if (this.stopFlag || !this.isActive()) continue;
+			if (!skipInitialWait) {
+				await Promise.race([this.wakeUp, sleep(this.intervalMs)]);
+				if (this.stopFlag || !this.isActive()) continue;
+			}
+			skipInitialWait = false;
 
 			try {
 				const changed = await this.checkForChanges();
@@ -103,7 +110,10 @@ export class PollingService {
 					await this.runSyncSafe();
 					this.intervalMs = MIN_INTERVAL_MS;
 				} else {
-					this.intervalMs = Math.min(this.intervalMs * BACKOFF_FACTOR, MAX_INTERVAL_MS);
+					this.intervalMs = Math.min(
+						this.intervalMs * BACKOFF_FACTOR,
+						MAX_INTERVAL_MS,
+					);
 				}
 			} catch (e) {
 				if (e instanceof AuthError) {
@@ -111,7 +121,10 @@ export class PollingService {
 					continue;
 				}
 				console.warn('[Polling] cycle failed:', e);
-				this.intervalMs = Math.min(this.intervalMs * BACKOFF_FACTOR, MAX_INTERVAL_MS);
+				this.intervalMs = Math.min(
+					this.intervalMs * BACKOFF_FACTOR,
+					MAX_INTERVAL_MS,
+				);
 			}
 		}
 	}
@@ -219,6 +232,9 @@ export class PollingService {
 
 	private async savePageToken(): Promise<void> {
 		if (!this.pageToken) return;
-		await writeAtomic(CHANGE_PAGE_TOKEN_PATH, JSON.stringify({ token: this.pageToken }));
+		await writeAtomic(
+			CHANGE_PAGE_TOKEN_PATH,
+			JSON.stringify({ token: this.pageToken }),
+		);
 	}
 }

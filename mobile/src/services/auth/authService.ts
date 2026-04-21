@@ -15,7 +15,8 @@ import { DRIVE_SCOPES } from '../sync/types';
  * SecureStore は iOS Keychain / Android Keystore を透過的に使う。
  */
 
-const TOKEN_KEY = 'monaco-notepad:oauth';
+// SecureStore のキーは英数字 / `.` / `-` / `_` のみ許容される
+const TOKEN_KEY = 'monaco-notepad.oauth';
 const DISCOVERY: AuthSession.DiscoveryDocument = {
 	authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
 	tokenEndpoint: 'https://oauth2.googleapis.com/token',
@@ -64,10 +65,7 @@ export class AuthService {
 	 *  素の Promise でも使えるようにラップ。 */
 	async signIn(): Promise<void> {
 		const clientId = this.resolveClientId();
-		const redirectUri = AuthSession.makeRedirectUri({
-			scheme: 'monaconotepad',
-			path: 'oauth',
-		});
+		const redirectUri = this.buildRedirectUri(clientId);
 		const request = new AuthSession.AuthRequest({
 			clientId,
 			scopes: DRIVE_SCOPES,
@@ -85,7 +83,9 @@ export class AuthService {
 				clientId,
 				code: result.params.code,
 				redirectUri,
-				extraParams: request.codeVerifier ? { code_verifier: request.codeVerifier } : undefined,
+				extraParams: request.codeVerifier
+					? { code_verifier: request.codeVerifier }
+					: undefined,
 			},
 			DISCOVERY,
 		);
@@ -149,7 +149,9 @@ export class AuthService {
 		return this.token.expiresAt - 60_000 < Date.now();
 	}
 
-	private async persistTokenResult(r: AuthSession.TokenResponse): Promise<void> {
+	private async persistTokenResult(
+		r: AuthSession.TokenResponse,
+	): Promise<void> {
 		const now = Date.now();
 		const expiresIn = r.expiresIn ?? 3600;
 		this.token = {
@@ -163,14 +165,33 @@ export class AuthService {
 		this.emit({ signedIn: true });
 	}
 
+	/**
+	 * Google Android/iOS OAuth クライアント専用の redirect URI を構築する。
+	 * Google は任意のカスタムスキームを許容せず、Client ID を逆 DNS 化した
+	 * `com.googleusercontent.apps.<CLIENT_ID_PREFIX>:/oauth2redirect` のみを受け付ける。
+	 * 対応するスキームは `app.config.ts` 側で intent filter / CFBundleURLTypes にも登録している。
+	 */
+	private buildRedirectUri(clientId: string): string {
+		if (Platform.OS === 'android' || Platform.OS === 'ios') {
+			const prefix = clientId.replace(/\.apps\.googleusercontent\.com$/, '');
+			return `com.googleusercontent.apps.${prefix}:/oauth2redirect`;
+		}
+		// Web (dev only) は Expo 標準のスキーム解決に任せる
+		return AuthSession.makeRedirectUri({
+			scheme: 'monaconotepad',
+			path: 'oauth',
+		});
+	}
+
 	private resolveClientId(): string {
 		const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
-		if (Platform.OS === 'ios' && extra.googleOAuthIosClientId) return extra.googleOAuthIosClientId;
+		if (Platform.OS === 'ios' && extra.googleOAuthIosClientId)
+			return extra.googleOAuthIosClientId;
 		if (Platform.OS === 'android' && extra.googleOAuthAndroidClientId)
 			return extra.googleOAuthAndroidClientId;
 		if (extra.googleOAuthWebClientId) return extra.googleOAuthWebClientId;
 		throw new Error(
-			'Google OAuth client ID is not configured. Set googleOAuth*ClientId in app.json → extra.',
+			'Google OAuth client ID is not configured. Set GOOGLE_OAUTH_*_CLIENT_ID in mobile/.env.local (see .env.example).',
 		);
 	}
 
