@@ -1,0 +1,30 @@
+node_modules/
+.expo/
+dist/
+web-build/
+ios/
+android/
+
+# macOS
+.DS_Store
+
+# Native builds
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Metro
+.metro-health-check*
+
+# Local env
+.env*
+!.env.example
+
+# Expo prebuild artifacts
+.expo-shared/
+
+# Coverage
+coverage/

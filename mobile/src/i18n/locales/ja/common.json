@@ -1,0 +1,76 @@
+{
+	"app": {
+		"title": "Monaco Notepad"
+	},
+	"auth": {
+		"signIn": "Google でサインイン",
+		"signOut": "サインアウト",
+		"signedInAs": "サインイン中",
+		"notSignedIn": "未サインイン",
+		"signInPrompt": "Google Drive と同期するにはサインインしてください"
+	},
+	"noteList": {
+		"empty": "ノートがありません",
+		"newNote": "新規ノート",
+		"search": "検索",
+		"archive": "アーカイブ",
+		"all": "すべて",
+		"folders": "フォルダ",
+		"noFolder": "未分類"
+	},
+	"editor": {
+		"titlePlaceholder": "無題",
+		"contentPlaceholder": "内容を入力...",
+		"view": "閲覧",
+		"edit": "編集",
+		"language": "言語",
+		"save": "保存",
+		"delete": "削除",
+		"archive": "アーカイブ",
+		"unarchive": "アーカイブ解除",
+		"syntaxHighlightHint": "シンタックスハイライトは閲覧モードでのみ表示されます"
+	},
+	"sync": {
+		"status_idle": "同期済み",
+		"status_pushing": "アップロード中...",
+		"status_pulling": "ダウンロード中...",
+		"status_merging": "統合中...",
+		"status_resolving": "競合解決中...",
+		"status_offline": "オフライン",
+		"status_error": "同期エラー",
+		"syncNow": "今すぐ同期"
+	},
+	"settings": {
+		"title": "設定",
+		"language": "言語",
+		"language_system": "システム既定",
+		"language_ja": "日本語",
+		"language_en": "English",
+		"theme": "テーマ",
+		"theme_system": "システム",
+		"theme_light": "ライト",
+		"theme_dark": "ダーク",
+		"syncOnCellular": "モバイル回線でも同期",
+		"conflictBackup": "競合バックアップを保存",
+		"about": "このアプリについて"
+	},
+	"drive": {
+		"sync": {
+			"firstPush": "初回アップロード中...",
+			"pushLocalChanges": "ローカル変更をアップロード中",
+			"pullCloudChanges": "クラウド変更をダウンロード中",
+			"conflictDetected": "競合を検出、自動解決中",
+			"uploadNote": "ノート {{noteId}} をアップロード中",
+			"deleteNote": "ノート {{noteId}} を削除中",
+			"downloadNote": "ノート {{noteId}} をダウンロード中"
+		},
+		"conflict": {
+			"keepLocal": "ノート {{noteId}}: ローカル版を保持",
+			"keepCloud": "ノート {{noteId}}: クラウド版を保持"
+		}
+	},
+	"orphan": {
+		"localRecoveryDone": "ローカル孤立ノートを「不明ノート」へ復元しました",
+		"cloudRecoveryDone": "クラウド孤立ノートを「不明ノート」へ復元しました"
+	}
+}

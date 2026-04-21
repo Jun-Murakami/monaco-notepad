@@ -1,0 +1,76 @@
+{
+	"app": {
+		"title": "Monaco Notepad"
+	},
+	"auth": {
+		"signIn": "Sign in with Google",
+		"signOut": "Sign out",
+		"signedInAs": "Signed in",
+		"notSignedIn": "Not signed in",
+		"signInPrompt": "Sign in to sync with Google Drive"
+	},
+	"noteList": {
+		"empty": "No notes yet",
+		"newNote": "New note",
+		"search": "Search",
+		"archive": "Archive",
+		"all": "All",
+		"folders": "Folders",
+		"noFolder": "Uncategorized"
+	},
+	"editor": {
+		"titlePlaceholder": "Untitled",
+		"contentPlaceholder": "Start typing...",
+		"view": "View",
+		"edit": "Edit",
+		"language": "Language",
+		"save": "Save",
+		"delete": "Delete",
+		"archive": "Archive",
+		"unarchive": "Unarchive",
+		"syntaxHighlightHint": "Syntax highlighting is shown only in view mode"
+	},
+	"sync": {
+		"status_idle": "Synced",
+		"status_pushing": "Uploading...",
+		"status_pulling": "Downloading...",
+		"status_merging": "Merging...",
+		"status_resolving": "Resolving conflicts...",
+		"status_offline": "Offline",
+		"status_error": "Sync error",
+		"syncNow": "Sync now"
+	},
+	"settings": {
+		"title": "Settings",
+		"language": "Language",
+		"language_system": "System default",
+		"language_ja": "日本語",
+		"language_en": "English",
+		"theme": "Theme",
+		"theme_system": "System",
+		"theme_light": "Light",
+		"theme_dark": "Dark",
+		"syncOnCellular": "Sync on cellular",
+		"conflictBackup": "Save conflict backups",
+		"about": "About"
+	},
+	"drive": {
+		"sync": {
+			"firstPush": "Initial upload...",
+			"pushLocalChanges": "Uploading local changes",
+			"pullCloudChanges": "Downloading cloud changes",
+			"conflictDetected": "Conflict detected, auto-resolving",
+			"uploadNote": "Uploading note {{noteId}}",
+			"deleteNote": "Deleting note {{noteId}}",
+			"downloadNote": "Downloading note {{noteId}}"
+		},
+		"conflict": {
+			"keepLocal": "Note {{noteId}}: kept local version",
+			"keepCloud": "Note {{noteId}}: kept cloud version"
+		}
+	},
+	"orphan": {
+		"localRecoveryDone": "Recovered local orphan notes into 'Unknown Notes'",
+		"cloudRecoveryDone": "Recovered cloud orphan notes into 'Unknown Notes'"
+	}
+}
