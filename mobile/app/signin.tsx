@@ -17,10 +17,13 @@ export default function SignInScreen() {
 		setError(null);
 		try {
 			await driveService.signIn();
-			// OAuth 完了時点では `/signin` が top になっている（oauth2redirect は自分で back 済み）。
-			// ここで router.back() すると / まで戻れるが、timing race で /signin が top でないこともあるため、
-			// 安全のため replace('/') で確実に home に差し替える。
-			router.replace('/');
+			// push された /signin（modal）と oauth2redirect を全て畳んでルート（/）に戻す。
+			// replace('/') だと /signin が stack に残り、戻るボタンが表示されてしまう。
+			if (router.canDismiss()) {
+				router.dismissAll();
+			} else {
+				router.replace('/');
+			}
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {

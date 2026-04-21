@@ -11,6 +11,7 @@ import {
 import { Appbar, Menu, SegmentedButtons, useTheme } from 'react-native-paper';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { SyntaxHighlightView } from '@/components/SyntaxHighlightView';
+import { generateContentHeader } from '@/services/notes/noteService';
 import { driveService } from '@/services/sync/driveService';
 import type { Note } from '@/services/sync/types';
 import { useNotesStore } from '@/stores/notesStore';
@@ -181,7 +182,7 @@ export default function NoteEditorScreen() {
 						scheduleSave({
 							...note,
 							content,
-							contentHeader: content.slice(0, 100).replace(/\n/g, ' '),
+							contentHeader: generateContentHeader(content),
 							modifiedTime: new Date().toISOString(),
 						})
 					}

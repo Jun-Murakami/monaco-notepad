@@ -12,6 +12,7 @@
 	"noteList": {
 		"empty": "ノートがありません",
 		"newNote": "新規ノート",
+		"emptyNote": "無題のノート",
 		"search": "検索",
 		"archive": "アーカイブ",
 		"all": "すべて",

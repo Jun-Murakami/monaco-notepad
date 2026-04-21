@@ -12,6 +12,7 @@
 	"noteList": {
 		"empty": "No notes yet",
 		"newNote": "New note",
+		"emptyNote": "Untitled note",
 		"search": "Search",
 		"archive": "Archive",
 		"all": "All",

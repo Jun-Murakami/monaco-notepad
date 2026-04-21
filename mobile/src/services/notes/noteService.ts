@@ -22,6 +22,25 @@ function cloneDeep<T>(value: T): T {
 }
 
 /**
+ * ノート本文から contentHeader を生成する。
+ * デスクトップ版 backend/note_service.go の generateContentHeader と同じ挙動：
+ * 空でない行を最大 3 行集め、改行区切りで結合、200 文字で切り詰め。
+ */
+export function generateContentHeader(content: string): string {
+	if (!content) return '';
+	const lines = content.split('\n');
+	const nonEmpty: string[] = [];
+	for (const line of lines) {
+		if (line.trim() !== '') {
+			nonEmpty.push(line);
+			if (nonEmpty.length >= 3) break;
+		}
+	}
+	const header = nonEmpty.join('\n');
+	return header.length > 200 ? header.slice(0, 200) : header;
+}
+
+/**
  * ローカルノートの CRUD とメタデータ管理。
  *
  * デスクトップ版 note_service.go を移植。
@@ -53,15 +72,44 @@ export class NoteService {
 			}
 		}
 		this.loaded = true;
+		// 空 title + 空 contentHeader のノートは一覧で「無題のノート」としか出ないので、
+		// 本文ファイルから contentHeader を復旧しておく（デスクトップ版由来の古いノートへの救済）。
+		await this.repairMissingContentHeaders();
+	}
+
+	/**
+	 * metadata.contentHeader が空かつ title も空のノートについて、本文ファイルを読んで
+	 * contentHeader を再生成する。ローカルファイルに影響する移行処理なので dirty マークはしない。
+	 * （クラウド側は次回保存時に正しい contentHeader で更新される）
+	 */
+	private async repairMissingContentHeaders(): Promise<void> {
+		let changed = false;
+		for (const meta of this.list.notes) {
+			if (meta.contentHeader) continue;
+			if (meta.title.trim()) continue;
+			const note = await this.readNote(meta.id);
+			if (!note?.content) continue;
+			const generated = generateContentHeader(note.content);
+			if (!generated) continue;
+			meta.contentHeader = generated;
+			changed = true;
+		}
+		if (changed) {
+			await this.persistList();
+		}
 	}
 
 	getNoteList(): NoteList {
 		return cloneDeep(this.list);
 	}
 
-	replaceNoteList(list: NoteList): Promise<void> {
+	async replaceNoteList(list: NoteList): Promise<void> {
 		this.list = cloneDeep(list);
-		return this.persistList();
+		await this.persistList();
+		// cloud の noteList に contentHeader が未設定のエントリが含まれていても、
+		// ローカル notes/ 上の本文ファイルから補完する。
+		// （サーバ側を汚さず表示のためだけにローカルで補修する方針）
+		await this.repairMissingContentHeaders();
 	}
 
 	async readNote(noteId: string): Promise<Note | null> {
@@ -215,10 +263,13 @@ export class NoteService {
 		note: Note,
 		folderId: string,
 	): Promise<NoteMetadata> {
+		// contentHeader が未設定なら本文から即生成する（空タイトルノートでも一覧で本文プレビューを出すため）
+		const contentHeader =
+			note.contentHeader || generateContentHeader(note.content);
 		return {
 			id: note.id,
 			title: note.title,
-			contentHeader: note.contentHeader,
+			contentHeader,
 			language: note.language,
 			modifiedTime: note.modifiedTime,
 			archived: note.archived,

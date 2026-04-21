@@ -43,17 +43,16 @@ export default function RootLayout() {
 				<I18nextProvider i18n={i18n}>
 					<PaperProvider theme={theme}>
 						<StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-						<Stack screenOptions={{ headerShown: true }}>
-							<Stack.Screen
-								name="index"
-								options={{ title: 'Monaco Notepad' }}
-							/>
-							<Stack.Screen name="note/[id]" options={{ title: '' }} />
-							<Stack.Screen name="settings" options={{ title: 'Settings' }} />
-							<Stack.Screen
-								name="signin"
-								options={{ presentation: 'modal', title: 'Sign in' }}
-							/>
+						{/*
+						 * 各画面が react-native-paper の Appbar を自前で描画するので、
+						 * Stack の自動 header は出さない（出すと二重ヘッダーになる）。
+						 */}
+						<Stack screenOptions={{ headerShown: false }}>
+							<Stack.Screen name="index" />
+							<Stack.Screen name="note/[id]" />
+							<Stack.Screen name="settings" />
+							<Stack.Screen name="signin" options={{ presentation: 'modal' }} />
+							<Stack.Screen name="oauth2redirect" />
 						</Stack>
 					</PaperProvider>
 				</I18nextProvider>
