@@ -1,3 +1,5 @@
+@AGENTS_mobile.md
+
 # AGENTS.md — Monaco Notepad
 
 ## プロジェクト概要
