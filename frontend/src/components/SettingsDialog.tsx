@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -20,10 +20,13 @@ import {
 } from '@mui/material';
 
 import {
+  CheckDriveConnection,
+  DeleteAllDriveData,
   OpenAppFolder,
   OpenConflictBackupFolder,
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
+import { EventsOn } from '../../wailsjs/runtime';
 import { THEME_PAIRS } from '../lib/theme-pairs';
 import { DEFAULT_EDITOR_SETTINGS } from '../types';
 import { LightDarkSwitch } from './LightDarkSwitch';
@@ -36,6 +39,11 @@ interface SettingsDialogProps {
   onClose: () => void;
   onChange: (settings: Settings) => void;
   onOpenAbout: () => void;
+  showMessage: (
+    title: string,
+    message: string,
+    isTwoButton?: boolean,
+  ) => Promise<boolean>;
 }
 
 export const SettingsDialog: React.FC<SettingsDialogProps> = ({
@@ -44,9 +52,30 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onClose,
   onChange,
   onOpenAbout,
+  showMessage,
 }) => {
   const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
   const { t } = useTranslation();
+
+  // Drive 接続状態：開いた時に確認 + drive:status イベントで追従
+  const [isDriveConnected, setIsDriveConnected] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    CheckDriveConnection()
+      .then(setIsDriveConnected)
+      .catch(() => {
+        setIsDriveConnected(false);
+      });
+    const handler = (status: string) => {
+      setIsDriveConnected(status === 'synced' || status === 'syncing');
+    };
+    // EventsOff('drive:status') は同名の全リスナを削除して useDriveSync 側まで殺すため、
+    // EventsOn が返す解除関数を個別に呼び出す
+    const cancel = EventsOn('drive:status', handler);
+    return () => {
+      cancel?.();
+    };
+  }, [open]);
 
   const handleChange = async (newSettings: Partial<Settings>) => {
     const updatedSettings = { ...localSettings, ...newSettings };
@@ -61,6 +90,30 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       document.activeElement.blur();
     }
     onClose();
+  };
+
+  const handleDeleteDriveData = async () => {
+    const confirmed = await showMessage(
+      t('settings.deleteDriveDataConfirmTitle'),
+      t('settings.deleteDriveDataConfirmMessage'),
+      true, // 2 ボタン (OK / キャンセル)
+    );
+    if (!confirmed) return;
+    try {
+      await DeleteAllDriveData();
+      await showMessage(
+        t('settings.deleteDriveDataConfirmTitle'),
+        t('settings.deleteDriveDataSuccess'),
+      );
+      onClose();
+    } catch (e) {
+      await showMessage(
+        t('settings.deleteDriveDataConfirmTitle'),
+        t('settings.deleteDriveDataError', {
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    }
   };
 
   const handleReset = () => {
@@ -325,6 +378,31 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   {t('settings.conflictBackupDescriptionLink')}
                 </Box>
                 {t('settings.conflictBackupDescriptionAfterLink')}
+              </Typography>
+            </Box>
+
+            <Divider orientation="horizontal" sx={{ width: '100%' }} />
+
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+                alignItems: 'flex-start',
+                width: '100%',
+              }}
+            >
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                disabled={!isDriveConnected}
+                onClick={handleDeleteDriveData}
+              >
+                {t('settings.deleteDriveData')}
+              </Button>
+              <Typography variant="caption" color="textSecondary">
+                {t('settings.deleteDriveDataDescription')}
               </Typography>
             </Box>
           </Grid>

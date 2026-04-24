@@ -181,6 +181,20 @@ export class SyncStateManager {
 		});
 	}
 
+	/**
+	 * 1 ノート分だけ lastSyncedNoteHash を即時永続化する。
+	 * 大量アップロード途中でアプリが終了した場合、再起動後に「現在の hash と一致するノート」を
+	 * Drive 呼び出しせずスキップして 60 件中 31 件目から再開できるようにする用途。
+	 * revision はインクリメントしない（同期側の内部記録で、進行中の clearDirtyIfUnchanged の
+	 * revision チェックを破壊してはならないため）。
+	 */
+	async updateSyncedNoteHash(noteId: string, hash: string): Promise<void> {
+		await this.lock.run(async () => {
+			this.state.lastSyncedNoteHash[noteId] = hash;
+			await this.persist();
+		});
+	}
+
 	/** 個別ノートのハッシュを削除（ノート完全削除後）。 */
 	async forgetNoteHash(noteId: string): Promise<void> {
 		await this.lock.run(async () => {

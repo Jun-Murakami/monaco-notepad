@@ -222,7 +222,7 @@ npm run test:coverage    # coverage
 ```bash
 cd mobile
 npm install
-npx expo prebuild              # native プロジェクト生成 (ios/, android/)
+npm run prebuild               # wails.json 由来のバージョン同期 + native プロジェクト生成 (ios/, android/)
 npm run ios                    # iOS simulator
 npm run android                # Android emulator
 npm start                      # Dev server (Expo Go ではネイティブ依存で動かないので prebuild 必要)

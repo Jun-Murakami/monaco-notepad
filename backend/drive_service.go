@@ -22,6 +22,7 @@ type DriveService interface {
 	AuthorizeDrive() error   // 認証
 	LogoutDrive() error      // ログアウト
 	CancelLoginDrive() error // 認証キャンセル
+	DeleteAllDriveData() error // Drive 上の全データを削除してログアウト
 
 	// ---- ノート同期系 ----
 	CreateNote(note *Note) error                           // ノート作成
@@ -337,6 +338,63 @@ func (s *driveService) LogoutDrive() error {
 	return s.auth.LogoutDrive()
 }
 
+// DeleteAllDriveData は Drive 上の monaco-notepad フォルダを削除してログアウトする。
+// appDataFolder 空間とレガシー Drive 空間の両方から同名フォルダを削除し、
+// 完了後に LogoutDrive 相当の処理で token.json も削除する。
+// 削除対象が無い（未作成/既に消えている）場合でも無害にスキップする。
+func (s *driveService) DeleteAllDriveData() error {
+	s.logger.Console("Deleting all Drive data and logging out...")
+
+	// 削除中に同期が走らないよう先に止める
+	s.pollingService.StopPolling()
+	if s.operationsQueue != nil {
+		s.operationsQueue.Cleanup()
+	}
+
+	if !s.IsConnected() {
+		return fmt.Errorf("not connected to Google Drive")
+	}
+
+	// appDataFolder / レガシー Drive の両方に対して monaco-notepad フォルダを削除
+	for _, useAppData := range []bool{true, false} {
+		ops := s.newDriveOperations(useAppData)
+		if ops == nil {
+			continue
+		}
+		folders, err := ops.ListFiles(
+			"name='monaco-notepad' and mimeType='application/vnd.google-apps.folder' and trashed=false")
+		if err != nil {
+			s.logger.Console("DeleteAllDriveData: list failed (useAppData=%v): %v", useAppData, err)
+			continue
+		}
+		for _, folder := range folders {
+			if err := ops.DeleteFile(folder.Id); err != nil {
+				s.logger.Console("DeleteAllDriveData: delete folder failed %s: %v", folder.Id, err)
+			}
+		}
+	}
+
+	// マイグレーション状態ファイルもリセット（次回ログインを新規扱いに戻す）
+	stateFile := filepath.Join(s.appDataDir, migrationStateFileName)
+	if err := os.Remove(stateFile); err != nil && !os.IsNotExist(err) {
+		s.logger.Console("DeleteAllDriveData: failed to remove migration state: %v", err)
+	}
+
+	// ローカルのノートを次回ログイン時にすべて再アップロードする状態に遷移
+	// Drive noteList が存在しない状態を利用して pushLocalChanges 経路に乗せる
+	if s.syncState != nil && s.noteService != nil {
+		allIDs := make([]string, 0, len(s.noteService.noteList.Notes))
+		for _, meta := range s.noteService.noteList.Notes {
+			allIDs = append(allIDs, meta.ID)
+		}
+		s.syncState.MarkForFullReupload(allIDs)
+		s.logger.Console("DeleteAllDriveData: marked %d notes for full reupload on next login", len(allIDs))
+	}
+
+	// ログアウト（内部で token.json を削除）
+	return s.auth.LogoutDrive()
+}
+
 // 認証をキャンセル
 func (s *driveService) CancelLoginDrive() error {
 	return s.auth.CancelLoginDrive()
@@ -560,12 +618,21 @@ func (s *driveService) SyncNotes() error {
 }
 
 func (s *driveService) pushLocalChanges() error {
-	dirtyIDs, deletedIDs, deletedFolderIDs, _, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
+	dirtyIDs, deletedIDs, deletedFolderIDs, lastSyncedHashes, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
 	clearSnapshotRevision := snapshotRevision
 	uploadFailures := 0
 	deleteFailures := 0
 	uploadedHashes := make(map[string]string, len(dirtyIDs))
 
+	// Pass 1: dirty 全件の hash を計算して、実際に Drive へ上げる必要があるノートだけ
+	// リストアップする。map イテレーション順がランダムでも、ここで順序を固定すれば
+	// 進捗メッセージは 1..M の連番で綺麗に出せる（Resume 時も同様）。
+	type pendingUpload struct {
+		id   string
+		note *Note
+		hash string
+	}
+	toUpload := make([]pendingUpload, 0, len(dirtyIDs))
 	for id := range dirtyIDs {
 		note, err := s.noteService.LoadNote(id)
 		if err != nil {
@@ -573,21 +640,34 @@ func (s *driveService) pushLocalChanges() error {
 			uploadFailures++
 			continue
 		}
-		uploadedHashes[id] = computeContentHash(note)
-		s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{"noteId": id})
-		if _, err := s.driveSync.GetNoteID(s.ctx, id); err != nil {
-			if err := s.driveSync.CreateNote(s.ctx, note); err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": id})
-				uploadFailures++
-				continue
-			}
-		} else {
-			if err := s.driveSync.UpdateNote(s.ctx, note); err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorUpdateNote, map[string]interface{}{"noteId": id})
-				uploadFailures++
-				continue
-			}
+		currentHash := computeContentHash(note)
+		uploadedHashes[id] = currentHash
+
+		// Resume 最適化: 前回途中で終了して既に Drive にあるノートは Drive 呼び出しをスキップ。
+		// uploadedHashes には入れるので最終 commit (ClearDirtyIfUnchanged) で矛盾しない。
+		// ユーザーが再起動までに編集していれば hash が変わるので正しく再 upload される。
+		if prev, ok := lastSyncedHashes[id]; ok && prev == currentHash {
+			continue
 		}
+		toUpload = append(toUpload, pendingUpload{id: id, note: note, hash: currentHash})
+	}
+
+	// Pass 2: 確定した件数で綺麗な進捗表示 (1/M, 2/M, ..., M/M)
+	uploadTotal := len(toUpload)
+	for i, p := range toUpload {
+		s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{
+			"noteId":  p.id,
+			"current": i + 1,
+			"total":   uploadTotal,
+		})
+		// CreateNote は内部で 1 回だけ GetFileID を叩いて upsert する。
+		if err := s.driveSync.CreateNote(s.ctx, p.note); err != nil {
+			s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": p.id})
+			uploadFailures++
+			continue
+		}
+		// 個別に永続化: 次回起動時の resume に使う
+		s.syncState.UpdateSyncedNoteHash(p.id, p.hash)
 	}
 
 	for id := range deletedIDs {
@@ -675,6 +755,9 @@ func (s *driveService) pushLocalChanges() error {
 		s.logger.Console("Sync state changed during push; retaining dirty flags for next sync")
 		s.syncState.UpdateSyncedState(driveTs, noteHashes)
 	}
+
+	// 全再アップロード完了 → フラグを落とす（再ログイン後の通常同期に復帰）
+	s.syncState.ClearFullReupload()
 
 	s.pollingService.RefreshChangeToken()
 	s.notifySyncComplete()
@@ -844,6 +927,16 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 	}
 
+	// アップロード分岐 (local wins / cloud 未存在) の件数を事前カウントして current/total 表示に使う
+	uploadTotal := 0
+	for id := range dirtyIDs {
+		cloudNote, existsInCloud := cloudMap[id]
+		if !existsInCloud || cloudNote.ContentHash == lastSyncedHashes[id] {
+			uploadTotal++
+		}
+	}
+	uploadIndex := 0
+
 	for id := range dirtyIDs {
 		cloudNote, existsInCloud := cloudMap[id]
 		lastHash := lastSyncedHashes[id]
@@ -855,19 +948,17 @@ func (s *driveService) resolveConflict(noteListID string) error {
 				uploadFailures++
 				continue
 			}
-			s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{"noteId": id})
-			if _, getErr := s.driveSync.GetNoteID(s.ctx, id); getErr != nil {
-				if err := s.driveSync.CreateNote(s.ctx, note); err != nil {
-					s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": id})
-					uploadFailures++
-					continue
-				}
-			} else {
-				if err := s.driveSync.UpdateNote(s.ctx, note); err != nil {
-					s.logger.ErrorCode(err, MsgDriveErrorUpdateNote, map[string]interface{}{"noteId": id})
-					uploadFailures++
-					continue
-				}
+			uploadIndex++
+			s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{
+				"noteId":  id,
+				"current": uploadIndex,
+				"total":   uploadTotal,
+			})
+			// CreateNote は upsert なので Create/Update 分岐は不要 (pushLocalChanges と同様)
+			if err := s.driveSync.CreateNote(s.ctx, note); err != nil {
+				s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": id})
+				uploadFailures++
+				continue
 			}
 			processedDirtyHashes[id] = computeContentHash(note)
 			dirtySynced[id] = true
@@ -1769,7 +1860,7 @@ func (s *driveService) ensureDriveFolders() error {
 
 // ノートリストの初期化
 func (s *driveService) ensureNoteList() error {
-	rootID, notesID := s.auth.GetDriveSync().FolderIDs()
+	rootID, _ := s.auth.GetDriveSync().FolderIDs()
 	noteListFile, err := s.driveOps.ListFiles(
 		fmt.Sprintf("name='noteList_v2.json' and '%s' in parents and trashed=false", rootID))
 	if err != nil {
@@ -1778,16 +1869,28 @@ func (s *driveService) ensureNoteList() error {
 
 	if len(noteListFile) > 0 {
 		s.auth.GetDriveSync().SetNoteListID(noteListFile[0].Id)
-	} else {
-		if err := s.driveSync.CreateNoteList(s.ctx, s.noteService.noteList); err != nil {
-			return err
-		}
-		noteListID, err := s.driveOps.GetFileID("noteList_v2.json", notesID, rootID)
-		if err != nil {
-			return err
-		}
-		s.auth.GetDriveSync().SetNoteListID(noteListID)
+		return nil
 	}
+
+	// 未アップロードのローカル変更がある場合は noteList を先行作成しない。
+	// (a) DeleteAllDriveData 直後 (FullReuploadPending=true)
+	// (b) オフラインで作成されたノートがある状態での初回サインイン (dirty + dirtyIDs)
+	// どちらも SyncNotes が noteListID=="" を検知して pushLocalChanges 経路に入り、
+	// 「個別ノート本体 → noteList」の順でアップロードする。
+	if s.syncState != nil && s.syncState.HasPendingUploads() {
+		s.logger.Console("ensureNoteList: skipping noteList creation (pending uploads exist, deferring to pushLocalChanges)")
+		return nil
+	}
+
+	if err := s.driveSync.CreateNoteList(s.ctx, s.noteService.noteList); err != nil {
+		return err
+	}
+	_, notesID := s.auth.GetDriveSync().FolderIDs()
+	noteListID, err := s.driveOps.GetFileID("noteList_v2.json", notesID, rootID)
+	if err != nil {
+		return err
+	}
+	s.auth.GetDriveSync().SetNoteListID(noteListID)
 	return nil
 }
 

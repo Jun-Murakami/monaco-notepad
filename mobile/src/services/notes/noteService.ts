@@ -78,25 +78,60 @@ export class NoteService {
 	}
 
 	/**
-	 * metadata.contentHeader が空かつ title も空のノートについて、本文ファイルを読んで
-	 * contentHeader を再生成する。ローカルファイルに影響する移行処理なので dirty マークはしない。
-	 * （クラウド側は次回保存時に正しい contentHeader で更新される）
+	 * metadata.contentHeader が空のノートについて、本文ファイルを読んで contentHeader を再生成する。
+	 * title 有無に関わらず実行する（title があってもプレビュー表示に contentHeader が使われるため）。
+	 *
+	 * ローカルファイルに影響する移行処理なので dirty マークはしない。
+	 * クラウド側は次回保存時に desktop / mobile どちらの新実装でも正しい contentHeader を付与して push する。
 	 */
 	private async repairMissingContentHeaders(): Promise<void> {
-		let changed = false;
-		for (const meta of this.list.notes) {
+		await this.runContentHeaderRepair();
+	}
+
+	/**
+	 * 一括修復の public 版。orchestrator から呼ばれ、
+	 * 変更があった件数を返す（呼出元が dirty マーク → Drive push を判断できるよう）。
+	 */
+	async bulkRepairContentHeaders(): Promise<number> {
+		return this.runContentHeaderRepair();
+	}
+
+	/**
+	 * 渡された NoteList の中の、contentHeader 空エントリを **in-place で埋める**。
+	 * ローカルの note file から content を読み、generateContentHeader で生成。
+	 * 主に pullCloudChanges が cloudList を replaceNoteList する前に呼ぶ想定。
+	 * 戻り値は修復件数。
+	 */
+	async fillEmptyContentHeadersInList(list: NoteList): Promise<number> {
+		let fixed = 0;
+		for (const meta of list.notes) {
 			if (meta.contentHeader) continue;
-			if (meta.title.trim()) continue;
 			const note = await this.readNote(meta.id);
 			if (!note?.content) continue;
 			const generated = generateContentHeader(note.content);
 			if (!generated) continue;
 			meta.contentHeader = generated;
-			changed = true;
+			fixed++;
 		}
-		if (changed) {
+		return fixed;
+	}
+
+	/** 内部共通処理: 実際に contentHeader を生成して list 更新。返り値は修正件数。 */
+	private async runContentHeaderRepair(): Promise<number> {
+		let repaired = 0;
+		for (const meta of this.list.notes) {
+			if (meta.contentHeader) continue;
+			const note = await this.readNote(meta.id);
+			if (!note?.content) continue;
+			const generated = generateContentHeader(note.content);
+			if (!generated) continue;
+			meta.contentHeader = generated;
+			repaired++;
+		}
+		if (repaired > 0) {
 			await this.persistList();
 		}
+		return repaired;
 	}
 
 	getNoteList(): NoteList {
@@ -116,7 +151,19 @@ export class NoteService {
 		const raw = await readString(noteFilePath(noteId));
 		if (!raw) return null;
 		try {
-			return JSON.parse(raw) as Note;
+			// 欠損フィールド対策で明示的に初期値を充てる（古いデータや部分的な JSON でも落ちない）
+			const parsed = JSON.parse(raw) as Partial<Note>;
+			if (!parsed.id) return null;
+			return {
+				id: parsed.id,
+				title: parsed.title ?? '',
+				content: parsed.content ?? '',
+				contentHeader: parsed.contentHeader ?? '',
+				language: parsed.language ?? 'plaintext',
+				modifiedTime: parsed.modifiedTime ?? new Date().toISOString(),
+				archived: parsed.archived ?? false,
+				folderId: parsed.folderId ?? '',
+			};
 		} catch {
 			return null;
 		}

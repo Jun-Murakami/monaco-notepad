@@ -1,11 +1,14 @@
 {
   "name": "monaco-notepad-mobile",
-  "version": "0.1.0",
+  "version": "1.5.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "prebuild": "node ../scripts/sync-version.mjs && expo prebuild",
+    "preandroid": "node ../scripts/sync-version.mjs",
     "android": "expo run:android",
+    "preios": "node ../scripts/sync-version.mjs",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "biome check",
@@ -20,6 +23,7 @@
     "expo": "~55.0.16",
     "expo-auth-session": "~55.0.15",
     "expo-background-fetch": "~55.0.15",
+    "expo-clipboard": "~55.0.13",
     "expo-constants": "~55.0.14",
     "expo-crypto": "~55.0.14",
     "expo-file-system": "~55.0.16",

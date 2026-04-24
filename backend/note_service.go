@@ -180,6 +180,12 @@ func (s *noteService) LoadNote(id string) (*Note, error) {
 func (s *noteService) SaveNote(note *Note) error {
 	note.ModifiedTime = time.Now().Format(time.RFC3339)
 
+	// contentHeader が未設定かつ content が存在する場合、自動生成する。
+	// 空タイトルのノートでも一覧で本文プレビューを見せるため（モバイル側の救済処理と揃える）。
+	if strings.TrimSpace(note.ContentHeader) == "" {
+		note.ContentHeader = generateContentHeader(note.Content)
+	}
+
 	// FolderIDはnoteList.jsonのみで管理するため、ノートファイルには書き込まない
 	savedFolderID := note.FolderID
 	note.FolderID = ""
@@ -336,6 +342,10 @@ func (s *noteService) DeleteNote(id string) error {
 
 // 同期パスから呼ばれるノート保存（LastSync/ModifiedTime を更新しない、noteList.json も書かない）
 func (s *noteService) SaveNoteFromSync(note *Note) error {
+	// contentHeader が未設定なら生成（古いクライアントが作ったノートへの救済）
+	if strings.TrimSpace(note.ContentHeader) == "" {
+		note.ContentHeader = generateContentHeader(note.Content)
+	}
 	data, err := json.MarshalIndent(note, "", "  ")
 	if err != nil {
 		return err

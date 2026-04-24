@@ -7,7 +7,8 @@
 		"signOut": "Sign out",
 		"signedInAs": "Signed in",
 		"notSignedIn": "Not signed in",
-		"signInPrompt": "Sign in to sync with Google Drive"
+		"signInPrompt": "Sign in to sync with Google Drive",
+		"cancel": "Cancel"
 	},
 	"noteList": {
 		"empty": "No notes yet",
@@ -20,15 +21,23 @@
 		"noFolder": "Uncategorized"
 	},
 	"editor": {
+		"titleLabel": "Title",
 		"titlePlaceholder": "Untitled",
 		"contentPlaceholder": "Start typing...",
 		"view": "View",
 		"edit": "Edit",
 		"language": "Language",
+		"selectLanguage": "Select language",
+		"searchLanguage": "Search language",
+		"noLanguageMatches": "No matching language",
 		"save": "Save",
 		"delete": "Delete",
 		"archive": "Archive",
 		"unarchive": "Unarchive",
+		"copy": "Copy",
+		"copied": "Copied to clipboard",
+		"loadingNote": "Loading...",
+		"noteNotFound": "Note not found. It may be restored on the next sync.",
 		"syntaxHighlightHint": "Syntax highlighting is shown only in view mode"
 	},
 	"sync": {
@@ -43,6 +52,7 @@
 	},
 	"settings": {
 		"title": "Settings",
+		"account": "Account",
 		"language": "Language",
 		"language_system": "System default",
 		"language_ja": "日本語",
@@ -51,6 +61,7 @@
 		"theme_system": "System",
 		"theme_light": "Light",
 		"theme_dark": "Dark",
+		"sync": "Sync",
 		"syncOnCellular": "Sync on cellular",
 		"conflictBackup": "Save conflict backups",
 		"about": "About"
@@ -61,7 +72,7 @@
 			"pushLocalChanges": "Uploading local changes",
 			"pullCloudChanges": "Downloading cloud changes",
 			"conflictDetected": "Conflict detected, auto-resolving",
-			"uploadNote": "Uploading note {{noteId}}",
+			"uploadNote": "Uploading note {{noteId}} ({{current}}/{{total}})",
 			"deleteNote": "Deleting note {{noteId}}",
 			"downloadNote": "Downloading note {{noteId}}"
 		},

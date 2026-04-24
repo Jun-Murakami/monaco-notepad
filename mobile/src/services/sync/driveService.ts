@@ -52,6 +52,9 @@ class DriveService {
 	async signIn(): Promise<void> {
 		await authService.signIn();
 		await this.connect();
+		// 明示的なサインイン直後は、Drive 上で contentHeader 欠落しているノートを
+		// 全件検査して埋める（古いデスクトップ版で作られたノートの救済）。
+		this.orchestrator?.requestBulkRepair();
 	}
 
 	async signOut(): Promise<void> {

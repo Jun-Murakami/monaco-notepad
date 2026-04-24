@@ -14,6 +14,13 @@ fi
 VERSION=$(cat wails.json | grep -o '"productVersion": "[^"]*' | grep -o '[^"]*$')
 echo "Building Monaco Notepad v$VERSION for macOS..."
 
+# wails.json のバージョンを frontend/mobile の package.json に同期
+node scripts/sync-version.mjs
+if [ $? -ne 0 ]; then
+    echo "Failed to sync version to package.json files"
+    exit 1
+fi
+
 # ライセンス情報を生成
 echo "Generating license information..."
 (cd frontend && node scripts/generate-licenses.mjs)

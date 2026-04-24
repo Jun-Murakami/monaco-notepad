@@ -11,12 +11,13 @@ import (
 // SyncState はローカル端末の同期状態を管理する
 // sync_state.json としてappDataDirに保存する（Driveにはアップロードしない）
 type SyncState struct {
-	Dirty              bool              `json:"dirty"`
-	LastSyncedDriveTs  string            `json:"lastSyncedDriveTs"`
-	DirtyNoteIDs       map[string]bool   `json:"dirtyNoteIDs"`
-	DeletedNoteIDs     map[string]bool   `json:"deletedNoteIDs"`
-	DeletedFolderIDs   map[string]bool   `json:"deletedFolderIDs"`
-	LastSyncedNoteHash map[string]string `json:"lastSyncedNoteHash"`
+	Dirty               bool              `json:"dirty"`
+	LastSyncedDriveTs   string            `json:"lastSyncedDriveTs"`
+	DirtyNoteIDs        map[string]bool   `json:"dirtyNoteIDs"`
+	DeletedNoteIDs      map[string]bool   `json:"deletedNoteIDs"`
+	DeletedFolderIDs    map[string]bool   `json:"deletedFolderIDs"`
+	LastSyncedNoteHash  map[string]string `json:"lastSyncedNoteHash"`
+	FullReuploadPending bool              `json:"fullReuploadPending"`
 
 	mu       sync.Mutex `json:"-"`
 	filePath string     `json:"-"`
@@ -25,13 +26,14 @@ type SyncState struct {
 
 func NewSyncState(appDataDir string) *SyncState {
 	return &SyncState{
-		Dirty:              false,
-		LastSyncedDriveTs:  "",
-		DirtyNoteIDs:       make(map[string]bool),
-		DeletedNoteIDs:     make(map[string]bool),
-		DeletedFolderIDs:   make(map[string]bool),
-		LastSyncedNoteHash: make(map[string]string),
-		filePath:           filepath.Join(appDataDir, "sync_state.json"),
+		Dirty:               false,
+		LastSyncedDriveTs:   "",
+		DirtyNoteIDs:        make(map[string]bool),
+		DeletedNoteIDs:      make(map[string]bool),
+		DeletedFolderIDs:    make(map[string]bool),
+		LastSyncedNoteHash:  make(map[string]string),
+		FullReuploadPending: false,
+		filePath:            filepath.Join(appDataDir, "sync_state.json"),
 	}
 }
 
@@ -60,6 +62,7 @@ func (s *SyncState) Load() error {
 	s.DeletedNoteIDs = loaded.DeletedNoteIDs
 	s.DeletedFolderIDs = loaded.DeletedFolderIDs
 	s.LastSyncedNoteHash = loaded.LastSyncedNoteHash
+	s.FullReuploadPending = loaded.FullReuploadPending
 	s.ensureMapsLocked()
 
 	return nil
@@ -151,6 +154,21 @@ func (s *SyncState) clearDirtyLocked(driveTs string, noteHashes map[string]strin
 	}
 }
 
+// UpdateSyncedNoteHash は 1 ノートの「Drive 側に上がった状態」を即時に永続化する。
+// 大量アップロード中にアプリが終了した場合、再起動後の pushLocalChanges で
+// 「現在の hash == 永続化済 hash」のノートをスキップして再開できるようにする用途。
+//
+// revision はインクリメントしない（これは同期側の内部記録で、ユーザー編集ではないため、
+// 進行中の ClearDirtyIfUnchanged の revision チェックを破壊してはならない）。
+func (s *SyncState) UpdateSyncedNoteHash(noteID string, hash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ensureMapsLocked()
+	s.LastSyncedNoteHash[noteID] = hash
+	_ = s.saveLocked()
+}
+
 // UpdateSyncedState は ClearDirtyIfUnchanged が失敗した場合のフォールバック
 // dirtyフラグは保持しつつ、完了した同期結果だけ反映し、次回の不要な resolveConflict を防ぐ
 func (s *SyncState) UpdateSyncedState(driveTs string, noteHashes map[string]string) {
@@ -225,6 +243,63 @@ func (s *SyncState) resetLocked(dirty bool) {
 	s.DeletedNoteIDs = make(map[string]bool)
 	s.DeletedFolderIDs = make(map[string]bool)
 	s.LastSyncedNoteHash = make(map[string]string)
+	s.FullReuploadPending = false
+}
+
+// MarkForFullReupload は Drive 上のデータ削除などで、全ノートを再アップロードする必要が
+// あるときに呼び出す。dirty フラグ・DirtyNoteIDs を noteIDs で埋め、最後の同期状態を
+// クリアしつつ FullReuploadPending を立てる。
+// これにより次回の onConnected で ensureNoteList が Drive noteList を作らず、
+// SyncNotes が pushLocalChanges 経路を通って全ノートを再アップロードできる。
+func (s *SyncState) MarkForFullReupload(noteIDs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.revision++
+	s.Dirty = true
+	s.LastSyncedDriveTs = ""
+	s.LastSyncedNoteHash = make(map[string]string)
+	s.DeletedNoteIDs = make(map[string]bool)
+	s.DeletedFolderIDs = make(map[string]bool)
+	s.DirtyNoteIDs = make(map[string]bool, len(noteIDs))
+	for _, id := range noteIDs {
+		s.DirtyNoteIDs[id] = true
+	}
+	s.FullReuploadPending = true
+	_ = s.saveLocked()
+}
+
+// ClearFullReupload は FullReuploadPending を落とす（pushLocalChanges 成功時に呼ぶ）。
+func (s *SyncState) ClearFullReupload() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.FullReuploadPending {
+		return
+	}
+	s.FullReuploadPending = false
+	_ = s.saveLocked()
+}
+
+// IsFullReuploadPending は FullReuploadPending の現在値を返す。
+func (s *SyncState) IsFullReuploadPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.FullReuploadPending
+}
+
+// HasPendingUploads は未アップロードのローカル変更があるかを返す。
+// (A) 明示的に FullReuploadPending が立っている、または (B) dirty=true かつ DirtyNoteIDs が非空。
+// ensureNoteList 側で「Drive noteList を先に作るか、pushLocalChanges 経路に任せるか」の判定に使う。
+func (s *SyncState) HasPendingUploads() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.FullReuploadPending {
+		return true
+	}
+	return s.Dirty && len(s.DirtyNoteIDs) > 0
 }
 
 func (s *SyncState) ensureMapsLocked() {

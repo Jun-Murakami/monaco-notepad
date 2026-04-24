@@ -1,21 +1,19 @@
 import { useTranslation } from 'react-i18next';
-import { StyleSheet } from 'react-native';
-import { List } from 'react-native-paper';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
 import type { NoteMetadata } from '@/services/sync/types';
 
 interface Props {
 	metadata: NoteMetadata;
 	onPress: (id: string) => void;
+	indented?: boolean;
 }
 
 /**
- * ノート一覧の表示タイトルを決定する。
- *
- * デスクトップ版 frontend/src/components/NoteList.tsx の getNoteTitle と同じ方針：
- *   - title がある → title（通常表示）
- *   - title なし + contentHeader あり → 本文先頭を short preview（isFallback）
+ * 表示タイトルの決定ロジック（デスクトップ版 getNoteTitle 相当）：
+ *   - title あり → title（通常表示）
+ *   - title なし + contentHeader あり → 本文先頭プレビュー（isFallback: italic + 薄く）
  *   - 両方なし → "無題のノート" プレースホルダ（isFallback）
- * isFallback の場合は italic + opacity 0.6 で視覚的にプレースホルダであることを示す。
  */
 function resolveTitle(
 	metadata: NoteMetadata,
@@ -26,41 +24,56 @@ function resolveTitle(
 	}
 	const preview = metadata.contentHeader.replace(/\r\n|\n|\r/g, ' ').trim();
 	if (preview) {
-		return { text: preview.slice(0, 50), isFallback: true };
+		return { text: preview.slice(0, 60), isFallback: true };
 	}
 	return { text: fallbackLabel, isFallback: true };
 }
 
-export function NoteListItem({ metadata, onPress }: Props) {
+export function NoteListItem({ metadata, onPress, indented = false }: Props) {
 	const { t } = useTranslation();
+	const theme = useTheme();
 	const { text, isFallback } = resolveTitle(metadata, t('noteList.emptyNote'));
 
-	// title があるときだけ description（本文プレビュー）を別途表示する。
-	// title が空の場合はタイトル行自体が本文プレビューなので重複させない。
-	const description = metadata.title.trim()
-		? metadata.contentHeader
-		: undefined;
-
 	return (
-		<List.Item
-			title={text}
-			titleStyle={isFallback ? styles.fallbackTitle : undefined}
-			description={description}
-			titleNumberOfLines={1}
-			descriptionNumberOfLines={2}
+		<Pressable
 			onPress={() => onPress(metadata.id)}
-			right={(props) => <List.Icon {...props} icon="chevron-right" />}
-			style={styles.item}
-		/>
+			android_ripple={{ color: theme.colors.surfaceVariant }}
+			style={({ pressed }) => [
+				styles.item,
+				indented && styles.indent,
+				pressed && { backgroundColor: theme.colors.surfaceVariant },
+			]}
+		>
+			<View style={styles.content}>
+				<Text
+					variant="bodyMedium"
+					numberOfLines={1}
+					style={[
+						{ color: theme.colors.onSurface },
+						isFallback && styles.fallback,
+					]}
+				>
+					{text}
+				</Text>
+			</View>
+		</Pressable>
 	);
 }
 
 const styles = StyleSheet.create({
 	item: {
 		paddingHorizontal: 16,
+		paddingVertical: 10,
 	},
-	fallbackTitle: {
+	indent: {
+		paddingLeft: 40,
+	},
+	content: {
+		flexDirection: 'row',
+		alignItems: 'center',
+	},
+	fallback: {
 		fontStyle: 'italic',
-		opacity: 0.6,
+		opacity: 0.55,
 	},
 });

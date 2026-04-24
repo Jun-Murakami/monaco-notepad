@@ -7,7 +7,8 @@
 		"signOut": "サインアウト",
 		"signedInAs": "サインイン中",
 		"notSignedIn": "未サインイン",
-		"signInPrompt": "Google Drive と同期するにはサインインしてください"
+		"signInPrompt": "Google Driveと同期するにはサインインしてください",
+		"cancel": "キャンセル"
 	},
 	"noteList": {
 		"empty": "ノートがありません",
@@ -20,15 +21,23 @@
 		"noFolder": "未分類"
 	},
 	"editor": {
+		"titleLabel": "タイトル",
 		"titlePlaceholder": "無題",
 		"contentPlaceholder": "内容を入力...",
 		"view": "閲覧",
 		"edit": "編集",
 		"language": "言語",
+		"selectLanguage": "言語を選択",
+		"searchLanguage": "言語を検索",
+		"noLanguageMatches": "該当する言語がありません",
 		"save": "保存",
 		"delete": "削除",
 		"archive": "アーカイブ",
 		"unarchive": "アーカイブ解除",
+		"copy": "コピーする",
+		"copied": "コピーしました",
+		"loadingNote": "読み込み中...",
+		"noteNotFound": "ノートが見つかりません。次回の同期で復元される可能性があります。",
 		"syntaxHighlightHint": "シンタックスハイライトは閲覧モードでのみ表示されます"
 	},
 	"sync": {
@@ -43,6 +52,7 @@
 	},
 	"settings": {
 		"title": "設定",
+		"account": "アカウント",
 		"language": "言語",
 		"language_system": "システム既定",
 		"language_ja": "日本語",
@@ -51,6 +61,7 @@
 		"theme_system": "システム",
 		"theme_light": "ライト",
 		"theme_dark": "ダーク",
+		"sync": "同期",
 		"syncOnCellular": "モバイル回線でも同期",
 		"conflictBackup": "競合バックアップを保存",
 		"about": "このアプリについて"
@@ -61,7 +72,7 @@
 			"pushLocalChanges": "ローカル変更をアップロード中",
 			"pullCloudChanges": "クラウド変更をダウンロード中",
 			"conflictDetected": "競合を検出、自動解決中",
-			"uploadNote": "ノート {{noteId}} をアップロード中",
+			"uploadNote": "ノート {{noteId}} をアップロード中（{{current}}/{{total}}）",
 			"deleteNote": "ノート {{noteId}} を削除中",
 			"downloadNote": "ノート {{noteId}} をダウンロード中"
 		},

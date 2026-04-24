@@ -161,4 +161,48 @@ describe('SyncStateManager', () => {
 		expect(s.snapshot().deletedFolderIds).toEqual({ f1: true });
 		expect(s.isDirty()).toBe(true);
 	});
+
+	// ---- updateSyncedNoteHash (resume optimization) ----
+
+	it('updateSyncedNoteHash は個別の hash を書き込む', async () => {
+		const s = await freshState();
+		await s.markNoteDirty('n1');
+		await s.updateSyncedNoteHash('n1', 'hash-of-n1');
+		expect(s.lastSyncedHash('n1')).toBe('hash-of-n1');
+	});
+
+	it('updateSyncedNoteHash は永続化される (再起動で復元)', async () => {
+		const a = await freshState();
+		await a.updateSyncedNoteHash('n1', 'hash-of-n1');
+		await a.updateSyncedNoteHash('n2', 'hash-of-n2');
+
+		const b = new SyncStateManager();
+		await b.load();
+		expect(b.lastSyncedHash('n1')).toBe('hash-of-n1');
+		expect(b.lastSyncedHash('n2')).toBe('hash-of-n2');
+	});
+
+	it('updateSyncedNoteHash は revision を増やさない (進行中の clearDirtyIfUnchanged を壊さない)', async () => {
+		const s = await freshState();
+		await s.markNoteDirty('n1');
+		const before = (await s.getDirtySnapshotWithRevision()).revision;
+		await s.updateSyncedNoteHash('n1', 'h1');
+		await s.updateSyncedNoteHash('n2', 'h2');
+		const after = (await s.getDirtySnapshotWithRevision()).revision;
+		expect(after).toBe(before);
+
+		// その revision で clearDirtyIfUnchanged が成功する
+		const cleared = await s.clearDirtyIfUnchanged(before, 'ts', { n1: 'h1' });
+		expect(cleared).toBe(true);
+	});
+
+	it('updateSyncedNoteHash は dirty/deleted フラグに影響しない', async () => {
+		const s = await freshState();
+		await s.markNoteDirty('n1');
+		await s.markNoteDeleted('n2');
+		await s.updateSyncedNoteHash('n1', 'h1');
+		expect(s.isDirty()).toBe(true);
+		expect(s.snapshot().dirtyNoteIds).toEqual({ n1: true });
+		expect(s.snapshot().deletedNoteIds).toEqual({ n2: true });
+	});
 });

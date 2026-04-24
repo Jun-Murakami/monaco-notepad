@@ -642,6 +642,16 @@ func (a *App) LogoutDrive() error {
 	return a.driveService.LogoutDrive()
 }
 
+// Google Drive 上の全データを削除してログアウトする ------------------------------------------------------------
+// 設定ダイアログの「Googleドライブのデータを削除」から呼ばれる危険な操作。
+// フロントエンド側で確認ダイアログ必須。
+func (a *App) DeleteAllDriveData() error {
+	if a.driveService == nil {
+		return fmt.Errorf("drive service is not initialized")
+	}
+	return a.driveService.DeleteAllDriveData()
+}
+
 // 手動でただちに同期を開始 ------------------------------------------------------------
 func (a *App) SyncNow() error {
 	if a.driveService != nil && a.driveService.IsConnected() {

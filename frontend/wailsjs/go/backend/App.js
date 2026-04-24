@@ -42,6 +42,10 @@ export function CreateFolder(arg1) {
   return window['go']['backend']['App']['CreateFolder'](arg1);
 }
 
+export function DeleteAllDriveData() {
+  return window['go']['backend']['App']['DeleteAllDriveData']();
+}
+
 export function DeleteArchivedFolder(arg1) {
   return window['go']['backend']['App']['DeleteArchivedFolder'](arg1);
 }

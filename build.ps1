@@ -4,6 +4,13 @@ $version = $wailsConfig.info.productVersion
 
 Write-Host "Building Monaco Notepad v$version for Windows..."
 
+# wails.json のバージョンを frontend/mobile の package.json に同期
+node scripts/sync-version.mjs
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Failed to sync version to package.json files"
+    exit 1
+}
+
 # ライセンス情報を生成
 Write-Host "Generating license information..."
 Push-Location frontend

@@ -1,6 +1,7 @@
-import { Platform, StyleSheet } from 'react-native';
-import CodeHighlighter from 'react-native-code-highlighter';
+import { type ReactNode, useCallback } from 'react';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
+import SyntaxHighlighter from 'react-syntax-highlighter';
 import {
 	atomOneDark,
 	atomOneLight,
@@ -12,30 +13,106 @@ interface Props {
 }
 
 /**
- * 閲覧モード専用のシンタックスハイライト表示。
- * 編集モードでは TextInput にフォールバック（GitHub モバイルと同じ UX）。
+ * 閲覧モード専用のシンタックスハイライト。
+ *
+ * 左に行番号カラム、右に本文カラムの 2 カラム構成。本文が wrap した時は
+ * 行番号を先頭行のみ表示して、続きは本文カラムでインデントされたまま継続する
+ * （Monaco の gutter + wrap と同じ体験）。
+ *
+ * 段落間（行 View 区切り）と wrap 行間は完全一致させるのが難しいため、
+ * `lineHeight` を小さめにして全体をタイトにまとめる方針。
  */
 export function SyntaxHighlightView({ content, language }: Props) {
 	const theme = useTheme();
 	const hljsStyle = theme.dark ? atomOneDark : atomOneLight;
+	const dim = theme.colors.outline;
+	const fg = theme.colors.onSurface;
+
+	const renderer = useCallback(
+		// biome-ignore lint/suspicious/noExplicitAny: renderer の型は any
+		({ rows, stylesheet }: { rows: any[]; stylesheet: any }): ReactNode => {
+			const digits = String(rows.length).length;
+			return (
+				<View>
+					{rows.map((row, idx) => (
+						<View
+							// biome-ignore lint/suspicious/noArrayIndexKey: 行 index は安定
+							key={idx}
+							style={styles.line}
+						>
+							<Text
+								selectable={false}
+								style={[
+									styles.lineNumber,
+									{ color: dim, minWidth: digits * 8 + 12 },
+								]}
+							>
+								{idx + 1}
+							</Text>
+							<Text selectable={false} style={[styles.lineText, { color: fg }]}>
+								{renderTokens(row.children ?? [], stylesheet)}
+							</Text>
+						</View>
+					))}
+				</View>
+			);
+		},
+		[dim, fg],
+	);
+
 	return (
-		<CodeHighlighter
-			hljsStyle={hljsStyle}
+		<SyntaxHighlighter
 			language={normalizeLang(language)}
-			textStyle={styles.text}
-			scrollViewProps={{ contentContainerStyle: styles.container }}
+			style={hljsStyle}
+			// biome-ignore lint/suspicious/noExplicitAny: PreTag/CodeTag を View に差し替え
+			PreTag={View as any}
+			// biome-ignore lint/suspicious/noExplicitAny: 同上
+			CodeTag={View as any}
+			renderer={renderer}
 		>
 			{content || ' '}
-		</CodeHighlighter>
+		</SyntaxHighlighter>
 	);
 }
 
-const MONO =
-	Platform.select({
-		ios: 'Menlo',
-		android: 'monospace',
-		default: 'monospace',
-	}) ?? 'monospace';
+// biome-ignore lint/suspicious/noExplicitAny: AST ノード
+function renderTokens(nodes: any[], stylesheet: any): ReactNode[] {
+	return nodes.map((node, i) => {
+		if (node.type === 'text') {
+			// react-syntax-highlighter は各 row の末尾に '\n' を含めることがある。
+			// 各 row を個別の Text として描画する我々にとっては不要（行末の余計な空行が
+			// 描画され、行高さが倍になる）。除去する。
+			const value: string = node.value;
+			return value.replace(/\n+$/, '');
+		}
+		const classes: string[] = node.properties?.className ?? [];
+		const merged: Record<string, string | number> = {};
+		for (const cls of classes) {
+			const styleObj = stylesheet?.[cls];
+			if (styleObj) Object.assign(merged, styleObj);
+		}
+		const rnStyle = {
+			color: typeof merged.color === 'string' ? merged.color : undefined,
+			fontStyle:
+				merged.fontStyle === 'italic'
+					? ('italic' as const)
+					: ('normal' as const),
+			fontWeight:
+				merged.fontWeight === 'bold' || merged.fontWeight === '700'
+					? ('700' as const)
+					: undefined,
+		};
+		return (
+			<Text
+				// biome-ignore lint/suspicious/noArrayIndexKey: 位置 index は安定
+				key={i}
+				style={rnStyle}
+			>
+				{renderTokens(node.children ?? [], stylesheet)}
+			</Text>
+		);
+	});
+}
 
 function normalizeLang(lang: string): string {
 	const map: Record<string, string> = {
@@ -53,13 +130,37 @@ function normalizeLang(lang: string): string {
 	return map[lang] ?? lang;
 }
 
+const MONO =
+	Platform.select({
+		ios: 'Menlo',
+		android: 'monospace',
+		default: 'monospace',
+	}) ?? 'monospace';
+
+const FONT_SIZE = 13;
+// 多少の leading を入れて読みやすさを確保
+const LINE_HEIGHT = 20;
+
 const styles = StyleSheet.create({
-	container: {
-		padding: 16,
-		minWidth: '100%',
+	line: {
+		flexDirection: 'row',
+		alignItems: 'flex-start',
 	},
-	text: {
+	lineNumber: {
+		paddingRight: 8,
+		textAlign: 'right',
 		fontFamily: MONO,
-		fontSize: 14,
+		fontSize: FONT_SIZE - 1,
+		lineHeight: LINE_HEIGHT,
+		includeFontPadding: false,
+		textAlignVertical: 'top',
+	},
+	lineText: {
+		flex: 1,
+		fontFamily: MONO,
+		fontSize: FONT_SIZE,
+		lineHeight: LINE_HEIGHT,
+		includeFontPadding: false,
+		textAlignVertical: 'top',
 	},
 });

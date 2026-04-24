@@ -11,15 +11,18 @@ import { APP_DATA_DIR, SETTINGS_PATH } from '../storage/paths';
  */
 
 export type LanguagePref = 'auto' | 'ja' | 'en';
+export type ThemePref = 'auto' | 'light' | 'dark';
 
 export interface AppSettings {
 	language: LanguagePref;
+	theme: ThemePref;
 	syncOnCellular: boolean;
 	conflictBackup: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
 	language: 'auto',
+	theme: 'auto',
 	syncOnCellular: true,
 	conflictBackup: true,
 };

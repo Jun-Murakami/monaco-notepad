@@ -1130,6 +1130,7 @@ function App() {
             setIsSettingsOpen(false);
             setIsAboutOpen(true);
           }}
+          showMessage={showMessage}
         />
       </Suspense>
       <Suspense fallback={null}>

@@ -12,6 +12,16 @@ import type { Settings } from '../../types';
 vi.mock('../../../wailsjs/runtime', () => ({
   WindowSetDarkTheme: vi.fn(),
   WindowSetLightTheme: vi.fn(),
+  EventsOn: vi.fn(),
+  EventsOff: vi.fn(),
+}));
+
+// Wails backend バインディングのモック
+vi.mock('../../../wailsjs/go/backend/App', () => ({
+  CheckDriveConnection: vi.fn().mockResolvedValue(false),
+  DeleteAllDriveData: vi.fn().mockResolvedValue(undefined),
+  OpenAppFolder: vi.fn(),
+  OpenConflictBackupFolder: vi.fn(),
 }));
 
 describe('SettingsDialog', () => {
@@ -39,6 +49,7 @@ describe('SettingsDialog', () => {
     onClose: vi.fn(),
     onChange: vi.fn(),
     onOpenAbout: vi.fn(),
+    showMessage: vi.fn().mockResolvedValue(false),
   };
 
   beforeEach(() => {

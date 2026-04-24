@@ -24,6 +24,8 @@ export function Console(arg1:string,arg2:Array<any>):Promise<void>;
 
 export function CreateFolder(arg1:string):Promise<backend.Folder>;
 
+export function DeleteAllDriveData():Promise<void>;
+
 export function DeleteArchivedFolder(arg1:string):Promise<void>;
 
 export function DeleteFolder(arg1:string):Promise<void>;

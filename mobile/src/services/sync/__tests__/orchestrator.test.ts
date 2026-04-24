@@ -457,3 +457,360 @@ describe('SyncOrchestrator: idempotency', () => {
 		expect(cloud.calls.updateNoteList).toBe(callsAfterFirst.updateNoteList);
 	});
 });
+
+// ----------------------------------------------------------------------------
+// 「noteList だけクラウドに反映されてノート本体が上がらない」回避のテスト群。
+//
+// デスクトップ版では onConnected → ensureNoteList が local メタデータで Drive の
+// noteList を先に作ってしまい、個別ノート本体が Drive に無い "ゾンビ状態" になるバグが
+// あった。モバイル版は ensureDriveLayout が空の noteList を作り、その後の syncNotes で
+// resolveConflict 経路を通って個別ノートを上げる設計なのでこの構造的な不具合は起きない。
+// ここでは退行防止として:
+//   (1) ノート本体が Drive に上がってから noteList が更新される順序
+//   (2) 全件アップロードされる
+//   (3) UploadNote メッセージに current/total が付いている
+//   (4) 途中で失敗した場合 dirty が残って再試行できる
+// を明示的に検証する。
+// ----------------------------------------------------------------------------
+
+describe('SyncOrchestrator: offline-first bulk upload', () => {
+	it('cloud 空 + local dirty 複数 → 全ノート本体が上がってから noteList が更新される', async () => {
+		const items = [
+			makeNote({ id: 'a', content: 'offline a' }),
+			makeNote({ id: 'b', content: 'offline b' }),
+			makeNote({ id: 'c', content: 'offline c' }),
+		];
+		for (const n of items) {
+			await notes.saveNote(n);
+			await state.markNoteDirty(n.id);
+		}
+
+		// updateNoteList が呼ばれた瞬間に cloud.notes に何が入っているかを記録する。
+		// 順序として「ノート本体が全部入ってから noteList が更新される」ことを検証する。
+		const origUpdateList = cloud.updateNoteList.bind(cloud);
+		let cloudNotesAtUpdateList: string[] = [];
+		cloud.updateNoteList = async (list) => {
+			cloudNotesAtUpdateList = Array.from(cloud.notes.keys()).sort();
+			return origUpdateList(list);
+		};
+
+		await orch.syncNotes();
+
+		// (2) 全件アップロード
+		expect(cloud.notes.has('a')).toBe(true);
+		expect(cloud.notes.has('b')).toBe(true);
+		expect(cloud.notes.has('c')).toBe(true);
+		expect(cloud.calls.create).toBe(3);
+
+		// (1) updateNoteList 呼び出し時点で既に全ノート本体が cloud にあった
+		expect(cloudNotesAtUpdateList).toEqual(['a', 'b', 'c']);
+
+		// cloudList に全件メタデータが入っている
+		const uploadedIds = cloud.noteList.notes.map((n) => n.id).sort();
+		expect(uploadedIds).toEqual(['a', 'b', 'c']);
+
+		// 同期完了
+		expect(state.isDirty()).toBe(false);
+	});
+
+	it('cloud 空 + local dirty 1 件 → pushLocalChanges 経路（cloudTs==="" の no-op 判定を潜る）でも全体フロー', async () => {
+		// lastSyncedDriveTs = "" のまま、かつ cloudMeta.modifiedTime が初期値と異なる状態
+		const a = makeNote({ id: 'a', content: 'solo' });
+		await notes.saveNote(a);
+		await state.markNoteDirty('a');
+
+		await orch.syncNotes();
+
+		expect(cloud.notes.get('a')?.content).toBe('solo');
+		expect(cloud.noteList.notes.map((n) => n.id)).toEqual(['a']);
+		expect(state.isDirty()).toBe(false);
+	});
+
+	it('upload メッセージに current/total (1/N, 2/N, ...) が付く', async () => {
+		const events: Array<{ noteId: string; current?: number; total?: number }> =
+			[];
+		const { syncEvents } = await import('../events');
+		const unsub = syncEvents.on('sync:message', (msg) => {
+			if (msg.code === 'drive.sync.uploadNote') {
+				const args = msg.args ?? {};
+				events.push({
+					noteId: String(args.noteId),
+					current: args.current as number | undefined,
+					total: args.total as number | undefined,
+				});
+			}
+		});
+
+		try {
+			for (const id of ['a', 'b', 'c']) {
+				await notes.saveNote(makeNote({ id, content: id }));
+				await state.markNoteDirty(id);
+			}
+			await orch.syncNotes();
+		} finally {
+			unsub();
+		}
+
+		expect(events.length).toBe(3);
+		// current は 1..N、total は一定
+		const currents = events.map((e) => e.current).sort();
+		expect(currents).toEqual([1, 2, 3]);
+		expect(events.every((e) => e.total === 3)).toBe(true);
+	});
+
+	it('途中で createNote が失敗したら dirty を維持して次回再試行できる', async () => {
+		const items = [
+			makeNote({ id: 'a', content: 'a' }),
+			makeNote({ id: 'b', content: 'b' }),
+		];
+		for (const n of items) {
+			await notes.saveNote(n);
+			await state.markNoteDirty(n.id);
+		}
+
+		// b の create だけ 1 回目は失敗させる（オフラインや断続的な接続を模擬）
+		const origCreate = cloud.createNote.bind(cloud);
+		let failed = false;
+		cloud.createNote = async (note) => {
+			if (!failed && note.id === 'b') {
+				failed = true;
+				throw new Error('simulated network failure');
+			}
+			return origCreate(note);
+		};
+
+		await expect(orch.syncNotes()).rejects.toThrow('simulated network failure');
+
+		// 1 回目: a は上がったが b は失敗、 dirty は維持
+		expect(cloud.notes.has('a')).toBe(true);
+		expect(cloud.notes.has('b')).toBe(false);
+		expect(state.isDirty()).toBe(true);
+		expect(state.snapshot().dirtyNoteIds).toHaveProperty('b');
+
+		// 2 回目: 成功する
+		await orch.syncNotes();
+		expect(cloud.notes.has('b')).toBe(true);
+		expect(state.isDirty()).toBe(false);
+	});
+});
+
+// ----------------------------------------------------------------------------
+// Resume 最適化: 大量アップロード途中で終了 → 再起動後に「既に上がったノート」を
+// 個別にスキップして残りだけアップロードする挙動の検証。
+//
+// ユーザーがクラッシュと再起動の間に該当ノートを編集していた場合は hash が変わるので
+// スキップされずに正しく再 upload される事も確認する。
+// ----------------------------------------------------------------------------
+
+describe('SyncOrchestrator: resume skip (partial upload recovery)', () => {
+	it('前回 session で上げ終えたノートは Drive を叩かずにスキップされる (pushLocalChanges 経路)', async () => {
+		// セットアップ: a と b をローカル作成、 a は前回既に Drive に上げ終わったと仮定する
+		const a = makeNote({ id: 'a', content: 'a-content' });
+		const b = makeNote({ id: 'b', content: 'b-content' });
+		await notes.saveNote(a);
+		await notes.saveNote(b);
+		await state.markNoteDirty('a');
+		await state.markNoteDirty('b');
+
+		// 前回の Drive 状態 + 個別永続化 hash を再現
+		const aHash = await computeContentHash(a);
+		cloud.setCloudNote(a);
+		await state.updateSyncedNoteHash('a', aHash);
+		// noteList もデスクトップ版の resume を模擬して cloudTs=lastSyncedTs (cloud unchanged) にする
+		await cloud.rebuildNoteListFromCloud(iso());
+		await state.updateSyncedState(cloud.noteListModifiedTime, {});
+
+		// a は再アップしない、b だけ create される
+		const createsBefore = cloud.calls.create;
+		const updatesBefore = cloud.calls.update;
+
+		await orch.syncNotes();
+
+		expect(cloud.calls.create - createsBefore).toBe(1); // b だけ
+		expect(cloud.calls.update - updatesBefore).toBe(0); // a は Drive を叩かない
+		expect(cloud.notes.has('a')).toBe(true);
+		expect(cloud.notes.has('b')).toBe(true);
+		expect(state.isDirty()).toBe(false);
+	});
+
+	it('resume 時にユーザーが編集していた場合 (hash 変更) は skip されずに再 upload', async () => {
+		const a = makeNote({ id: 'a', content: 'v1' });
+		await notes.saveNote(a);
+		await state.markNoteDirty('a');
+
+		// 「前回 v1 を上げ終えた」状態を作る
+		const v1Hash = await computeContentHash(a);
+		cloud.setCloudNote(a);
+		await state.updateSyncedNoteHash('a', v1Hash);
+		await cloud.rebuildNoteListFromCloud(iso());
+		await state.updateSyncedState(cloud.noteListModifiedTime, {});
+
+		// ユーザーがダウンタイム中に編集
+		const v2 = makeNote({ id: 'a', content: 'v2 edited during downtime' });
+		await notes.saveNote(v2);
+		await state.markNoteDirty('a');
+
+		await orch.syncNotes();
+
+		// hash が変わっているので updateNote (既存のため) が呼ばれる
+		expect(cloud.notes.get('a')?.content).toBe('v2 edited during downtime');
+	});
+
+	it('resolveConflict 経路 (offline-first) でも resume skip が効く', async () => {
+		const a = makeNote({ id: 'a', content: 'a-content' });
+		const b = makeNote({ id: 'b', content: 'b-content' });
+		await notes.saveNote(a);
+		await notes.saveNote(b);
+		await state.markNoteDirty('a');
+		await state.markNoteDirty('b');
+
+		// a は既に Drive に上がったが noteList にはまだ登録されていない状態
+		// (cloud.notes に a を入れるが rebuildNoteListFromCloud に含めない)
+		cloud.notes.set('a', { ...a });
+		cloud.noteModifiedTimes.set('a', a.modifiedTime);
+		await state.updateSyncedNoteHash('a', await computeContentHash(a));
+		// cloud noteList は空 (ensureDriveLayout が作った直後相当) → cloudChanged=true & localDirty=true → resolveConflict
+		cloud.noteList = {
+			version: 'v2',
+			notes: [],
+			folders: [],
+			topLevelOrder: [],
+			archivedTopLevelOrder: [],
+			collapsedFolderIds: [],
+		};
+		cloud.noteListModifiedTime = iso(1000);
+
+		const createsBefore = cloud.calls.create;
+		await orch.syncNotes();
+
+		// a は既に Drive にあるので createNote が呼ばれず、b だけ create される
+		expect(cloud.calls.create - createsBefore).toBe(1);
+		expect(cloud.notes.has('a')).toBe(true);
+		expect(cloud.notes.has('b')).toBe(true);
+		// 最終的に noteList にも両方反映される
+		const uploadedIds = cloud.noteList.notes.map((n) => n.id).sort();
+		expect(uploadedIds).toEqual(['a', 'b']);
+	});
+
+	it('resume 後の進捗表示は残件数に rebase して 1..M の連番 (ジャンプなし)', async () => {
+		const { syncEvents } = await import('../events');
+		const events: Array<{ noteId: string; current: number; total: number }> =
+			[];
+		const unsub = syncEvents.on('sync:message', (msg) => {
+			if (msg.code === 'drive.sync.uploadNote') {
+				const args = msg.args ?? {};
+				events.push({
+					noteId: String(args.noteId),
+					current: args.current as number,
+					total: args.total as number,
+				});
+			}
+		});
+
+		try {
+			// 5 件 dirty、うち 3 件を「前回上げ終えた」状態にする
+			const all = ['a', 'b', 'c', 'd', 'e'].map((id) =>
+				makeNote({ id, content: `content-${id}` }),
+			);
+			for (const n of all) {
+				await notes.saveNote(n);
+				await state.markNoteDirty(n.id);
+			}
+			for (const id of ['a', 'c', 'e']) {
+				const n = all.find((x) => x.id === id)!;
+				cloud.setCloudNote(n);
+				await state.updateSyncedNoteHash(id, await computeContentHash(n));
+			}
+			await cloud.rebuildNoteListFromCloud(iso());
+			await state.updateSyncedState(cloud.noteListModifiedTime, {});
+
+			await orch.syncNotes();
+		} finally {
+			unsub();
+		}
+
+		// 残り 2 件だけが emit されるはず (b, d)
+		expect(events.length).toBe(2);
+		// total は全メッセージで 2 (rebase 済み、元の 5 ではない)
+		expect(events.every((e) => e.total === 2)).toBe(true);
+		// current は 1, 2 の連番 (順序依存なし)
+		const currents = events.map((e) => e.current).sort();
+		expect(currents).toEqual([1, 2]);
+		// 対象は b, d のいずれか
+		const uploadedIds = events.map((e) => e.noteId).sort();
+		expect(uploadedIds).toEqual(['b', 'd']);
+	});
+
+	it('resume なし (初回フル upload) でも total=dirty 件数、current=1..N', async () => {
+		const { syncEvents } = await import('../events');
+		const events: Array<{ current: number; total: number }> = [];
+		const unsub = syncEvents.on('sync:message', (msg) => {
+			if (msg.code === 'drive.sync.uploadNote') {
+				const args = msg.args ?? {};
+				events.push({
+					current: args.current as number,
+					total: args.total as number,
+				});
+			}
+		});
+
+		try {
+			for (const id of ['x', 'y', 'z']) {
+				await notes.saveNote(makeNote({ id, content: id }));
+				await state.markNoteDirty(id);
+			}
+			await orch.syncNotes();
+		} finally {
+			unsub();
+		}
+
+		expect(events.length).toBe(3);
+		expect(events.every((e) => e.total === 3)).toBe(true);
+		expect(events.map((e) => e.current).sort()).toEqual([1, 2, 3]);
+	});
+
+	it('resume 途中で別ノートの upload が失敗しても、既済み分の hash は消えない', async () => {
+		// a, b, c あり。 a は既に上げ済み永続化済。b の createNote は 1 回目失敗させる。
+		const a = makeNote({ id: 'a', content: 'a' });
+		const b = makeNote({ id: 'b', content: 'b' });
+		const c = makeNote({ id: 'c', content: 'c' });
+		await notes.saveNote(a);
+		await notes.saveNote(b);
+		await notes.saveNote(c);
+		await state.markNoteDirty('a');
+		await state.markNoteDirty('b');
+		await state.markNoteDirty('c');
+
+		const aHash = await computeContentHash(a);
+		cloud.setCloudNote(a);
+		await state.updateSyncedNoteHash('a', aHash);
+		await cloud.rebuildNoteListFromCloud(iso());
+		await state.updateSyncedState(cloud.noteListModifiedTime, {});
+
+		const origCreate = cloud.createNote.bind(cloud);
+		let failed = false;
+		cloud.createNote = async (note) => {
+			if (!failed && note.id === 'b') {
+				failed = true;
+				throw new Error('flaky');
+			}
+			return origCreate(note);
+		};
+
+		await expect(orch.syncNotes()).rejects.toThrow('flaky');
+
+		// a の hash は維持されている (次回再試行で再スキップされる)
+		expect(state.lastSyncedHash('a')).toBe(aHash);
+
+		// 2 回目: 残り (b, c) だけ upload される
+		const createsBefore = cloud.calls.create;
+		await orch.syncNotes();
+
+		// b, c の create だけ実行されるはず
+		expect(cloud.calls.create - createsBefore).toBeGreaterThanOrEqual(1);
+		expect(cloud.notes.has('a')).toBe(true);
+		expect(cloud.notes.has('b')).toBe(true);
+		expect(cloud.notes.has('c')).toBe(true);
+		expect(state.isDirty()).toBe(false);
+	});
+});

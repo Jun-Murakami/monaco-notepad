@@ -91,6 +91,10 @@ func (m *mockDriveService) CancelLoginDrive() error {
 	return nil
 }
 
+func (m *mockDriveService) DeleteAllDriveData() error {
+	return nil
+}
+
 func (m *mockDriveService) CreateNote(note *Note) error {
 	if !m.isTestMode {
 		return nil

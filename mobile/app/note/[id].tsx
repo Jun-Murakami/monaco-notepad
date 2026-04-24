@@ -1,16 +1,32 @@
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { GestureResponderEvent } from 'react-native';
 import {
+	Keyboard,
 	Platform,
+	Pressable,
 	ScrollView,
 	StyleSheet,
 	TextInput,
 	View,
 } from 'react-native';
-import { Appbar, Menu, SegmentedButtons, useTheme } from 'react-native-paper';
+import {
+	Appbar,
+	Button,
+	Icon,
+	TextInput as PaperTextInput,
+	Portal,
+	SegmentedButtons,
+	Snackbar,
+	Text,
+	useTheme,
+} from 'react-native-paper';
+import { LanguagePicker } from '@/components/LanguagePicker';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { SyntaxHighlightView } from '@/components/SyntaxHighlightView';
+import { MONACO_LANGUAGE_IDS } from '@/constants/monacoLanguages';
 import { generateContentHeader } from '@/services/notes/noteService';
 import { driveService } from '@/services/sync/driveService';
 import type { Note } from '@/services/sync/types';
@@ -18,20 +34,14 @@ import { useNotesStore } from '@/stores/notesStore';
 
 type Mode = 'view' | 'edit';
 
-const LANGUAGES = [
-	'plaintext',
-	'markdown',
-	'typescript',
-	'javascript',
-	'python',
-	'go',
-	'rust',
-	'bash',
-	'json',
-	'yaml',
-	'html',
-	'css',
-];
+/**
+ * モバイルで選択可能な言語リスト。デスクトップ版 Monaco と同じ ID 体系。
+ * `MONACO_LANGUAGE_IDS` は basic-languages に基づく。
+ *
+ * 現在のノートの language がこのリストに無い場合（将来 Monaco に新言語が追加されて
+ * リスト更新前に作られたノート等）でも、`menuLanguages` で先頭に差し込んで保持する。
+ */
+const LANGUAGES = MONACO_LANGUAGE_IDS;
 
 export default function NoteEditorScreen() {
 	const { t } = useTranslation();
@@ -40,16 +50,55 @@ export default function NoteEditorScreen() {
 	const { id } = useLocalSearchParams<{ id: string }>();
 
 	const [note, setNote] = useState<Note | null>(null);
+	// 初回ロードが終わったかどうかのフラグ（読み込み中 vs 見つからない の区別用）
+	const [loadAttempted, setLoadAttempted] = useState(false);
 	const [mode, setMode] = useState<Mode>('view');
 	const [langMenuOpen, setLangMenuOpen] = useState(false);
+	const [keyboardVisible, setKeyboardVisible] = useState(false);
+	const [snackbarVisible, setSnackbarVisible] = useState(false);
+	// 長押し時に表示する「コピーする」確認メニュー（誤操作防止の 1 step）
+	const [copyMenuAnchor, setCopyMenuAnchor] = useState<{
+		x: number;
+		y: number;
+	} | null>(null);
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const latestNoteRef = useRef<Note | null>(null);
+
+	// キーボード表示中は下部フロートの mode toggle を消す（編集中は確定するまで隠す）。
+	useEffect(() => {
+		const showEv =
+			Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+		const hideEv =
+			Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+		const showSub = Keyboard.addListener(showEv, () =>
+			setKeyboardVisible(true),
+		);
+		const hideSub = Keyboard.addListener(hideEv, () =>
+			setKeyboardVisible(false),
+		);
+		return () => {
+			showSub.remove();
+			hideSub.remove();
+		};
+	}, []);
+
+	// 現在のノートの言語がリストに無ければ先頭に差し込む（デスクトップ由来の Monaco 専用言語を
+	// 失わないようにするため。触らない限り language は変わらない）。
+	const menuLanguages = useMemo<readonly string[]>(() => {
+		const current = note?.language?.trim();
+		if (!current) return LANGUAGES;
+		// `LANGUAGES` は literal 型 readonly 配列なので、任意 string で includes するには
+		// 一度 string 配列として扱う。
+		if ((LANGUAGES as readonly string[]).includes(current)) return LANGUAGES;
+		return [current, ...LANGUAGES];
+	}, [note?.language]);
 
 	const reload = useCallback(async () => {
 		if (!id) return;
 		const loaded = await useNotesStore.getState().getNote(id);
 		setNote(loaded);
 		latestNoteRef.current = loaded;
+		setLoadAttempted(true);
 		if (loaded && loaded.content.length === 0 && loaded.title.length === 0) {
 			setMode('edit');
 		}
@@ -80,11 +129,21 @@ export default function NoteEditorScreen() {
 
 	if (!note) {
 		return (
-			<View style={styles.container}>
+			<View
+				style={[styles.container, { backgroundColor: theme.colors.background }]}
+			>
 				<Appbar.Header>
 					<Appbar.BackAction onPress={() => router.back()} />
 					<Appbar.Content title="" />
 				</Appbar.Header>
+				<View style={styles.loadingOrErrorBox}>
+					<Text
+						variant="bodyMedium"
+						style={{ color: theme.colors.onSurfaceVariant }}
+					>
+						{loadAttempted ? t('editor.noteNotFound') : t('editor.loadingNote')}
+					</Text>
+				</View>
 			</View>
 		);
 	}
@@ -103,37 +162,62 @@ export default function NoteEditorScreen() {
 		scheduleSave(next);
 	};
 
+	const handleCopyAll = async () => {
+		if (!note) return;
+		await Clipboard.setStringAsync(note.content ?? '');
+		setSnackbarVisible(true);
+	};
+
+	// 長押し時: 直接 copy せず、まず「コピーする」メニューを表示（誤操作防止）。
+	const handleLongPress = (e: GestureResponderEvent) => {
+		setCopyMenuAnchor({
+			x: e.nativeEvent.pageX,
+			y: e.nativeEvent.pageY,
+		});
+	};
+
+	const handleConfirmCopyFromMenu = async () => {
+		setCopyMenuAnchor(null);
+		await handleCopyAll();
+	};
+
 	return (
-		<View style={styles.container}>
+		<View
+			style={[styles.container, { backgroundColor: theme.colors.background }]}
+		>
 			<Appbar.Header>
 				<Appbar.BackAction onPress={() => router.back()} />
-				<Appbar.Content title={note.title || t('editor.titlePlaceholder')} />
-				<Menu
-					visible={langMenuOpen}
-					onDismiss={() => setLangMenuOpen(false)}
-					anchor={
-						<Appbar.Action
-							icon="code-tags"
-							onPress={() => setLangMenuOpen(true)}
-						/>
-					}
+				{/* タイトルは下のボディに表示するので AppBar 側は空の Content で
+				    スペーサとして使い、右側にアクション類を寄せる。 */}
+				<Appbar.Content title="" />
+				<Pressable
+					onPress={() => setLangMenuOpen(true)}
+					android_ripple={{ color: theme.colors.surfaceVariant }}
+					style={[
+						styles.langButton,
+						{ backgroundColor: theme.colors.surfaceVariant },
+					]}
 				>
-					{LANGUAGES.map((lang) => (
-						<Menu.Item
-							key={lang}
-							title={lang}
-							onPress={() => {
-								setLangMenuOpen(false);
-								scheduleSave({
-									...note,
-									language: lang,
-									modifiedTime: new Date().toISOString(),
-								});
-							}}
-							trailingIcon={note.language === lang ? 'check' : undefined}
-						/>
-					))}
-				</Menu>
+					<Icon
+						source="code-tags"
+						size={16}
+						color={theme.colors.onSurfaceVariant}
+					/>
+					<Text
+						variant="labelMedium"
+						style={[styles.langLabel, { color: theme.colors.onSurfaceVariant }]}
+					>
+						{note.language}
+					</Text>
+					<Icon
+						source="menu-down"
+						size={18}
+						color={theme.colors.onSurfaceVariant}
+					/>
+				</Pressable>
+				{mode === 'view' && (
+					<Appbar.Action icon="content-copy" onPress={handleCopyAll} />
+				)}
 				<Appbar.Action
 					icon={note.archived ? 'archive-off' : 'archive'}
 					onPress={handleArchive}
@@ -141,20 +225,10 @@ export default function NoteEditorScreen() {
 				<Appbar.Action icon="trash-can" onPress={handleDelete} />
 			</Appbar.Header>
 			<SyncStatusBar />
-			<View style={styles.modeBar}>
-				<SegmentedButtons
-					value={mode}
-					onValueChange={(v) => setMode(v as Mode)}
-					buttons={[
-						{ value: 'view', label: t('editor.view'), icon: 'eye' },
-						{ value: 'edit', label: t('editor.edit'), icon: 'pencil' },
-					]}
-				/>
-			</View>
-			<TextInput
-				style={[styles.titleInput, { color: theme.colors.onBackground }]}
+			<PaperTextInput
+				mode="outlined"
+				label={t('editor.titleLabel')}
 				placeholder={t('editor.titlePlaceholder')}
-				placeholderTextColor={theme.colors.onSurfaceVariant}
 				value={note.title}
 				onChangeText={(title) =>
 					scheduleSave({
@@ -163,13 +237,27 @@ export default function NoteEditorScreen() {
 						modifiedTime: new Date().toISOString(),
 					})
 				}
+				style={styles.titleInput}
+				dense
+				// label / アウトラインは theme.colors.onSurfaceVariant を使うが、
+				// contrast を上げた本テーマだと濃すぎる。ここだけ outline（やや淡い色）に寄せる。
+				theme={{
+					colors: {
+						onSurfaceVariant: theme.colors.outline,
+					},
+				}}
 			/>
 			{mode === 'view' ? (
-				<ScrollView style={styles.viewer}>
-					<SyntaxHighlightView
-						content={note.content}
-						language={note.language}
-					/>
+				<ScrollView
+					style={styles.viewer}
+					contentContainerStyle={styles.viewerContent}
+				>
+					<Pressable onLongPress={handleLongPress} delayLongPress={350}>
+						<SyntaxHighlightView
+							content={note.content}
+							language={note.language}
+						/>
+					</Pressable>
 				</ScrollView>
 			) : (
 				<TextInput
@@ -188,6 +276,85 @@ export default function NoteEditorScreen() {
 					}
 				/>
 			)}
+			<LanguagePicker
+				visible={langMenuOpen}
+				current={note.language}
+				languages={menuLanguages}
+				onSelect={(lang) => {
+					setLangMenuOpen(false);
+					scheduleSave({
+						...note,
+						language: lang,
+						modifiedTime: new Date().toISOString(),
+					});
+				}}
+				onDismiss={() => setLangMenuOpen(false)}
+			/>
+			{!keyboardVisible && (
+				<View
+					style={[
+						styles.floatingModeBar,
+						{
+							backgroundColor: theme.colors.background,
+							shadowColor: '#000',
+						},
+					]}
+					pointerEvents="box-none"
+				>
+					<SegmentedButtons
+						value={mode}
+						onValueChange={(v) => {
+							// 編集中 TextInput がフォーカス状態のまま unmount されると
+							// Android が次の TextInput（= タイトル）にフォーカスを移してしまう。
+							// 明示的に keyboard を dismiss してフォーカスを外す。
+							Keyboard.dismiss();
+							setMode(v as Mode);
+						}}
+						buttons={[
+							{ value: 'view', label: t('editor.view'), icon: 'eye' },
+							{ value: 'edit', label: t('editor.edit'), icon: 'pencil' },
+						]}
+					/>
+				</View>
+			)}
+			{copyMenuAnchor !== null && (
+				<Portal>
+					{/* 外側タップでキャンセル */}
+					<Pressable
+						style={styles.copyDismissLayer}
+						onPress={() => setCopyMenuAnchor(null)}
+					>
+						<View
+							style={[
+								styles.copyPromptButtonWrap,
+								{
+									left: Math.max(8, copyMenuAnchor.x - 40),
+									top: copyMenuAnchor.y + 8,
+								},
+							]}
+						>
+							<Button
+								mode="contained-tonal"
+								icon="content-copy"
+								onPress={handleConfirmCopyFromMenu}
+							>
+								{t('editor.copy')}
+							</Button>
+						</View>
+					</Pressable>
+				</Portal>
+			)}
+			<Snackbar
+				visible={snackbarVisible}
+				onDismiss={() => setSnackbarVisible(false)}
+				duration={1500}
+				// 下部は Android の「クリップボードに保存しました」OS UI と被るため上部に出す。
+				// Paper Snackbar の wrapperStyle は absolute, bottom: 0 がデフォルトなので
+				// bottom を unset + top を指定する。
+				wrapperStyle={styles.snackbarWrapper}
+			>
+				{t('editor.copied')}
+			</Snackbar>
 		</View>
 	);
 }
@@ -198,23 +365,85 @@ const monoFamily = Platform.select({
 	default: 'monospace',
 });
 
+// フロートトグルの自身の高さ (SegmentedButtons ~40) + 上下 padding (8*2) + 下余白 (16)
+const FLOATING_BAR_CLEARANCE = 80;
+
 const styles = StyleSheet.create({
 	container: { flex: 1 },
-	modeBar: { padding: 8 },
 	titleInput: {
-		fontSize: 20,
-		fontWeight: '600',
-		paddingHorizontal: 16,
-		paddingVertical: 8,
+		marginHorizontal: 12,
+		marginTop: 8,
+		marginBottom: 4,
 	},
 	viewer: {
 		flex: 1,
 	},
+	viewerContent: {
+		// 行番号カラムの分だけ左は少なめの padding、右/上は通常
+		paddingTop: 4,
+		paddingRight: 16,
+		paddingLeft: 8,
+		// フロートトグルの下にコンテンツが隠れないよう下余白を確保
+		paddingBottom: FLOATING_BAR_CLEARANCE,
+	},
 	editor: {
 		flex: 1,
-		padding: 16,
+		paddingHorizontal: 16,
+		paddingTop: 4,
+		// Edit モードはキーボード表示でフロートが消えるが、
+		// 閉じている時でもフロートに入力が隠されないよう clearance を確保
+		paddingBottom: FLOATING_BAR_CLEARANCE,
 		textAlignVertical: 'top',
 		fontFamily: monoFamily,
 		fontSize: 14,
+	},
+	floatingModeBar: {
+		position: 'absolute',
+		left: 16,
+		right: 16,
+		bottom: 32,
+		borderRadius: 24,
+		elevation: 4,
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.2,
+		shadowRadius: 4,
+	},
+	langButton: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingHorizontal: 8,
+		paddingVertical: 4,
+		borderRadius: 14,
+		marginRight: 4,
+		gap: 4,
+	},
+	langLabel: {
+		marginHorizontal: 2,
+	},
+	snackbarWrapper: {
+		// Paper Snackbar のデフォルトは position: absolute, bottom: 0。
+		// bottom を unset して top を指定することで、AppBar + SyncStatusBar +
+		// タイトル入力欄より下（= 本文の直上付近）に表示する。
+		// 概算: StatusBar(24) + AppBar(56) + SyncStatusBar(32) + TitleInput(~56) ≒ 168
+		top: 180,
+		bottom: undefined,
+	},
+	loadingOrErrorBox: {
+		flex: 1,
+		alignItems: 'center',
+		justifyContent: 'center',
+		padding: 24,
+	},
+	// 長押し時の「コピーする」確認ボタン（誤操作防止の 1 step）
+	copyDismissLayer: {
+		// 全画面透明レイヤ：外側タップでキャンセルするためのキャッチャー
+		position: 'absolute',
+		top: 0,
+		left: 0,
+		right: 0,
+		bottom: 0,
+	},
+	copyPromptButtonWrap: {
+		position: 'absolute',
 	},
 });
