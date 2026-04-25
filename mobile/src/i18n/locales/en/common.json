@@ -18,7 +18,19 @@
 		"archive": "Archive",
 		"all": "All",
 		"folders": "Folders",
-		"noFolder": "Uncategorized"
+		"noFolder": "Uncategorized",
+		"newFolder": "New folder",
+		"newFolderPrompt": "Folder name",
+		"renameFolder": "Rename folder",
+		"deleteFolder": "Delete folder",
+		"deleteFolderConfirm": "Delete this folder? Notes inside will be moved to the top level.",
+		"moveToFolder": "Move to folder",
+		"moveToTopLevel": "Top level",
+		"actions": "Actions",
+		"archive_action": "Archive",
+		"cancel": "Cancel",
+		"ok": "OK",
+		"delete": "Delete"
 	},
 	"editor": {
 		"titleLabel": "Title",

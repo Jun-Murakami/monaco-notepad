@@ -1,11 +1,13 @@
+import type { GestureResponderEvent } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Text, useTheme } from 'react-native-paper';
+import { IconButton, Text, useTheme } from 'react-native-paper';
 import type { NoteMetadata } from '@/services/sync/types';
 
 interface Props {
 	metadata: NoteMetadata;
 	onPress: (id: string) => void;
+	onMorePress?: (e: GestureResponderEvent, id: string) => void;
 	indented?: boolean;
 }
 
@@ -29,39 +31,60 @@ function resolveTitle(
 	return { text: fallbackLabel, isFallback: true };
 }
 
-export function NoteListItem({ metadata, onPress, indented = false }: Props) {
+export function NoteListItem({
+	metadata,
+	onPress,
+	onMorePress,
+	indented = false,
+}: Props) {
 	const { t } = useTranslation();
 	const theme = useTheme();
 	const { text, isFallback } = resolveTitle(metadata, t('noteList.emptyNote'));
 
 	return (
-		<Pressable
-			onPress={() => onPress(metadata.id)}
-			android_ripple={{ color: theme.colors.surfaceVariant }}
-			style={({ pressed }) => [
-				styles.item,
-				indented && styles.indent,
-				pressed && { backgroundColor: theme.colors.surfaceVariant },
-			]}
-		>
-			<View style={styles.content}>
-				<Text
-					variant="bodyMedium"
-					numberOfLines={1}
-					style={[
-						{ color: theme.colors.onSurface },
-						isFallback && styles.fallback,
-					]}
-				>
-					{text}
-				</Text>
-			</View>
-		</Pressable>
+		<View style={styles.row}>
+			<Pressable
+				onPress={() => onPress(metadata.id)}
+				android_ripple={{ color: theme.colors.surfaceVariant }}
+				style={({ pressed }) => [
+					styles.item,
+					indented && styles.indent,
+					pressed && { backgroundColor: theme.colors.surfaceVariant },
+				]}
+			>
+				<View style={styles.content}>
+					<Text
+						variant="bodyMedium"
+						numberOfLines={1}
+						style={[
+							{ color: theme.colors.onSurface },
+							isFallback && styles.fallback,
+						]}
+					>
+						{text}
+					</Text>
+				</View>
+			</Pressable>
+			{onMorePress && (
+				<IconButton
+					icon="dots-vertical"
+					size={18}
+					onPress={(e) => onMorePress(e, metadata.id)}
+					style={styles.more}
+					accessibilityLabel={t('noteList.actions')}
+				/>
+			)}
+		</View>
 	);
 }
 
 const styles = StyleSheet.create({
+	row: {
+		flexDirection: 'row',
+		alignItems: 'center',
+	},
 	item: {
+		flex: 1,
 		paddingHorizontal: 16,
 		paddingVertical: 10,
 	},
@@ -71,6 +94,10 @@ const styles = StyleSheet.create({
 	content: {
 		flexDirection: 'row',
 		alignItems: 'center',
+	},
+	more: {
+		margin: 0,
+		marginRight: 4,
 	},
 	fallback: {
 		fontStyle: 'italic',

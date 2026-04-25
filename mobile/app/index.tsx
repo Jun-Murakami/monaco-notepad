@@ -1,54 +1,52 @@
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, StyleSheet, View } from 'react-native';
+import {
+	type GestureResponderEvent,
+	Platform,
+	Pressable,
+	StyleSheet,
+	View,
+} from 'react-native';
+import DraggableFlatList, {
+	type RenderItemParams,
+	ScaleDecorator,
+} from 'react-native-draggable-flatlist';
 import {
 	AnimatedFAB,
 	Appbar,
+	Button,
+	Dialog,
 	Divider,
+	Portal,
 	Text,
+	TextInput,
 	useTheme,
 } from 'react-native-paper';
 import { FolderListItem } from '@/components/FolderListItem';
+import {
+	FolderPickerSheet,
+	type FolderPickerHandle,
+} from '@/components/FolderPickerSheet';
 import { NoteListItem } from '@/components/NoteListItem';
+import {
+	FolderContextMenu,
+	NoteContextMenu,
+} from '@/components/RowContextMenu';
+import { SwipeableNoteRow } from '@/components/SwipeableNoteRow';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { noteService } from '@/services/notes/noteService';
+import { driveService } from '@/services/sync/driveService';
 import { syncStateManager } from '@/services/sync/syncState';
-import type { Folder, NoteMetadata } from '@/services/sync/types';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotesStore } from '@/stores/notesStore';
+import {
+	applyReorder,
+	type FlatRow,
+	flattenNoteList,
+	moveNoteToFolder,
+} from '@/utils/flatTree';
 import { uuidv4 } from '@/utils/uuid';
-
-/**
- * 一覧描画用のフラット row。
- * - `topLevel-note`: フォルダに属さない top-level ノート
- * - `folder-header`: フォルダの見出し
- * - `folder-child`: フォルダ配下のノート（インデント付き）
- *
- * `inGroupStart` / `inGroupEnd` は「カード風に囲む背景」の角丸位置を決めるための flag。
- */
-type Row =
-	| {
-			kind: 'topLevel-note';
-			key: string;
-			note: NoteMetadata;
-	  }
-	| {
-			kind: 'folder-header';
-			key: string;
-			folder: Folder;
-			noteCount: number;
-			collapsed: boolean;
-			inGroupStart: true;
-			inGroupEnd: boolean;
-	  }
-	| {
-			kind: 'folder-child';
-			key: string;
-			note: NoteMetadata;
-			inGroupStart: false;
-			inGroupEnd: boolean;
-	  };
 
 export default function NoteListScreen() {
 	const { t } = useTranslation();
@@ -57,80 +55,53 @@ export default function NoteListScreen() {
 	const noteList = useNotesStore((s) => s.noteList);
 	const signedIn = useAuthStore((s) => s.signedIn);
 
-	const rows = useMemo<Row[]>(() => {
-		const folderById = new Map(noteList.folders.map((f) => [f.id, f]));
-		const notesByFolderId = new Map<string, NoteMetadata[]>();
-		for (const n of noteList.notes) {
-			if (n.archived) continue;
-			if (!n.folderId) continue;
-			const arr = notesByFolderId.get(n.folderId) ?? [];
-			arr.push(n);
-			notesByFolderId.set(n.folderId, arr);
-		}
-		const notesById = new Map(noteList.notes.map((n) => [n.id, n]));
-		const collapsedSet = new Set(noteList.collapsedFolderIds);
+	const rows = useMemo<FlatRow[]>(() => flattenNoteList(noteList), [noteList]);
 
-		const out: Row[] = [];
-		for (const item of noteList.topLevelOrder) {
-			if (item.type === 'note') {
-				const note = notesById.get(item.id);
-				if (!note || note.archived) continue;
-				if (note.folderId) continue; // folder 配下にあるなら top ではなく folder 側で出す
-				out.push({
-					kind: 'topLevel-note',
-					key: `t:${note.id}`,
-					note,
-				});
-			} else if (item.type === 'folder') {
-				const folder = folderById.get(item.id);
-				if (!folder || folder.archived) continue;
-				const children = notesByFolderId.get(folder.id) ?? [];
-				const isCollapsed = collapsedSet.has(folder.id);
-				const headerIsEnd = isCollapsed || children.length === 0;
-				out.push({
-					kind: 'folder-header',
-					key: `f:${folder.id}`,
-					folder,
-					noteCount: children.length,
-					collapsed: isCollapsed,
-					inGroupStart: true,
-					inGroupEnd: headerIsEnd,
-				});
-				if (!isCollapsed) {
-					children.forEach((child, idx) => {
-						out.push({
-							kind: 'folder-child',
-							key: `c:${child.id}`,
-							note: child,
-							inGroupStart: false,
-							inGroupEnd: idx === children.length - 1,
-						});
-					});
-				}
-			}
-		}
+	// 長押しメニューの state
+	const [noteMenu, setNoteMenu] = useState<{
+		anchor: { x: number; y: number };
+		noteId: string;
+		folderId: string;
+	} | null>(null);
+	const [folderMenu, setFolderMenu] = useState<{
+		anchor: { x: number; y: number };
+		folderId: string;
+	} | null>(null);
 
-		// topLevelOrder に現れていない note をフォールバックで末尾に出す（データ破損への保険）
-		const seen = new Set(
-			out.flatMap((r) => (r.kind === 'folder-header' ? [] : [r.note.id])),
-		);
-		const renderedFolderIds = new Set(
-			out.flatMap((r) => (r.kind === 'folder-header' ? [r.folder.id] : [])),
-		);
-		for (const n of noteList.notes) {
-			if (n.archived) continue;
-			if (seen.has(n.id)) continue;
-			if (n.folderId && renderedFolderIds.has(n.folderId)) continue;
-			out.push({
-				kind: 'topLevel-note',
-				key: `t:${n.id}`,
-				note: n,
-			});
-		}
-		return out;
-	}, [noteList]);
+	// ダイアログ state
+	const [createFolderDialog, setCreateFolderDialog] = useState(false);
+	const [renameFolderDialog, setRenameFolderDialog] = useState<{
+		folderId: string;
+		name: string;
+	} | null>(null);
+	const [deleteFolderDialog, setDeleteFolderDialog] = useState<string | null>(
+		null,
+	);
+	const [folderNameInput, setFolderNameInput] = useState('');
 
-	const handleCreate = async () => {
+	const folderPickerRef = useRef<FolderPickerHandle>(null);
+
+	// ----- ハンドラ -----
+
+	const handleNoteOpen = useCallback(
+		(id: string) => router.push(`/note/${id}`),
+		[router],
+	);
+
+	const handleToggleFolder = useCallback(
+		async (folderId: string) => {
+			const currentlyCollapsed = new Set(noteList.collapsedFolderIds).has(
+				folderId,
+			);
+			await noteService.setFolderCollapsed(folderId, !currentlyCollapsed);
+			await syncStateManager.markDirty();
+			await useNotesStore.getState().reload();
+			driveService.kickSync();
+		},
+		[noteList.collapsedFolderIds],
+	);
+
+	const handleCreate = useCallback(async () => {
 		const id = uuidv4();
 		const now = new Date().toISOString();
 		await noteService.saveNote({
@@ -146,20 +117,208 @@ export default function NoteListScreen() {
 		await syncStateManager.markNoteDirty(id);
 		await useNotesStore.getState().reload();
 		router.push(`/note/${id}`);
-	};
+	}, [router]);
 
-	const handleToggleFolder = async (folderId: string) => {
-		const currentlyCollapsed = new Set(noteList.collapsedFolderIds).has(
-			folderId,
-		);
-		await noteService.setFolderCollapsed(folderId, !currentlyCollapsed);
+	const handleDragEnd = useCallback(
+		async ({ data }: { data: FlatRow[] }) => {
+			const current = noteService.getNoteList();
+			const { list } = applyReorder(current, data);
+			await noteService.replaceNoteList(list);
+			// DnD は順序変更のみ。folderId は変えない方針（クロスフォルダ移動はメニュー経由）。
+			await syncStateManager.markDirty();
+			await useNotesStore.getState().reload();
+			driveService.kickSync();
+		},
+		[],
+	);
+
+	const handleArchive = useCallback(async (noteId: string) => {
+		await noteService.setNoteArchived(noteId, true);
+		await syncStateManager.markNoteDirty(noteId);
 		await useNotesStore.getState().reload();
-	};
+		driveService.kickSync();
+	}, []);
 
-	// フォルダ行の背景階調（デスクトップ版と同じ:「ヘッダ > 子 > 外側背景」の順に濃い）
+	const handleNoteLongPress = useCallback(
+		(e: GestureResponderEvent, noteId: string, folderId: string) => {
+			setNoteMenu({
+				anchor: { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY },
+				noteId,
+				folderId,
+			});
+		},
+		[],
+	);
+
+	const handleFolderLongPress = useCallback(
+		(e: GestureResponderEvent, folderId: string) => {
+			setFolderMenu({
+				anchor: { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY },
+				folderId,
+			});
+		},
+		[],
+	);
+
+	const handleMoveToFolder = useCallback(async () => {
+		if (!noteMenu) return;
+		const { noteId, folderId } = noteMenu;
+		folderPickerRef.current?.open(folderId, async (target) => {
+			const current = noteService.getNoteList();
+			const next = moveNoteToFolder(current, noteId, target);
+			await noteService.replaceNoteList(next);
+			// 本文側にも folderId を書き戻す
+			const note = await noteService.readNote(noteId);
+			if (note) {
+				note.folderId = target;
+				await noteService.saveNote(note);
+			}
+			await syncStateManager.markNoteDirty(noteId);
+			await useNotesStore.getState().reload();
+			driveService.kickSync();
+		});
+	}, [noteMenu]);
+
+	const handleCreateFolder = useCallback(async () => {
+		const name = folderNameInput.trim();
+		if (!name) {
+			setCreateFolderDialog(false);
+			setFolderNameInput('');
+			return;
+		}
+		await noteService.createFolder(name);
+		await syncStateManager.markDirty();
+		await useNotesStore.getState().reload();
+		setCreateFolderDialog(false);
+		setFolderNameInput('');
+		driveService.kickSync();
+	}, [folderNameInput]);
+
+	const handleRenameFolderConfirm = useCallback(async () => {
+		if (!renameFolderDialog) return;
+		const name = folderNameInput.trim();
+		if (!name) {
+			setRenameFolderDialog(null);
+			setFolderNameInput('');
+			return;
+		}
+		await noteService.renameFolder(renameFolderDialog.folderId, name);
+		await syncStateManager.markDirty();
+		await useNotesStore.getState().reload();
+		setRenameFolderDialog(null);
+		setFolderNameInput('');
+		driveService.kickSync();
+	}, [renameFolderDialog, folderNameInput]);
+
+	const handleDeleteFolderConfirm = useCallback(async () => {
+		if (!deleteFolderDialog) return;
+		await noteService.deleteFolder(deleteFolderDialog);
+		await syncStateManager.markFolderDeleted(deleteFolderDialog);
+		// 配下から繰り上がったノートも dirty 化（folderId が変わったので本文の再保存が必要）
+		const current = noteService.getNoteList();
+		for (const note of current.notes) {
+			if (note.folderId === '') {
+				const body = await noteService.readNote(note.id);
+				if (body && body.folderId !== '') {
+					body.folderId = '';
+					await noteService.saveNote(body);
+					await syncStateManager.markNoteDirty(note.id);
+				}
+			}
+		}
+		await useNotesStore.getState().reload();
+		setDeleteFolderDialog(null);
+		driveService.kickSync();
+	}, [deleteFolderDialog]);
+
+	// ----- 描画 -----
+
 	const folderHeaderBg = theme.colors.surfaceVariant;
 	const folderChildBg = theme.colors.elevation.level1;
 	const divider = theme.colors.outline;
+
+	const renderItem = useCallback(
+		({ item, drag }: RenderItemParams<FlatRow>) => {
+			if (item.kind === 'topLevel-note') {
+				return (
+					<ScaleDecorator activeScale={0.98}>
+						<SwipeableNoteRow onArchive={() => handleArchive(item.id)}>
+							<Pressable
+								onLongPress={drag}
+								delayLongPress={300}
+								style={{ backgroundColor: theme.colors.background }}
+							>
+								<NoteListItem
+									metadata={item.note}
+									onPress={handleNoteOpen}
+									onMorePress={(e, id) => handleNoteLongPress(e, id, '')}
+								/>
+							</Pressable>
+						</SwipeableNoteRow>
+					</ScaleDecorator>
+				);
+			}
+			if (item.kind === 'folder-header') {
+				return (
+					<ScaleDecorator activeScale={0.98}>
+						<View
+							style={[
+								{ backgroundColor: folderHeaderBg },
+								styles.groupSide,
+								styles.groupTop,
+								item.inGroupEnd && styles.groupBottom,
+							]}
+						>
+							<Pressable onLongPress={drag} delayLongPress={300}>
+								<FolderListItem
+									folder={item.folder}
+									noteCount={item.noteCount}
+									collapsed={item.collapsed}
+									onToggle={handleToggleFolder}
+									onMorePress={handleFolderLongPress}
+								/>
+							</Pressable>
+						</View>
+					</ScaleDecorator>
+				);
+			}
+			// folder-child
+			return (
+				<ScaleDecorator activeScale={0.98}>
+					<View
+						style={[
+							{ backgroundColor: folderChildBg },
+							styles.groupSide,
+							item.inGroupEnd && styles.groupBottom,
+						]}
+					>
+						<SwipeableNoteRow onArchive={() => handleArchive(item.id)}>
+							<Pressable onLongPress={drag} delayLongPress={300}>
+								<NoteListItem
+									metadata={item.note}
+									onPress={handleNoteOpen}
+									onMorePress={(e, id) =>
+										handleNoteLongPress(e, id, item.folderId)
+									}
+									indented
+								/>
+							</Pressable>
+						</SwipeableNoteRow>
+					</View>
+				</ScaleDecorator>
+			);
+		},
+		[
+			folderHeaderBg,
+			folderChildBg,
+			handleArchive,
+			handleFolderLongPress,
+			handleNoteLongPress,
+			handleNoteOpen,
+			handleToggleFolder,
+			theme.colors.background,
+		],
+	);
 
 	return (
 		<View
@@ -167,6 +326,14 @@ export default function NoteListScreen() {
 		>
 			<Appbar.Header>
 				<Appbar.Content title={t('app.title')} />
+				<Appbar.Action
+					icon="folder-plus"
+					onPress={() => {
+						setFolderNameInput('');
+						setCreateFolderDialog(true);
+					}}
+					accessibilityLabel={t('noteList.newFolder')}
+				/>
 				{signedIn ? (
 					<Appbar.Action icon="cog" onPress={() => router.push('/settings')} />
 				) : (
@@ -180,81 +347,13 @@ export default function NoteListScreen() {
 					<Text variant="bodyMedium">{t('noteList.empty')}</Text>
 				</View>
 			) : (
-				<FlatList
+				<DraggableFlatList
 					data={rows}
 					keyExtractor={(row) => row.key}
+					renderItem={renderItem}
+					onDragEnd={handleDragEnd}
 					contentContainerStyle={styles.listContent}
-					ItemSeparatorComponent={({ leadingItem }) => {
-						// React Native の ItemSeparatorComponent は trailingItem を渡さないため、
-						// leading 側の情報だけで「次も同じグループか」を判定する。
-						// folder-header/folder-child で inGroupEnd=false なら次は同じグループの folder-child。
-						const l = leadingItem as Row | undefined;
-						const sameGroup =
-							l !== undefined &&
-							(l.kind === 'folder-header' || l.kind === 'folder-child') &&
-							!l.inGroupEnd;
-						return (
-							<View
-								style={
-									sameGroup
-										? {
-												height: StyleSheet.hairlineWidth,
-												marginHorizontal: 12,
-												backgroundColor: theme.colors.outlineVariant,
-											}
-										: {
-												height: StyleSheet.hairlineWidth,
-												backgroundColor: divider,
-											}
-								}
-							/>
-						);
-					}}
-					renderItem={({ item }) => {
-						if (item.kind === 'topLevel-note') {
-							return (
-								<NoteListItem
-									metadata={item.note}
-									onPress={(id) => router.push(`/note/${id}`)}
-								/>
-							);
-						}
-						if (item.kind === 'folder-header') {
-							return (
-								<View
-									style={[
-										{ backgroundColor: folderHeaderBg },
-										styles.groupSide,
-										styles.groupTop,
-										item.inGroupEnd && styles.groupBottom,
-									]}
-								>
-									<FolderListItem
-										folder={item.folder}
-										noteCount={item.noteCount}
-										collapsed={item.collapsed}
-										onToggle={handleToggleFolder}
-									/>
-								</View>
-							);
-						}
-						// folder-child
-						return (
-							<View
-								style={[
-									{ backgroundColor: folderChildBg },
-									styles.groupSide,
-									item.inGroupEnd && styles.groupBottom,
-								]}
-							>
-								<NoteListItem
-									metadata={item.note}
-									onPress={(id) => router.push(`/note/${id}`)}
-									indented
-								/>
-							</View>
-						);
-					}}
+					activationDistance={20}
 				/>
 			)}
 			<AnimatedFAB
@@ -267,32 +366,133 @@ export default function NoteListScreen() {
 				animateFrom="right"
 				iconMode="static"
 			/>
+
+			{/* 長押しメニュー */}
+			<NoteContextMenu
+				visible={noteMenu !== null}
+				anchor={noteMenu?.anchor ?? null}
+				onDismiss={() => setNoteMenu(null)}
+				onMoveToFolder={handleMoveToFolder}
+				onArchive={() => {
+					if (noteMenu) handleArchive(noteMenu.noteId);
+				}}
+			/>
+			<FolderContextMenu
+				visible={folderMenu !== null}
+				anchor={folderMenu?.anchor ?? null}
+				onDismiss={() => setFolderMenu(null)}
+				onRename={() => {
+					if (!folderMenu) return;
+					const folder = noteList.folders.find(
+						(f) => f.id === folderMenu.folderId,
+					);
+					if (!folder) return;
+					setFolderNameInput(folder.name);
+					setRenameFolderDialog({ folderId: folder.id, name: folder.name });
+				}}
+				onDelete={() => {
+					if (folderMenu) setDeleteFolderDialog(folderMenu.folderId);
+				}}
+			/>
+
+			{/* フォルダピッカー */}
+			<FolderPickerSheet ref={folderPickerRef} folders={noteList.folders} />
+
+			{/* 新規フォルダダイアログ */}
+			<Portal>
+				<Dialog
+					visible={createFolderDialog}
+					onDismiss={() => setCreateFolderDialog(false)}
+				>
+					<Dialog.Title>{t('noteList.newFolder')}</Dialog.Title>
+					<Dialog.Content>
+						<TextInput
+							autoFocus
+							mode="outlined"
+							label={t('noteList.newFolderPrompt')}
+							value={folderNameInput}
+							onChangeText={setFolderNameInput}
+							onSubmitEditing={handleCreateFolder}
+						/>
+					</Dialog.Content>
+					<Dialog.Actions>
+						<Button onPress={() => setCreateFolderDialog(false)}>
+							{t('noteList.cancel')}
+						</Button>
+						<Button onPress={handleCreateFolder}>{t('noteList.ok')}</Button>
+					</Dialog.Actions>
+				</Dialog>
+
+				<Dialog
+					visible={renameFolderDialog !== null}
+					onDismiss={() => setRenameFolderDialog(null)}
+				>
+					<Dialog.Title>{t('noteList.renameFolder')}</Dialog.Title>
+					<Dialog.Content>
+						<TextInput
+							autoFocus
+							mode="outlined"
+							label={t('noteList.newFolderPrompt')}
+							value={folderNameInput}
+							onChangeText={setFolderNameInput}
+							onSubmitEditing={handleRenameFolderConfirm}
+						/>
+					</Dialog.Content>
+					<Dialog.Actions>
+						<Button onPress={() => setRenameFolderDialog(null)}>
+							{t('noteList.cancel')}
+						</Button>
+						<Button onPress={handleRenameFolderConfirm}>
+							{t('noteList.ok')}
+						</Button>
+					</Dialog.Actions>
+				</Dialog>
+
+				<Dialog
+					visible={deleteFolderDialog !== null}
+					onDismiss={() => setDeleteFolderDialog(null)}
+				>
+					<Dialog.Title>{t('noteList.deleteFolder')}</Dialog.Title>
+					<Dialog.Content>
+						<Text variant="bodyMedium">
+							{t('noteList.deleteFolderConfirm')}
+						</Text>
+					</Dialog.Content>
+					<Dialog.Actions>
+						<Button onPress={() => setDeleteFolderDialog(null)}>
+							{t('noteList.cancel')}
+						</Button>
+						<Button
+							textColor={theme.colors.error}
+							onPress={handleDeleteFolderConfirm}
+						>
+							{t('noteList.delete')}
+						</Button>
+					</Dialog.Actions>
+				</Dialog>
+			</Portal>
 		</View>
 	);
 }
 
-const GROUP_RADIUS = 10;
-const GROUP_MARGIN = 8;
-
 const styles = StyleSheet.create({
 	container: { flex: 1 },
 	empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+	listContent: {
+		paddingBottom: Platform.select({ ios: 96, default: 80 }),
+	},
 	fab: { position: 'absolute', right: 16, bottom: 16 },
-	listContent: { paddingBottom: 96 },
 	groupSide: {
-		marginHorizontal: GROUP_MARGIN,
-		// 子の Pressable (ripple / pressed 背景) を角丸形状で clip する。
-		// 付けないと押下時にコーナーが一瞬角ばって見える。
-		overflow: 'hidden',
+		marginHorizontal: 8,
 	},
 	groupTop: {
-		borderTopLeftRadius: GROUP_RADIUS,
-		borderTopRightRadius: GROUP_RADIUS,
-		marginTop: GROUP_MARGIN,
+		borderTopLeftRadius: 12,
+		borderTopRightRadius: 12,
+		marginTop: 8,
 	},
 	groupBottom: {
-		borderBottomLeftRadius: GROUP_RADIUS,
-		borderBottomRightRadius: GROUP_RADIUS,
-		marginBottom: GROUP_MARGIN,
+		borderBottomLeftRadius: 12,
+		borderBottomRightRadius: 12,
+		marginBottom: 8,
 	},
 });

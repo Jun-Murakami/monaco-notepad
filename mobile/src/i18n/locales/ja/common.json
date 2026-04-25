@@ -18,7 +18,19 @@
 		"archive": "アーカイブ",
 		"all": "すべて",
 		"folders": "フォルダ",
-		"noFolder": "未分類"
+		"noFolder": "未分類",
+		"newFolder": "新規フォルダ",
+		"newFolderPrompt": "フォルダ名を入力",
+		"renameFolder": "フォルダ名を変更",
+		"deleteFolder": "フォルダを削除",
+		"deleteFolderConfirm": "このフォルダを削除しますか？配下のノートはトップレベルに戻ります。",
+		"moveToFolder": "フォルダへ移動",
+		"moveToTopLevel": "トップレベルへ",
+		"actions": "操作",
+		"archive_action": "アーカイブする",
+		"cancel": "キャンセル",
+		"ok": "OK",
+		"delete": "削除"
 	},
 	"editor": {
 		"titleLabel": "タイトル",

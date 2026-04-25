@@ -220,14 +220,90 @@ export class NoteService {
 	async deleteFolder(folderId: string): Promise<void> {
 		this.list.folders = this.list.folders.filter((f) => f.id !== folderId);
 		// フォルダ内のノートはトップレベルへ繰り上げる（同期で整合させる）
+		const promotedIds: string[] = [];
 		for (const n of this.list.notes) {
-			if (n.folderId === folderId) n.folderId = '';
+			if (n.folderId === folderId) {
+				n.folderId = '';
+				promotedIds.push(n.id);
+			}
 		}
 		this.list.topLevelOrder = this.list.topLevelOrder.filter(
 			(i) => !(i.type === 'folder' && i.id === folderId),
 		);
+		// 繰り上げたノートは topLevelOrder に末尾追加（重複避け）
+		for (const id of promotedIds) {
+			if (
+				!this.list.topLevelOrder.some((i) => i.type === 'note' && i.id === id)
+			) {
+				this.list.topLevelOrder.push({ type: 'note', id });
+			}
+		}
 		this.list.archivedTopLevelOrder = this.list.archivedTopLevelOrder.filter(
 			(i) => !(i.type === 'folder' && i.id === folderId),
+		);
+		await this.persistList();
+	}
+
+	/** フォルダ名を変更する。 */
+	async renameFolder(folderId: string, name: string): Promise<void> {
+		const folder = this.list.folders.find((f) => f.id === folderId);
+		if (!folder) return;
+		folder.name = name;
+		await this.persistList();
+	}
+
+	/**
+	 * note の archived フラグを切り替えてメタデータを更新する。
+	 * 本文ファイル (notes/{id}.json) も書き戻す（次回保存待ちにせず即時反映）。
+	 */
+	async setNoteArchived(noteId: string, archived: boolean): Promise<void> {
+		const meta = this.list.notes.find((n) => n.id === noteId);
+		if (!meta) return;
+		const note = await this.readNote(noteId);
+		if (!note) return;
+
+		const wasArchived = meta.archived;
+		meta.archived = archived;
+		meta.modifiedTime = new Date().toISOString();
+		// archived 切替に伴い contentHash も更新
+		meta.contentHash = await computeContentHash({ ...note, archived });
+
+		// topLevelOrder / archivedTopLevelOrder の付け替え（フォルダ配下なら何もしない）
+		if (!meta.folderId) {
+			if (wasArchived && !archived) {
+				this.list.archivedTopLevelOrder =
+					this.list.archivedTopLevelOrder.filter(
+						(i) => !(i.type === 'note' && i.id === noteId),
+					);
+				if (
+					!this.list.topLevelOrder.some(
+						(i) => i.type === 'note' && i.id === noteId,
+					)
+				) {
+					this.list.topLevelOrder.push({ type: 'note', id: noteId });
+				}
+			} else if (!wasArchived && archived) {
+				this.list.topLevelOrder = this.list.topLevelOrder.filter(
+					(i) => !(i.type === 'note' && i.id === noteId),
+				);
+				if (
+					!this.list.archivedTopLevelOrder.some(
+						(i) => i.type === 'note' && i.id === noteId,
+					)
+				) {
+					this.list.archivedTopLevelOrder.push({ type: 'note', id: noteId });
+				}
+			}
+		}
+
+		// 本文側も書き換える
+		await writeAtomic(
+			noteFilePath(noteId),
+			JSON.stringify({
+				...note,
+				archived,
+				modifiedTime: meta.modifiedTime,
+			}),
 		);
 		await this.persistList();
 	}
