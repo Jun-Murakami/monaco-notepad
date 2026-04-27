@@ -64,7 +64,7 @@ export function flattenNoteList(
 	// folder ごとの子ノートを `notes` 配列の順序を保ったまま集める。
 	const notesByFolder = new Map<string, NoteMetadata[]>();
 	for (const n of list.notes) {
-		if (n.archived !== archived) continue;
+		if ((n.archived ?? false) !== archived) continue;
 		if (!n.folderId) continue;
 		const arr = notesByFolder.get(n.folderId) ?? [];
 		arr.push(n);
@@ -78,7 +78,7 @@ export function flattenNoteList(
 	for (const item of order) {
 		if (item.type === 'note') {
 			const note = notesById.get(item.id);
-			if (!note || note.archived !== archived) continue;
+			if (!note || (note.archived ?? false) !== archived) continue;
 			if (note.folderId) continue; // フォルダ配下のノートは folder-child として後で出す
 			out.push({
 				kind: 'topLevel-note',
@@ -89,7 +89,7 @@ export function flattenNoteList(
 			seenNotes.add(note.id);
 		} else if (item.type === 'folder') {
 			const folder = folderById.get(item.id);
-			if (!folder || folder.archived !== archived) continue;
+			if (!folder || (folder.archived ?? false) !== archived) continue;
 			seenFolders.add(folder.id);
 			const children = notesByFolder.get(folder.id) ?? [];
 			const isCollapsed = collapsedSet.has(folder.id);
@@ -122,7 +122,7 @@ export function flattenNoteList(
 	// topLevelOrder に現れていない要素のフォールバック（データ破損保険）。
 	// 過度に挿入すると DnD で順序が壊れるので末尾に最小限追加する。
 	for (const folder of list.folders) {
-		if (folder.archived !== archived) continue;
+		if ((folder.archived ?? false) !== archived) continue;
 		if (seenFolders.has(folder.id)) continue;
 		const children = notesByFolder.get(folder.id) ?? [];
 		const isCollapsed = collapsedSet.has(folder.id);
@@ -151,7 +151,7 @@ export function flattenNoteList(
 		}
 	}
 	for (const n of list.notes) {
-		if (n.archived !== archived) continue;
+		if ((n.archived ?? false) !== archived) continue;
 		if (seenNotes.has(n.id)) continue;
 		// フォルダに属するが、そのフォルダがまだ未表示な場合は親が下に出るのでここでスキップ。
 		// 完全に親不在ならトップレベルへ落とす。

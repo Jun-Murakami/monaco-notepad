@@ -214,21 +214,19 @@ export class SyncOrchestrator {
 		const cloudList = await this.driveSync.downloadNoteList();
 		const localList = this.noteService.getNoteList();
 
-		// 事前にダウンロード対象を決定して総数を把握する（進捗表示のため）
+		// 事前にダウンロード対象を決定して総数を把握する（進捗表示のため）。
+		// Resume 最適化: 前回 session で既にローカルへ書き終えているノート (= local の
+		// contentHash が cloud と一致) は Drive を叩かずスキップ。lastSyncedNoteHash が空でも
+		// (前回 updateSyncedState 到達前に kill) ローカルファイルから判定できる。
 		const toDownload: typeof cloudList.notes = [];
 		const mergedHashes: Record<string, string> = {};
 		for (const meta of cloudList.notes) {
 			const local = localList.notes.find((n) => n.id === meta.id);
-			const lastHash = this.syncState.lastSyncedHash(meta.id);
-			if (
-				!local ||
-				local.contentHash !== meta.contentHash ||
-				lastHash !== meta.contentHash
-			) {
-				toDownload.push(meta);
-			} else {
+			if (local && local.contentHash === meta.contentHash) {
 				mergedHashes[meta.id] = meta.contentHash;
+				continue;
 			}
+			toDownload.push(meta);
 		}
 
 		if (toDownload.length > 0) {
@@ -245,12 +243,19 @@ export class SyncOrchestrator {
 		for (const meta of toDownload) {
 			syncEvents.emit('sync:message', {
 				code: MessageCode.DriveSyncDownloadNote,
-				args: { noteId: meta.id },
+				args: {
+					noteId: meta.id,
+					current: downloaded + 1,
+					total: toDownload.length,
+				},
 			});
 			const note = await this.driveSync.downloadNote(meta.id);
 			if (note) {
 				await this.noteService.saveNoteFromSync(note);
 				mergedHashes[meta.id] = meta.contentHash;
+				// 個別 hash を即時永続化: 大量 pull 中に kill されても次回起動で
+				// 該当ノートの再 download を skip できる (resume 最適化)。
+				await this.syncState.updateSyncedNoteHash(meta.id, meta.contentHash);
 			} else {
 				zombieIds.add(meta.id);
 				console.warn(

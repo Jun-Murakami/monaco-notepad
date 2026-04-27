@@ -128,6 +128,31 @@ describe('flattenNoteList', () => {
 		expect(c1.inGroupEnd).toBe(true);
 	});
 
+	// ★ desktop が `archived,omitempty` で false を省略した JSON を mobile が読み込むと
+	// folder.archived は undefined になる。`folder.archived !== false` が true 評価され
+	// すべての通常フォルダがスキップされ、配下ノートも非表示になる現象を再現する。
+	it('folder.archived が undefined (desktop の omitempty 由来) でも非アーカイブビューに表示される', () => {
+		const f1 = { id: 'f1', name: 'Project A' } as unknown as Folder; // archived 欠落
+		const list = buildList(
+			[
+				meta('n1', { folderId: 'f1' }),
+				meta('n2', { folderId: 'f1' }),
+				meta('top', { folderId: '' }),
+			],
+			[f1],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'note', id: 'top' },
+			],
+		);
+		const rows = flattenNoteList(list, { archived: false });
+		const kinds = rows.map((r) => r.kind);
+		// folder-header が出ていること、folder-child も出ていること
+		expect(kinds).toContain('folder-header');
+		expect(kinds).toContain('folder-child');
+		expect(kinds).toContain('topLevel-note');
+	});
+
 	it('topLevelOrder に無いノート/フォルダはフォールバックで末尾に出す', () => {
 		const list = buildList(
 			[meta('a'), meta('b')],

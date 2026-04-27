@@ -2,13 +2,20 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { I18nextProvider } from 'react-i18next';
-import { View } from 'react-native';
+import { LogBox, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ActivityIndicator, PaperProvider, Text } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useInitialize } from '@/hooks/useInitialize';
 import i18n from '@/i18n';
+
+// react-native-draggable-flatlist@4.0.3 が deprecated な InteractionManager を
+// 内部で参照しており、SDK 55 系ではこれが warn を吐き続ける (機能には影響なし、
+// 単に dev コンソールが煩い)。ライブラリ側が 2023 年以降メンテされていないため
+// 当面ここで抑止する。新 arch / Reanimated 4 対応の代替 (react-native-reorderable-list 等)
+// に乗り換えたら削除する。
+LogBox.ignoreLogs([/InteractionManager has been deprecated/]);
 
 export default function RootLayout() {
 	const { theme, isDark } = useAppTheme();

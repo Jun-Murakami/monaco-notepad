@@ -123,6 +123,7 @@ class DriveService {
 			this.client,
 			this.driveSync,
 			this.orchestrator,
+			syncStateManager,
 		);
 		await this.polling.start();
 		operationQueue.wake();

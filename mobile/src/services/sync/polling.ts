@@ -7,6 +7,7 @@ import type { DriveSyncService } from './driveSyncService';
 import { syncEvents } from './events';
 import type { SyncOrchestrator } from './orchestrator';
 import { AuthError, sleep } from './retry';
+import type { SyncStateManager } from './syncState';
 
 /**
  * ポーリングサービス。
@@ -44,6 +45,7 @@ export class PollingService {
 		private readonly driveClient: DriveClient,
 		private readonly driveSync: DriveSyncService,
 		private readonly orchestrator: SyncOrchestrator,
+		private readonly syncState: SyncStateManager,
 	) {
 		this.resetWake();
 	}
@@ -106,7 +108,17 @@ export class PollingService {
 
 			try {
 				const changed = await this.checkForChanges();
-				if (changed) {
+				// ローカルに pending な変更がある場合 (前回 session で push 途中終了 →
+				// 再起動で resume したいケース等) は、cloud 側に変化が無くても sync を
+				// 走らせる必要がある。Changes API は伝播ラグがあり、local dirty を見ないと
+				// 数十秒〜数分待たされて UX が悪い。
+				const localDirty = this.syncState.isDirty();
+				// 初回 pull 中に kill された場合: cloud は変化していない (Changes API は false)、
+				// localDirty も立たない (pull は dirty にしない) ので、明示的に「まだ初回 sync を
+				// 完了していない」を判定軸にする。lastSyncedDriveTs が空文字なら、updateSyncedState
+				// に到達したことが無い = 初回 sync 未完了。
+				const neverSynced = this.syncState.lastSyncedDriveTs() === '';
+				if (changed || localDirty || neverSynced) {
 					await this.runSyncSafe();
 					this.intervalMs = MIN_INTERVAL_MS;
 				} else {

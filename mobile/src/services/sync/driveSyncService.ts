@@ -150,7 +150,7 @@ export class DriveSyncService {
 			'downloadNoteList',
 			RETRY_DOWNLOAD,
 		);
-		return JSON.parse(text) as NoteList;
+		return normalizeNoteList(JSON.parse(text));
 	}
 
 	async updateNoteList(list: NoteList): Promise<DriveFile> {
@@ -199,4 +199,57 @@ function parseNote(text: string): Note | null {
 function stripJsonExt(name: string): string | null {
 	if (!name.endsWith('.json')) return null;
 	return name.slice(0, -5);
+}
+
+/**
+ * cloud から落ちてきた noteList を正規化する。
+ *
+ * 重要: デスクトップ版は Folder/NoteMetadata の `archived` を `omitempty` で書くため、
+ * `archived=false` の場合 JSON にキー自体が現れない。これをそのまま読むと
+ * `folder.archived === undefined` になり、UI 側の `folder.archived !== false` 判定で
+ * フォルダが**全部 hidden** になり「ノートがフラットに見える」現象が起きる。
+ * collapsedFolderIDs (大文字) / collapsedFolderIds (小文字) の interop も同時に吸収する。
+ */
+function normalizeNoteList(raw: unknown): NoteList {
+	const r = (raw ?? {}) as Record<string, unknown>;
+	const notes = (Array.isArray(r.notes) ? r.notes : []) as Array<
+		Record<string, unknown>
+	>;
+	const folders = (Array.isArray(r.folders) ? r.folders : []) as Array<
+		Record<string, unknown>
+	>;
+	const topLevelOrder = Array.isArray(r.topLevelOrder)
+		? (r.topLevelOrder as NoteList['topLevelOrder'])
+		: [];
+	const archivedTopLevelOrder = Array.isArray(r.archivedTopLevelOrder)
+		? (r.archivedTopLevelOrder as NoteList['archivedTopLevelOrder'])
+		: [];
+	// デスクトップ版は `collapsedFolderIDs` (大文字 IDs) で書くため両方読む
+	const collapsedRaw =
+		(r.collapsedFolderIds as unknown) ?? (r.collapsedFolderIDs as unknown);
+	const collapsedFolderIds = Array.isArray(collapsedRaw)
+		? (collapsedRaw as string[])
+		: [];
+
+	return {
+		version: 'v2',
+		notes: notes.map((n) => ({
+			id: String(n.id ?? ''),
+			title: String(n.title ?? ''),
+			contentHeader: String(n.contentHeader ?? ''),
+			language: String(n.language ?? 'plaintext'),
+			modifiedTime: String(n.modifiedTime ?? ''),
+			archived: Boolean(n.archived ?? false),
+			contentHash: String(n.contentHash ?? ''),
+			folderId: String(n.folderId ?? ''),
+		})),
+		folders: folders.map((f) => ({
+			id: String(f.id ?? ''),
+			name: String(f.name ?? ''),
+			archived: Boolean(f.archived ?? false),
+		})),
+		topLevelOrder,
+		archivedTopLevelOrder,
+		collapsedFolderIds,
+	};
 }

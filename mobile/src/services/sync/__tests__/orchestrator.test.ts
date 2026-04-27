@@ -187,6 +187,68 @@ describe('SyncOrchestrator.syncNotes: pull only (cloud changed, local clean)', (
 
 		expect((await notes.readNote('a'))?.content).toBe('v2-from-cloud');
 	});
+
+	// ★ 実機再現: 初回 pull 中に kill → 再起動。前回 session で download し終えた分は
+	// ローカルファイルとして残っているので、再 pull で download をスキップして残りだけ
+	// 落とせること (Drive を無駄に叩かない)。
+	it('partial pull → 再起動で既ダウンロード分は skip され残りだけ download される', async () => {
+		// cloud に 5 件、ローカルには前半 3 件だけ既にダウンロード済みの状態を構築
+		const all = ['a', 'b', 'c', 'd', 'e'].map((id) =>
+			makeNote({ id, content: `cloud-${id}` }),
+		);
+		for (const n of all) cloud.setCloudNote(n);
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		// 前回 session で a, b, c だけローカルへ書き込んだ状態を再現
+		// (同じ contentHash になるよう同じ内容で saveNote)
+		for (const id of ['a', 'b', 'c']) {
+			const n = all.find((x) => x.id === id)!;
+			await notes.saveNoteFromSync(n);
+		}
+		// updateSyncedState には未到達 (kill された想定) なので lastSyncedDriveTs="" のまま
+
+		const downloadsBefore = cloud.calls.download;
+
+		await orch.syncNotes();
+
+		// 残り d, e の 2 件だけ download されるはず
+		expect(cloud.calls.download - downloadsBefore).toBe(2);
+
+		// 全 5 件がローカルに揃っている
+		for (const id of ['a', 'b', 'c', 'd', 'e']) {
+			expect((await notes.readNote(id))?.content).toBe(`cloud-${id}`);
+		}
+
+		// updateSyncedState が走り lastSyncedDriveTs が更新されている
+		expect(state.lastSyncedDriveTs()).toBe(cloud.noteListModifiedTime);
+
+		// 全件分の hash が永続化されている
+		for (const id of ['a', 'b', 'c', 'd', 'e']) {
+			expect(state.lastSyncedHash(id)).toBeDefined();
+		}
+	});
+
+	it('partial pull resume: download 中に kill されても per-note hash は永続化されるので次回 skip 可能', async () => {
+		const all = ['a', 'b', 'c'].map((id) =>
+			makeNote({ id, content: `cloud-${id}` }),
+		);
+		for (const n of all) cloud.setCloudNote(n);
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		// b の download だけ失敗させて mid-pull kill を擬似的に再現する
+		const origDownload = cloud.downloadNote.bind(cloud);
+		cloud.downloadNote = async (noteId) => {
+			if (noteId === 'b') throw new Error('simulated kill');
+			return origDownload(noteId);
+		};
+
+		await expect(orch.syncNotes()).rejects.toThrow('simulated kill');
+
+		// a は既に download 完了 → per-note hash が永続化されているはず
+		expect(state.lastSyncedHash('a')).toBeDefined();
+		// b/c は未完なので hash 無し
+		expect(state.lastSyncedHash('c')).toBeUndefined();
+	});
 });
 
 describe('SyncOrchestrator.syncNotes: conflict', () => {
@@ -690,6 +752,183 @@ describe('SyncOrchestrator: resume skip (partial upload recovery)', () => {
 		// 最終的に noteList にも両方反映される
 		const uploadedIds = cloud.noteList.notes.map((n) => n.id).sort();
 		expect(uploadedIds).toEqual(['a', 'b']);
+	});
+
+	// ★ 実機再現: 大量アップロード途中で kill → 再起動 → connect() で recoverCloudOrphans が
+	// 走り 既アップ済みノートが「不明ノート」へローカル退避 → 続いて polling が syncNotes →
+	// 残り未アップを完遂し dirty=false まで持っていく挙動の検証。
+	it('partial upload → kill → restart で recoverCloudOrphans を経ても残ノートが完遂される', async () => {
+		const { recoverCloudOrphans } = await import('../orphanRecovery');
+
+		// 5 件 dirty (offline-first 想定)
+		const all = ['a', 'b', 'c', 'd', 'e'].map((id) =>
+			makeNote({ id, content: `content-${id}` }),
+		);
+		for (const n of all) {
+			await notes.saveNote(n);
+			await state.markNoteDirty(n.id);
+		}
+
+		// 前回 session で a, b, c だけ Drive に上げた状態 (noteList は更新されないまま kill された)
+		for (const id of ['a', 'b', 'c']) {
+			const n = all.find((x) => x.id === id)!;
+			cloud.setCloudNote(n);
+			await state.updateSyncedNoteHash(id, await computeContentHash(n));
+		}
+		// cloud noteList は空のまま (ensureDriveLayout が作って以来 updateNoteList 未呼び出し)
+		cloud.noteList = {
+			version: 'v2',
+			notes: [],
+			folders: [],
+			topLevelOrder: [],
+			archivedTopLevelOrder: [],
+			collapsedFolderIds: [],
+		};
+		cloud.noteListModifiedTime = iso(1000);
+
+		// connect() 相当: recoverCloudOrphans が走る
+		// → cloud noteList に登録されていない 3 件が「不明ノート」へ退避される
+		await recoverCloudOrphans(cloud as unknown as DriveSyncService, notes);
+
+		// この時点でローカルでは a/b/c が「不明ノート」フォルダ配下に移動している
+		const orphanFolder = notes
+			.getNoteList()
+			.folders.find((f) => f.name === '不明ノート');
+		expect(orphanFolder).toBeDefined();
+
+		// 続いて polling が syncNotes() を呼ぶ
+		const createsBefore = cloud.calls.create;
+		const updatesBefore = cloud.calls.update;
+		await orch.syncNotes();
+
+		// a/b/c は既に cloud にあるので create されず、d/e だけ新規 create される
+		expect(cloud.calls.create - createsBefore).toBe(2);
+		expect(cloud.calls.update - updatesBefore).toBe(0);
+
+		// 5 件すべて cloud に存在
+		for (const id of ['a', 'b', 'c', 'd', 'e']) {
+			expect(cloud.notes.has(id)).toBe(true);
+		}
+		// cloud noteList にも 5 件全部反映
+		expect(cloud.noteList.notes.map((n) => n.id).sort()).toEqual([
+			'a',
+			'b',
+			'c',
+			'd',
+			'e',
+		]);
+		// dirty が false になっている
+		expect(state.isDirty()).toBe(false);
+	});
+
+	// ★ desktop→mobile pull シナリオ: cloud noteList に folders が含まれていれば、
+	// 初回サインインの pullCloudChanges を経て mobile 側にも folders が再構築されるか。
+	it('desktop が folders 付きで push 済み cloud から mobile が pull すると folders を保持する', async () => {
+		// 「desktop が既に folders+notes を cloud に push した状態」を再現する
+		const f1: { id: string; name: string; archived: boolean } = {
+			id: 'desk-folder-1',
+			name: 'Desktop Project',
+			archived: false,
+		};
+		const f2: { id: string; name: string; archived: boolean } = {
+			id: 'desk-folder-2',
+			name: 'Desktop Misc',
+			archived: false,
+		};
+		const note1 = makeNote({ id: 'n1', folderId: f1.id, content: 'in proj' });
+		const note2 = makeNote({ id: 'n2', folderId: f2.id, content: 'in misc' });
+		const note3 = makeNote({ id: 'n3', folderId: '', content: 'top level' });
+		cloud.setCloudNote(note1);
+		cloud.setCloudNote(note2);
+		cloud.setCloudNote(note3);
+		await cloud.rebuildNoteListFromCloud(iso(1000));
+		// 重要: rebuildNoteListFromCloud は notes だけ書き直すので folders は手動で乗せる
+		cloud.noteList.folders = [f1, f2];
+		cloud.noteList.topLevelOrder = [
+			{ type: 'folder', id: f1.id },
+			{ type: 'folder', id: f2.id },
+			{ type: 'note', id: 'n3' },
+		];
+
+		// mobile 側はまっさら (ローカルにノート無し / dirty 無し)
+		await orch.syncNotes();
+
+		const local = notes.getNoteList();
+		// folders が cloud から復元されているはず
+		expect(local.folders.map((f) => f.name).sort()).toEqual([
+			'Desktop Misc',
+			'Desktop Project',
+		]);
+		// note1 は f1 配下、note2 は f2 配下、note3 は top level
+		expect(local.notes.find((n) => n.id === 'n1')?.folderId).toBe(f1.id);
+		expect(local.notes.find((n) => n.id === 'n2')?.folderId).toBe(f2.id);
+		expect(local.notes.find((n) => n.id === 'n3')?.folderId).toBe('');
+		expect(local.topLevelOrder.length).toBe(3);
+	});
+
+	// ★ ユーザー報告: 同期完了後にフォルダ構造が消えてフラットに表示される問題の検証。
+	// シナリオ: ローカルでフォルダ分けしたノートを offline-first で作成 → partial upload →
+	// kill → 再起動 → recoverCloudOrphans が既アップ分を「不明ノート」へ退避 → polling
+	// が残ノートを upload して noteList を確定 → 結果として元のフォルダが残っているか
+	it('partial upload → kill → restart 後もユーザーのフォルダ構造が残る', async () => {
+		const { recoverCloudOrphans } = await import('../orphanRecovery');
+
+		// ローカルにフォルダを 2 つ作る
+		const f1 = await notes.createFolder('Project A');
+		const f2 = await notes.createFolder('Project B');
+
+		// 各フォルダに 2 件ずつノートを入れる (a,b ∈ f1, c,d ∈ f2)
+		const a = makeNote({ id: 'a', folderId: f1.id, content: 'a' });
+		const b = makeNote({ id: 'b', folderId: f1.id, content: 'b' });
+		const c = makeNote({ id: 'c', folderId: f2.id, content: 'c' });
+		const d = makeNote({ id: 'd', folderId: f2.id, content: 'd' });
+		for (const n of [a, b, c, d]) {
+			await notes.saveNote(n);
+			await state.markNoteDirty(n.id);
+		}
+
+		// 前回 session で a, c だけ Drive に上げた状態
+		for (const n of [a, c]) {
+			cloud.setCloudNote(n);
+			await state.updateSyncedNoteHash(n.id, await computeContentHash(n));
+		}
+		// cloud noteList はまだ空
+		cloud.noteList = {
+			version: 'v2',
+			notes: [],
+			folders: [],
+			topLevelOrder: [],
+			archivedTopLevelOrder: [],
+			collapsedFolderIds: [],
+		};
+		cloud.noteListModifiedTime = iso(1000);
+
+		// connect() 相当: recoverCloudOrphans (a, c は cloud にあるが noteList には無いので「不明ノート」行き)
+		await recoverCloudOrphans(cloud as unknown as DriveSyncService, notes);
+
+		// polling が syncNotes() を呼ぶ
+		await orch.syncNotes();
+
+		// 同期後の最終状態
+		const final = notes.getNoteList();
+		const folderNames = final.folders.map((f) => f.name).sort();
+
+		// ★ 元のフォルダ "Project A" / "Project B" が消えていないことを確認
+		expect(folderNames).toContain('Project A');
+		expect(folderNames).toContain('Project B');
+
+		// b は元のフォルダ f1 のまま
+		const bMeta = final.notes.find((n) => n.id === 'b');
+		expect(bMeta?.folderId).toBe(f1.id);
+
+		// d は元のフォルダ f2 のまま
+		const dMeta = final.notes.find((n) => n.id === 'd');
+		expect(dMeta?.folderId).toBe(f2.id);
+
+		// cloud noteList にも folders が反映されている
+		const cloudFolderNames = cloud.noteList.folders.map((f) => f.name).sort();
+		expect(cloudFolderNames).toContain('Project A');
+		expect(cloudFolderNames).toContain('Project B');
 	});
 
 	it('resume 後の進捗表示は残件数に rebase して 1..M の連番 (ジャンプなし)', async () => {
