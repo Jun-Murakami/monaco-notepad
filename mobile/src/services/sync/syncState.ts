@@ -214,6 +214,13 @@ export class SyncStateManager {
 		});
 	}
 
+	/** 端末データ削除後に、ファイルを書かずメモリ上の同期状態だけ初期化する。 */
+	resetInMemory(): void {
+		this.state = freshSnapshot();
+		this.revision++;
+		this.loaded = true;
+	}
+
 	/**
 	 * 状態を変更し revision をインクリメント、永続化する共通処理。
 	 * ユーザー編集トリガーで使う（同期側は別経路）。

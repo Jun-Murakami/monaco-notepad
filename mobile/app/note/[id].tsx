@@ -2,23 +2,22 @@ import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { GestureResponderEvent } from 'react-native';
 import {
 	Dimensions,
 	Keyboard,
+	type NativeSyntheticEvent,
 	Platform,
 	Pressable,
 	ScrollView,
 	StyleSheet,
 	TextInput,
+	type TextInputContentSizeChangeEventData,
 	View,
 } from 'react-native';
 import {
 	Appbar,
-	Button,
 	Icon,
 	TextInput as PaperTextInput,
-	Portal,
 	SegmentedButtons,
 	Snackbar,
 	Text,
@@ -62,6 +61,9 @@ export default function NoteEditorScreen() {
 	const [mode, setMode] = useState<Mode>('view');
 	const [langMenuOpen, setLangMenuOpen] = useState(false);
 	const [snackbarVisible, setSnackbarVisible] = useState(false);
+	// edit モード + キーボード表示中は同期ステータスバーとタイトル欄を畳んで
+	// 作業領域を最大化する。Keyboard リスナと連動。
+	const [keyboardVisible, setKeyboardVisible] = useState(false);
 	// 編集モード突入直後だけカーソルを (0,0) に固定する。これで multiline TextInput
 	// が「カーソル位置を表示するために末尾までスクロール」してしまうのを防ぎ、
 	// 編集開始時にノート本文の **先頭** から見える。ユーザーがタップしてカーソルを
@@ -74,14 +76,14 @@ export default function NoteEditorScreen() {
 	const [editorFontSize, setEditorFontSize] = useState<number>(
 		() => appSettings.snapshot().editorFontSize,
 	);
+	// Android の multiline TextInput 内蔵スクロールは、通常の ScrollView ほど
+	// 慣性スクロールが自然に効かない。外側 ScrollView にスクロールを任せるため、
+	// TextInput 自体は本文の contentSize まで縦に伸ばす。
+	const [editorContentHeight, setEditorContentHeight] = useState(0);
+	const [editorViewportHeight, setEditorViewportHeight] = useState(0);
 	useEffect(() => {
 		return appSettings.subscribe((s) => setEditorFontSize(s.editorFontSize));
 	}, []);
-	// 長押し時に表示する「コピーする」確認メニュー（誤操作防止の 1 step）
-	const [copyMenuAnchor, setCopyMenuAnchor] = useState<{
-		x: number;
-		y: number;
-	} | null>(null);
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const latestNoteRef = useRef<Note | null>(null);
 
@@ -124,11 +126,13 @@ export default function NoteEditorScreen() {
 			keyboardHeight.value = withTiming(fromBottom, {
 				duration: e.duration ?? 250,
 			});
+			setKeyboardVisible(true);
 		});
 		const hideSub = Keyboard.addListener(hideEv, (e) => {
 			keyboardHeight.value = withTiming(0, {
 				duration: e.duration ?? 250,
 			});
+			setKeyboardVisible(false);
 		});
 		return () => {
 			showSub.remove();
@@ -227,18 +231,10 @@ export default function NoteEditorScreen() {
 		await Clipboard.setStringAsync(note.content ?? '');
 		setSnackbarVisible(true);
 	};
-
-	// 長押し時: 直接 copy せず、まず「コピーする」メニューを表示（誤操作防止）。
-	const handleLongPress = (e: GestureResponderEvent) => {
-		setCopyMenuAnchor({
-			x: e.nativeEvent.pageX,
-			y: e.nativeEvent.pageY,
-		});
-	};
-
-	const handleConfirmCopyFromMenu = async () => {
-		setCopyMenuAnchor(null);
-		await handleCopyAll();
+	const handleEditorContentSizeChange = (
+		event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>,
+	) => {
+		setEditorContentHeight(event.nativeEvent.contentSize.height);
 	};
 
 	return (
@@ -288,35 +284,42 @@ export default function NoteEditorScreen() {
 					<Appbar.Action icon="trash-can" onPress={handleDelete} />
 				)}
 			</Appbar.Header>
-			<SyncStatusBar />
-			<PaperTextInput
-				mode="outlined"
-				label={t('editor.titleLabel')}
-				placeholder={t('editor.titlePlaceholder')}
-				value={note.title}
-				onChangeText={(title) =>
-					scheduleSave({
-						...note,
-						title,
-						modifiedTime: new Date().toISOString(),
-					})
-				}
-				style={styles.titleInput}
-				dense
-				// label / アウトラインは theme.colors.onSurfaceVariant を使うが、
-				// contrast を上げた本テーマだと濃すぎる。ここだけ outline（やや淡い色）に寄せる。
-				theme={{
-					colors: {
-						onSurfaceVariant: theme.colors.outline,
-					},
-				}}
-			/>
+			{/* edit モード + キーボード表示中は同期バーとタイトル欄を畳んで
+			    本文の作業領域を最大化する。キーボードを閉じれば再表示される。 */}
+			{!(mode === 'edit' && keyboardVisible) && (
+				<>
+					<SyncStatusBar />
+					<PaperTextInput
+						mode="outlined"
+						label={t('editor.titleLabel')}
+						placeholder={t('editor.titlePlaceholder')}
+						value={note.title}
+						onChangeText={(title) =>
+							scheduleSave({
+								...note,
+								title,
+								modifiedTime: new Date().toISOString(),
+							})
+						}
+						style={styles.titleInput}
+						dense
+						// label / アウトラインは theme.colors.onSurfaceVariant を使うが、
+						// contrast を上げた本テーマだと濃すぎる。ここだけ outline（やや淡い色）に寄せる。
+						theme={{
+							colors: {
+								onSurfaceVariant: theme.colors.outline,
+							},
+						}}
+					/>
+				</>
+			)}
 			{mode === 'view' ? (
 				<ScrollView
 					style={styles.viewer}
 					contentContainerStyle={styles.viewerContent}
 				>
-					<Pressable onLongPress={handleLongPress} delayLongPress={350}>
+					{/* タップで即編集モードへ。コピーは AppBar 右の content-copy ボタンから。 */}
+					<Pressable onPress={() => setMode('edit')}>
 						<SyntaxHighlightView
 							content={note.content}
 							language={note.language}
@@ -325,39 +328,53 @@ export default function NoteEditorScreen() {
 					</Pressable>
 				</ScrollView>
 			) : (
-				<Animated.View style={[styles.editorWrapper, editorWrapperStyle]}>
-					<TextInput
-						style={[
-							styles.editor,
-							{
-								color: theme.colors.onBackground,
-								fontSize: editorFontSize,
-								lineHeight: Math.round(editorFontSize * 1.55),
-							},
-						]}
-						placeholder={t('editor.contentPlaceholder')}
-						placeholderTextColor={theme.colors.onSurfaceVariant}
-						multiline
-						value={note.content}
-						selection={editorSelection}
-						onSelectionChange={(e) => {
-							// (0,0) でない位置にカーソルが動いたら controlled 解除。
-							// 初回 render で (0,0) を当てた直後の onSelectionChange は
-							// (0,0) で来るので無視され、ユーザーがタップした瞬間に解放される。
-							const s = e.nativeEvent.selection;
-							if (editorSelection && (s.start !== 0 || s.end !== 0)) {
-								setEditorSelection(undefined);
+				<Animated.View
+					style={[styles.editorWrapper, editorWrapperStyle]}
+					onLayout={(event) =>
+						setEditorViewportHeight(event.nativeEvent.layout.height)
+					}
+				>
+					<ScrollView
+						style={styles.editorScroller}
+						contentContainerStyle={styles.editorScrollContent}
+						keyboardShouldPersistTaps="handled"
+					>
+						<TextInput
+							style={[
+								styles.editor,
+								{
+									color: theme.colors.onBackground,
+									fontSize: editorFontSize,
+									height: Math.max(editorContentHeight, editorViewportHeight),
+									lineHeight: Math.round(editorFontSize * 1.55),
+								},
+							]}
+							placeholder={t('editor.contentPlaceholder')}
+							placeholderTextColor={theme.colors.onSurfaceVariant}
+							multiline
+							scrollEnabled={false}
+							value={note.content}
+							selection={editorSelection}
+							onContentSizeChange={handleEditorContentSizeChange}
+							onSelectionChange={(e) => {
+								// (0,0) でない位置にカーソルが動いたら controlled 解除。
+								// 初回 render で (0,0) を当てた直後の onSelectionChange は
+								// (0,0) で来るので無視され、ユーザーがタップした瞬間に解放される。
+								const s = e.nativeEvent.selection;
+								if (editorSelection && (s.start !== 0 || s.end !== 0)) {
+									setEditorSelection(undefined);
+								}
+							}}
+							onChangeText={(content) =>
+								scheduleSave({
+									...note,
+									content,
+									contentHeader: generateContentHeader(content),
+									modifiedTime: new Date().toISOString(),
+								})
 							}
-						}}
-						onChangeText={(content) =>
-							scheduleSave({
-								...note,
-								content,
-								contentHeader: generateContentHeader(content),
-								modifiedTime: new Date().toISOString(),
-							})
-						}
-					/>
+						/>
+					</ScrollView>
 				</Animated.View>
 			)}
 			<LanguagePicker
@@ -396,37 +413,19 @@ export default function NoteEditorScreen() {
 					}}
 					buttons={[
 						{ value: 'view', label: t('editor.view'), icon: 'eye' },
-						{ value: 'edit', label: t('editor.edit'), icon: 'pencil' },
+						{
+							value: 'edit',
+							label: t('editor.edit'),
+							icon: 'pencil',
+							checkedColor: theme.colors.onPrimary,
+							style:
+								mode === 'edit'
+									? { backgroundColor: theme.colors.primary }
+									: undefined,
+						},
 					]}
 				/>
 			</Animated.View>
-			{copyMenuAnchor !== null && (
-				<Portal>
-					{/* 外側タップでキャンセル */}
-					<Pressable
-						style={styles.copyDismissLayer}
-						onPress={() => setCopyMenuAnchor(null)}
-					>
-						<View
-							style={[
-								styles.copyPromptButtonWrap,
-								{
-									left: Math.max(8, copyMenuAnchor.x - 40),
-									top: copyMenuAnchor.y + 8,
-								},
-							]}
-						>
-							<Button
-								mode="contained-tonal"
-								icon="content-copy"
-								onPress={handleConfirmCopyFromMenu}
-							>
-								{t('editor.copy')}
-							</Button>
-						</View>
-					</Pressable>
-				</Portal>
-			)}
 			<Snackbar
 				visible={snackbarVisible}
 				onDismiss={() => setSnackbarVisible(false)}
@@ -461,6 +460,15 @@ const styles = StyleSheet.create({
 	editorWrapper: {
 		flex: 1,
 	},
+	editorScroller: {
+		flex: 1,
+	},
+	editorScrollContent: {
+		// TextInput 自体は scrollEnabled=false で縦に伸ばし、ScrollView に
+		// フリング/慣性スクロールを担当させる。下余白はフロート切替バーに
+		// 本文末尾が隠れないよう ScrollView 側へ持たせる。
+		paddingBottom: FLOATING_BAR_CLEARANCE,
+	},
 	viewer: {
 		flex: 1,
 	},
@@ -473,12 +481,9 @@ const styles = StyleSheet.create({
 		paddingBottom: FLOATING_BAR_CLEARANCE,
 	},
 	editor: {
-		flex: 1,
 		paddingHorizontal: 16,
 		paddingTop: 4,
-		// Edit モードはキーボード表示でフロートが消えるが、
-		// 閉じている時でもフロートに入力が隠されないよう clearance を確保
-		paddingBottom: FLOATING_BAR_CLEARANCE,
+		paddingBottom: 4,
 		textAlignVertical: 'top',
 		fontFamily: monoFamily,
 		fontSize: 14,
@@ -519,17 +524,5 @@ const styles = StyleSheet.create({
 		alignItems: 'center',
 		justifyContent: 'center',
 		padding: 24,
-	},
-	// 長押し時の「コピーする」確認ボタン（誤操作防止の 1 step）
-	copyDismissLayer: {
-		// 全画面透明レイヤ：外側タップでキャンセルするためのキャッチャー
-		position: 'absolute',
-		top: 0,
-		left: 0,
-		right: 0,
-		bottom: 0,
-	},
-	copyPromptButtonWrap: {
-		position: 'absolute',
 	},
 });

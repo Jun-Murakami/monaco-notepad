@@ -3,11 +3,11 @@
 		"title": "Monaco Notepad"
 	},
 	"auth": {
-		"signIn": "Google でサインイン",
-		"signOut": "サインアウト",
-		"signedInAs": "サインイン中",
-		"notSignedIn": "未サインイン",
-		"signInPrompt": "Google Driveと同期するにはサインインしてください",
+		"signIn": "Google Drive に接続",
+		"signOut": "Google Drive 連携を解除",
+		"signedInAs": "接続中",
+		"notSignedIn": "未接続",
+		"signInPrompt": "ノートをGoogle Driveと同期するには、Google Driveへのアクセスを許可してください。",
 		"cancel": "キャンセル"
 	},
 	"noteList": {
@@ -47,7 +47,7 @@
 		"view": "閲覧",
 		"edit": "編集",
 		"language": "言語",
-		"selectLanguage": "言語を選択",
+		"selectLanguage": "シンタックスハイライト言語を選択",
 		"searchLanguage": "言語を検索",
 		"noLanguageMatches": "該当する言語がありません",
 		"save": "保存",
@@ -71,11 +71,16 @@
 		"status_resolving": "競合解決中...",
 		"status_offline": "オフライン",
 		"status_error": "同期エラー",
+		"phase_preparing": "Drive 接続準備中...",
+		"phase_fetching-notelist": "ノートリストを取得中...",
+		"phase_downloading-notes": "ノート本文をダウンロード中",
+		"phase_uploading-notes": "ノート本文をアップロード中",
+		"phase_merging": "ノートリストを更新中...",
 		"syncNow": "今すぐ同期"
 	},
 	"settings": {
 		"title": "設定",
-		"account": "アカウント",
+		"account": "Google Drive同期",
 		"language": "言語",
 		"language_system": "システム既定",
 		"language_ja": "日本語",
@@ -87,6 +92,16 @@
 		"sync": "同期",
 		"syncOnCellular": "モバイル回線でも同期",
 		"conflictBackup": "競合バックアップを保存",
+		"manageConflictBackups": "競合バックアップを管理",
+		"dataDeletion": "データ削除",
+		"deleteDriveData": "Google Driveの同期データを削除",
+		"deleteDriveDataTitle": "Google Driveの同期データを削除",
+		"deleteDriveDataMessage": "Google Drive上のMonaco Notepad同期データをすべて削除し、Google Drive連携を解除します。端末内のノートは残ります。この操作は取り消せません。",
+		"deleteLocalData": "この端末のデータをすべて削除",
+		"deleteLocalDataTitle": "この端末のデータを削除",
+		"deleteLocalDataMessage": "この端末に保存されたノート、設定、同期状態、Google Drive連携情報をすべて削除します。Google Drive上のデータは削除されません。この操作は取り消せません。",
+		"cancel": "キャンセル",
+		"delete": "削除",
 		"editor": "エディタ",
 		"editorFontSize": "ノートの文字サイズ",
 		"about": "このアプリについて"
@@ -109,5 +124,21 @@
 	"orphan": {
 		"localRecoveryDone": "ローカル孤立ノートを「不明ノート」へ復元しました",
 		"cloudRecoveryDone": "クラウド孤立ノートを「不明ノート」へ復元しました"
+	},
+	"conflictBackups": {
+		"title": "競合バックアップ",
+		"empty": "保存された競合バックアップはありません",
+		"kind_cloud_wins": "クラウド版を保持したバックアップ",
+		"kind_cloud_delete": "クラウド削除時のバックアップ",
+		"noPreview": "プレビューできる本文がありません",
+		"restore": "新規ノートとして復元",
+		"delete": "削除",
+		"deleteAll": "すべて削除",
+		"deleteTitle": "バックアップを削除",
+		"deleteMessage": "このバックアップを削除します。この操作は取り消せません。",
+		"deleteAllTitle": "バックアップをすべて削除",
+		"deleteAllMessage": "保存された競合バックアップをすべて削除します。この操作は取り消せません。",
+		"restoredTitle": "復元: {{title}}",
+		"restoredUntitled": "復元されたノート"
 	}
 }

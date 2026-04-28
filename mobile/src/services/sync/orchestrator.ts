@@ -168,12 +168,22 @@ export class SyncOrchestrator {
 
 		// Pass 2: 確定した件数で綺麗な進捗表示 (1/M, 2/M, ..., M/M)
 		const uploadTotal = toUpload.length;
+		if (uploadTotal > 0) {
+			syncEvents.emit('sync:phase', { phase: 'uploading-notes' });
+			syncEvents.emit('sync:progress', { current: 0, total: uploadTotal });
+		}
 		for (let i = 0; i < toUpload.length; i++) {
 			const p = toUpload[i];
 			syncEvents.emit('sync:message', {
 				code: MessageCode.DriveSyncUploadNote,
 				args: { noteId: p.noteId, current: i + 1, total: uploadTotal },
 			});
+			if (uploadTotal > 0) {
+				syncEvents.emit('sync:progress', {
+					current: i + 1,
+					total: uploadTotal,
+				});
+			}
 			const existingId = await this.driveSync.resolveNoteFileId(p.noteId);
 			if (existingId) {
 				await this.driveSync.updateNote(p.note);
@@ -192,6 +202,8 @@ export class SyncOrchestrator {
 		}
 
 		// フォルダ削除はクラウドにはファイル実体がないので noteList 更新のみで済む
+		syncEvents.emit('sync:progress', { current: 0, total: 0 });
+		syncEvents.emit('sync:phase', { phase: 'merging' });
 		const updated = await this.driveSync.updateNoteList(list);
 		const cleared = await this.syncState.clearDirtyIfUnchanged(
 			snap.revision,
@@ -211,6 +223,9 @@ export class SyncOrchestrator {
 
 	// ---- PULL ----
 	private async pullCloudChanges(cloudTs: string): Promise<void> {
+		// noteList JSON 取得は単一リクエストで progress 出せない。
+		// phase だけでも UI に伝えて「何が遅いのか」を可視化する。
+		syncEvents.emit('sync:phase', { phase: 'fetching-notelist' });
 		const cloudList = await this.driveSync.downloadNoteList();
 		const localList = this.noteService.getNoteList();
 
@@ -230,6 +245,7 @@ export class SyncOrchestrator {
 		}
 
 		if (toDownload.length > 0) {
+			syncEvents.emit('sync:phase', { phase: 'downloading-notes' });
 			syncEvents.emit('sync:progress', {
 				current: 0,
 				total: toDownload.length,
@@ -270,6 +286,7 @@ export class SyncOrchestrator {
 		}
 		// 念のため progress をクリア
 		syncEvents.emit('sync:progress', { current: 0, total: 0 });
+		syncEvents.emit('sync:phase', { phase: 'merging' });
 
 		// クラウドから消えたノートをローカルからも削除
 		for (const local of localList.notes) {
@@ -321,6 +338,7 @@ export class SyncOrchestrator {
 	// ---- CONFLICT ----
 	private async resolveConflict(cloudTs: string): Promise<void> {
 		const snap = await this.syncState.getDirtySnapshotWithRevision();
+		syncEvents.emit('sync:phase', { phase: 'fetching-notelist' });
 		const cloudList = await this.driveSync.downloadNoteList();
 		const localList = this.noteService.getNoteList();
 		const resultHashes: Record<string, string> = {};

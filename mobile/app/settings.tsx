@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
 	ScrollView,
 	StyleSheet,
+	Alert,
 	useWindowDimensions,
 	View,
 } from 'react-native';
@@ -48,6 +49,7 @@ const SECTION_HORIZONTAL_PADDING = 16;
 
 export default function SettingsScreen() {
 	const { t } = useTranslation();
+	const theme = useTheme();
 	const router = useRouter();
 	const insets = useSafeAreaInsets();
 	const { width: windowWidth } = useWindowDimensions();
@@ -71,6 +73,7 @@ export default function SettingsScreen() {
 	const [editorFontSize, setEditorFontSize] = useState<EditorFontSize>(
 		() => appSettings.snapshot().editorFontSize,
 	);
+	const [destructiveBusy, setDestructiveBusy] = useState(false);
 
 	useEffect(() => {
 		return appSettings.subscribe((s) => {
@@ -98,6 +101,47 @@ export default function SettingsScreen() {
 		const num = Number(value);
 		if (!EDITOR_FONT_SIZES.includes(num as EditorFontSize)) return;
 		await appSettings.update({ editorFontSize: num as EditorFontSize });
+	};
+
+	const confirmDanger = (title: string, message: string): Promise<boolean> =>
+		new Promise((resolve) => {
+			Alert.alert(title, message, [
+				{ text: t('settings.cancel'), style: 'cancel', onPress: () => resolve(false) },
+				{
+					text: t('settings.delete'),
+					style: 'destructive',
+					onPress: () => resolve(true),
+				},
+			]);
+		});
+
+	const onDeleteDriveData = async () => {
+		const confirmed = await confirmDanger(
+			t('settings.deleteDriveDataTitle'),
+			t('settings.deleteDriveDataMessage'),
+		);
+		if (!confirmed) return;
+		setDestructiveBusy(true);
+		try {
+			await driveService.deleteAllDriveDataAndSignOut();
+		} finally {
+			setDestructiveBusy(false);
+		}
+	};
+
+	const onDeleteLocalData = async () => {
+		const confirmed = await confirmDanger(
+			t('settings.deleteLocalDataTitle'),
+			t('settings.deleteLocalDataMessage'),
+		);
+		if (!confirmed) return;
+		setDestructiveBusy(true);
+		try {
+			await driveService.deleteLocalData();
+			router.replace('/');
+		} finally {
+			setDestructiveBusy(false);
+		}
 	};
 
 	return (
@@ -150,6 +194,24 @@ export default function SettingsScreen() {
 					<RadioButton.Item label={t('settings.theme_dark')} value="dark" />
 				</RadioButton.Group>
 
+				<SectionBar>{t('settings.editor')}</SectionBar>
+				<List.Item
+					title={t('settings.editorFontSize')}
+					left={(props) => <List.Icon {...props} icon="format-size" />}
+				/>
+				<View style={styles.fontSizeRow}>
+					<SegmentedButtons
+						value={String(editorFontSize)}
+						onValueChange={onEditorFontSizeChange}
+						density="small"
+						buttons={EDITOR_FONT_SIZES.map((size) => ({
+							value: String(size),
+							label: String(size),
+							style: { minWidth: 0, width: fontSizeButtonWidth },
+						}))}
+					/>
+				</View>
+
 				<SectionBar>{t('settings.sync')}</SectionBar>
 				<List.Item
 					title={t('settings.syncOnCellular')}
@@ -171,23 +233,35 @@ export default function SettingsScreen() {
 						/>
 					)}
 				/>
-
-				<SectionBar>{t('settings.editor')}</SectionBar>
 				<List.Item
-					title={t('settings.editorFontSize')}
-					left={(props) => <List.Icon {...props} icon="format-size" />}
+					title={t('settings.manageConflictBackups')}
+					left={(props) => <List.Icon {...props} icon="folder-clock-outline" />}
+					right={(props) => <List.Icon {...props} icon="chevron-right" />}
+					onPress={() => router.push('/conflict-backups')}
 				/>
-				<View style={styles.fontSizeRow}>
-					<SegmentedButtons
-						value={String(editorFontSize)}
-						onValueChange={onEditorFontSizeChange}
-						density="small"
-						buttons={EDITOR_FONT_SIZES.map((size) => ({
-							value: String(size),
-							label: String(size),
-							style: { minWidth: 0, width: fontSizeButtonWidth },
-						}))}
-					/>
+
+				<SectionBar>{t('settings.dataDeletion')}</SectionBar>
+				<View style={styles.dangerActions}>
+					{signedIn && (
+						<Button
+							mode="outlined"
+							icon="cloud-remove-outline"
+							textColor={theme.colors.error}
+							onPress={onDeleteDriveData}
+							disabled={destructiveBusy}
+						>
+							{t('settings.deleteDriveData')}
+						</Button>
+					)}
+					<Button
+						mode="outlined"
+						icon="delete-outline"
+						textColor={theme.colors.error}
+						onPress={onDeleteLocalData}
+						disabled={destructiveBusy}
+					>
+						{t('settings.deleteLocalData')}
+					</Button>
 				</View>
 			</ScrollView>
 		</View>
@@ -205,5 +279,12 @@ const styles = StyleSheet.create({
 	fontSizeRow: {
 		paddingHorizontal: SECTION_HORIZONTAL_PADDING,
 		paddingBottom: 12,
+	},
+	dangerActions: {
+		gap: 8,
+		paddingHorizontal: SECTION_HORIZONTAL_PADDING,
+		paddingTop: 12,
+		paddingBottom: 12,
+		alignItems: 'center',
 	},
 });

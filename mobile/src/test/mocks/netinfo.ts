@@ -3,6 +3,7 @@
 export type NetInfoState = {
 	isConnected: boolean;
 	type?: string;
+	details?: { isConnectionExpensive?: boolean } | null;
 };
 
 type Listener = (state: NetInfoState) => void;
@@ -19,12 +20,17 @@ async function fetch(): Promise<NetInfoState> {
 	return current;
 }
 
+/** 本番 NetInfo.refresh と同じく現在の state を返す Promise。 */
+async function refresh(): Promise<NetInfoState> {
+	return current;
+}
+
 /** テスト用: 接続状態を切り替える。 */
 export function __setNetState(state: NetInfoState): void {
 	current = state;
 	for (const l of listeners) l(state);
 }
 
-const api = { addEventListener, fetch };
+const api = { addEventListener, fetch, refresh };
 export default api;
-export { addEventListener, fetch };
+export { addEventListener, fetch, refresh };

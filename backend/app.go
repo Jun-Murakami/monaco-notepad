@@ -652,6 +652,73 @@ func (a *App) DeleteAllDriveData() error {
 	return a.driveService.DeleteAllDriveData()
 }
 
+// この端末に保存されたアプリデータを全削除する ------------------------------------------------------------
+// Google Drive 上のデータは削除しない。ローカルノート、設定、同期状態、OAuth token、
+// 最近使ったファイル履歴など、appDataDir 配下のデータを削除して空のサービス状態へ戻す。
+func (a *App) DeleteLocalAppData() error {
+	if a.driveService != nil {
+		if err := a.driveService.LogoutDrive(); err != nil {
+			a.logger.Console("DeleteLocalAppData: logout failed before deletion: %v", err)
+		}
+	}
+	if a.logger != nil {
+		// Windows では開いたログファイルが残っていると RemoveAll に失敗し得るため、
+		// 先にデバッグログを閉じてから appDataDir を削除する。
+		a.logger.SetDebugMode(false)
+	}
+	if err := os.RemoveAll(a.appDataDir); err != nil {
+		return fmt.Errorf("failed to delete local app data: %w", err)
+	}
+	if err := os.MkdirAll(a.notesDir, 0755); err != nil {
+		return fmt.Errorf("failed to recreate notes directory: %w", err)
+	}
+
+	a.logger = NewAppLogger(a.ctx.ctx, false, a.appDataDir)
+	a.fileService = NewFileService(a.ctx)
+	a.settingsService = NewSettingsService(a.appDataDir)
+	a.fileNoteService = NewFileNoteService(a.appDataDir)
+	a.recentFilesService = NewRecentFilesService(a.appDataDir)
+
+	ns, err := NewNoteService(a.notesDir, a.logger)
+	if err != nil {
+		a.logger.Console("DeleteLocalAppData: creating empty note service: %v", err)
+		ns = NewEmptyNoteService(a.notesDir, a.logger)
+	}
+	a.noteService = ns
+	a.syncState = NewSyncState(a.appDataDir)
+	if err := a.syncState.Load(); err != nil {
+		a.logger.Console("DeleteLocalAppData: failed to load fresh sync state: %v", err)
+	}
+
+	authService := NewAuthService(
+		a.ctx.ctx,
+		a.appDataDir,
+		a.notesDir,
+		a.noteService,
+		credentialsJSON,
+		a.logger,
+		false,
+	)
+	authService.NotifyFrontendReady()
+	a.authService = authService
+	a.driveService = NewDriveService(
+		a.ctx.ctx,
+		a.appDataDir,
+		a.notesDir,
+		a.noteService,
+		credentialsJSON,
+		a.logger,
+		authService,
+		a.syncState,
+	)
+	a.lastActiveNoteId = ""
+	a.lastActiveNoteIsFile = false
+
+	wailsRuntime.EventsEmit(a.ctx.ctx, "drive:status", "offline")
+	wailsRuntime.EventsEmit(a.ctx.ctx, "notes:reload")
+	return nil
+}
+
 // 手動でただちに同期を開始 ------------------------------------------------------------
 func (a *App) SyncNow() error {
 	if a.driveService != nil && a.driveService.IsConnected() {

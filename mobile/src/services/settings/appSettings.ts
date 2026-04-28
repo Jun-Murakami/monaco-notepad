@@ -44,6 +44,7 @@ class AppSettingsStore {
 		if (this.loaded) return;
 		await ensureDir(APP_DATA_DIR);
 		const raw = await readString(SETTINGS_PATH);
+		const previous = this.state;
 		if (raw) {
 			try {
 				const parsed = JSON.parse(raw) as Partial<AppSettings>;
@@ -57,6 +58,13 @@ class AppSettingsStore {
 			}
 		}
 		this.loaded = true;
+		// useAppTheme などは起動直後、settings.json の非同期 load より先に
+		// DEFAULT_SETTINGS を snapshot して購読を始める。load 後に通知しないと、
+		// 設定画面は dark を表示しているのに PaperProvider だけ auto/light のまま
+		// 取り残されるため、永続化済み設定を読み込んだタイミングでも通知する。
+		if (!settingsEqual(previous, this.state)) {
+			this.emit();
+		}
 	}
 
 	snapshot(): Readonly<AppSettings> {
@@ -66,6 +74,17 @@ class AppSettingsStore {
 	async update(patch: Partial<AppSettings>): Promise<void> {
 		this.state = { ...this.state, ...patch };
 		await writeAtomic(SETTINGS_PATH, JSON.stringify(this.state, null, 2));
+		this.emit();
+	}
+
+	/** 端末データ削除後に、設定も初期値へ戻す（ファイルは再作成しない）。 */
+	resetInMemory(): void {
+		this.state = { ...DEFAULT_SETTINGS };
+		this.loaded = true;
+		this.emit();
+	}
+
+	private emit(): void {
 		for (const l of this.listeners) {
 			try {
 				l(this.state);
@@ -82,3 +101,13 @@ class AppSettingsStore {
 }
 
 export const appSettings = new AppSettingsStore();
+
+function settingsEqual(a: AppSettings, b: AppSettings): boolean {
+	return (
+		a.language === b.language &&
+		a.theme === b.theme &&
+		a.syncOnCellular === b.syncOnCellular &&
+		a.conflictBackup === b.conflictBackup &&
+		a.editorFontSize === b.editorFontSize
+	);
+}

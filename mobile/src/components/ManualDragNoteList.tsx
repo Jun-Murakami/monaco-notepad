@@ -2,6 +2,7 @@ import {
 	memo,
 	type ReactNode,
 	useCallback,
+	useEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -24,6 +25,7 @@ import Reanimated, {
 	type SharedValue,
 	useAnimatedStyle,
 	useSharedValue,
+	withTiming,
 } from 'react-native-reanimated';
 import { FolderListItem } from '@/components/FolderListItem';
 import { NoteListItem } from '@/components/NoteListItem';
@@ -37,18 +39,19 @@ import type { DropIntent, FlatRow } from '@/utils/flatTree';
 // 競合し、ちょっと触っただけで drag が始まってしまう。スクロール / タップ /
 // スワイプ (= ReanimatedSwipeable) との取り違いをなるべく無くしたいので、
 // 700ms でしっかりホールドさせる。
-const DRAG_LONG_PRESS_MS = 700;
+const DRAG_LONG_PRESS_MS = 500;
 const AUTOSCROLL_EDGE_PX = 56;
 const AUTOSCROLL_STEP_PX = 18;
-// 指でドラッグしているモバイルでは、フォルダ末尾境界での「中へ入れる/外へ出す」の
-// 判定が、PC のマウスより遥かにラフな指位置で起きる。デフォルトで「外」に倒し、
-// **明確に深く右へ動かした時だけ「内側 (= 末尾子)」** にする方針。
-// - 入る (outside → inside): contentX > threshold + ENTER_HYSTERESIS (deliberate)
-// - 出る (inside → outside): contentX < threshold - EXIT_HYSTERESIS (= threshold)
-//   → ほんの少しでも左にドリフトしたら即「外」へ復帰。
-const FOLDER_BOUNDARY_INDENT_THRESHOLD = 140;
-const FOLDER_BOUNDARY_ENTER_HYSTERESIS_PX = 30;
-const FOLDER_BOUNDARY_EXIT_HYSTERESIS_PX = 0;
+const DROP_INDICATOR_HEIGHT = 3;
+// フォルダ末尾境界では、画面左端からの固定しきい値ではなく「その境界へ到達した時の
+// contentX」を基準にする。固定しきい値 (以前は約 170px) にすると、左側のインデント
+// 領域で内側に入れたい操作まで outside 扱いになり、画面 1/3 付近まで右へ入れないと
+// inside が維持できない。
+// - 境界へ入った瞬間は inside (= フォルダ末尾子) として扱う。
+// - inside 中に到達した最右 X を peak として保持し、そこから左へ戻ったら outside。
+// - outside 後は peak まで右へ戻したら inside に復帰する。
+// 少量の grace は、Android 実機での指・センサーの 1〜数 px 揺れを意図判定から外すため。
+const FOLDER_BOUNDARY_RETREAT_GRACE_PX = 6;
 const INDICATOR_INSET = 8;
 const INDENT_INDICATOR_OFFSET = 40;
 const GROUP_TRAILING_SPACE_PX = 8;
@@ -469,10 +472,17 @@ export function ManualDragNoteList({
 	const viewportPageXRef = useRef(0);
 	const viewportPageYRef = useRef(0);
 	const activeIndexRef = useRef<number | null>(null);
+	const latestPointerRef = useRef<{ x: number; y: number } | null>(null);
+	const autoscrollFrameRef = useRef<number | null>(null);
+	const autoscrollTickRef = useRef<() => void>(() => {});
 	const dropIntentRef = useRef<DropIntent | null>(null);
 	const dropTargetKeyRef = useRef('');
 	const boundaryFolderIdRef = useRef<string | null>(null);
+	const boundaryRowKeyRef = useRef<string | null>(null);
 	const boundaryIndentedRef = useRef(false);
+	// inside 状態に入ってから一度でも到達した最右の contentX を記録する。
+	// このリードに対して左方向に戻った時点で「外に出したがっている」と判定する。
+	const boundaryReachedMaxXRef = useRef(0);
 	const grabOffsetYRef = useRef(0);
 	const dragRowsRef = useRef<FlatRow[]>([]);
 	const [dragState, setDragState] = useState<DragState | null>(null);
@@ -485,8 +495,11 @@ export function ManualDragNoteList({
 	const scrollOffset = useSharedValue(0);
 	const visualBoundaryIndented = useSharedValue(0);
 	const visualBoundarySlot = useSharedValue(-1);
+	// inside 状態で到達した最右 contentX (worklet 側)。JS 側 boundaryReachedMaxXRef と同義。
+	const visualBoundaryReachedMaxX = useSharedValue(0);
 	const viewportPageX = useSharedValue(0);
 	const viewportPageY = useSharedValue(0);
+	const viewportHeight = useSharedValue(0);
 	const grabOffsetY = useSharedValue(0);
 	const activeIndexSV = useSharedValue(-1);
 	const targetSlotSV = useSharedValue(-1);
@@ -507,6 +520,7 @@ export function ManualDragNoteList({
 	const handleViewportLayout = useCallback(
 		(event: LayoutChangeEvent) => {
 			viewportHeightRef.current = event.nativeEvent.layout.height;
+			viewportHeight.value = event.nativeEvent.layout.height;
 			requestAnimationFrame(() => {
 				viewportRef.current?.measureInWindow((x, y) => {
 					viewportPageXRef.current = x;
@@ -516,7 +530,7 @@ export function ManualDragNoteList({
 				});
 			});
 		},
-		[viewportPageX, viewportPageY],
+		[viewportHeight, viewportPageX, viewportPageY],
 	);
 
 	const handleScroll = useCallback(
@@ -556,29 +570,80 @@ export function ManualDragNoteList({
 				scrollOffsetRef.current = nextOffset;
 				scrollOffset.value = nextOffset;
 				scrollRef.current?.scrollTo({ y: nextOffset, animated: false });
+				return true;
 			}
+			return false;
 		},
 		[scrollOffset],
 	);
 
+	const canAutoscrollAtPointer = useCallback((absoluteY: number) => {
+		const viewportY = absoluteY - viewportPageYRef.current;
+		const maxOffset = Math.max(
+			0,
+			contentHeightRef.current - viewportHeightRef.current,
+		);
+		if (viewportY < AUTOSCROLL_EDGE_PX) {
+			return scrollOffsetRef.current > 0;
+		}
+		if (viewportY > viewportHeightRef.current - AUTOSCROLL_EDGE_PX) {
+			return scrollOffsetRef.current < maxOffset;
+		}
+		return false;
+	}, []);
+
+	const stopAutoscrollLoop = useCallback(() => {
+		if (autoscrollFrameRef.current !== null) {
+			cancelAnimationFrame(autoscrollFrameRef.current);
+			autoscrollFrameRef.current = null;
+		}
+	}, []);
+
+	const startAutoscrollLoop = useCallback(() => {
+		if (autoscrollFrameRef.current !== null) return;
+		const pointer = latestPointerRef.current;
+		if (!pointer || activeIndexRef.current === null) return;
+		if (!canAutoscrollAtPointer(pointer.y)) return;
+		autoscrollFrameRef.current = requestAnimationFrame(() => {
+			autoscrollTickRef.current();
+		});
+	}, [canAutoscrollAtPointer]);
+
 	const resolveBoundaryIndented = useCallback(
 		(folderId: string, rowKey: string, contentX: number) => {
-			const layout = rowLayoutsRef.current.get(rowKey);
-			const threshold = (layout?.x ?? 0) + FOLDER_BOUNDARY_INDENT_THRESHOLD;
-			const enterAt = threshold + FOLDER_BOUNDARY_ENTER_HYSTERESIS_PX;
-			const exitAt = threshold - FOLDER_BOUNDARY_EXIT_HYSTERESIS_PX;
-			const activeBoundaryChanged = boundaryFolderIdRef.current !== folderId;
+			const activeBoundaryChanged =
+				boundaryFolderIdRef.current !== folderId ||
+				boundaryRowKeyRef.current !== rowKey;
 			if (activeBoundaryChanged) {
 				boundaryFolderIdRef.current = folderId;
-				// 初回: 「外」を default にする (深く右へ動いていなければ常に外)
-				boundaryIndentedRef.current = contentX > enterAt;
+				boundaryRowKeyRef.current = rowKey;
+				// 境界到達時の X を基準にする。画面左端からの固定しきい値を使うと、
+				// 左側で慎重に操作した時ほど inside に入れなくなるため。
+				boundaryIndentedRef.current = true;
+				boundaryReachedMaxXRef.current = contentX;
 				return boundaryIndentedRef.current;
 			}
 
-			if (boundaryIndentedRef.current && contentX < exitAt) {
-				boundaryIndentedRef.current = false;
-			} else if (!boundaryIndentedRef.current && contentX > enterAt) {
+			if (boundaryIndentedRef.current) {
+				// 右へ入れ込んだ分だけ peak を更新する。以後はこの peak から左に
+				// 戻した量だけを「外へ出したい」意図として見る。
+				if (contentX > boundaryReachedMaxXRef.current) {
+					boundaryReachedMaxXRef.current = contentX;
+				}
+				if (
+					contentX <
+					boundaryReachedMaxXRef.current - FOLDER_BOUNDARY_RETREAT_GRACE_PX
+				) {
+					boundaryIndentedRef.current = false;
+				}
+			} else if (
+				contentX >
+				boundaryReachedMaxXRef.current + FOLDER_BOUNDARY_RETREAT_GRACE_PX
+			) {
+				// outside → inside: 固定しきい値ではなく、いったん外へ出た時の peak を
+				// 右へ戻し直したことを復帰意図として扱う。
 				boundaryIndentedRef.current = true;
+				boundaryReachedMaxXRef.current = contentX;
 			}
 			return boundaryIndentedRef.current;
 		},
@@ -617,6 +682,23 @@ export function ManualDragNoteList({
 			if (!target) return;
 
 			dropIntentRef.current = target.intent;
+			targetSlotSV.value = target.slot;
+			const indicatorVisualY =
+				target.slot > activeIndex
+					? target.indicatorContentY - activeLayout.height
+					: target.indicatorContentY;
+			// JS 側の連続自動スクロール中は worklet の onUpdate が走らないため、
+			// ここでもインジケーター位置を更新する。リスト viewport 内へ clamp し、
+			// AppBar / 下部バー領域に線がはみ出さないようにする。
+			indicatorTop.value = clamp(
+				indicatorVisualY - scrollOffsetRef.current,
+				0,
+				Math.max(0, viewportHeightRef.current - DROP_INDICATOR_HEIGHT),
+			);
+			indicatorIndent.value = target.indicatorIndented
+				? INDENT_INDICATOR_OFFSET
+				: 0;
+			indicatorVisible.value = 1;
 
 			if (target.key === dropTargetKeyRef.current) return;
 			dropTargetKeyRef.current = target.key;
@@ -624,8 +706,29 @@ export function ManualDragNoteList({
 				state ? { ...state, folderId: target.folderId } : state,
 			);
 		},
-		[resolveBoundaryIndented, scrollByEdge],
+		[
+			indicatorIndent,
+			indicatorTop,
+			indicatorVisible,
+			resolveBoundaryIndented,
+			scrollByEdge,
+			targetSlotSV,
+		],
 	);
+
+	autoscrollTickRef.current = () => {
+		autoscrollFrameRef.current = null;
+		const pointer = latestPointerRef.current;
+		if (!pointer || activeIndexRef.current === null) return;
+		if (!canAutoscrollAtPointer(pointer.y)) return;
+		// 指がリスト端の外または端付近で止まっていても、前回 pointer を使って
+		// 毎フレーム drop target を更新する。これで「ぐりぐり動かさないと
+		// スクロールが続かない」状態を避ける。
+		updateTargetFromPointer(pointer.x, pointer.y);
+		startAutoscrollLoop();
+	};
+
+	useEffect(() => stopAutoscrollLoop, [stopAutoscrollLoop]);
 
 	const handleGestureStart = useCallback(
 		(
@@ -640,12 +743,15 @@ export function ManualDragNoteList({
 			const layout = rowLayoutsRef.current.get(item.key);
 			if (!layout) return;
 
+			latestPointerRef.current = { x: absoluteX, y: absoluteY };
 			dragRowsRef.current = rowsRef.current;
 			activeIndexRef.current = index;
 			dropIntentRef.current = getCurrentDropIntent(rowsRef.current, index);
 			dropTargetKeyRef.current = '';
 			boundaryFolderIdRef.current = null;
+			boundaryRowKeyRef.current = null;
 			boundaryIndentedRef.current = false;
+			boundaryReachedMaxXRef.current = 0;
 			grabOffsetYRef.current = localY;
 			jsMoveFrame.value = 0;
 			rowMetrics.value = buildRowMetrics(
@@ -655,6 +761,7 @@ export function ManualDragNoteList({
 			scrollOffset.value = scrollOffsetRef.current;
 			visualBoundaryIndented.value = 0;
 			visualBoundarySlot.value = -1;
+			visualBoundaryReachedMaxX.value = 0;
 			viewportPageXRef.current = absoluteX - localX - layout.x;
 			viewportPageYRef.current =
 				absoluteY - localY - layout.y + scrollOffsetRef.current;
@@ -665,7 +772,11 @@ export function ManualDragNoteList({
 			activeIndexSV.value = index;
 			targetSlotSV.value = index;
 			activeHeightSV.value = layout.height;
-			indicatorTop.value = layout.y - scrollOffsetRef.current;
+			indicatorTop.value = clamp(
+				layout.y - scrollOffsetRef.current,
+				0,
+				Math.max(0, viewportHeightRef.current - DROP_INDICATOR_HEIGHT),
+			);
 			indicatorIndent.value =
 				item.kind === 'folder-child' ? INDENT_INDICATOR_OFFSET : 0;
 			indicatorVisible.value = 1;
@@ -675,6 +786,7 @@ export function ManualDragNoteList({
 				folderId: item.kind === 'folder-child' ? item.folderId : '',
 			});
 			updateTargetFromPointer(absoluteX, absoluteY);
+			startAutoscrollLoop();
 		},
 		[
 			activeHeightSV,
@@ -687,9 +799,11 @@ export function ManualDragNoteList({
 			overlayTop,
 			rowMetrics,
 			scrollOffset,
+			startAutoscrollLoop,
 			targetSlotSV,
 			updateTargetFromPointer,
 			visualBoundaryIndented,
+			visualBoundaryReachedMaxX,
 			visualBoundarySlot,
 			viewportPageX,
 			viewportPageY,
@@ -698,13 +812,16 @@ export function ManualDragNoteList({
 
 	const handleGestureMove = useCallback(
 		(absoluteX: number, absoluteY: number) => {
+			latestPointerRef.current = { x: absoluteX, y: absoluteY };
 			updateTargetFromPointer(absoluteX, absoluteY);
+			startAutoscrollLoop();
 		},
-		[updateTargetFromPointer],
+		[startAutoscrollLoop, updateTargetFromPointer],
 	);
 
 	const handleGestureEnd = useCallback(
 		(commit: boolean, absoluteX?: number, absoluteY?: number) => {
+			stopAutoscrollLoop();
 			const activeIndex = activeIndexRef.current;
 			if (activeIndex === null) return;
 			if (
@@ -712,6 +829,7 @@ export function ManualDragNoteList({
 				typeof absoluteX === 'number' &&
 				typeof absoluteY === 'number'
 			) {
+				latestPointerRef.current = { x: absoluteX, y: absoluteY };
 				updateTargetFromPointer(absoluteX, absoluteY);
 			}
 			const dropIntent = dropIntentRef.current;
@@ -745,6 +863,8 @@ export function ManualDragNoteList({
 			dropIntentRef.current = null;
 			dropTargetKeyRef.current = '';
 			boundaryFolderIdRef.current = null;
+			boundaryRowKeyRef.current = null;
+			latestPointerRef.current = null;
 			dragRowsRef.current = [];
 		},
 		[
@@ -752,6 +872,7 @@ export function ManualDragNoteList({
 			activeIndexSV,
 			indicatorVisible,
 			onReorder,
+			stopAutoscrollLoop,
 			targetSlotSV,
 			updateTargetFromPointer,
 		],
@@ -937,6 +1058,7 @@ export function ManualDragNoteList({
 					overlayTop={overlayTop}
 					viewportPageX={viewportPageX}
 					viewportPageY={viewportPageY}
+					viewportHeight={viewportHeight}
 					grabOffsetY={grabOffsetY}
 					activeIndex={activeIndexSV}
 					targetSlot={targetSlotSV}
@@ -949,6 +1071,7 @@ export function ManualDragNoteList({
 					scrollOffset={scrollOffset}
 					visualBoundaryIndented={visualBoundaryIndented}
 					visualBoundarySlot={visualBoundarySlot}
+					visualBoundaryReachedMaxX={visualBoundaryReachedMaxX}
 					hidden={hidden}
 					disableDrag={disableDrag}
 				>
@@ -1016,6 +1139,7 @@ interface DraggableRowProps {
 	overlayTop: SharedValue<number>;
 	viewportPageX: SharedValue<number>;
 	viewportPageY: SharedValue<number>;
+	viewportHeight: SharedValue<number>;
 	grabOffsetY: SharedValue<number>;
 	activeIndex: SharedValue<number>;
 	targetSlot: SharedValue<number>;
@@ -1028,6 +1152,7 @@ interface DraggableRowProps {
 	scrollOffset: SharedValue<number>;
 	visualBoundaryIndented: SharedValue<number>;
 	visualBoundarySlot: SharedValue<number>;
+	visualBoundaryReachedMaxX: SharedValue<number>;
 	hidden?: boolean;
 	disableDrag?: boolean;
 }
@@ -1043,6 +1168,7 @@ function DraggableRowImpl({
 	overlayTop,
 	viewportPageX,
 	viewportPageY,
+	viewportHeight,
 	grabOffsetY,
 	activeIndex,
 	targetSlot,
@@ -1055,15 +1181,17 @@ function DraggableRowImpl({
 	scrollOffset,
 	visualBoundaryIndented,
 	visualBoundarySlot,
+	visualBoundaryReachedMaxX,
 	hidden = false,
 	disableDrag = false,
 }: DraggableRowProps) {
 	const rowStyle = useAnimatedStyle(() => {
 		const active = activeIndex.value;
 		if (active < 0) {
+			// ドラッグ終了時の戻りもアニメーションさせる (translateY 0 へ収束)
 			return {
 				opacity: 1,
-				transform: [{ translateY: 0 }],
+				transform: [{ translateY: withTiming(0, { duration: 180 }) }],
 			};
 		}
 		if (index === active) {
@@ -1082,9 +1210,11 @@ function DraggableRowImpl({
 			translateY = height;
 		}
 
+		// targetSlot が変わると withTiming が新しい目標値へスムーズに補間する。
+		// 同値再呼び出しは Reanimated 側で no-op なので毎フレーム再評価でも安全。
 		return {
 			opacity: 1,
-			transform: [{ translateY }],
+			transform: [{ translateY: withTiming(translateY, { duration: 180 }) }],
 		};
 	}, [index]);
 
@@ -1109,6 +1239,7 @@ function DraggableRowImpl({
 					jsMoveFrame.value = 0;
 					visualBoundaryIndented.value = 0;
 					visualBoundarySlot.value = -1;
+					visualBoundaryReachedMaxX.value = 0;
 					if (activeMetric) {
 						activeHeight.value = activeMetric.height;
 						indicatorTop.value = activeMetric.y - scrollOffset.value;
@@ -1164,23 +1295,32 @@ function DraggableRowImpl({
 							(prev.kind === ROW_KIND_FOLDER_CHILD && prev.inGroupEnd))
 					) {
 						const contentX = event.absoluteX - viewportPageX.value;
-						const threshold = prev.x + FOLDER_BOUNDARY_INDENT_THRESHOLD;
-						const enterAt = threshold + FOLDER_BOUNDARY_ENTER_HYSTERESIS_PX;
-						const exitAt = threshold - FOLDER_BOUNDARY_EXIT_HYSTERESIS_PX;
 						if (visualBoundarySlot.value !== prev.index) {
 							visualBoundarySlot.value = prev.index;
-							// 初回: 「外」を default に (deep enter してない限り)
-							visualBoundaryIndented.value = contentX > enterAt ? 1 : 0;
-						} else if (
-							visualBoundaryIndented.value === 1 &&
-							contentX < exitAt
-						) {
-							visualBoundaryIndented.value = 0;
-						} else if (
-							visualBoundaryIndented.value === 0 &&
-							contentX > enterAt
-						) {
+							// UI 表示も JS 側の dropIntent と同じく、境界到達時の
+							// contentX を基準にする。固定しきい値に戻すと、見た目だけ
+							// outside に引き戻されるように見えてしまう。
 							visualBoundaryIndented.value = 1;
+							visualBoundaryReachedMaxX.value = contentX;
+						} else if (visualBoundaryIndented.value === 1) {
+							if (contentX > visualBoundaryReachedMaxX.value) {
+								visualBoundaryReachedMaxX.value = contentX;
+							}
+							if (
+								contentX <
+								visualBoundaryReachedMaxX.value -
+									FOLDER_BOUNDARY_RETREAT_GRACE_PX
+							) {
+								visualBoundaryIndented.value = 0;
+							}
+						} else if (
+							contentX >
+							visualBoundaryReachedMaxX.value + FOLDER_BOUNDARY_RETREAT_GRACE_PX
+						) {
+							// outside → inside: 外へ出した後、到達済み peak まで右へ
+							// 戻したら inside 復帰として扱う。
+							visualBoundaryIndented.value = 1;
+							visualBoundaryReachedMaxX.value = contentX;
 						}
 
 						let endMetric = prev;
@@ -1217,7 +1357,13 @@ function DraggableRowImpl({
 						visualSlot > activeIndex.value
 							? indicatorContentY - activeHeight.value
 							: indicatorContentY;
-					indicatorTop.value = indicatorVisualY - scrollOffset.value;
+					indicatorTop.value = Math.max(
+						0,
+						Math.min(
+							indicatorVisualY - scrollOffset.value,
+							Math.max(0, viewportHeight.value - DROP_INDICATOR_HEIGHT),
+						),
+					);
 					indicatorIndent.value = indent;
 					indicatorVisible.value = 1;
 
@@ -1248,6 +1394,8 @@ function DraggableRowImpl({
 			targetSlot,
 			visualBoundaryIndented,
 			visualBoundarySlot,
+			visualBoundaryReachedMaxX,
+			viewportHeight,
 			viewportPageX,
 			viewportPageY,
 		],
@@ -1285,6 +1433,9 @@ const styles = StyleSheet.create({
 		right: 0,
 		zIndex: 20,
 		elevation: 12,
+		// ドラッグ中アイテムは半透明 → 下のリストの並びが透けて見えて、
+		// 「これからどこに落とす」が直感的にわかる。
+		opacity: 0.6,
 	},
 	dropIndicator: {
 		position: 'absolute',

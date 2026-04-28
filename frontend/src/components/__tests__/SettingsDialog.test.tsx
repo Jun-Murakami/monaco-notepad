@@ -20,6 +20,7 @@ vi.mock('../../../wailsjs/runtime', () => ({
 vi.mock('../../../wailsjs/go/backend/App', () => ({
   CheckDriveConnection: vi.fn().mockResolvedValue(false),
   DeleteAllDriveData: vi.fn().mockResolvedValue(undefined),
+  DeleteLocalAppData: vi.fn().mockResolvedValue(undefined),
   OpenAppFolder: vi.fn(),
   OpenConflictBackupFolder: vi.fn(),
 }));

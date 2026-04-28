@@ -62,6 +62,7 @@ export default function RootLayout() {
 								<Stack.Screen name="index" />
 								<Stack.Screen name="note/[id]" />
 								<Stack.Screen name="archive" />
+								<Stack.Screen name="conflict-backups" />
 								<Stack.Screen name="settings" />
 								<Stack.Screen
 									name="signin"

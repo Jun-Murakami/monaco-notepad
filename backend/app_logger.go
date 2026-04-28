@@ -5,9 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+var (
+	logTokenValuePattern  = regexp.MustCompile(`(?i)\b(access_token|refresh_token|id_token|pageToken|page token|token)(["'=:\s]+)[^,"\s]+`)
+	logLongIDPattern      = regexp.MustCompile(`\b[A-Za-z0-9_-]{25,}\b`)
+	logWindowsPathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\s]+`)
+	logUnixPathPattern    = regexp.MustCompile(`/(Users|home|var|tmp)/[^\s]+`)
 )
 
 // AppLogger はログ出力とフロントエンド通知を担当するインターフェース
@@ -78,6 +86,7 @@ func (l *appLoggerImpl) SetDebugMode(isDebug bool) {
 // writeToLog はログファイルに書き込みを行う
 func (l *appLoggerImpl) writeToLog(message string) {
 	if l.logFile != nil && l.isDebug {
+		message = redactLogMessage(message)
 		timestamp := time.Now().Format("2006-01-02 15:04:05")
 		logMessage := fmt.Sprintf("[%s] %s\n", timestamp, message)
 		if _, err := l.logFile.WriteString(logMessage); err != nil {
@@ -124,7 +133,7 @@ func (l *appLoggerImpl) NotifyOrphanRecoveries(ctx context.Context, recoveries [
 
 // ログメッセージをコンソールのみに出力
 func (l *appLoggerImpl) Console(format string, args ...interface{}) {
-	message := fmt.Sprintf(format, args...)
+	message := redactLogMessage(fmt.Sprintf(format, args...))
 	if !l.isTestMode {
 		fmt.Println(message)
 		l.writeToLog(message)
@@ -133,7 +142,7 @@ func (l *appLoggerImpl) Console(format string, args ...interface{}) {
 
 // 情報メッセージをコンソールとフロントエンドに出力
 func (l *appLoggerImpl) Info(format string, args ...interface{}) {
-	message := fmt.Sprintf(format, args...)
+	message := redactLogMessage(fmt.Sprintf(format, args...))
 	if !l.isTestMode {
 		fmt.Println(message)
 		l.writeToLog(message)
@@ -149,7 +158,7 @@ func (l *appLoggerImpl) Error(err error, format string, args ...interface{}) err
 
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		errorMessage := fmt.Sprintf("%s: %s", message, err.Error())
+		errorMessage := redactLogMessage(fmt.Sprintf("%s: %s", message, err.Error()))
 		fmt.Println(errorMessage)
 		l.writeToLog(errorMessage)
 		l.sendLogMessage(errorMessage)
@@ -165,10 +174,10 @@ func (l *appLoggerImpl) ErrorWithNotify(err error, format string, args ...interf
 
 	message := fmt.Sprintf(format, args...)
 	if !l.isTestMode {
-		errorMessage := fmt.Sprintf("%s: %s", message, err.Error())
+		errorMessage := redactLogMessage(fmt.Sprintf("%s: %s", message, err.Error()))
 		fmt.Println(errorMessage)
 		l.writeToLog(errorMessage)
-		wailsRuntime.EventsEmit(l.ctx, "drive:error", message)
+		wailsRuntime.EventsEmit(l.ctx, "drive:error", redactLogMessage(message))
 	}
 	return err
 }
@@ -176,8 +185,16 @@ func (l *appLoggerImpl) ErrorWithNotify(err error, format string, args ...interf
 // ログメッセージをフロントエンドのステータスバーに通知
 func (l *appLoggerImpl) sendLogMessage(message string) {
 	if !l.isTestMode {
-		wailsRuntime.EventsEmit(l.ctx, "logMessage", message)
+		wailsRuntime.EventsEmit(l.ctx, "logMessage", redactLogMessage(message))
 	}
+}
+
+func redactLogMessage(message string) string {
+	message = logTokenValuePattern.ReplaceAllString(message, `${1}${2}[redacted]`)
+	message = logWindowsPathPattern.ReplaceAllString(message, `[path redacted]`)
+	message = logUnixPathPattern.ReplaceAllString(message, `/[path redacted]`)
+	message = logLongIDPattern.ReplaceAllString(message, `[id redacted]`)
+	return message
 }
 
 func (l *appLoggerImpl) IsTestMode() bool {

@@ -1,5 +1,6 @@
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { AppState, type AppStateStatus } from 'react-native';
+import { appSettings } from '../settings/appSettings';
 import { readString, writeAtomic } from '../storage/atomicFile';
 import { CHANGE_PAGE_TOKEN_PATH } from '../storage/paths';
 import type { DriveClient } from './driveClient';
@@ -33,10 +34,17 @@ export class PollingService {
 	private stopFlag = false;
 	private intervalMs = MIN_INTERVAL_MS;
 	private pageToken: string | null = null;
-	private connectivity: ConnectivityState = 'offline';
+	// `NetInfo.fetch()` がコールドスタート時にキャッシュ済みの古い state を
+	// 返してくる端末がある (Android で頻発)。実際にネット接続があるのに
+	// `connectivity = 'offline'` になり、polling が「offline」を emit し続けて
+	// UI が誤表示される。それを避けるため楽観的に `'online'` 起点にし、
+	// `NetInfo.refresh()` で真の状態に上書きする。
+	private connectivity: ConnectivityState = 'online';
 	private appState: AppStateStatus = 'active';
 	private netUnsub: (() => void) | null = null;
+	private settingsUnsub: (() => void) | null = null;
 	private appStateSub: { remove: () => void } | null = null;
+	private netState: NetInfoState | null = null;
 	private wakeUp: Promise<void> = Promise.resolve();
 	private notify: (() => void) | null = null;
 	private loopPromise: Promise<void> | null = null;
@@ -57,8 +65,18 @@ export class PollingService {
 		await this.loadPageToken();
 
 		this.netUnsub = NetInfo.addEventListener((s) => this.handleNetChange(s));
-		const initial = await NetInfo.fetch();
-		this.connectivity = initial.isConnected ? 'online' : 'offline';
+		this.settingsUnsub = appSettings.subscribe(() => {
+			// syncOnCellular の切り替えを即座に反映する。現在の NetInfo state を
+			// 再評価し、必要なら待機/再開へ遷移させる。
+			if (this.netState) {
+				this.handleNetChange(this.netState);
+			}
+			this.wake();
+		});
+		// `fetch()` ではなく `refresh()` を使う。`fetch()` はキャッシュ値を
+		// 返すことがあり、再起動直後に「実際は online なのに offline と返ってくる」
+		// ケースに陥って UI が ずっと「オフライン」と表示する不具合が起きる。
+		await this.refreshConnectivity();
 
 		this.appStateSub = AppState.addEventListener('change', (s) =>
 			this.handleAppState(s),
@@ -71,11 +89,26 @@ export class PollingService {
 		this.loopPromise = this.runLoop();
 	}
 
+	/**
+	 * `NetInfo.refresh()` を叩いて connectivity を真の状態に更新する。
+	 * 失敗時は楽観的 online のまま。
+	 */
+	private async refreshConnectivity(): Promise<void> {
+		try {
+			const fresh = await NetInfo.refresh();
+			this.handleNetChange(fresh);
+		} catch {
+			// 取得失敗 → 既存値のまま
+		}
+	}
+
 	async stop(): Promise<void> {
 		this.stopFlag = true;
 		this.wake();
 		this.netUnsub?.();
 		this.netUnsub = null;
+		this.settingsUnsub?.();
+		this.settingsUnsub = null;
 		this.appStateSub?.remove();
 		this.appStateSub = null;
 		if (this.loopPromise) await this.loopPromise.catch(() => {});
@@ -85,6 +118,10 @@ export class PollingService {
 	/** UI からの明示的な再同期要求。interval リセット + 即時 kick。 */
 	kick(): void {
 		this.intervalMs = MIN_INTERVAL_MS;
+		// 古い connectivity 値で「offline」分岐に入ったままだと、ユーザーが同期ボタンを
+		// 押しても何も起きない。NetInfo を再取得 (非同期、wake は先に呼ぶ) して、
+		// 次のループ判定までに最新状態を反映する。
+		this.refreshConnectivity();
 		this.wake();
 	}
 
@@ -192,7 +229,8 @@ export class PollingService {
 	// ---- ネットワーク / AppState ----
 
 	private handleNetChange(state: NetInfoState): void {
-		const next: ConnectivityState = state.isConnected ? 'online' : 'offline';
+		this.netState = state;
+		const next = this.resolveConnectivity(state);
 		if (next !== this.connectivity) {
 			this.connectivity = next;
 			if (next === 'online') {
@@ -206,11 +244,21 @@ export class PollingService {
 		}
 	}
 
+	private resolveConnectivity(state: NetInfoState): ConnectivityState {
+		if (!state.isConnected) return 'offline';
+		if (appSettings.snapshot().syncOnCellular) return 'online';
+		if (isCellularOrExpensive(state)) return 'offline';
+		return 'online';
+	}
+
 	private handleAppState(state: AppStateStatus): void {
 		const wasActive = this.appState === 'active';
 		this.appState = state;
 		if (state === 'active' && !wasActive) {
 			this.intervalMs = MIN_INTERVAL_MS;
+			// バックグラウンド復帰時の NetInfo state は古いことがあるので、明示的に
+			// refresh して最新の接続状態に揃える。
+			this.refreshConnectivity();
 			this.wake();
 		}
 	}
@@ -249,4 +297,9 @@ export class PollingService {
 			JSON.stringify({ token: this.pageToken }),
 		);
 	}
+}
+
+function isCellularOrExpensive(state: NetInfoState): boolean {
+	const details = state.details as { isConnectionExpensive?: boolean } | null;
+	return state.type === 'cellular' || details?.isConnectionExpensive === true;
 }

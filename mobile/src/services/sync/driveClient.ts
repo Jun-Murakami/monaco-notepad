@@ -27,7 +27,12 @@ export interface ListChangesResult {
 	nextPageToken?: string;
 }
 
-export type TokenProvider = () => Promise<string>;
+/**
+ * `force` が真のとき、トークンプロバイダ側で **強制 refresh** すること。
+ * 401 を受け取った際、ローカルの expiresAt が誤って未期限を返しているケースに
+ * リカバーするために使う。
+ */
+export type TokenProvider = (force?: boolean) => Promise<string>;
 
 export class DriveClient {
 	constructor(private readonly getToken: TokenProvider) {}
@@ -36,12 +41,20 @@ export class DriveClient {
 		path: string,
 		init: RequestInit & { baseUrl?: string } = {},
 		signal?: AbortSignal,
+		isRetryAfter401 = false,
 	): Promise<Response> {
-		const token = await this.getToken();
+		const token = await this.getToken(isRetryAfter401);
 		const url = (init.baseUrl ?? DRIVE_API) + path;
 		const headers = new Headers(init.headers);
 		headers.set('Authorization', `Bearer ${token}`);
 		const res = await fetch(url, { ...init, headers, signal });
+		if (res.status === 401 && !isRetryAfter401) {
+			// expiresAt は未期限と判定したが server からは expired と返ってきた:
+			// 端末の時計ずれ / token 失効 / 早期 revoke 等のケース。
+			// 一度だけ force refresh して即リトライする (これでも 401 なら下の
+			// throw まで落ちて AuthError として扱われる)。
+			return this.request(path, init, signal, true);
+		}
 		if (res.status === 401 || res.status === 403) {
 			throw new AuthError(
 				`Drive auth error: ${res.status} ${await safeText(res)}`,
@@ -181,6 +194,29 @@ export class DriveClient {
 
 	async deleteFile(fileId: string): Promise<void> {
 		await this.request(`/files/${fileId}`, { method: 'DELETE' });
+	}
+
+	/** appDataFolder 内の全ファイル/フォルダを削除する。 */
+	async deleteAllAppDataFiles(): Promise<void> {
+		const files = await this.listFiles('trashed=false', 500);
+		// フォルダを先に消すと配下ファイルの扱いが API 側で揺れる可能性があるため、
+		// 通常ファイルを先に消し、最後にフォルダを消す。
+		files.sort((a, b) => {
+			const aFolder = a.mimeType === 'application/vnd.google-apps.folder';
+			const bFolder = b.mimeType === 'application/vnd.google-apps.folder';
+			if (aFolder === bFolder) return a.name.localeCompare(b.name);
+			return aFolder ? 1 : -1;
+		});
+		for (const file of files) {
+			try {
+				await this.deleteFile(file.id);
+			} catch (error) {
+				// 直前に親フォルダ削除などで消えていた場合は成功扱いにする。
+				// それ以外の権限/通信エラーは呼び出し側へ伝えて中断する。
+				if ((error as { status?: number }).status === 404) continue;
+				throw error;
+			}
+		}
 	}
 
 	/** Changes API: 初期トークン取得。 */

@@ -123,6 +123,24 @@ export type SyncStatus =
 	| 'offline'
 	| 'error';
 
+/**
+ * 同期中の細かい phase。`status` が `pulling`/`pushing`/`resolving` の間に
+ * 何が起きているかをユーザーに伝えるために UI が表示する。
+ *
+ * - `preparing`         : Drive 接続準備 (ensureDriveLayout / orphan 復元)
+ * - `fetching-notelist` : noteList_v2.json ダウンロード中 (single request, 進捗なし)
+ * - `downloading-notes` : 個別ノート本文ダウンロード中 (`sync:progress` で進捗)
+ * - `uploading-notes`   : 個別ノート本文アップロード中 (`sync:progress` で進捗)
+ * - `merging`           : noteList 統合・書き戻し
+ */
+export type SyncPhase =
+	| 'preparing'
+	| 'fetching-notelist'
+	| 'downloading-notes'
+	| 'uploading-notes'
+	| 'merging'
+	| null;
+
 /** 競合バックアップの種類。 */
 export type ConflictBackupKind = 'cloud_wins' | 'cloud_delete';
 

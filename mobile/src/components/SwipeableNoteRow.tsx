@@ -5,8 +5,11 @@ import ReanimatedSwipeable, {
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Icon, Text, TouchableRipple } from 'react-native-paper';
 import Animated, {
+	runOnJS,
 	type SharedValue,
 	useAnimatedStyle,
+	useSharedValue,
+	withTiming,
 } from 'react-native-reanimated';
 
 export interface SwipeAction {
@@ -25,6 +28,7 @@ interface Props {
 }
 
 const ACTION_BUTTON_WIDTH = 88;
+const REMOVE_ANIMATION_MS = 180;
 
 /**
  * 左スワイプで右側からアクションボタンが現れるラッパ。
@@ -34,6 +38,21 @@ const ACTION_BUTTON_WIDTH = 88;
  */
 export function SwipeableNoteRow({ children, actions, disabled }: Props) {
 	const ref = useRef<SwipeableMethods | null>(null);
+	const rowHeight = useSharedValue(0);
+	const removing = useSharedValue(0);
+
+	const removeStyle = useAnimatedStyle(() => {
+		if (rowHeight.value <= 0) {
+			return {
+				opacity: 1 - removing.value,
+			};
+		}
+		return {
+			height: rowHeight.value * (1 - removing.value),
+			opacity: 1 - removing.value,
+			overflow: 'hidden',
+		};
+	});
 
 	if (disabled || actions.length === 0) {
 		return <View>{children}</View>;
@@ -42,8 +61,19 @@ export function SwipeableNoteRow({ children, actions, disabled }: Props) {
 	const totalWidth = actions.length * ACTION_BUTTON_WIDTH;
 
 	const handlePressAction = (onPress: () => void) => {
-		ref.current?.close();
-		onPress();
+		if (removing.value !== 0) return;
+		// アクション確定時は swipeable を閉じない。横に戻る途中で消えるより、
+		// 開いた状態のまま高さを畳む方が「その行がリストから抜けた」ことが
+		// 視覚的に分かりやすい。
+		removing.value = withTiming(
+			1,
+			{ duration: REMOVE_ANIMATION_MS },
+			(finished) => {
+				if (finished) {
+					runOnJS(onPress)();
+				}
+			},
+		);
 	};
 
 	const renderRightActions = (
@@ -59,16 +89,25 @@ export function SwipeableNoteRow({ children, actions, disabled }: Props) {
 	);
 
 	return (
-		<ReanimatedSwipeable
-			ref={ref}
-			friction={2}
-			rightThreshold={ACTION_BUTTON_WIDTH / 2}
-			overshootRight={false}
-			renderRightActions={renderRightActions}
-			containerStyle={styles.container}
+		<Animated.View
+			onLayout={(event) => {
+				if (removing.value === 0) {
+					rowHeight.value = event.nativeEvent.layout.height;
+				}
+			}}
+			style={removeStyle}
 		>
-			{children}
-		</ReanimatedSwipeable>
+			<ReanimatedSwipeable
+				ref={ref}
+				friction={2}
+				rightThreshold={ACTION_BUTTON_WIDTH / 2}
+				overshootRight={false}
+				renderRightActions={renderRightActions}
+				containerStyle={styles.container}
+			>
+				{children}
+			</ReanimatedSwipeable>
+		</Animated.View>
 	);
 }
 

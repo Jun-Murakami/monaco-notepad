@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -83,8 +84,11 @@ func (a *App) GetReleaseInfo() (*ReleaseInfo, error) {
 
 // PerformUpdate はアップデートをダウンロードして適用する
 func (a *App) PerformUpdate(downloadURL, assetName string) error {
+	if err := validateUpdateDownload(downloadURL, assetName); err != nil {
+		return err
+	}
 	tmpDir := os.TempDir()
-	tmpPath := filepath.Join(tmpDir, assetName)
+	tmpPath := filepath.Join(tmpDir, filepath.Base(assetName))
 
 	a.logger.Console("Downloading update: %s", downloadURL)
 	wailsRuntime.EventsEmit(a.ctx.ctx, "update:progress", "downloading")
@@ -141,4 +145,34 @@ func (a *App) PerformUpdate(downloadURL, assetName string) error {
 	a.ctx.SkipBeforeClose(true)
 
 	return a.applyUpdate(tmpPath)
+}
+
+func validateUpdateDownload(downloadURL, assetName string) error {
+	parsed, err := url.Parse(downloadURL)
+	if err != nil {
+		return fmt.Errorf("invalid update URL: %w", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host != "github.com" {
+		return fmt.Errorf("update URL must be an HTTPS GitHub release asset URL")
+	}
+	expectedPrefix := fmt.Sprintf("/%s/releases/download/", githubRepo)
+	if !strings.HasPrefix(parsed.EscapedPath(), expectedPrefix) {
+		return fmt.Errorf("update URL is not from the configured repository")
+	}
+	if assetName == "" || filepath.Base(assetName) != assetName {
+		return fmt.Errorf("invalid update asset name")
+	}
+	switch runtime.GOOS {
+	case "windows":
+		if !strings.Contains(assetName, "win64") || !strings.HasSuffix(assetName, ".exe") {
+			return fmt.Errorf("update asset does not match Windows package naming")
+		}
+	case "darwin":
+		if !strings.Contains(assetName, "mac") || !strings.HasSuffix(assetName, ".dmg") {
+			return fmt.Errorf("update asset does not match macOS package naming")
+		}
+	default:
+		return fmt.Errorf("updates are not supported on %s", runtime.GOOS)
+	}
+	return nil
 }

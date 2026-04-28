@@ -88,11 +88,30 @@ describe('DriveClient', () => {
 		expect(calls[0].url).toContain('/files/fid');
 	});
 
-	it('401 は AuthError を投げる', async () => {
+	it('401 は force refresh リトライ後でも 401 なら AuthError を投げる', async () => {
+		// 初回 401 → 内部で force refresh + 即リトライ。それでも 401 なら投げる。
+		enqueue(makeResponse({}, 401));
 		enqueue(makeResponse({}, 401));
 		await expect(client.getFileMetadata('fid')).rejects.toBeInstanceOf(
 			AuthError,
 		);
+		expect(calls.length).toBe(2);
+	});
+
+	it('401 でも force refresh のリトライが 200 になれば成功する', async () => {
+		const refreshFlags: Array<boolean | undefined> = [];
+		const localClient = new DriveClient(async (force) => {
+			refreshFlags.push(force);
+			return 'token-xyz';
+		});
+		enqueue(makeResponse({}, 401));
+		enqueue(makeResponse({ id: 'fid', name: 'a.json' }));
+		const meta = await localClient.getFileMetadata('fid');
+		expect(meta).toEqual({ id: 'fid', name: 'a.json' });
+		expect(calls.length).toBe(2);
+		// 1 回目は force=false (falsy)、2 回目 (リトライ) は force=true
+		expect(refreshFlags[0]).toBeFalsy();
+		expect(refreshFlags[1]).toBe(true);
 	});
 
 	it('403 も AuthError を投げる（スコープ不足）', async () => {

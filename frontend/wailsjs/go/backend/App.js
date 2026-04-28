@@ -54,6 +54,10 @@ export function DeleteFolder(arg1) {
   return window['go']['backend']['App']['DeleteFolder'](arg1);
 }
 
+export function DeleteLocalAppData() {
+  return window['go']['backend']['App']['DeleteLocalAppData']();
+}
+
 export function DeleteNote(arg1) {
   return window['go']['backend']['App']['DeleteNote'](arg1);
 }

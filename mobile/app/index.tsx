@@ -127,7 +127,7 @@ export default function NoteListScreen() {
 				title: '',
 				content: '',
 				contentHeader: '',
-				language: 'plaintext',
+				language: 'markdown',
 				modifiedTime: now,
 				archived: false,
 				folderId: '',

@@ -190,9 +190,18 @@ export const EditorStatusBar = ({
       }
     });
 
+    wailsRuntime.EventsOn('message:error', (message: unknown) => {
+      // バックエンドの多言語エラーも通知履歴に残し、
+      // Drive切断のような自動復旧系の失敗にユーザーが気付けるようにする。
+      if (isMessageCode(message)) {
+        appendStatusMessage(translateMessageCode(message));
+      }
+    });
+
     return () => {
       wailsRuntime.EventsOff('logMessage');
       wailsRuntime.EventsOff('message:info');
+      wailsRuntime.EventsOff('message:error');
       if (logTimeoutRef.current) {
         window.clearTimeout(logTimeoutRef.current);
       }

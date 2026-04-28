@@ -3,11 +3,11 @@
 		"title": "Monaco Notepad"
 	},
 	"auth": {
-		"signIn": "Sign in with Google",
-		"signOut": "Sign out",
-		"signedInAs": "Signed in",
-		"notSignedIn": "Not signed in",
-		"signInPrompt": "Sign in to sync with Google Drive",
+		"signIn": "Connect Google Drive",
+		"signOut": "Disconnect Google Drive",
+		"signedInAs": "Connected",
+		"notSignedIn": "Not connected",
+		"signInPrompt": "Allow access to Google Drive to sync your notes.",
 		"cancel": "Cancel"
 	},
 	"noteList": {
@@ -47,7 +47,7 @@
 		"view": "View",
 		"edit": "Edit",
 		"language": "Language",
-		"selectLanguage": "Select language",
+		"selectLanguage": "Select syntax highlighting language",
 		"searchLanguage": "Search language",
 		"noLanguageMatches": "No matching language",
 		"save": "Save",
@@ -71,11 +71,16 @@
 		"status_resolving": "Resolving conflicts...",
 		"status_offline": "Offline",
 		"status_error": "Sync error",
+		"phase_preparing": "Preparing Drive connection...",
+		"phase_fetching-notelist": "Fetching note list...",
+		"phase_downloading-notes": "Downloading note bodies",
+		"phase_uploading-notes": "Uploading note bodies",
+		"phase_merging": "Updating note list...",
 		"syncNow": "Sync now"
 	},
 	"settings": {
 		"title": "Settings",
-		"account": "Account",
+		"account": "Google Drive Sync",
 		"language": "Language",
 		"language_system": "System default",
 		"language_ja": "日本語",
@@ -87,6 +92,16 @@
 		"sync": "Sync",
 		"syncOnCellular": "Sync on cellular",
 		"conflictBackup": "Save conflict backups",
+		"manageConflictBackups": "Manage conflict backups",
+		"dataDeletion": "Data deletion",
+		"deleteDriveData": "Delete Google Drive sync data",
+		"deleteDriveDataTitle": "Delete Google Drive sync data",
+		"deleteDriveDataMessage": "This deletes all Monaco Notepad sync data from Google Drive and disconnects Google Drive. Notes on this device will remain. This cannot be undone.",
+		"deleteLocalData": "Delete all data on this device",
+		"deleteLocalDataTitle": "Delete data on this device",
+		"deleteLocalDataMessage": "This deletes notes, settings, sync state, and Google Drive connection data saved on this device. Google Drive data will not be deleted. This cannot be undone.",
+		"cancel": "Cancel",
+		"delete": "Delete",
 		"editor": "Editor",
 		"editorFontSize": "Note font size",
 		"about": "About"
@@ -109,5 +124,21 @@
 	"orphan": {
 		"localRecoveryDone": "Recovered local orphan notes into 'Unknown Notes'",
 		"cloudRecoveryDone": "Recovered cloud orphan notes into 'Unknown Notes'"
+	},
+	"conflictBackups": {
+		"title": "Conflict Backups",
+		"empty": "No conflict backups saved",
+		"kind_cloud_wins": "Backup kept when cloud version won",
+		"kind_cloud_delete": "Backup from cloud deletion",
+		"noPreview": "No content available to preview",
+		"restore": "Restore as new note",
+		"delete": "Delete",
+		"deleteAll": "Delete all",
+		"deleteTitle": "Delete backup",
+		"deleteMessage": "Delete this backup? This cannot be undone.",
+		"deleteAllTitle": "Delete all backups",
+		"deleteAllMessage": "Delete all saved conflict backups? This cannot be undone.",
+		"restoredTitle": "Restored: {{title}}",
+		"restoredUntitled": "Restored note"
 	}
 }

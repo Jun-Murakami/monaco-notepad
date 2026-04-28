@@ -22,6 +22,7 @@ import {
 import {
   CheckDriveConnection,
   DeleteAllDriveData,
+  DeleteLocalAppData,
   OpenAppFolder,
   OpenConflictBackupFolder,
 } from '../../wailsjs/go/backend/App';
@@ -110,6 +111,30 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       await showMessage(
         t('settings.deleteDriveDataConfirmTitle'),
         t('settings.deleteDriveDataError', {
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    }
+  };
+
+  const handleDeleteLocalData = async () => {
+    const confirmed = await showMessage(
+      t('settings.deleteLocalDataConfirmTitle'),
+      t('settings.deleteLocalDataConfirmMessage'),
+      true, // 2 ボタン (OK / キャンセル)
+    );
+    if (!confirmed) return;
+    try {
+      await DeleteLocalAppData();
+      await showMessage(
+        t('settings.deleteLocalDataConfirmTitle'),
+        t('settings.deleteLocalDataSuccess'),
+      );
+      onClose();
+    } catch (e) {
+      await showMessage(
+        t('settings.deleteLocalDataConfirmTitle'),
+        t('settings.deleteLocalDataError', {
           error: e instanceof Error ? e.message : String(e),
         }),
       );
@@ -403,6 +428,28 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
               </Button>
               <Typography variant="caption" color="textSecondary">
                 {t('settings.deleteDriveDataDescription')}
+              </Typography>
+            </Box>
+
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+                alignItems: 'flex-start',
+                width: '100%',
+              }}
+            >
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                onClick={handleDeleteLocalData}
+              >
+                {t('settings.deleteLocalData')}
+              </Button>
+              <Typography variant="caption" color="textSecondary">
+                {t('settings.deleteLocalDataDescription')}
               </Typography>
             </Box>
           </Grid>

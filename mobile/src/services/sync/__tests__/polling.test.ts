@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { appSettings } from '@/services/settings/appSettings';
 import { writeAtomic } from '@/services/storage/atomicFile';
 import { CHANGE_PAGE_TOKEN_PATH } from '@/services/storage/paths';
 import { __setNetState } from '@/test/mocks/netinfo';
@@ -45,14 +46,16 @@ async function seedPageToken(token: string): Promise<void> {
 }
 
 describe('PollingService: local dirty triggers sync even when cloud unchanged', () => {
-	beforeEach(() => {
+	beforeEach(async () => {
 		__setNetState({ isConnected: true, type: 'wifi' });
 		__setAppState('active');
+		await appSettings.update({ syncOnCellular: true });
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		__setNetState({ isConnected: true, type: 'wifi' });
 		__setAppState('active');
+		await appSettings.update({ syncOnCellular: true });
 	});
 
 	it('cloud unchanged + localDirty=true なら runSyncSafe が呼ばれる (resume シナリオ)', async () => {
@@ -153,5 +156,28 @@ describe('PollingService: local dirty triggers sync even when cloud unchanged', 
 
 		expect(client.listChanges).toHaveBeenCalled();
 		expect(orchestrator.syncNotes).toHaveBeenCalled();
+	});
+
+	it('syncOnCellular=false かつ cellular 接続なら同期しない', async () => {
+		await appSettings.update({ syncOnCellular: false });
+		__setNetState({ isConnected: true, type: 'cellular' });
+
+		const client = makeFakeClient();
+		const driveSync = makeFakeDriveSync();
+		const state = new SyncStateManager();
+		await state.load();
+		await state.markNoteDirty('a');
+
+		const orchestrator = {
+			syncNotes: vi.fn(async () => {}),
+		} as unknown as SyncOrchestrator;
+
+		const polling = new PollingService(client, driveSync, orchestrator, state);
+		await polling.start();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await polling.stop();
+
+		expect(client.getStartPageToken).not.toHaveBeenCalled();
+		expect(orchestrator.syncNotes).not.toHaveBeenCalled();
 	});
 });

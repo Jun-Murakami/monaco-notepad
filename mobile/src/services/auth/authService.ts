@@ -92,10 +92,16 @@ export class AuthService {
 		await this.persistTokenResult(tokenResult);
 	}
 
-	/** 有効な access_token を返す。期限切れなら refresh する。 */
-	async getAccessToken(): Promise<string> {
+	/**
+	 * 有効な access_token を返す。期限切れなら refresh する。
+	 *
+	 * `opts.force` を真にすると、`isExpired()` が偽でも強制的に refresh する。
+	 * Drive API から 401 が返ってきた直後など、ローカルの expiresAt と
+	 * サーバ実際の token 状態がズレているケースで使う。
+	 */
+	async getAccessToken(opts?: { force?: boolean }): Promise<string> {
 		if (!this.token) throw new Error('Not signed in');
-		if (this.isExpired()) {
+		if (opts?.force || this.isExpired()) {
 			await this.refresh();
 		}
 		if (!this.token) throw new Error('Not signed in');

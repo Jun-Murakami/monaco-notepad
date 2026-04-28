@@ -42,7 +42,7 @@ export class EventEmitter<Events extends object> {
 	}
 }
 
-import type { MessageCodeValue, SyncStatus } from './types';
+import type { MessageCodeValue, SyncPhase, SyncStatus } from './types';
 
 export interface SyncEvents {
 	'drive:status': { status: SyncStatus };
@@ -56,6 +56,11 @@ export interface SyncEvents {
 	'sync:error': { error: Error };
 	/** 長時間操作の進捗。`current === total` または `total === 0` でクリア。 */
 	'sync:progress': { current: number; total: number };
+	/**
+	 * 同期中の phase 通知。`status` が示す大枠の中で、UI が「何中なのか」を
+	 * より具体的に出すため。`null` で phase 表示クリア。
+	 */
+	'sync:phase': { phase: SyncPhase };
 }
 
 export const syncEvents = new EventEmitter<SyncEvents>();

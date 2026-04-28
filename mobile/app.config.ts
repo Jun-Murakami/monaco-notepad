@@ -64,6 +64,9 @@ const config: ExpoConfig & { newArchEnabled?: boolean } = {
 			backgroundColor: '#ffffff',
 		},
 		package: 'app.monaconotepad.mobile',
+		// ノート本文・同期状態は端末ローカルに保存されるため、Android Auto Backup
+		// 経由で別端末/再インストール時に復元されないよう明示的に無効化する。
+		allowBackup: false,
 		intentFilters: [
 			{
 				action: 'VIEW',

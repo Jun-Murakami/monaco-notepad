@@ -2,6 +2,8 @@ package backend
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -125,7 +127,8 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 	_, err = srv.Files.List().Fields("files(id, name)").PageSize(1).Do()
 	if err != nil {
 		a.logger.Console("Failed to connect to Drive: %v", err)
-		// 認証エラーの場合のみトークンファイルを削除
+		// 認証エラーの場合のみトークンファイルを削除し、ユーザーが原因を追えるように
+		// ステータスバー通知にも失効理由を残す。
 		errStr := err.Error()
 		if strings.Contains(errStr, "invalid_grant") ||
 			strings.Contains(errStr, "unauthorized") ||
@@ -135,6 +138,12 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 				a.logger.Console("Failed to remove invalid token file: %v", removeErr)
 			}
 			a.logger.Console("Removed invalid token file due to auth error")
+			a.driveSync.SetConnected(false)
+			a.logger.ErrorCode(err, MsgDriveErrorAuthConnection, map[string]interface{}{
+				"reason": redactLogMessage(err.Error()),
+			})
+			a.logger.InfoCode(MsgDriveDisconnected, nil)
+			a.logger.NotifyDriveStatus(a.ctx, "offline")
 		}
 		return false, nil
 	}
@@ -158,6 +167,10 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 
 // StartManualAuth は手動認証フローを開始
 func (a *authService) StartManualAuth() error {
+	// 前回の認証フローがタイムアウト/キャンセルで残っている場合に備え、
+	// 新しい callback server を立てる前に必ず既存 server/listener を閉じる。
+	a.stopAuthServer(context.Background())
+
 	if a.driveSync.config == nil {
 		config, err := google.ConfigFromJSON(a.credentials, drive.DriveFileScope, drive.DriveAppdataScope)
 		if err != nil {
@@ -166,22 +179,34 @@ func (a *authService) StartManualAuth() error {
 		a.driveSync.config = config
 	}
 
-	// 認証サーバーの起動
-	codeChan, err := a.startAuthServer()
+	state, err := generateOAuthState()
+	if err != nil {
+		return fmt.Errorf("failed to generate OAuth state: %v", err)
+	}
+	verifier := oauth2.GenerateVerifier()
+
+	// 認証サーバーの起動。state を callback で検証し、ログインCSRF/アカウント混同を防ぐ。
+	codeChan, err := a.startAuthServer(state)
 	if err != nil {
 		return fmt.Errorf("failed to start auth server: %v", err)
 	}
 
 	// 認証URLを開く
-	authURL := a.driveSync.config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
+	authURL := a.driveSync.config.AuthCodeURL(
+		state,
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("prompt", "consent"),
+		oauth2.S256ChallengeOption(verifier),
+	)
 	wailsRuntime.BrowserOpenURL(a.ctx, authURL)
 
 	// 認証コードの待機
 	select {
 	case code := <-codeChan:
 		// 認証コードを使用してトークンを取得
-		token, err := a.driveSync.config.Exchange(a.ctx, code)
+		token, err := a.driveSync.config.Exchange(a.ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
+			a.stopAuthServer(context.Background())
 			return fmt.Errorf("failed to exchange token: %v", err)
 		}
 
@@ -189,7 +214,52 @@ func (a *authService) StartManualAuth() error {
 		return a.initializeGoogleDrive(token)
 
 	case <-time.After(3 * time.Minute):
+		a.stopAuthServer(context.Background())
 		return fmt.Errorf("authentication timed out")
+	}
+}
+
+func generateOAuthState() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func listenOAuthCallback() (net.Listener, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:34115")
+	if err == nil {
+		return listener, nil
+	}
+	fallback, fallbackErr := net.Listen("tcp", "127.0.0.1:0")
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("failed to bind OAuth callback listener: fixed port error: %v; fallback error: %v", err, fallbackErr)
+	}
+	return fallback, nil
+}
+
+func (a *authService) stopAuthServer(ctx context.Context) {
+	if a.driveSync == nil {
+		return
+	}
+	if a.driveSync.server != nil {
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := a.driveSync.server.Shutdown(shutdownCtx); err != nil {
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				a.logger.Console("Error shutting down auth server: %v", err)
+			}
+		}
+		a.driveSync.server = nil
+	}
+	if a.driveSync.listener != nil {
+		if err := a.driveSync.listener.Close(); err != nil {
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				a.logger.Console("Error closing listener: %v", err)
+			}
+		}
+		a.driveSync.listener = nil
 	}
 }
 
@@ -233,37 +303,14 @@ func (a *authService) loadToken() (*oauth2.Token, error) {
 
 // LogoutDrive はGoogle Driveからログアウトします
 func (a *authService) LogoutDrive() error {
-	// サーバーが実行中の場合は安全に停止
-	if a.driveSync.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := a.driveSync.server.Shutdown(ctx); err != nil {
-			// 既に閉じられているコネクションのエラーは無視
-			if !strings.Contains(err.Error(), "use of closed network connection") {
-				a.logger.Console("Error shutting down auth server: %v", err)
-			}
-		}
-		a.driveSync.server = nil
-	}
-
-	// リスナーが残っている場合のみクローズ
-	if a.driveSync.listener != nil {
-		if err := a.driveSync.listener.Close(); err != nil {
-			// 既に閉じられているコネクションのエラーは無視
-			if !strings.Contains(err.Error(), "use of closed network connection") {
-				a.logger.Console("Error closing listener: %v", err)
-				return fmt.Errorf("failed to close listener: %v", err)
-			}
-		}
-		a.driveSync.listener = nil
-	}
+	a.stopAuthServer(context.Background())
 
 	// ローカルの noteList を保存（ログアウト前に念のため）
 	if err := a.noteService.saveNoteList(); err != nil {
 		a.logger.Console("Failed to save note list before logout: %v", err)
 	}
 
-	// オフライン状態に遷移
+	// オフライン状態に遷移 (この中で MsgDriveDisconnected の info 通知も emit される)
 	a.HandleOfflineTransition(nil)
 
 	// フロントエンドに通知
@@ -274,7 +321,6 @@ func (a *authService) LogoutDrive() error {
 	// 少し待機してポートが完全に解放されるのを待つ
 	time.Sleep(1 * time.Second)
 
-	a.logger.InfoCode(MsgDriveDisconnected, nil)
 	return nil
 }
 
@@ -333,9 +379,17 @@ func (a *authService) handleFullOfflineTransition(err error) {
 	a.driveSync.SetConnected(false)
 
 	// フロントエンドに通知
+	// err 有り = 自動ログアウト (refresh_token 失効 / revoke 等)、
+	// err 無し = ユーザー操作によるログアウト。
+	// いずれの場合も `drive.disconnected` の info 通知を残し、原因 (err) も
+	// console と error 通知に出して「いつの間にか切れていた」を発生させない。
 	if err != nil {
-		a.logger.ErrorCode(err, MsgDriveErrorAuthConnection, nil)
+		a.logger.Console("Drive auto-logout: %v", err)
+		a.logger.ErrorCode(err, MsgDriveErrorAuthConnection, map[string]interface{}{
+			"reason": redactLogMessage(err.Error()),
+		})
 	}
+	a.logger.InfoCode(MsgDriveDisconnected, nil)
 	a.logger.NotifyDriveStatus(a.ctx, "offline")
 }
 
@@ -404,30 +458,7 @@ func (a *authService) GetFrontendReadyChan() chan struct{} {
 func (a *authService) CancelLoginDrive() error {
 	a.logger.Console("Canceling login process...")
 
-	// サーバーが実行中の場合は安全に停止
-	if a.driveSync.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := a.driveSync.server.Shutdown(ctx); err != nil {
-			// 既に閉じられているコネクションのエラーは無視
-			if !strings.Contains(err.Error(), "use of closed network connection") {
-				a.logger.Console("Error shutting down auth server: %v", err)
-			}
-		}
-		a.driveSync.server = nil
-	}
-
-	// リスナーを明示的に閉じる
-	if a.driveSync.listener != nil {
-		if err := a.driveSync.listener.Close(); err != nil {
-			// 既に閉じられているコネクションのエラーは無視
-			if !strings.Contains(err.Error(), "use of closed network connection") {
-				a.logger.Console("Error closing listener: %v", err)
-				return err
-			}
-		}
-		a.driveSync.listener = nil
-	}
+	a.stopAuthServer(context.Background())
 
 	// オフライン状態に遷移
 	a.HandleOfflineTransition(nil)
@@ -477,10 +508,21 @@ func getAuthPageTexts(lang string) authPageTexts {
 	}
 }
 
-// startAuthServer は認証サーバーを起動し、認証コードを待機
-func (a *authService) startAuthServer() (<-chan string, error) {
-	// リダイレクトURIを設定
-	a.driveSync.config.RedirectURL = "http://localhost:34115/oauth2callback"
+// startAuthServer は認証サーバーを起動し、state 検証後の認証コードを待機
+func (a *authService) startAuthServer(expectedState string) (<-chan string, error) {
+	// まず従来の固定ポートを試し、常駐アプリ等と衝突する場合はOS割り当ての
+	// 空きloopbackポートへフォールバックする。
+	listener, err := listenOAuthCallback()
+	if err != nil {
+		return nil, err
+	}
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		listener.Close()
+		return nil, fmt.Errorf("unexpected listener address: %v", listener.Addr())
+	}
+	// リダイレクトURIを、実際にbindできたポートで設定する。
+	a.driveSync.config.RedirectURL = fmt.Sprintf("http://127.0.0.1:%d/oauth2callback", addr.Port)
 
 	// カスタムServeMuxを作成して、ハンドラーの重複を防ぐ
 	mux := http.NewServeMux()
@@ -577,7 +619,7 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 
 	// サーバーをdriveSync構造体に保存
 	server := &http.Server{
-		Addr:    ":34115",
+		Addr:    listener.Addr().String(),
 		Handler: mux,
 	}
 	a.driveSync.server = server
@@ -585,6 +627,18 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 	// ハンドラーをカスタムServeMuxに登録
 	mux.HandleFunc("/oauth2callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
+		state := r.URL.Query().Get("state")
+		if state != expectedState {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, htmlTemplate,
+				texts.Title,
+				"error",
+				"text-error",
+				texts.AuthErrorHeading,
+				texts.AuthErrorMessage)
+			return
+		}
 		if code != "" {
 			select {
 			case <-timeoutChan:
@@ -608,13 +662,7 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 
 				go func() {
 					time.Sleep(1 * time.Second)
-					if err := server.Shutdown(context.Background()); err != nil {
-						if !strings.Contains(err.Error(), "use of closed network connection") {
-							a.logger.Console("Error shutting down auth server: %v", err)
-						}
-					}
-					a.driveSync.listener = nil
-					a.driveSync.server = nil
+					a.stopAuthServer(context.Background())
 				}()
 			}
 		} else {
@@ -628,12 +676,7 @@ func (a *authService) startAuthServer() (<-chan string, error) {
 		}
 	})
 
-	// ポートが使用可能か確認
-	var err error
-	a.driveSync.listener, err = net.Listen("tcp", ":34115")
-	if err != nil {
-		return nil, fmt.Errorf("Port34115 is already in use: %v", err)
-	}
+	a.driveSync.listener = listener
 
 	// サーバーを別のゴルーチンで起動
 	go func() {

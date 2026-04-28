@@ -30,6 +30,8 @@ export function DeleteArchivedFolder(arg1:string):Promise<void>;
 
 export function DeleteFolder(arg1:string):Promise<void>;
 
+export function DeleteLocalAppData():Promise<void>;
+
 export function DeleteNote(arg1:string):Promise<void>;
 
 export function DestroyApp():Promise<void>;

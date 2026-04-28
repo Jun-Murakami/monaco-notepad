@@ -145,6 +145,29 @@ describe('EditorStatusBar', () => {
     expect(logMessage).toHaveStyle({ opacity: 0 });
   });
 
+  it('多言語エラーメッセージが通知領域に表示されること', () => {
+    const editorRef = { current: null };
+    render(
+      <EditorStatusBar editorInstanceRef={editorRef} {...statusBarProps} />,
+    );
+
+    const errorCallback = (runtime.EventsOn as unknown as Mock).mock.calls.find(
+      ([eventName]) => eventName === 'message:error',
+    )?.[1] as ((message: unknown) => void) | undefined;
+    expect(errorCallback).toBeDefined();
+
+    act(() => {
+      errorCallback?.({
+        code: 'drive.error.authConnection',
+        args: { reason: 'oauth2: invalid_grant' },
+      });
+    });
+
+    expect(
+      screen.getByText('Connection error: oauth2: invalid_grant'),
+    ).toBeInTheDocument();
+  });
+
   it('コンポーネントのアンマウント時にイベントリスナーが解除されること', () => {
     const editorRef = { current: null };
     const { unmount } = render(
@@ -153,6 +176,7 @@ describe('EditorStatusBar', () => {
     unmount();
 
     expect(runtime.EventsOff).toHaveBeenCalledWith('logMessage');
+    expect(runtime.EventsOff).toHaveBeenCalledWith('message:error');
   });
 
   it('バージョンアップコンポーネントが表示されること', () => {

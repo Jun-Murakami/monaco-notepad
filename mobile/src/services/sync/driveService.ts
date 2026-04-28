@@ -1,5 +1,10 @@
+import { Directory } from 'expo-file-system';
+import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
+import { AppState, type AppStateStatus } from 'react-native';
 import { authService } from '../auth/authService';
 import { noteService } from '../notes/noteService';
+import { appSettings } from '../settings/appSettings';
+import { APP_DATA_DIR } from '../storage/paths';
 import { DriveClient } from './driveClient';
 import { ensureDriveLayout } from './driveLayout';
 import { DriveSyncService } from './driveSyncService';
@@ -17,12 +22,26 @@ import type { Note } from './types';
  *
  * UI からはこのクラス経由で操作する（initialize/signIn/signOut/saveNote/kickSync）。
  */
-class DriveService {
+export class DriveService {
 	private client: DriveClient | null = null;
 	private driveSync: DriveSyncService | null = null;
 	private orchestrator: SyncOrchestrator | null = null;
 	private polling: PollingService | null = null;
 	private initialized = false;
+
+	// connect 失敗状態 (signedIn だが orchestrator が nil) のときに、
+	// AppState 復帰 / NetInfo オンライン復帰を検知して自動で reconnect を試みる
+	// ためのリスナ。接続成功すると PollingService 側のリスナが同等の役割を担うので
+	// このサービス側のリスナは no-op (`if (this.orchestrator) return`) になる。
+	private appStateSub: { remove: () => void } | null = null;
+	private netUnsub: (() => void) | null = null;
+	// 直前の状態。「実際に変化した時のみ」auto reconnect を発火させるため。
+	// `lastNetConnected === null` の間 (= NetInfo の初回 fire まで) は seed のみで
+	// trigger しないことで、起動時の auto-connect と二重発火するのを避ける。
+	private lastAppActive = true;
+	private lastNetConnected: boolean | null = null;
+	// 並行 reconnect の dedup。手動タップと自動トリガが重なっても 1 回だけ走らせる。
+	private reconnectPromise: Promise<void> | null = null;
 
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
@@ -38,23 +57,144 @@ class DriveService {
 			}
 			await this.executeQueuedOp(item.opType, item.mapKey, item.payload);
 		});
+		// ⚠️ `start()` が runLoop を kick したあと `pause()` を呼ぶと、最初の 1 回の
+		// ループ反復が paused=false の状態で走ってしまい、保留分の item を処理しに
+		// 行って executor が「Drive not connected」エラーを投げる (signed out 状態で
+		// 再起動 → 過去の pending を踏むケース)。`start()` より前に `pause()` を
+		// 呼ぶことで、runLoop は最初から paused 分岐に入る。
+		operationQueue.pause();
 		await operationQueue.start();
 
 		// ローカル孤立復元は接続前でも実行可能
 		await recoverLocalOrphans(noteService);
 
+		// バックグラウンド復帰 / ネット復帰での自動 reconnect 用にリスナを張る。
+		// `connect` 成否によらず常時張り、`tryAutoReconnect` 側で「signedIn かつ
+		// 未接続」のときだけ動くよう判定する。
+		this.installResumeListeners();
+
 		if (authService.isSignedIn()) {
-			await this.connect();
+			try {
+				// 起動時はネット状況不明 (オフライン起動などもありうる) なので
+				// 楽観的に "pulling" を出さず、第一段階の Drive 呼び出しが成功した
+				// 時点で初めて接続済みを emit する。
+				await this.connect({ optimisticEmit: false });
+			} catch (e) {
+				// 起動時の Drive 接続が失敗しても、アプリ全体をクラッシュさせない。
+				// (401 / ネットワーク不通 / Drive 障害 等)
+				// 部分的に作られた接続オブジェクトをクリアして「未接続」状態に戻す。
+				// ユーザーは設定 → サインインで明示的に再接続できる。401 で
+				// authService 内の refresh が失敗した場合は signOut まで走るので、
+				// `signedIn` 状態も自動で false に切り替わる。
+				console.warn('[Drive] connect failed during initialize:', e);
+				this.client = null;
+				this.driveSync = null;
+				this.orchestrator = null;
+				this.polling = null;
+				syncEvents.emit('drive:disconnected', undefined);
+				syncEvents.emit('drive:status', { status: 'offline' });
+			}
 		}
 		this.initialized = true;
 	}
 
 	async signIn(): Promise<void> {
 		await authService.signIn();
-		await this.connect();
+		// signIn 直後は楽観的に「接続済み + pulling」を表示しても破綻しない
+		// (ユーザーの操作により直前にネット経由でコード交換が成功している)。
+		await this.connect({ optimisticEmit: true });
 		// 明示的なサインイン直後は、Drive 上で contentHeader 欠落しているノートを
 		// 全件検査して埋める（古いデスクトップ版で作られたノートの救済）。
 		this.orchestrator?.requestBulkRepair();
+	}
+
+	/**
+	 * 起動時 connect 失敗 (ネットワーク不通など) からの手動リトライ用。
+	 * `signedIn` だが `orchestrator` が nil の状態でのみ意味を持つ。
+	 * UI の SyncStatusBar 同期ボタン、AppState/NetInfo の自動トリガから叩かれる。
+	 * 並行呼び出しは内部で dedup される。
+	 */
+	async reconnect(): Promise<void> {
+		if (!authService.isSignedIn()) return;
+		if (this.orchestrator) return;
+		if (this.reconnectPromise) return this.reconnectPromise;
+		this.reconnectPromise = this.doReconnect().finally(() => {
+			this.reconnectPromise = null;
+		});
+		return this.reconnectPromise;
+	}
+
+	private async doReconnect(): Promise<void> {
+		// NetInfo が「offline」を返している場合、ここで fetch を走らせても
+		// withRetry が 4 回リトライして ~15s 後にタイムアウトする。それより
+		// ユーザーに即フィードバックを返したい。
+		const net = await NetInfo.refresh().catch(() => null);
+		if (net && net.isConnected === false) {
+			console.warn('[Drive] reconnect skipped: NetInfo says offline');
+			syncEvents.emit('drive:disconnected', undefined);
+			syncEvents.emit('drive:status', { status: 'offline' });
+			return;
+		}
+		if (net && !appSettings.snapshot().syncOnCellular && isCellularOrExpensive(net)) {
+			console.warn('[Drive] reconnect skipped: cellular sync disabled');
+			syncEvents.emit('drive:disconnected', undefined);
+			syncEvents.emit('drive:status', { status: 'offline' });
+			return;
+		}
+		try {
+			await this.connect({ optimisticEmit: false });
+		} catch (e) {
+			console.warn('[Drive] reconnect failed:', e);
+			this.client = null;
+			this.driveSync = null;
+			this.orchestrator = null;
+			this.polling = null;
+			syncEvents.emit('drive:disconnected', undefined);
+			syncEvents.emit('drive:status', { status: 'offline' });
+			throw e;
+		}
+	}
+
+	/**
+	 * AppState 復帰 / NetInfo オンライン復帰時に呼ばれる、自動 reconnect トリガ。
+	 * 接続済みなら no-op (PollingService 側のリスナが処理する)。
+	 */
+	private tryAutoReconnect(reason: string): void {
+		if (!authService.isSignedIn()) return;
+		if (this.orchestrator) return;
+		console.log(`[Drive] auto reconnect triggered: ${reason}`);
+		// fire-and-forget。エラーは reconnect 側でログ + offline 状態 emit 済み。
+		this.reconnect().catch(() => {});
+	}
+
+	private installResumeListeners(): void {
+		if (this.appStateSub || this.netUnsub) return;
+		this.lastAppActive = AppState.currentState === 'active';
+		this.appStateSub = AppState.addEventListener('change', (s) =>
+			this.handleAppStateChange(s),
+		);
+		this.netUnsub = NetInfo.addEventListener((s) => this.handleNetChange(s));
+	}
+
+	private handleAppStateChange(state: AppStateStatus): void {
+		const wasActive = this.lastAppActive;
+		const isActive = state === 'active';
+		this.lastAppActive = isActive;
+		if (isActive && !wasActive) {
+			this.tryAutoReconnect('appState:active');
+		}
+	}
+
+	private handleNetChange(state: NetInfoState): void {
+		const isOnline = state.isConnected === true;
+		const wasOnline = this.lastNetConnected;
+		this.lastNetConnected = isOnline;
+		// 初回 fire (wasOnline === null) は seed のみで trigger しない。
+		// 起動時 connect の自動実行と重複してしまうため。
+		if (wasOnline === null) return;
+		if (isOnline && !wasOnline) {
+			this.tryAutoReconnect('netInfo:online');
+		}
 	}
 
 	async signOut(): Promise<void> {
@@ -63,9 +203,69 @@ class DriveService {
 		this.orchestrator = null;
 		this.driveSync = null;
 		this.client = null;
+		// connect 不在状態に戻すので queue も止める。
+		operationQueue.pause();
 		await authService.signOut();
 		await syncStateManager.reset();
 		syncEvents.emit('drive:disconnected', undefined);
+	}
+
+	/**
+	 * Google Drive の appDataFolder 内データを全削除してから連携を解除する。
+	 *
+	 * ローカルノートは残すため、次回 Google Drive に接続したときに空のクラウドで
+	 * ローカルが上書き消去されないよう、解除後に全ノートを dirty として記録する。
+	 */
+	async deleteAllDriveDataAndSignOut(): Promise<void> {
+		if (!authService.isSignedIn()) return;
+		await this.polling?.stop();
+		operationQueue.pause();
+
+		const localNoteIds = noteService.getNoteList().notes.map((note) => note.id);
+		const client =
+			this.client ??
+			new DriveClient((force) => authService.getAccessToken({ force }));
+		await client.deleteAllAppDataFiles();
+		await this.signOut();
+
+		if (localNoteIds.length > 0) {
+			await syncStateManager.markDirty();
+			for (const noteId of localNoteIds) {
+				await syncStateManager.markNoteDirty(noteId);
+			}
+		}
+	}
+
+	/**
+	 * この端末に保存されたアプリデータを全削除する。
+	 *
+	 * Google Drive 上のデータは削除しない。先に連携解除して refresh token を失効/削除し、
+	 * その後にローカル JSON、ノート本文、同期キュー、設定をまとめて消す。
+	 */
+	async deleteLocalData(): Promise<void> {
+		await this.signOut().catch((error) => {
+			console.warn('[Drive] signOut before local data deletion failed:', error);
+		});
+		await operationQueue.cleanupAll().catch((error) => {
+			console.warn('[Drive] queue cleanup before local data deletion failed:', error);
+		});
+
+		const dir = new Directory(APP_DATA_DIR);
+		if (dir.exists) {
+			dir.delete();
+		}
+
+		this.client = null;
+		this.driveSync = null;
+		this.orchestrator = null;
+		this.polling = null;
+		noteService.resetInMemory();
+		syncStateManager.resetInMemory();
+		await operationQueue.resetInMemory();
+		appSettings.resetInMemory();
+		syncEvents.emit('drive:disconnected', undefined);
+		syncEvents.emit('drive:status', { status: 'offline' });
+		syncEvents.emit('notes:reload', undefined);
 	}
 
 	/** UI 操作用: ノート保存トリガー。markDirty → push。 */
@@ -128,23 +328,75 @@ class DriveService {
 	}
 
 	async kickSync(): Promise<void> {
+		const net = await NetInfo.refresh().catch(() => null);
+		if (net && !appSettings.snapshot().syncOnCellular && isCellularOrExpensive(net)) {
+			syncEvents.emit('drive:status', { status: 'offline' });
+			return;
+		}
 		this.polling?.kick();
 	}
 
-	private async connect(): Promise<void> {
-		// サインイン直後に「オフライン→突然ダウンロード」に見えるのを避けるため、
-		// 準備段階に入った時点で接続済み + pulling を即 emit する。
-		// 以降の status は polling/orchestrator が自分のフェーズに応じて上書きする。
-		syncEvents.emit('drive:connected', undefined);
-		syncEvents.emit('drive:status', { status: 'pulling' });
+	/**
+	 * Drive と接続を確立する。
+	 *
+	 * `optimisticEmit=true`: 第一段階の fetch を走らせる前に「接続済み + pulling」を
+	 * 即 emit する。ユーザーが操作した直後 (signIn) に「オフラインから突然ダウンロード」と
+	 * 見えるのを避けたいケース用。
+	 *
+	 * `optimisticEmit=false`: 第一段階の Drive 呼び出しが成功してから初めて
+	 * 「接続済み」を emit する。起動時 / 手動 reconnect で、失敗するかもしれないのに
+	 * 「ダウンロード中」と表示するフリッカーを避ける。
+	 *
+	 * どこで失敗したか (token refresh 段階か Drive 段階か) を切り分けやすいよう、
+	 * 各段階に診断ログを仕込む。
+	 */
+	private async connect(opts: { optimisticEmit: boolean }): Promise<void> {
+		if (opts.optimisticEmit) {
+			syncEvents.emit('drive:connected', undefined);
+			syncEvents.emit('drive:status', { status: 'pulling' });
+		}
 
-		this.client = new DriveClient(() => authService.getAccessToken());
-		const layout = await ensureDriveLayout(this.client);
+		const tempClient = new DriveClient(async (force) => {
+			try {
+				return await authService.getAccessToken({ force });
+			} catch (e) {
+				console.warn('[Drive] token retrieval failed:', e);
+				throw e;
+			}
+		});
+
+		// 第一段階: Drive layout 解決 (token refresh + listFiles)。
+		// ここで失敗するなら「ネット不通 / OAuth エラー / Google API 障害」のどれか。
+		// optimistic 時はすでに pulling を出しているのでこの phase も意味を持つ。
+		if (opts.optimisticEmit) {
+			syncEvents.emit('sync:phase', { phase: 'preparing' });
+		}
+		let layout;
+		try {
+			layout = await ensureDriveLayout(tempClient);
+		} catch (e) {
+			console.warn('[Drive] ensureDriveLayout failed:', e);
+			throw e;
+		}
+
+		// 成功確定後にコミット (非 optimistic 時はここで初めて emit)。
+		if (!opts.optimisticEmit) {
+			syncEvents.emit('drive:connected', undefined);
+			syncEvents.emit('drive:status', { status: 'pulling' });
+			syncEvents.emit('sync:phase', { phase: 'preparing' });
+		}
+
+		this.client = tempClient;
 		this.driveSync = new DriveSyncService(this.client, layout);
 		this.orchestrator = new SyncOrchestrator(
 			this.driveSync,
 			noteService,
 			syncStateManager,
+			{
+				// 設定画面の「競合バックアップを保存」を同期の実処理に反映する。
+				// false の場合は、クラウド勝ち/クラウド削除時のローカル退避 JSON を作らない。
+				enableConflictBackup: appSettings.snapshot().conflictBackup,
+			},
 		);
 
 		// クラウド孤立復元（noteList 取得後）
@@ -158,7 +410,9 @@ class DriveService {
 			syncStateManager,
 		);
 		await this.polling.start();
-		operationQueue.wake();
+		// 接続が確立したのでキューを再開する。`wake()` も呼ばれて、保留中の
+		// CREATE/UPDATE/DELETE が即座に再生される。
+		operationQueue.resume();
 	}
 
 	private async executeQueuedOp(
@@ -191,3 +445,8 @@ class DriveService {
 }
 
 export const driveService = new DriveService();
+
+function isCellularOrExpensive(state: NetInfoState): boolean {
+	const details = state.details as { isConnectionExpensive?: boolean } | null;
+	return state.type === 'cellular' || details?.isConnectionExpensive === true;
+}

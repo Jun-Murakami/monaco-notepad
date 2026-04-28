@@ -140,7 +140,9 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 4,
 	},
 	headerTitle: {
-		fontSize: 18,
+		// 多言語化で長くなりがち ("シンタックスハイライト言語を選択" / "Select
+		// syntax highlighting language") なので、AppBar の既定 (20-22) より控えめ。
+		fontSize: 15,
 	},
 	search: {
 		marginHorizontal: 12,

@@ -135,6 +135,12 @@ export class NoteService {
 		return cloneNoteList(this.list);
 	}
 
+	/** 端末データ削除後に、メモリ上のノート一覧も空状態へ戻す。 */
+	resetInMemory(): void {
+		this.list = cloneNoteList(EMPTY_NOTE_LIST);
+		this.loaded = true;
+	}
+
 	/**
 	 * UI の楽観的更新用に、メモリ上の noteList だけを先に差し替える。
 	 * 呼び出し側は後続で replaceNoteList() を呼び、必ず永続化すること。
