@@ -1,0 +1,14 @@
+{
+  "name": "monaco-caret-position",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "expo-module": {
+    "android": {
+      "sourceDir": "android"
+    },
+    "ios": {
+      "sourceDir": "ios"
+    }
+  }
+}

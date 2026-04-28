@@ -8,6 +8,7 @@ import {
 	type NativeSyntheticEvent,
 	Platform,
 	Pressable,
+	Text as RNText,
 	ScrollView,
 	StyleSheet,
 	TextInput,
@@ -30,8 +31,16 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LanguagePicker } from '@/components/LanguagePicker';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
-import { SyntaxHighlightView } from '@/components/SyntaxHighlightView';
+import {
+	type SyntaxHighlightPressPosition,
+	SyntaxHighlightView,
+} from '@/components/SyntaxHighlightView';
 import { MONACO_LANGUAGE_IDS } from '@/constants/monacoLanguages';
+import {
+	getTextInputCaretRect,
+	scrollTextInputCaretToVisibleCenter,
+	suppressTextInputAutoScroll,
+} from '@/native/caretPosition';
 import { generateContentHeader } from '@/services/notes/noteService';
 import { appSettings } from '@/services/settings/appSettings';
 import { driveService } from '@/services/sync/driveService';
@@ -39,6 +48,12 @@ import type { Note } from '@/services/sync/types';
 import { useNotesStore } from '@/stores/notesStore';
 
 type Mode = 'view' | 'edit';
+type EditorSelection = { start: number; end: number };
+interface EditorScrollMeasurement {
+	text: string;
+	animated: boolean;
+	nonce: number;
+}
 
 /**
  * モバイルで選択可能な言語リスト。デスクトップ版 Monaco と同じ ID 体系。
@@ -66,35 +81,248 @@ export default function NoteEditorScreen() {
 	const [keyboardVisible, setKeyboardVisible] = useState(false);
 	// 編集モード突入直後だけカーソルを (0,0) に固定する。これで multiline TextInput
 	// が「カーソル位置を表示するために末尾までスクロール」してしまうのを防ぎ、
-	// 編集開始時にノート本文の **先頭** から見える。ユーザーがタップしてカーソルを
-	// 動かしたら controlled 状態を解除して自由に編集可能に戻す。
+	// 編集開始時にノート本文の **先頭** から見える。閲覧モードの本文タップで
+	// 入った場合は、閲覧表示が実レイアウトから返した行・桁を初回 selection に使う。
+	// 初回 focus 後は controlled 状態を解除して、iOS の自動 scrollRangeToVisible と
+	// 手動 contentOffset 補正が競合しないようにする。
 	const [editorSelection, setEditorSelection] = useState<
-		{ start: number; end: number } | undefined
+		EditorSelection | undefined
 	>(undefined);
 	// 設定画面で変えられる本文フォントサイズ。view (SyntaxHighlightView) と
 	// edit (TextInput) の両方に同じ値を使う。
 	const [editorFontSize, setEditorFontSize] = useState<number>(
 		() => appSettings.snapshot().editorFontSize,
 	);
+	const editorFontSizeRef = useRef(editorFontSize);
+	const isIOS = Platform.OS === 'ios';
 	// Android の multiline TextInput 内蔵スクロールは、通常の ScrollView ほど
 	// 慣性スクロールが自然に効かない。外側 ScrollView にスクロールを任せるため、
 	// TextInput 自体は本文の contentSize まで縦に伸ばす。
+	// iOS は逆に、この構成だと削除/改行で contentSize が激しく変わった時に
+	// TextInput のネイティブ描画領域と RN 側の高さ指定がズレ、途中行までしか
+	// 表示・編集できないことがあるため、後段の render で内蔵スクロールに分岐する。
 	const [editorContentHeight, setEditorContentHeight] = useState(0);
 	const [editorViewportHeight, setEditorViewportHeight] = useState(0);
+	const [editorTextWidth, setEditorTextWidth] = useState(0);
+	const [editorScrollMeasurement, setEditorScrollMeasurement] =
+		useState<EditorScrollMeasurement | null>(null);
+	const editorViewportHeightRef = useRef(0);
+	const editorInputHeightRef = useRef(0);
+	const editorKeyboardInsetRef = useRef(0);
 	useEffect(() => {
 		return appSettings.subscribe((s) => setEditorFontSize(s.editorFontSize));
 	}, []);
+	useEffect(() => {
+		editorFontSizeRef.current = editorFontSize;
+	}, [editorFontSize]);
+	useEffect(() => {
+		editorViewportHeightRef.current = editorViewportHeight;
+	}, [editorViewportHeight]);
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const latestNoteRef = useRef<Note | null>(null);
+	const editorRef = useRef<TextInput>(null);
+	const androidEditorScrollerRef = useRef<ScrollView>(null);
+	const pendingInitialSelectionRef = useRef<EditorSelection | null>(null);
+	const pendingEditorCursorOffsetRef = useRef<number | null>(null);
+	const lastEditorCursorOffsetRef = useRef<number | null>(null);
+	const scrollMeasurementNonceRef = useRef(0);
+	const keyboardSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	const pendingFocusRef = useRef(false);
 
-	// 編集モードに切り替わるたびに、初回カーソル位置を先頭に固定する。
+	const getEditorVisibilityMetrics = useCallback(
+		(lineHeight: number) => {
+			const wrapperHeight = editorViewportHeightRef.current;
+			const keyboardInset = editorKeyboardInsetRef.current;
+			const wrapperVisibleHeight = Math.max(0, wrapperHeight - keyboardInset);
+			const measuredInputHeight = editorInputHeightRef.current;
+			const inputVisibleHeight =
+				measuredInputHeight > 0 ? measuredInputHeight : wrapperVisibleHeight;
+			const baseVisibleHeight = Math.max(
+				lineHeight,
+				Math.min(
+					wrapperVisibleHeight || lineHeight,
+					inputVisibleHeight || lineHeight,
+				),
+			);
+
+			if (!isIOS) {
+				return { visibleHeight: baseVisibleHeight, bottomInset: 0 };
+			}
+
+			const layoutConsumedKeyboardInset =
+				measuredInputHeight > 0
+					? Math.max(0, wrapperHeight - measuredInputHeight)
+					: 0;
+			const remainingKeyboardInset = Math.max(
+				0,
+				keyboardInset - layoutConsumedKeyboardInset,
+			);
+
+			return {
+				// iOS は TextInput 自身の内部スクロールなので、キーボードだけでなく
+				// キーボード上へ移動したフロート切替バーの占有分も中央寄せ範囲から外す。
+				visibleHeight: Math.max(
+					lineHeight,
+					baseVisibleHeight - FLOATING_BAR_CLEARANCE,
+				),
+				// TextInput のレイアウトがキーボード分だけ縮んだ後は bar 分だけを
+				// contentInset に残す。縮む前は未反映のキーボード分も inset に足して、
+				// アニメーション中でも末尾付近へスクロールできる余地を確保する。
+				bottomInset: remainingKeyboardInset + FLOATING_BAR_CLEARANCE,
+			};
+		},
+		[isIOS],
+	);
+
+	const releaseInitialEditorSelection = useCallback(() => {
+		setEditorSelection((current) => (current ? undefined : current));
+	}, []);
+
+	const applyEditorScroll = useCallback(
+		async (cursorVisualY: number, caretHeight: number, animated: boolean) => {
+			const lineHeight = Math.round(editorFontSizeRef.current * 1.55);
+			const { visibleHeight } = getEditorVisibilityMetrics(lineHeight);
+			const targetY = Math.max(
+				0,
+				cursorVisualY - visibleHeight / 2 + Math.max(caretHeight, lineHeight),
+			);
+
+			if (isIOS) {
+				editorRef.current?.setNativeProps({
+					contentOffset: { x: 0, y: targetY },
+				});
+			} else {
+				androidEditorScrollerRef.current?.scrollTo({
+					y: targetY,
+					animated,
+				});
+			}
+		},
+		[getEditorVisibilityMetrics, isIOS],
+	);
+
+	const centerEditorAroundCursor = useCallback(
+		async (cursorOffset: number, animated = false) => {
+			const lineHeight = Math.round(editorFontSizeRef.current * 1.55);
+			const { visibleHeight, bottomInset } =
+				getEditorVisibilityMetrics(lineHeight);
+			if (isIOS) {
+				const applied = await scrollTextInputCaretToVisibleCenter(
+					editorRef.current,
+					cursorOffset,
+					visibleHeight,
+					bottomInset,
+					animated,
+				);
+				if (applied) return;
+			}
+
+			const content = latestNoteRef.current?.content ?? '';
+			const nativeRect = await getTextInputCaretRect(
+				editorRef.current,
+				cursorOffset,
+			);
+			if (nativeRect) {
+				// ネイティブ側で TextInput 自身の Layout から caret rect を取得できる場合は、
+				// 推定ではなく実キャレット位置をそのまま中央寄せに使う。
+				applyEditorScroll(nativeRect.y, nativeRect.height, animated);
+				return;
+			}
+
+			// Expo Go / prebuild 前など native module がない環境では、編集 TextInput と
+			// 同じ幅・フォントの不可視 Text で caret 直前までを実レイアウトする。
+			setEditorScrollMeasurement({
+				text: buildCaretMeasurementText(content.slice(0, cursorOffset)),
+				animated,
+				nonce: scrollMeasurementNonceRef.current + 1,
+			});
+			scrollMeasurementNonceRef.current += 1;
+		},
+		[applyEditorScroll, getEditorVisibilityMetrics, isIOS],
+	);
+
+	const applyMeasuredEditorScroll = useCallback(
+		(visualLineCount: number, animated: boolean) => {
+			const lineHeight = Math.round(editorFontSizeRef.current * 1.55);
+			applyEditorScroll(
+				EDITOR_VERTICAL_PADDING_TOP +
+					Math.max(0, visualLineCount - 1) * lineHeight,
+				lineHeight,
+				animated,
+			);
+		},
+		[applyEditorScroll],
+	);
+
+	// 編集モードに切り替わるたびに、初回カーソル位置とフォーカスをまとめて適用する。
 	useEffect(() => {
 		if (mode === 'edit') {
-			setEditorSelection({ start: 0, end: 0 });
+			const initialSelection = pendingInitialSelectionRef.current ?? {
+				start: 0,
+				end: 0,
+			};
+			const initialCursorOffset = pendingEditorCursorOffsetRef.current;
+			pendingInitialSelectionRef.current = null;
+			pendingEditorCursorOffsetRef.current = null;
+			lastEditorCursorOffsetRef.current = initialCursorOffset;
+			pendingFocusRef.current = true;
+			setEditorSelection(initialSelection);
+
+			// 条件付き render で TextInput が mount された直後に focus する。
+			// selection を先に state へ入れておくと、ソフトキーボード表示時に
+			// 先頭や末尾へ飛ばず、閲覧モードでタップした位置から編集を始められる。
+			requestAnimationFrame(async () => {
+				if (!pendingFocusRef.current) return;
+				if (isIOS) {
+					// iOS: focus() 時に UIKit が scrollRangeToVisible を自動実行し、
+					// キーボード未考慮の bounds.height で不正なスクロールを行う。
+					// scrollEnabled を一時的に false にして抑制する。
+					// scrollCaretToVisibleCenter が true に戻す。
+					await suppressTextInputAutoScroll();
+				}
+				editorRef.current?.focus();
+				if (initialCursorOffset !== null && !isIOS) {
+					// Android: mount 直後に中央寄せする。keyboardDidShow 後に再補正。
+					centerEditorAroundCursor(initialCursorOffset);
+				}
+				pendingFocusRef.current = false;
+				if (!isIOS) {
+					// Android: controlled selection を即座に解放する。
+					requestAnimationFrame(releaseInitialEditorSelection);
+				}
+				// iOS: controlled selection の解放はキーボード表示後の effect まで遅延する。
+				// 先に解放すると UIKit の scrollRangeToVisible が発火し、
+				// キーボード高さを考慮しない位置へスクロールされてしまう。
+			});
 		} else {
+			pendingFocusRef.current = false;
+			pendingInitialSelectionRef.current = null;
+			pendingEditorCursorOffsetRef.current = null;
+			lastEditorCursorOffsetRef.current = null;
+			setEditorScrollMeasurement(null);
 			setEditorSelection(undefined);
 		}
-	}, [mode]);
+	}, [centerEditorAroundCursor, mode, releaseInitialEditorSelection]);
+
+	useEffect(() => {
+		if (mode !== 'edit' || !keyboardVisible) return;
+		const cursorOffset = lastEditorCursorOffsetRef.current;
+		if (cursorOffset === null) return;
+
+		// キーボード表示開始時に一度中央へ寄せる。
+		// Android は外側 ScrollView、iOS は TextInput の native contentOffset へ適用する。
+		requestAnimationFrame(() => {
+			centerEditorAroundCursor(cursorOffset, true);
+			if (isIOS) {
+				// iOS: キーボード考慮済みのスクロール適用後に controlled selection を解放する。
+				// これより前に解放すると UIKit の scrollRangeToVisible が発火し、
+				// キーボード高さ未考慮の位置へ戻されてしまう。
+				requestAnimationFrame(releaseInitialEditorSelection);
+			}
+		});
+	}, [centerEditorAroundCursor, keyboardVisible, mode, releaseInitialEditorSelection]);
 
 	// キーボード追従の式は bar とエディタ wrapper でセットになっている。
 	//   - bar: 通常時 `bottom: 32` から、キーボード上 8px (= 24px 縮める) まで上げる。
@@ -123,22 +351,50 @@ export default function NoteEditorScreen() {
 				e.endCoordinates.height,
 				screenHeight - e.endCoordinates.screenY,
 			);
+			editorKeyboardInsetRef.current = Math.max(0, fromBottom - 24);
 			keyboardHeight.value = withTiming(fromBottom, {
 				duration: e.duration ?? 250,
 			});
 			setKeyboardVisible(true);
+			if (Platform.OS === 'ios') {
+				if (keyboardSettleTimerRef.current) {
+					clearTimeout(keyboardSettleTimerRef.current);
+				}
+				keyboardSettleTimerRef.current = setTimeout(
+					() => {
+						const cursorOffset = lastEditorCursorOffsetRef.current;
+						if (cursorOffset === null) return;
+						// iOS は keyboardWillShow 後に UIKit / TextInput 側の
+						// selection 自動スクロールが走ることがある。アニメーション完了後に
+						// native caret rect を取り直して、キーボード込みの可視領域へ再配置する。
+						requestAnimationFrame(() =>
+							centerEditorAroundCursor(cursorOffset, true),
+						);
+					},
+					(e.duration ?? 250) + 150,
+				);
+			}
 		});
 		const hideSub = Keyboard.addListener(hideEv, (e) => {
+			if (keyboardSettleTimerRef.current) {
+				clearTimeout(keyboardSettleTimerRef.current);
+				keyboardSettleTimerRef.current = null;
+			}
+			editorKeyboardInsetRef.current = 0;
 			keyboardHeight.value = withTiming(0, {
 				duration: e.duration ?? 250,
 			});
 			setKeyboardVisible(false);
 		});
 		return () => {
+			if (keyboardSettleTimerRef.current) {
+				clearTimeout(keyboardSettleTimerRef.current);
+				keyboardSettleTimerRef.current = null;
+			}
 			showSub.remove();
 			hideSub.remove();
 		};
-	}, [keyboardHeight]);
+	}, [centerEditorAroundCursor, keyboardHeight]);
 	const floatingBarStyle = useAnimatedStyle(() => ({
 		transform: [{ translateY: Math.min(0, 24 - keyboardHeight.value) }],
 	}));
@@ -236,6 +492,58 @@ export default function NoteEditorScreen() {
 	) => {
 		setEditorContentHeight(event.nativeEvent.contentSize.height);
 	};
+	const handleEditorLayout = (width: number, height: number) => {
+		editorInputHeightRef.current = height;
+		const textWidth = Math.max(1, width - EDITOR_HORIZONTAL_PADDING * 2);
+		setEditorTextWidth(textWidth);
+		const cursorOffset = lastEditorCursorOffsetRef.current;
+		if (mode === 'edit' && cursorOffset !== null) {
+			// iOS: キーボード出現前のレイアウトイベントでスクロールすると、
+			// 全画面高さで中央寄せされ、キーボードが出た後にキャレットが隠れてしまう。
+			// キーボード高さが確定してからスクロールする。
+			if (isIOS && editorKeyboardInsetRef.current === 0) return;
+			// TextInput の実幅が取れたタイミングで、編集 Text と同じ幅の
+			// 計測用 Text を再レイアウトし、実キャレット行に基づいてスクロールする。
+			requestAnimationFrame(() => centerEditorAroundCursor(cursorOffset));
+		}
+	};
+	const handleEditorSelectionChange = (e: {
+		nativeEvent: { selection: { start: number; end: number } };
+	}) => {
+		// 初回 selection と違う位置へカーソルが動いたら controlled 解除。
+		// 初回 render 直後の onSelectionChange は同じ selection で来るため無視し、
+		// 以後のユーザー操作や IME 側の調整からは TextInput に任せる。
+		const s = e.nativeEvent.selection;
+		if (
+			editorSelection &&
+			(s.start !== editorSelection.start || s.end !== editorSelection.end)
+		) {
+			setEditorSelection(undefined);
+		}
+	};
+	const handleViewerPressPosition = (
+		position: SyntaxHighlightPressPosition,
+	) => {
+		const ranges = buildContentLineRanges(note.content);
+		const range = ranges[Math.min(position.lineIndex, ranges.length - 1)];
+		const offset = Math.min(range.end, range.start + position.column);
+		pendingInitialSelectionRef.current = { start: offset, end: offset };
+		pendingEditorCursorOffsetRef.current = offset;
+		setMode('edit');
+	};
+	const handleContentChange = (content: string) => {
+		scheduleSave({
+			...note,
+			content,
+			contentHeader: generateContentHeader(content),
+			modifiedTime: new Date().toISOString(),
+		});
+	};
+	const editorBaseStyle = {
+		color: theme.colors.onBackground,
+		fontSize: editorFontSize,
+		lineHeight: Math.round(editorFontSize * 1.55),
+	};
 
 	return (
 		<View
@@ -319,13 +627,12 @@ export default function NoteEditorScreen() {
 					contentContainerStyle={styles.viewerContent}
 				>
 					{/* タップで即編集モードへ。コピーは AppBar 右の content-copy ボタンから。 */}
-					<Pressable onPress={() => setMode('edit')}>
-						<SyntaxHighlightView
-							content={note.content}
-							language={note.language}
-							fontSize={editorFontSize}
-						/>
-					</Pressable>
+					<SyntaxHighlightView
+						content={note.content}
+						language={note.language}
+						fontSize={editorFontSize}
+						onPressPosition={handleViewerPressPosition}
+					/>
 				</ScrollView>
 			) : (
 				<Animated.View
@@ -334,47 +641,81 @@ export default function NoteEditorScreen() {
 						setEditorViewportHeight(event.nativeEvent.layout.height)
 					}
 				>
-					<ScrollView
-						style={styles.editorScroller}
-						contentContainerStyle={styles.editorScrollContent}
-						keyboardShouldPersistTaps="handled"
-					>
-						<TextInput
+					{editorScrollMeasurement && editorTextWidth > 0 && (
+						<RNText
+							key={editorScrollMeasurement.nonce}
 							style={[
-								styles.editor,
-								{
-									color: theme.colors.onBackground,
-									fontSize: editorFontSize,
-									height: Math.max(editorContentHeight, editorViewportHeight),
-									lineHeight: Math.round(editorFontSize * 1.55),
-								},
+								styles.editorMeasureText,
+								editorBaseStyle,
+								{ width: editorTextWidth },
 							]}
+							onTextLayout={(event) => {
+								applyMeasuredEditorScroll(
+									event.nativeEvent.lines.length,
+									editorScrollMeasurement.animated,
+								);
+								setEditorScrollMeasurement(null);
+							}}
+						>
+							{editorScrollMeasurement.text}
+						</RNText>
+					)}
+					{isIOS ? (
+						<TextInput
+							ref={editorRef}
+							style={[styles.editor, styles.iosEditor, editorBaseStyle]}
+							onLayout={(event) =>
+								handleEditorLayout(
+									event.nativeEvent.layout.width,
+									event.nativeEvent.layout.height,
+								)
+							}
 							placeholder={t('editor.contentPlaceholder')}
 							placeholderTextColor={theme.colors.onSurfaceVariant}
 							multiline
-							scrollEnabled={false}
+							// iOS は UITextView 相当の TextInput 内部スクロールが安定している。
+							// 外側 ScrollView に高さ追従させると、改行/削除で contentSize が
+							// 瞬間的に小さくなった時に描画領域が欠けることがある。
+							scrollEnabled
 							value={note.content}
 							selection={editorSelection}
-							onContentSizeChange={handleEditorContentSizeChange}
-							onSelectionChange={(e) => {
-								// (0,0) でない位置にカーソルが動いたら controlled 解除。
-								// 初回 render で (0,0) を当てた直後の onSelectionChange は
-								// (0,0) で来るので無視され、ユーザーがタップした瞬間に解放される。
-								const s = e.nativeEvent.selection;
-								if (editorSelection && (s.start !== 0 || s.end !== 0)) {
-									setEditorSelection(undefined);
-								}
-							}}
-							onChangeText={(content) =>
-								scheduleSave({
-									...note,
-									content,
-									contentHeader: generateContentHeader(content),
-									modifiedTime: new Date().toISOString(),
-								})
-							}
+							onSelectionChange={handleEditorSelectionChange}
+							onChangeText={handleContentChange}
 						/>
-					</ScrollView>
+					) : (
+						<ScrollView
+							ref={androidEditorScrollerRef}
+							style={styles.editorScroller}
+							contentContainerStyle={styles.editorScrollContent}
+							keyboardShouldPersistTaps="handled"
+						>
+							<TextInput
+								ref={editorRef}
+								style={[
+									styles.editor,
+									editorBaseStyle,
+									{
+										height: Math.max(editorContentHeight, editorViewportHeight),
+									},
+								]}
+								onLayout={(event) =>
+									handleEditorLayout(
+										event.nativeEvent.layout.width,
+										event.nativeEvent.layout.height,
+									)
+								}
+								placeholder={t('editor.contentPlaceholder')}
+								placeholderTextColor={theme.colors.onSurfaceVariant}
+								multiline
+								scrollEnabled={false}
+								value={note.content}
+								selection={editorSelection}
+								onContentSizeChange={handleEditorContentSizeChange}
+								onSelectionChange={handleEditorSelectionChange}
+								onChangeText={handleContentChange}
+							/>
+						</ScrollView>
+					)}
 				</Animated.View>
 			)}
 			<LanguagePicker
@@ -449,6 +790,44 @@ const monoFamily = Platform.select({
 
 // フロートトグルの自身の高さ (SegmentedButtons ~40) + 上下 padding (8*2) + 下余白 (16)
 const FLOATING_BAR_CLEARANCE = 80;
+const VIEWER_CONTENT_PADDING_TOP = 4;
+const VIEWER_CONTENT_PADDING_RIGHT = 16;
+const VIEWER_CONTENT_PADDING_LEFT = 8;
+const EDITOR_HORIZONTAL_PADDING = 16;
+const EDITOR_VERTICAL_PADDING_TOP = 4;
+
+interface ContentLineRange {
+	start: number;
+	end: number;
+	text: string;
+}
+
+function buildCaretMeasurementText(prefix: string): string {
+	// 空文字や改行直後の caret も Text.onTextLayout で 1 行として測れるよう、
+	// 視覚的な幅をほぼ持たないゼロ幅スペースを caret 位置に置く。
+	return `${prefix}\u200b`;
+}
+
+function buildContentLineRanges(content: string): ContentLineRange[] {
+	if (content.length === 0) {
+		return [{ start: 0, end: 0, text: '' }];
+	}
+
+	const ranges: ContentLineRange[] = [];
+	let start = 0;
+	for (let i = 0; i < content.length; i++) {
+		if (content[i] !== '\n') continue;
+		const end = i > start && content[i - 1] === '\r' ? i - 1 : i;
+		ranges.push({ start, end, text: content.slice(start, end) });
+		start = i + 1;
+	}
+	const end =
+		content.length > start && content[content.length - 1] === '\r'
+			? content.length - 1
+			: content.length;
+	ranges.push({ start, end, text: content.slice(start, end) });
+	return ranges;
+}
 
 const styles = StyleSheet.create({
 	container: { flex: 1 },
@@ -463,6 +842,12 @@ const styles = StyleSheet.create({
 	editorScroller: {
 		flex: 1,
 	},
+	iosEditor: {
+		flex: 1,
+		// TextInput 内部スクロール時も、本文末尾がフロート切替バーの裏に
+		// 潜らないように TextInput 側へ下余白を持たせる。
+		paddingBottom: FLOATING_BAR_CLEARANCE,
+	},
 	editorScrollContent: {
 		// TextInput 自体は scrollEnabled=false で縦に伸ばし、ScrollView に
 		// フリング/慣性スクロールを担当させる。下余白はフロート切替バーに
@@ -474,19 +859,27 @@ const styles = StyleSheet.create({
 	},
 	viewerContent: {
 		// 行番号カラムの分だけ左は少なめの padding、右/上は通常
-		paddingTop: 4,
-		paddingRight: 16,
-		paddingLeft: 8,
+		paddingTop: VIEWER_CONTENT_PADDING_TOP,
+		paddingRight: VIEWER_CONTENT_PADDING_RIGHT,
+		paddingLeft: VIEWER_CONTENT_PADDING_LEFT,
 		// フロートトグルの下にコンテンツが隠れないよう下余白を確保
 		paddingBottom: FLOATING_BAR_CLEARANCE,
 	},
 	editor: {
-		paddingHorizontal: 16,
-		paddingTop: 4,
+		paddingHorizontal: EDITOR_HORIZONTAL_PADDING,
+		paddingTop: EDITOR_VERTICAL_PADDING_TOP,
 		paddingBottom: 4,
 		textAlignVertical: 'top',
 		fontFamily: monoFamily,
 		fontSize: 14,
+	},
+	editorMeasureText: {
+		position: 'absolute',
+		left: -10000,
+		top: 0,
+		fontFamily: monoFamily,
+		includeFontPadding: false,
+		opacity: 0,
 	},
 	floatingModeBar: {
 		position: 'absolute',

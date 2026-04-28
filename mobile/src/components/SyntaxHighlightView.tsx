@@ -1,5 +1,14 @@
-import { type ReactNode, useCallback, useMemo } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useCallback, useMemo, useRef } from 'react';
+import {
+	type GestureResponderEvent,
+	Platform,
+	Pressable,
+	type StyleProp,
+	StyleSheet,
+	Text,
+	type TextStyle,
+	View,
+} from 'react-native';
 import { useTheme } from 'react-native-paper';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import {
@@ -12,6 +21,35 @@ interface Props {
 	language: string;
 	/** 本文のフォントサイズ (px)。指定されないとき 13。 */
 	fontSize?: number;
+	/** 閲覧行をタップした時、本文の論理行・論理行内の桁を返す。 */
+	onPressPosition?: (position: SyntaxHighlightPressPosition) => void;
+}
+
+export interface SyntaxHighlightPressPosition {
+	lineIndex: number;
+	column: number;
+	visualY: number;
+}
+
+interface HighlightNode {
+	type?: string;
+	value?: string;
+	properties?: {
+		className?: string[];
+	};
+	children?: HighlightNode[];
+}
+
+type HighlightStyleSheet = Record<
+	string,
+	Record<string, string | number | undefined> | undefined
+>;
+
+interface LogicalLineLayout {
+	y: number;
+	textX: number;
+	textWidth: number;
+	charWidth: number;
 }
 
 /**
@@ -28,15 +66,18 @@ export function SyntaxHighlightView({
 	content,
 	language,
 	fontSize = 13,
+	onPressPosition,
 }: Props) {
 	const theme = useTheme();
 	const hljsStyle = theme.dark ? atomOneDark : atomOneLight;
 	const dim = theme.colors.outline;
 	const fg = theme.colors.onSurface;
+	const lineLayoutsRef = useRef<Record<number, LogicalLineLayout>>({});
+	const logicalLines = useMemo(() => buildLogicalLines(content), [content]);
 
 	// fontSize に応じて行高 / 行番号サイズも追従させる。
+	const lineHeight = Math.round(fontSize * 1.55);
 	const dynamicStyles = useMemo(() => {
-		const lineHeight = Math.round(fontSize * 1.55);
 		return StyleSheet.create({
 			lineNumber: {
 				paddingRight: 8,
@@ -55,8 +96,48 @@ export function SyntaxHighlightView({
 				includeFontPadding: false,
 				textAlignVertical: 'top',
 			},
+			tokenText: {
+				fontFamily: MONO,
+				fontSize,
+				lineHeight,
+				includeFontPadding: false,
+			},
 		});
-	}, [fontSize]);
+	}, [fontSize, lineHeight]);
+
+	const handleLinePress = useCallback(
+		(lineIndex: number, event: GestureResponderEvent) => {
+			if (!onPressPosition) return;
+			const layout = lineLayoutsRef.current[lineIndex];
+			const logicalLine = logicalLines[lineIndex] ?? '';
+			const charWidth = Math.max(1, layout?.charWidth ?? fontSize * 0.6);
+			const textWidth = Math.max(charWidth, layout?.textWidth ?? charWidth);
+			const charsPerVisualLine = Math.max(1, Math.floor(textWidth / charWidth));
+			const locationXInText = Math.max(
+				0,
+				event.nativeEvent.locationX - (layout?.textX ?? 0),
+			);
+			const visualLineIndex = Math.max(
+				0,
+				Math.floor(event.nativeEvent.locationY / lineHeight),
+			);
+			const columnInVisualLine = Math.round(locationXInText / charWidth);
+
+			onPressPosition({
+				lineIndex,
+				// ピック結果は必ず「論理行 + 論理行内 column」に正規化する。
+				// 折り返しは visualLineIndex と 1 行あたり文字数から column を作るだけで、
+				// RN の onTextLayout が返す折り返し文字列長は offset には使わない。
+				column: clamp(
+					visualLineIndex * charsPerVisualLine + columnInVisualLine,
+					0,
+					logicalLine.length,
+				),
+				visualY: (layout?.y ?? 0) + visualLineIndex * lineHeight,
+			});
+		},
+		[fontSize, lineHeight, logicalLines, onPressPosition],
+	);
 
 	const renderer = useCallback(
 		// biome-ignore lint/suspicious/noExplicitAny: renderer の型は any
@@ -65,10 +146,20 @@ export function SyntaxHighlightView({
 			return (
 				<View>
 					{rows.map((row, idx) => (
-						<View
+						<Pressable
 							// biome-ignore lint/suspicious/noArrayIndexKey: 行 index は安定
 							key={idx}
 							style={styles.line}
+							onLayout={(event) => {
+								const prev = lineLayoutsRef.current[idx];
+								lineLayoutsRef.current[idx] = {
+									y: event.nativeEvent.layout.y,
+									textX: prev?.textX ?? 0,
+									textWidth: prev?.textWidth ?? 0,
+									charWidth: prev?.charWidth ?? fontSize * 0.6,
+								};
+							}}
+							onPress={(event) => handleLinePress(idx, event)}
 						>
 							<Text
 								selectable={false}
@@ -82,15 +173,44 @@ export function SyntaxHighlightView({
 							<Text
 								selectable={false}
 								style={[dynamicStyles.lineText, { color: fg }]}
+								onLayout={(event) => {
+									const prev = lineLayoutsRef.current[idx];
+									lineLayoutsRef.current[idx] = {
+										y: prev?.y ?? 0,
+										textX: event.nativeEvent.layout.x,
+										textWidth: event.nativeEvent.layout.width,
+										charWidth: prev?.charWidth ?? fontSize * 0.6,
+									};
+								}}
+								onTextLayout={(event) => {
+									const prev = lineLayoutsRef.current[idx];
+									const measured = event.nativeEvent.lines.find(
+										(line) => line.text.length > 0 && line.width > 0,
+									);
+									lineLayoutsRef.current[idx] = {
+										y: prev?.y ?? 0,
+										textX: prev?.textX ?? 0,
+										textWidth: prev?.textWidth ?? 0,
+										// 等幅フォント前提で、実描画から 1 文字幅だけを補正する。
+										// 折り返し後の文字列長は使わず、論理行内 column だけを返す。
+										charWidth: measured
+											? measured.width / measured.text.length
+											: (prev?.charWidth ?? fontSize * 0.6),
+									};
+								}}
 							>
-								{renderTokens(row.children ?? [], stylesheet)}
+								{renderTokens(
+									(row.children ?? []) as HighlightNode[],
+									stylesheet as HighlightStyleSheet,
+									dynamicStyles.tokenText,
+								)}
 							</Text>
-						</View>
+						</Pressable>
 					))}
 				</View>
 			);
 		},
-		[dim, fg, dynamicStyles],
+		[dim, fg, dynamicStyles, handleLinePress, fontSize],
 	);
 
 	return (
@@ -108,15 +228,18 @@ export function SyntaxHighlightView({
 	);
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: AST ノード
-function renderTokens(nodes: any[], stylesheet: any): ReactNode[] {
+function renderTokens(
+	nodes: HighlightNode[],
+	stylesheet: HighlightStyleSheet,
+	tokenTextStyle: StyleProp<TextStyle>,
+): ReactNode[] {
 	return nodes.map((node, i) => {
 		if (node.type === 'text') {
 			// react-syntax-highlighter は各 row の末尾に '\n' を含めることがある。
-			// 各 row を個別の Text として描画する我々にとっては不要（行末の余計な空行が
-			// 描画され、行高さが倍になる）。除去する。
-			const value: string = node.value;
-			return value.replace(/\n+$/, '');
+			// ここでは row 境界がすでに改行を表すため、token 内に残った改行はすべて不要。
+			// iOS では入れ子 Text 内の改行が行ブロック自体の高さを押し広げることがある。
+			const value = node.value ?? '';
+			return value.replace(/[\r\n]+/g, '');
 		}
 		const classes: string[] = node.properties?.className ?? [];
 		const merged: Record<string, string | number> = {};
@@ -139,9 +262,9 @@ function renderTokens(nodes: any[], stylesheet: any): ReactNode[] {
 			<Text
 				// biome-ignore lint/suspicious/noArrayIndexKey: 位置 index は安定
 				key={i}
-				style={rnStyle}
+				style={[tokenTextStyle, rnStyle]}
 			>
-				{renderTokens(node.children ?? [], stylesheet)}
+				{renderTokens(node.children ?? [], stylesheet, tokenTextStyle)}
 			</Text>
 		);
 	});
@@ -163,6 +286,29 @@ function normalizeLang(lang: string): string {
 	return map[lang] ?? lang;
 }
 
+function buildLogicalLines(content: string): string[] {
+	if (content.length === 0) return [''];
+
+	const lines: string[] = [];
+	let start = 0;
+	for (let i = 0; i < content.length; i++) {
+		if (content[i] !== '\n') continue;
+		const end = i > start && content[i - 1] === '\r' ? i - 1 : i;
+		lines.push(content.slice(start, end));
+		start = i + 1;
+	}
+	const end =
+		content.length > start && content[content.length - 1] === '\r'
+			? content.length - 1
+			: content.length;
+	lines.push(content.slice(start, end));
+	return lines;
+}
+
+function clamp(value: number, min: number, max: number): number {
+	return Math.max(min, Math.min(max, value));
+}
+
 const MONO =
 	Platform.select({
 		ios: 'Menlo',
@@ -174,5 +320,7 @@ const styles = StyleSheet.create({
 	line: {
 		flexDirection: 'row',
 		alignItems: 'flex-start',
+		marginVertical: 0,
+		paddingVertical: 0,
 	},
 });

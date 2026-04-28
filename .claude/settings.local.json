@@ -51,7 +51,8 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git checkout *)",
-      "WebFetch(domain:nuclearpasta.com)"
+      "WebFetch(domain:nuclearpasta.com)",
+      "Bash(npx expo-modules-autolinking:*)"
     ]
   }
 }

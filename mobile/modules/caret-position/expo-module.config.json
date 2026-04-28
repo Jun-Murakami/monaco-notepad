@@ -1,0 +1,10 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["MonacoCaretPositionModule"],
+    "podspecPath": "MonacoCaretPosition.podspec"
+  },
+  "android": {
+    "modules": ["app.monaconotepad.caretposition.MonacoCaretPositionModule"]
+  }
+}
