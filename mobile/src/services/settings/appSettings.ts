@@ -13,11 +13,16 @@ import { APP_DATA_DIR, SETTINGS_PATH } from '../storage/paths';
 export type LanguagePref = 'auto' | 'ja' | 'en';
 export type ThemePref = 'auto' | 'light' | 'dark';
 
+/** ノート詳細ページ (本文ビュー / エディタ) の文字サイズ。px 単位。 */
+export const EDITOR_FONT_SIZES = [12, 14, 16, 18, 20] as const;
+export type EditorFontSize = (typeof EDITOR_FONT_SIZES)[number];
+
 export interface AppSettings {
 	language: LanguagePref;
 	theme: ThemePref;
 	syncOnCellular: boolean;
 	conflictBackup: boolean;
+	editorFontSize: EditorFontSize;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -25,6 +30,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 	theme: 'auto',
 	syncOnCellular: true,
 	conflictBackup: true,
+	editorFontSize: 14,
 };
 
 type Listener = (settings: AppSettings) => void;

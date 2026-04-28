@@ -1,11 +1,9 @@
+import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-	type GestureResponderEvent,
-	Pressable,
-	StyleSheet,
-	View,
-} from 'react-native';
+import { type GestureResponderEvent, StyleSheet, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Icon, IconButton, Text, useTheme } from 'react-native-paper';
+import { runOnJS } from 'react-native-reanimated';
 import type { Folder } from '@/services/sync/types';
 
 interface Props {
@@ -22,15 +20,12 @@ interface Props {
  * UI 方針:
  * - 左端の chevron だけが折り畳みトグル (タップで開閉)。
  * - ヘッダ本体 (アイコン + 名前 + 件数) はタップ無反応。**ドラッグ用領域**として
- *   親 (NoteListScreen renderItem) が `<Pressable onLongPress={drag}>` で包む想定。
- * - 右端の dots はコンテキストメニュー。
+ *   親 (NoteListScreen renderItem) が PanGesture で包む想定。
  *
- * 注: chevron は意図的に **RN 標準 `Pressable`** を使う。NoteListItem の onPress
- * と同じ構造にすることで、外側 (gh) の long-press 判定を遅延させる nested-gh の
- * 競合を避ける。RN の responder system 経由なら gesture-handler とは独立に
- * onPress が走り、外側の drag 判定はそのまま 150ms で発火できる。
+ * 注: chevron の Tap 判定は外側の Pan (drag-on-long-press) と協調するために
+ *   gesture-handler の `Gesture.Tap()` を使う。
  */
-export function FolderListItem({
+function FolderListItemImpl({
 	folder,
 	noteCount,
 	collapsed,
@@ -39,6 +34,15 @@ export function FolderListItem({
 }: Props) {
 	const { t } = useTranslation();
 	const theme = useTheme();
+	const toggleGesture = useMemo(
+		() =>
+			Gesture.Tap()
+				.hitSlop(8)
+				.onBegin(() => {
+					runOnJS(onToggle)(folder.id);
+				}),
+		[folder.id, onToggle],
+	);
 	return (
 		<View style={styles.row}>
 			{/* 折り畳みトグル: chevron 部分のみ。
@@ -47,20 +51,20 @@ export function FolderListItem({
 			    再描画され、極短時間ではあるが「角 rounded → 一瞬 square → rounded」のような
 			    flicker として観測されることがある (ネイティブ側で style 適用がフレーム
 			    境界をまたぐため)。 */}
-			<Pressable
-				onPress={() => onToggle(folder.id)}
-				hitSlop={8}
-				style={styles.chevronButton}
-				accessibilityRole="button"
-				accessibilityLabel={folder.name}
-				accessibilityState={{ expanded: !collapsed }}
-			>
-				<Icon
-					source={collapsed ? 'chevron-right' : 'chevron-down'}
-					size={18}
-					color={theme.colors.onSurfaceVariant}
-				/>
-			</Pressable>
+			<GestureDetector gesture={toggleGesture}>
+				<View
+					style={styles.chevronButton}
+					accessibilityRole="button"
+					accessibilityLabel={folder.name}
+					accessibilityState={{ expanded: !collapsed }}
+				>
+					<Icon
+						source={collapsed ? 'chevron-right' : 'chevron-down'}
+						size={18}
+						color={theme.colors.onSurfaceVariant}
+					/>
+				</View>
+			</GestureDetector>
 			{/* ヘッダ本体: タッチ無反応。親の Pressable がドラッグ用に包む。 */}
 			<View style={styles.body}>
 				<View style={styles.iconBox}>
@@ -71,14 +75,14 @@ export function FolderListItem({
 					/>
 				</View>
 				<Text
-					variant="bodyMedium"
+					variant="bodyLarge"
 					numberOfLines={1}
 					style={[styles.name, { color: theme.colors.onSurface }]}
 				>
 					{folder.name}
 				</Text>
 				<Text
-					variant="bodySmall"
+					variant="bodyMedium"
 					style={{ color: theme.colors.onSurfaceVariant }}
 				>
 					{noteCount}
@@ -96,6 +100,8 @@ export function FolderListItem({
 		</View>
 	);
 }
+
+export const FolderListItem = memo(FolderListItemImpl);
 
 const styles = StyleSheet.create({
 	row: {

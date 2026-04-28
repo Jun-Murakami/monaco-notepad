@@ -22,15 +22,23 @@
 		"newFolder": "新規フォルダ",
 		"newFolderPrompt": "フォルダ名を入力",
 		"renameFolder": "フォルダ名を変更",
+		"archiveFolder": "フォルダごとアーカイブ",
+		"archiveFolderConfirm": "「{{name}}」と中の {{count}} 件のノートをまとめてアーカイブします。",
+		"archiveFolderConfirmEmpty": "空のフォルダ「{{name}}」をアーカイブします。",
+		"restoreFolder": "フォルダを復元",
 		"deleteFolder": "フォルダを削除",
-		"deleteFolderConfirm": "このフォルダを削除しますか？配下のノートはトップレベルに戻ります。",
-		"moveToFolder": "フォルダへ移動",
-		"moveToTopLevel": "トップレベルへ",
+		"deleteFolderConfirm": "「{{name}}」と中の {{count}} 件のノートを完全に削除します。この操作は取り消せません。",
+		"deleteFolderConfirmEmpty": "空のフォルダ「{{name}}」を削除します。",
+		"archiveListTitle": "アーカイブ",
+		"archiveEmpty": "アーカイブされたノートはありません",
+		"noteCount": "ノート: {{count}}",
+		"archiveCount": "アーカイブ: {{count}}",
 		"actions": "操作",
 		"archive_action": "アーカイブする",
+		"restore": "復元",
+		"delete": "削除",
 		"cancel": "キャンセル",
-		"ok": "OK",
-		"delete": "削除"
+		"ok": "OK"
 	},
 	"editor": {
 		"titleLabel": "タイトル",
@@ -51,6 +59,9 @@
 		"loadingNote": "読み込み中...",
 		"noteNotFound": "ノートが見つかりません。次回の同期で復元される可能性があります。",
 		"syntaxHighlightHint": "シンタックスハイライトは閲覧モードでのみ表示されます"
+	},
+	"search": {
+		"placeholder": "タイトルや本文を検索"
 	},
 	"sync": {
 		"status_idle": "同期済み",
@@ -76,6 +87,8 @@
 		"sync": "同期",
 		"syncOnCellular": "モバイル回線でも同期",
 		"conflictBackup": "競合バックアップを保存",
+		"editor": "エディタ",
+		"editorFontSize": "ノートの文字サイズ",
 		"about": "このアプリについて"
 	},
 	"drive": {

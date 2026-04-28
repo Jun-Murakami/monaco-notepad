@@ -47,7 +47,11 @@
       "Bash(netstat -ano)",
       "Bash(tasklist /FI \"IMAGENAME eq NTKDaemon.exe\")",
       "Bash(npm uninstall *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "WebFetch(domain:nuclearpasta.com)"
     ]
   }
 }

@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback } from 'react';
+import { type ReactNode, useCallback, useMemo } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import SyntaxHighlighter from 'react-syntax-highlighter';
@@ -10,6 +10,8 @@ import {
 interface Props {
 	content: string;
 	language: string;
+	/** 本文のフォントサイズ (px)。指定されないとき 13。 */
+	fontSize?: number;
 }
 
 /**
@@ -22,11 +24,39 @@ interface Props {
  * 段落間（行 View 区切り）と wrap 行間は完全一致させるのが難しいため、
  * `lineHeight` を小さめにして全体をタイトにまとめる方針。
  */
-export function SyntaxHighlightView({ content, language }: Props) {
+export function SyntaxHighlightView({
+	content,
+	language,
+	fontSize = 13,
+}: Props) {
 	const theme = useTheme();
 	const hljsStyle = theme.dark ? atomOneDark : atomOneLight;
 	const dim = theme.colors.outline;
 	const fg = theme.colors.onSurface;
+
+	// fontSize に応じて行高 / 行番号サイズも追従させる。
+	const dynamicStyles = useMemo(() => {
+		const lineHeight = Math.round(fontSize * 1.55);
+		return StyleSheet.create({
+			lineNumber: {
+				paddingRight: 8,
+				textAlign: 'right',
+				fontFamily: MONO,
+				fontSize: Math.max(10, fontSize - 1),
+				lineHeight,
+				includeFontPadding: false,
+				textAlignVertical: 'top',
+			},
+			lineText: {
+				flex: 1,
+				fontFamily: MONO,
+				fontSize,
+				lineHeight,
+				includeFontPadding: false,
+				textAlignVertical: 'top',
+			},
+		});
+	}, [fontSize]);
 
 	const renderer = useCallback(
 		// biome-ignore lint/suspicious/noExplicitAny: renderer の型は any
@@ -43,13 +73,16 @@ export function SyntaxHighlightView({ content, language }: Props) {
 							<Text
 								selectable={false}
 								style={[
-									styles.lineNumber,
+									dynamicStyles.lineNumber,
 									{ color: dim, minWidth: digits * 8 + 12 },
 								]}
 							>
 								{idx + 1}
 							</Text>
-							<Text selectable={false} style={[styles.lineText, { color: fg }]}>
+							<Text
+								selectable={false}
+								style={[dynamicStyles.lineText, { color: fg }]}
+							>
 								{renderTokens(row.children ?? [], stylesheet)}
 							</Text>
 						</View>
@@ -57,7 +90,7 @@ export function SyntaxHighlightView({ content, language }: Props) {
 				</View>
 			);
 		},
-		[dim, fg],
+		[dim, fg, dynamicStyles],
 	);
 
 	return (
@@ -137,30 +170,9 @@ const MONO =
 		default: 'monospace',
 	}) ?? 'monospace';
 
-const FONT_SIZE = 13;
-// 多少の leading を入れて読みやすさを確保
-const LINE_HEIGHT = 20;
-
 const styles = StyleSheet.create({
 	line: {
 		flexDirection: 'row',
 		alignItems: 'flex-start',
-	},
-	lineNumber: {
-		paddingRight: 8,
-		textAlign: 'right',
-		fontFamily: MONO,
-		fontSize: FONT_SIZE - 1,
-		lineHeight: LINE_HEIGHT,
-		includeFontPadding: false,
-		textAlignVertical: 'top',
-	},
-	lineText: {
-		flex: 1,
-		fontFamily: MONO,
-		fontSize: FONT_SIZE,
-		lineHeight: LINE_HEIGHT,
-		includeFontPadding: false,
-		textAlignVertical: 'top',
 	},
 });

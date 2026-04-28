@@ -22,15 +22,23 @@
 		"newFolder": "New folder",
 		"newFolderPrompt": "Folder name",
 		"renameFolder": "Rename folder",
+		"archiveFolder": "Archive folder",
+		"archiveFolderConfirm": "Archive \"{{name}}\" and the {{count}} notes inside it.",
+		"archiveFolderConfirmEmpty": "Archive the empty folder \"{{name}}\".",
+		"restoreFolder": "Restore folder",
 		"deleteFolder": "Delete folder",
-		"deleteFolderConfirm": "Delete this folder? Notes inside will be moved to the top level.",
-		"moveToFolder": "Move to folder",
-		"moveToTopLevel": "Top level",
+		"deleteFolderConfirm": "Permanently delete \"{{name}}\" and the {{count}} notes inside. This cannot be undone.",
+		"deleteFolderConfirmEmpty": "Delete the empty folder \"{{name}}\".",
+		"archiveListTitle": "Archive",
+		"archiveEmpty": "No archived notes",
+		"noteCount": "Notes: {{count}}",
+		"archiveCount": "Archived: {{count}}",
 		"actions": "Actions",
 		"archive_action": "Archive",
+		"restore": "Restore",
+		"delete": "Delete",
 		"cancel": "Cancel",
-		"ok": "OK",
-		"delete": "Delete"
+		"ok": "OK"
 	},
 	"editor": {
 		"titleLabel": "Title",
@@ -51,6 +59,9 @@
 		"loadingNote": "Loading...",
 		"noteNotFound": "Note not found. It may be restored on the next sync.",
 		"syntaxHighlightHint": "Syntax highlighting is shown only in view mode"
+	},
+	"search": {
+		"placeholder": "Search title and body"
 	},
 	"sync": {
 		"status_idle": "Synced",
@@ -76,6 +87,8 @@
 		"sync": "Sync",
 		"syncOnCellular": "Sync on cellular",
 		"conflictBackup": "Save conflict backups",
+		"editor": "Editor",
+		"editorFontSize": "Note font size",
 		"about": "About"
 	},
 	"drive": {

@@ -122,6 +122,24 @@ describe('NoteService', () => {
 		expect(s.getNoteList().notes).toHaveLength(0);
 	});
 
+	it('replaceNoteListInMemory は永続化せずメモリだけ差し替える', async () => {
+		const s = await fresh();
+		await s.saveNote(makeNote({ id: 'a', title: 'persisted' }));
+		s.replaceNoteListInMemory({
+			version: 'v2',
+			notes: [],
+			folders: [],
+			topLevelOrder: [],
+			archivedTopLevelOrder: [],
+			collapsedFolderIds: [],
+		});
+		expect(s.getNoteList().notes).toHaveLength(0);
+
+		const reloaded = new NoteService();
+		await reloaded.load();
+		expect(reloaded.getNoteList().notes[0]?.id).toBe('a');
+	});
+
 	it('永続化: 別インスタンスで load しても noteList が復元される', async () => {
 		const a = await fresh();
 		await a.saveNote(makeNote({ id: 'a', title: 'persisted' }));

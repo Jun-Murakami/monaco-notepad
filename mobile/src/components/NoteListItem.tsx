@@ -1,13 +1,12 @@
-import type { GestureResponderEvent } from 'react-native';
+import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { IconButton, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import type { NoteMetadata } from '@/services/sync/types';
 
 interface Props {
 	metadata: NoteMetadata;
 	onPress: (id: string) => void;
-	onMorePress?: (e: GestureResponderEvent, id: string) => void;
 	indented?: boolean;
 }
 
@@ -31,60 +30,73 @@ function resolveTitle(
 	return { text: fallbackLabel, isFallback: true };
 }
 
-export function NoteListItem({
-	metadata,
-	onPress,
-	onMorePress,
-	indented = false,
-}: Props) {
-	const { t } = useTranslation();
+/**
+ * `modifiedTime` (ISO 文字列) をユーザーロケールに沿った
+ * 「年月日 時:分:秒」表現に整形する。Date が parse 失敗した時は元文字列を返す。
+ */
+function formatModifiedTime(iso: string, locale: string): string {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return iso;
+	try {
+		return date.toLocaleString(locale, {
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+		});
+	} catch {
+		return date.toISOString();
+	}
+}
+
+function NoteListItemImpl({ metadata, onPress, indented = false }: Props) {
+	const { t, i18n } = useTranslation();
 	const theme = useTheme();
 	const { text, isFallback } = resolveTitle(metadata, t('noteList.emptyNote'));
+	const formattedTime = useMemo(
+		() => formatModifiedTime(metadata.modifiedTime, i18n.language),
+		[metadata.modifiedTime, i18n.language],
+	);
 
 	return (
-		<View style={styles.row}>
-			<Pressable
-				onPress={() => onPress(metadata.id)}
-				android_ripple={{ color: theme.colors.surfaceVariant }}
-				style={({ pressed }) => [
-					styles.item,
-					indented && styles.indent,
-					pressed && { backgroundColor: theme.colors.surfaceVariant },
-				]}
-			>
-				<View style={styles.content}>
-					<Text
-						variant="bodyMedium"
-						numberOfLines={1}
-						style={[
-							{ color: theme.colors.onSurface },
-							isFallback && styles.fallback,
-						]}
-					>
-						{text}
-					</Text>
-				</View>
-			</Pressable>
-			{onMorePress && (
-				<IconButton
-					icon="dots-vertical"
-					size={18}
-					onPress={(e) => onMorePress(e, metadata.id)}
-					style={styles.more}
-					accessibilityLabel={t('noteList.actions')}
-				/>
-			)}
-		</View>
+		<Pressable
+			onPress={() => onPress(metadata.id)}
+			android_ripple={{ color: theme.colors.surfaceVariant }}
+			style={({ pressed }) => [
+				styles.item,
+				indented && styles.indent,
+				pressed && { backgroundColor: theme.colors.surfaceVariant },
+			]}
+		>
+			<View style={styles.content}>
+				<Text
+					variant="bodyLarge"
+					numberOfLines={1}
+					style={[
+						{ color: theme.colors.onSurface },
+						isFallback && styles.fallback,
+					]}
+				>
+					{text}
+				</Text>
+				<Text
+					variant="bodyMedium"
+					numberOfLines={1}
+					style={[styles.time, { color: theme.colors.onSurfaceVariant }]}
+				>
+					{formattedTime}
+				</Text>
+			</View>
+		</Pressable>
 	);
 }
 
+export const NoteListItem = memo(NoteListItemImpl);
+
 const styles = StyleSheet.create({
-	row: {
-		flexDirection: 'row',
-		alignItems: 'center',
-	},
 	item: {
-		flex: 1,
 		paddingHorizontal: 16,
 		paddingVertical: 10,
 	},
@@ -92,15 +104,13 @@ const styles = StyleSheet.create({
 		paddingLeft: 40,
 	},
 	content: {
-		flexDirection: 'row',
-		alignItems: 'center',
-	},
-	more: {
-		margin: 0,
-		marginRight: 4,
+		// 縦に「タイトル / 日時」と並べる。
 	},
 	fallback: {
 		fontStyle: 'italic',
+	},
+	time: {
+		marginTop: 2,
 		opacity: 0.55,
 	},
 });

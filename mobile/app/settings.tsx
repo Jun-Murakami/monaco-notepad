@@ -1,18 +1,27 @@
 import { useRouter } from 'expo-router';
 import { type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import {
+	ScrollView,
+	StyleSheet,
+	useWindowDimensions,
+	View,
+} from 'react-native';
 import {
 	Appbar,
 	Button,
 	List,
 	RadioButton,
+	SegmentedButtons,
 	Switch,
 	useTheme,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { setLanguage } from '@/i18n';
 import {
 	appSettings,
+	EDITOR_FONT_SIZES,
+	type EditorFontSize,
 	type LanguagePref,
 	type ThemePref,
 } from '@/services/settings/appSettings';
@@ -34,10 +43,19 @@ function SectionBar({ children }: { children: ReactNode }) {
 	);
 }
 
+// 設定画面の左右 padding (fontSizeRow と同じ値)。
+const SECTION_HORIZONTAL_PADDING = 16;
+
 export default function SettingsScreen() {
 	const { t } = useTranslation();
 	const router = useRouter();
+	const insets = useSafeAreaInsets();
+	const { width: windowWidth } = useWindowDimensions();
 	const signedIn = useAuthStore((s) => s.signedIn);
+	// SegmentedButtons は内部 minWidth が効いて 5 個並ぶと画面幅を超えがち。
+	// 1 ボタンあたりの width を画面幅から逆算して当て、均等分割にする。
+	const fontSizeButtonWidth =
+		(windowWidth - SECTION_HORIZONTAL_PADDING * 2) / EDITOR_FONT_SIZES.length;
 	const [languagePref, setLanguagePref] = useState<LanguagePref>(
 		() => appSettings.snapshot().language,
 	);
@@ -50,6 +68,9 @@ export default function SettingsScreen() {
 	const [conflictBackup, setConflictBackup] = useState(
 		() => appSettings.snapshot().conflictBackup,
 	);
+	const [editorFontSize, setEditorFontSize] = useState<EditorFontSize>(
+		() => appSettings.snapshot().editorFontSize,
+	);
 
 	useEffect(() => {
 		return appSettings.subscribe((s) => {
@@ -57,6 +78,7 @@ export default function SettingsScreen() {
 			setThemePref(s.theme);
 			setSyncOnCellular(s.syncOnCellular);
 			setConflictBackup(s.conflictBackup);
+			setEditorFontSize(s.editorFontSize);
 		});
 	}, []);
 
@@ -72,6 +94,11 @@ export default function SettingsScreen() {
 	const onConflictBackupChange = async (value: boolean) => {
 		await appSettings.update({ conflictBackup: value });
 	};
+	const onEditorFontSizeChange = async (value: string) => {
+		const num = Number(value);
+		if (!EDITOR_FONT_SIZES.includes(num as EditorFontSize)) return;
+		await appSettings.update({ editorFontSize: num as EditorFontSize });
+	};
 
 	return (
 		<View style={styles.container}>
@@ -79,7 +106,7 @@ export default function SettingsScreen() {
 				<Appbar.BackAction onPress={() => router.back()} />
 				<Appbar.Content title={t('settings.title')} />
 			</Appbar.Header>
-			<ScrollView>
+			<ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
 				<SectionBar>{t('settings.account')}</SectionBar>
 				<List.Item
 					title={signedIn ? t('auth.signedInAs') : t('auth.notSignedIn')}
@@ -144,6 +171,24 @@ export default function SettingsScreen() {
 						/>
 					)}
 				/>
+
+				<SectionBar>{t('settings.editor')}</SectionBar>
+				<List.Item
+					title={t('settings.editorFontSize')}
+					left={(props) => <List.Icon {...props} icon="format-size" />}
+				/>
+				<View style={styles.fontSizeRow}>
+					<SegmentedButtons
+						value={String(editorFontSize)}
+						onValueChange={onEditorFontSizeChange}
+						density="small"
+						buttons={EDITOR_FONT_SIZES.map((size) => ({
+							value: String(size),
+							label: String(size),
+							style: { minWidth: 0, width: fontSizeButtonWidth },
+						}))}
+					/>
+				</View>
 			</ScrollView>
 		</View>
 	);
@@ -156,5 +201,9 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 16,
 		paddingVertical: 6,
 		lineHeight: 20,
+	},
+	fontSizeRow: {
+		paddingHorizontal: SECTION_HORIZONTAL_PADDING,
+		paddingBottom: 12,
 	},
 });

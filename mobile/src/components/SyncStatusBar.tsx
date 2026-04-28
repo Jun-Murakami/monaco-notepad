@@ -1,11 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
-import {
-	ActivityIndicator,
-	IconButton,
-	Text,
-	useTheme,
-} from 'react-native-paper';
+import { IconButton, Text, useTheme } from 'react-native-paper';
 import { driveService } from '@/services/sync/driveService';
 import type { SyncStatus } from '@/services/sync/types';
 import { useSyncStore } from '@/stores/syncStore';
@@ -27,12 +22,6 @@ export function SyncStatusBar() {
 	const connected = useSyncStore((s) => s.connected);
 	const progress = useSyncStore((s) => s.progress);
 
-	const busy =
-		status === 'pushing' ||
-		status === 'pulling' ||
-		status === 'merging' ||
-		status === 'resolving';
-
 	const label = progress
 		? `${t(statusKeys[status])}  ${progress.current}/${progress.total}`
 		: t(statusKeys[status]);
@@ -44,8 +33,7 @@ export function SyncStatusBar() {
 				{ backgroundColor: theme.colors.elevation.level1 },
 			]}
 		>
-			{busy && <ActivityIndicator size="small" style={styles.indicator} />}
-			<Text variant="bodySmall" style={styles.text}>
+			<Text variant="bodySmall" numberOfLines={1} style={styles.text}>
 				{label}
 			</Text>
 			{connected && (
@@ -64,13 +52,13 @@ const styles = StyleSheet.create({
 	container: {
 		flexDirection: 'row',
 		alignItems: 'center',
+		// メッセージを右寄せにして同期ボタンの左隣に並べる。
+		justifyContent: 'flex-end',
 		paddingHorizontal: 12,
 		height: 32,
 	},
-	indicator: {
-		marginRight: 8,
-	},
 	text: {
-		flex: 1,
+		// 主張を弱める。
+		opacity: 0.6,
 	},
 });

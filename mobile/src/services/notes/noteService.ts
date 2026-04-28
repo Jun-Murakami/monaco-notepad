@@ -1,4 +1,5 @@
 import { Directory, File } from 'expo-file-system';
+import { cloneNoteList } from '@/utils/noteListClone';
 import { uuidv4 } from '@/utils/uuid';
 import {
 	deleteIfExists,
@@ -16,10 +17,6 @@ import {
 	type NoteMetadata,
 	ORPHAN_FOLDER_NAME,
 } from '../sync/types';
-
-function cloneDeep<T>(value: T): T {
-	return JSON.parse(JSON.stringify(value)) as T;
-}
 
 /**
  * ノート本文から contentHeader を生成する。
@@ -48,7 +45,7 @@ export function generateContentHeader(content: string): string {
  * - noteList.json はメタデータのみ（content なし）
  */
 export class NoteService {
-	private list: NoteList = cloneDeep(EMPTY_NOTE_LIST);
+	private list: NoteList = cloneNoteList(EMPTY_NOTE_LIST);
 	private loaded = false;
 
 	async load(): Promise<void> {
@@ -135,11 +132,19 @@ export class NoteService {
 	}
 
 	getNoteList(): NoteList {
-		return cloneDeep(this.list);
+		return cloneNoteList(this.list);
+	}
+
+	/**
+	 * UI の楽観的更新用に、メモリ上の noteList だけを先に差し替える。
+	 * 呼び出し側は後続で replaceNoteList() を呼び、必ず永続化すること。
+	 */
+	replaceNoteListInMemory(list: NoteList): void {
+		this.list = cloneNoteList(list);
 	}
 
 	async replaceNoteList(list: NoteList): Promise<void> {
-		this.list = cloneDeep(list);
+		this.list = cloneNoteList(list);
 		await this.persistList();
 		// cloud の noteList に contentHeader が未設定のエントリが含まれていても、
 		// ローカル notes/ 上の本文ファイルから補完する。
@@ -169,11 +174,14 @@ export class NoteService {
 		}
 	}
 
-	async saveNote(note: Note): Promise<void> {
+	async saveNote(
+		note: Note,
+		opts?: { prependToOrder?: boolean },
+	): Promise<void> {
 		await ensureDir(NOTES_DIR);
 		const { syncing: _s, ...persist } = note;
 		await writeAtomic(noteFilePath(note.id), JSON.stringify(persist));
-		await this.upsertMetadata(note);
+		await this.upsertMetadata(note, opts?.prependToOrder ?? false);
 	}
 
 	/** クラウドから降ってきたノートをローカルへ上書き保存（dirty にはしない）。 */
@@ -250,6 +258,116 @@ export class NoteService {
 		if (!folder) return;
 		folder.name = name;
 		await this.persistList();
+	}
+
+	/**
+	 * archived 状態のフォルダを active へ戻す。配下の archived ノートも一緒に
+	 * unarchive する。戻り値は復元したノート ID 一覧（呼出側で `markNoteDirty` するため）。
+	 */
+	async restoreFolder(folderId: string): Promise<string[]> {
+		const folder = this.list.folders.find((f) => f.id === folderId);
+		if (!folder) return [];
+
+		const targetNoteIds = this.list.notes
+			.filter((n) => n.folderId === folderId && n.archived)
+			.map((n) => n.id);
+		for (const id of targetNoteIds) {
+			await this.setNoteArchived(id, false);
+		}
+
+		folder.archived = false;
+		this.list.archivedTopLevelOrder = this.list.archivedTopLevelOrder.filter(
+			(i) => !(i.type === 'folder' && i.id === folderId),
+		);
+		if (
+			!this.list.topLevelOrder.some(
+				(i) => i.type === 'folder' && i.id === folderId,
+			)
+		) {
+			this.list.topLevelOrder.push({ type: 'folder', id: folderId });
+		}
+		await this.persistList();
+
+		return targetNoteIds;
+	}
+
+	/**
+	 * archived フォルダを完全削除する。配下の archived ノートも本文ファイルごと
+	 * 削除する（同期側のクラウド削除は呼出側で `driveService.deleteNoteAndSync` を
+	 * 各 ID に対して回す前提）。
+	 *
+	 * 戻り値は削除したノート ID 一覧（呼出側でクラウド削除＋ markNoteDeleted する）。
+	 */
+	async deleteFolderHard(folderId: string): Promise<string[]> {
+		const folder = this.list.folders.find((f) => f.id === folderId);
+		if (!folder) return [];
+
+		const targetNoteIds = this.list.notes
+			.filter((n) => n.folderId === folderId)
+			.map((n) => n.id);
+
+		// ノート本文ファイルとメタデータを削除
+		for (const id of targetNoteIds) {
+			await deleteIfExists(noteFilePath(id));
+		}
+		this.list.notes = this.list.notes.filter((n) => n.folderId !== folderId);
+
+		// フォルダ自体を削除
+		this.list.folders = this.list.folders.filter((f) => f.id !== folderId);
+		this.list.topLevelOrder = this.list.topLevelOrder.filter(
+			(i) => !(i.type === 'folder' && i.id === folderId),
+		);
+		this.list.archivedTopLevelOrder = this.list.archivedTopLevelOrder.filter(
+			(i) => !(i.type === 'folder' && i.id === folderId),
+		);
+		// 念のため: ノート ID も order から外す（本来 folder-child は order に
+		// 載らないが、データ破損保険）
+		const removedIds = new Set(targetNoteIds);
+		this.list.topLevelOrder = this.list.topLevelOrder.filter(
+			(i) => !(i.type === 'note' && removedIds.has(i.id)),
+		);
+		this.list.archivedTopLevelOrder = this.list.archivedTopLevelOrder.filter(
+			(i) => !(i.type === 'note' && removedIds.has(i.id)),
+		);
+		await this.persistList();
+
+		return targetNoteIds;
+	}
+
+	/**
+	 * フォルダごとアーカイブする。フォルダ配下の active なノートを全て archived にし、
+	 * フォルダ自体も archived として `archivedTopLevelOrder` へ移す。
+	 *
+	 * 戻り値は archived にしたノート ID 一覧（呼出側で `markNoteDirty` するため）。
+	 */
+	async archiveFolder(folderId: string): Promise<string[]> {
+		const folder = this.list.folders.find((f) => f.id === folderId);
+		if (!folder) return [];
+
+		// 1. 配下の active ノートをアーカイブ。setNoteArchived は本文ファイルも
+		//    書き戻すので順次実行する。folder-child のままで archived=true を持つ。
+		const targetNoteIds = this.list.notes
+			.filter((n) => n.folderId === folderId && !n.archived)
+			.map((n) => n.id);
+		for (const id of targetNoteIds) {
+			await this.setNoteArchived(id, true);
+		}
+
+		// 2. フォルダ自体を archived 化し、active 側 order から外す。
+		folder.archived = true;
+		this.list.topLevelOrder = this.list.topLevelOrder.filter(
+			(i) => !(i.type === 'folder' && i.id === folderId),
+		);
+		if (
+			!this.list.archivedTopLevelOrder.some(
+				(i) => i.type === 'folder' && i.id === folderId,
+			)
+		) {
+			this.list.archivedTopLevelOrder.push({ type: 'folder', id: folderId });
+		}
+		await this.persistList();
+
+		return targetNoteIds;
 	}
 
 	/**
@@ -362,20 +480,32 @@ export class NoteService {
 		return orphans;
 	}
 
-	private async upsertMetadata(note: Note): Promise<void> {
+	private async upsertMetadata(
+		note: Note,
+		prependToOrder = false,
+	): Promise<void> {
 		const metadata = await this.buildMetadata(note, note.folderId);
 		const index = this.list.notes.findIndex((n) => n.id === note.id);
 		if (index >= 0) {
 			this.list.notes[index] = metadata;
 		} else {
-			this.list.notes.push(metadata);
+			// 新規追加: `prependToOrder` が真なら一覧の先頭、そうでなければ末尾。
+			if (prependToOrder) {
+				this.list.notes.unshift(metadata);
+			} else {
+				this.list.notes.push(metadata);
+			}
 			// フォルダに属するノートは topLevelOrder に含めない（data model の整合性）
 			if (!note.folderId) {
 				const order = note.archived
 					? this.list.archivedTopLevelOrder
 					: this.list.topLevelOrder;
 				if (!order.some((i) => i.type === 'note' && i.id === note.id)) {
-					order.push({ type: 'note', id: note.id });
+					if (prependToOrder) {
+						order.unshift({ type: 'note', id: note.id });
+					} else {
+						order.push({ type: 'note', id: note.id });
+					}
 				}
 			}
 		}

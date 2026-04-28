@@ -72,6 +72,10 @@ class DriveService {
 	async saveNoteAndSync(note: Note): Promise<void> {
 		await noteService.saveNote(note);
 		await syncStateManager.markNoteDirty(note.id);
+		// noteList のメタデータ (title / contentHeader / modifiedTime 等) が
+		// 変わったので UI store に反映を通知する。これが無いと、ノート詳細で
+		// 編集 → ホームに戻った時にタイトルやプレビューが古いまま見える。
+		syncEvents.emit('notes:reload', undefined);
 		if (this.orchestrator) {
 			try {
 				await this.orchestrator.saveNoteAndUpdateList(note);
@@ -93,6 +97,34 @@ class DriveService {
 		await noteService.deleteNote(noteId);
 		await syncStateManager.markNoteDeleted(noteId);
 		await operationQueue.enqueue('DELETE', `note:${noteId}`, { noteId });
+		syncEvents.emit('notes:reload', undefined);
+	}
+
+	/**
+	 * archived フォルダを完全削除する。配下の archived ノートも本文ファイル・
+	 * クラウド両方から消える。デスクトップ版のフォルダ削除と異なり、
+	 * 「フォルダごとアーカイブ → アーカイブ画面で削除」という 2 段階フローで使う。
+	 */
+	async deleteFolderAndSync(folderId: string): Promise<void> {
+		const deletedNoteIds = await noteService.deleteFolderHard(folderId);
+		await syncStateManager.markFolderDeleted(folderId);
+		for (const noteId of deletedNoteIds) {
+			await syncStateManager.markNoteDeleted(noteId);
+			await operationQueue.enqueue('DELETE', `note:${noteId}`, { noteId });
+		}
+	}
+
+	/**
+	 * archived フォルダを active へ復元する。配下の archived ノートも一緒に
+	 * unarchive する。`syncStateManager.markNoteDirty` を呼んで次回同期で
+	 * クラウド側にも反映させる。
+	 */
+	async restoreFolderAndSync(folderId: string): Promise<void> {
+		const restoredNoteIds = await noteService.restoreFolder(folderId);
+		await syncStateManager.markDirty();
+		for (const noteId of restoredNoteIds) {
+			await syncStateManager.markNoteDirty(noteId);
+		}
 	}
 
 	async kickSync(): Promise<void> {

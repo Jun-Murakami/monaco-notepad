@@ -1,24 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { type GestureResponderEvent, StyleSheet, View } from 'react-native';
 import {
-	type GestureResponderEvent,
-	Platform,
-	StyleSheet,
-	View,
-} from 'react-native';
-import DraggableFlatList, {
-	type RenderItemParams,
-	ScaleDecorator,
-} from 'react-native-draggable-flatlist';
-// Pressable は react-native-gesture-handler 製を使う。RN 標準の Pressable は
-// RN responder system 経由で動くため、DraggableFlatList の <GestureDetector>
-// 配下で onLongPress が握られない（または親 PanGesture と協調しない）ことがあり、
-// DnD の起点 (drag()) が呼ばれず動かない。gh 製は内部的に Gesture.LongPress を
-// 使うので、親の Gesture と協調する。
-import { Pressable } from 'react-native-gesture-handler';
-import {
-	AnimatedFAB,
 	Appbar,
 	Button,
 	Dialog,
@@ -28,72 +12,89 @@ import {
 	TextInput,
 	useTheme,
 } from 'react-native-paper';
-import { FolderListItem } from '@/components/FolderListItem';
-import {
-	type FolderPickerHandle,
-	FolderPickerSheet,
-} from '@/components/FolderPickerSheet';
-import { NoteListItem } from '@/components/NoteListItem';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
 	FolderContextMenu,
-	NoteContextMenu,
-} from '@/components/RowContextMenu';
-import { SwipeableNoteRow } from '@/components/SwipeableNoteRow';
+	type FolderMenuItem,
+} from '@/components/FolderContextMenu';
+import {
+	ManualDragNoteList,
+	type ManualReorderEvent,
+} from '@/components/ManualDragNoteList';
+import { SearchAppbar } from '@/components/SearchAppbar';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
+import { useDeferredEmpty } from '@/hooks/useDeferredEmpty';
+import { useNoteSearch } from '@/hooks/useNoteSearch';
 import { noteService } from '@/services/notes/noteService';
 import { driveService } from '@/services/sync/driveService';
 import { syncStateManager } from '@/services/sync/syncState';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotesStore } from '@/stores/notesStore';
 import {
-	applyReorder,
+	applyDropIntent,
 	type FlatRow,
 	flattenNoteList,
-	moveNoteToFolder,
 } from '@/utils/flatTree';
+import { optimisticToggleNoteArchived } from '@/utils/noteListOptimistic';
+import { scheduleAfterPaint } from '@/utils/scheduleAfterPaint';
+import { filterRowsBySearch } from '@/utils/searchFilter';
 import { uuidv4 } from '@/utils/uuid';
 
 export default function NoteListScreen() {
 	const { t } = useTranslation();
 	const theme = useTheme();
 	const router = useRouter();
+	const insets = useSafeAreaInsets();
 	const noteList = useNotesStore((s) => s.noteList);
 	const signedIn = useAuthStore((s) => s.signedIn);
 
-	// ドラッグ中に「視覚的に」子要素を隠す対象 folder ID。
-	// 重要: data 配列 (rows) は変更しない。data を mid-drag で変えると
-	// react-native-draggable-flatlist が active state を失い、ドラッグが解除される。
-	// よって rows は常に通常通り計算し、renderItem 側で folderId が一致する
-	// folder-child だけ 0-height で描画して視覚的に隠す方式を取る。
-	const [dragCollapseFolderId, setDragCollapseFolderId] = useState<
-		string | null
-	>(null);
+	// 折り畳まれたフォルダの子も **mount したまま** にし、`hidden` プロップで非表示にする。
+	// 開閉のたびに unmount/mount すると `ReanimatedSwipeable` の native gesture handler が
+	// 大量に作り直され、Android 側で system-UI ANR を引き起こすため。
+	const rawRows = useMemo<FlatRow[]>(
+		() => flattenNoteList(noteList, { includeCollapsedChildren: true }),
+		[noteList],
+	);
 
-	const rows = useMemo<FlatRow[]>(() => flattenNoteList(noteList), [noteList]);
+	// 全文検索 (本文ファイル含む)。debounce 込み。matchingIds が null の間は
+	// フィルタなし、Set が入ったら絞り込み。
+	const search = useNoteSearch(noteList.notes);
+	const rows = useMemo<FlatRow[]>(
+		() => filterRowsBySearch(rawRows, search.matchingIds),
+		[rawRows, search.matchingIds],
+	);
 
-	// 長押しメニューの state
-	const [noteMenu, setNoteMenu] = useState<{
-		anchor: { x: number; y: number };
-		noteId: string;
-		folderId: string;
-	} | null>(null);
+	// active 表示分のノート件数（ボトムバーに表示）
+	const activeNoteCount = useMemo(
+		() => noteList.notes.filter((n) => !n.archived).length,
+		[noteList.notes],
+	);
+
+	// 空リスト placeholder の表示は少し遅延させ、同期/状態更新の途中で
+	// 一瞬空配列になるケース（フォルダごとアーカイブ実行直後等）の
+	// チラつきを抑える。
+	const showEmpty = useDeferredEmpty(rows.length === 0);
+
+	const optimisticRevisionRef = useRef(0);
+	const pendingFolderBodyNoteIdsRef = useRef<Set<string>>(new Set());
+
+	// フォルダヘッダのドットメニュー state
 	const [folderMenu, setFolderMenu] = useState<{
 		anchor: { x: number; y: number };
 		folderId: string;
 	} | null>(null);
 
-	// ダイアログ state
+	// 新規フォルダ / リネーム / アーカイブ確認 dialog state
 	const [createFolderDialog, setCreateFolderDialog] = useState(false);
 	const [renameFolderDialog, setRenameFolderDialog] = useState<{
 		folderId: string;
-		name: string;
 	} | null>(null);
-	const [deleteFolderDialog, setDeleteFolderDialog] = useState<string | null>(
-		null,
-	);
+	const [archiveFolderDialog, setArchiveFolderDialog] = useState<{
+		folderId: string;
+		name: string;
+		count: number;
+	} | null>(null);
 	const [folderNameInput, setFolderNameInput] = useState('');
-
-	const folderPickerRef = useRef<FolderPickerHandle>(null);
 
 	// ----- ハンドラ -----
 
@@ -102,85 +103,154 @@ export default function NoteListScreen() {
 		[router],
 	);
 
-	const handleToggleFolder = useCallback(
-		async (folderId: string) => {
-			const currentlyCollapsed = new Set(noteList.collapsedFolderIds).has(
-				folderId,
-			);
-			await noteService.setFolderCollapsed(folderId, !currentlyCollapsed);
-			await syncStateManager.markDirty();
-			await useNotesStore.getState().reload();
-			driveService.kickSync();
-		},
-		[noteList.collapsedFolderIds],
-	);
+	// アーカイブ画面遷移のクリック中の二重発火を抑制する。
+	// expo-router の push を連打すると、画面が 2 回 push されて戻る時に 2 回戻る
+	// 必要が生じ混乱する。500ms の窓で 1 回までに絞る。
+	const archiveNavInFlightRef = useRef(false);
+	const handleArchivePress = useCallback(() => {
+		if (archiveNavInFlightRef.current) return;
+		archiveNavInFlightRef.current = true;
+		router.push('/archive');
+		setTimeout(() => {
+			archiveNavInFlightRef.current = false;
+		}, 500);
+	}, [router]);
 
 	const handleCreate = useCallback(async () => {
 		const id = uuidv4();
 		const now = new Date().toISOString();
-		await noteService.saveNote({
-			id,
-			title: '',
-			content: '',
-			contentHeader: '',
-			language: 'plaintext',
-			modifiedTime: now,
-			archived: false,
-			folderId: '',
-		});
+		// 新規作成のみリスト先頭に挿入。`saveNote` のデフォルト (push) は維持し、
+		// 既存ノートの再保存や同期経路で順序が崩れないようにオプション指定する。
+		await noteService.saveNote(
+			{
+				id,
+				title: '',
+				content: '',
+				contentHeader: '',
+				language: 'plaintext',
+				modifiedTime: now,
+				archived: false,
+				folderId: '',
+			},
+			{ prependToOrder: true },
+		);
 		await syncStateManager.markNoteDirty(id);
 		await useNotesStore.getState().reload();
 		router.push(`/note/${id}`);
 	}, [router]);
 
-	// rows を最新参照する用 (onDragBegin が頻繁な再生成を避けるため)。
-	const rowsRef = useRef(rows);
-	rowsRef.current = rows;
-
-	const handleDragBegin = useCallback((index: number) => {
-		const item = rowsRef.current[index];
-		// 展開済みフォルダのヘッダをドラッグした場合のみ、ドラッグ中の強制折り畳みを発動。
-		// 既に折り畳まれている場合・ノートをドラッグした場合は何もしない。
-		if (item?.kind === 'folder-header' && !item.collapsed) {
-			setDragCollapseFolderId(item.id);
-		}
+	const applyOptimisticNoteList = useCallback((list: typeof noteList) => {
+		const revision = optimisticRevisionRef.current + 1;
+		optimisticRevisionRef.current = revision;
+		useNotesStore.setState({ noteList: list });
+		scheduleAfterPaint(() => {
+			if (revision === optimisticRevisionRef.current) {
+				noteService.replaceNoteListInMemory(list);
+			}
+		});
+		return revision;
 	}, []);
 
-	const handleDragEnd = useCallback(async ({ data }: { data: FlatRow[] }) => {
-		// 重要: setDragCollapseFolderId(null) を先頭で呼ぶと、replaceNoteList/reload が
-		// 終わる前に「子要素が見える状態 + 古い順序」のレンダリングが走り、子が一瞬
-		// 元の位置に「点滅」して見える。store を更新してから dragCollapseFolderId を
-		// クリアすることで、新しい順序で子が現れるようにする。
-		const current = noteService.getNoteList();
-		const { list } = applyReorder(current, data);
-		await noteService.replaceNoteList(list);
-		// DnD は順序変更のみ。folderId は変えない方針（クロスフォルダ移動はメニュー経由）。
-		await useNotesStore.getState().reload();
-		setDragCollapseFolderId(null);
-		// dirty 化 + 同期 kick はバックグラウンドで OK (UI 表示には影響しない)
-		await syncStateManager.markDirty();
-		driveService.kickSync();
-	}, []);
+	const persistOptimisticListInBackground = useCallback(
+		(list: ReturnType<typeof noteService.getNoteList>, revision: number) => {
+			scheduleAfterPaint(() => {
+				void (async () => {
+					try {
+						if (revision !== optimisticRevisionRef.current) return;
+						await noteService.replaceNoteList(list);
 
-	const handleArchive = useCallback(async (noteId: string) => {
-		await noteService.setNoteArchived(noteId, true);
-		await syncStateManager.markNoteDirty(noteId);
-		await useNotesStore.getState().reload();
-		driveService.kickSync();
-	}, []);
+						// クロスフォルダ移動: 本文ファイル側にも新 folderId を書き戻す。
+						// 古い遅延保存がスキップされても、ID は最新保存へ持ち越す。
+						const pendingNoteIds = [...pendingFolderBodyNoteIdsRef.current];
+						for (const noteId of pendingNoteIds) {
+							const note = await noteService.readNote(noteId);
+							const newMeta = list.notes.find((n) => n.id === noteId);
+							if (note && newMeta && note.folderId !== newMeta.folderId) {
+								note.folderId = newMeta.folderId;
+								await noteService.saveNote(note);
+							}
+						}
 
-	const handleNoteLongPress = useCallback(
-		(e: GestureResponderEvent, noteId: string, folderId: string) => {
-			setNoteMenu({
-				anchor: { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY },
-				noteId,
-				folderId,
+						if (revision !== optimisticRevisionRef.current) return;
+						for (const noteId of pendingNoteIds) {
+							await syncStateManager.markNoteDirty(noteId);
+						}
+						// 並び替えだけ (folderId 変化なし) でも noteList は変わるので markDirty 必須
+						await syncStateManager.markDirty();
+						for (const noteId of pendingNoteIds) {
+							pendingFolderBodyNoteIdsRef.current.delete(noteId);
+						}
+						driveService.kickSync();
+					} catch (error) {
+						console.error('[NoteListScreen] list persistence failed', error);
+					}
+				})();
 			});
 		},
 		[],
 	);
 
-	const handleFolderLongPress = useCallback(
+	const handleToggleFolder = useCallback(
+		(folderId: string) => {
+			const current = useNotesStore.getState().noteList;
+			const collapsed = new Set(current.collapsedFolderIds);
+			if (collapsed.has(folderId)) {
+				collapsed.delete(folderId);
+			} else {
+				collapsed.add(folderId);
+			}
+			const next = {
+				...current,
+				collapsedFolderIds: [...collapsed],
+			};
+			const revision = applyOptimisticNoteList(next);
+			persistOptimisticListInBackground(next, revision);
+		},
+		[applyOptimisticNoteList, persistOptimisticListInBackground],
+	);
+
+	const handleReorder = useCallback(
+		({ rows: dragRows, fromIndex, dropIntent }: ManualReorderEvent) => {
+			const current = useNotesStore.getState().noteList;
+			const { list, movedNoteIds } = applyDropIntent(
+				current,
+				dragRows,
+				fromIndex,
+				dropIntent,
+			);
+
+			for (const noteId of movedNoteIds) {
+				pendingFolderBodyNoteIdsRef.current.add(noteId);
+			}
+			const revision = applyOptimisticNoteList(list);
+			persistOptimisticListInBackground(list, revision);
+		},
+		[applyOptimisticNoteList, persistOptimisticListInBackground],
+	);
+
+	const handleArchive = useCallback(async (noteId: string) => {
+		// 1. UI から即時に消す (楽観的更新)。スワイプボタンを押した瞬間に
+		//    行が unmount されるので、close アニメ待ちのラグが見えない。
+		const current = useNotesStore.getState().noteList;
+		useNotesStore.setState({
+			noteList: optimisticToggleNoteArchived(current, noteId, true),
+		});
+		// 2. 実 IO とサーバ同期はバックグラウンドで進める。
+		try {
+			await noteService.setNoteArchived(noteId, true);
+			await syncStateManager.markNoteDirty(noteId);
+		} catch (e) {
+			console.warn('[archive] failed', e);
+			// 失敗時はサービスの真の状態に戻す
+			await useNotesStore.getState().reload();
+			return;
+		}
+		// 3. サービスの真の状態と整合 (contentHash 等の細部を反映)
+		await useNotesStore.getState().reload();
+		driveService.kickSync();
+	}, []);
+
+	const handleFolderMorePress = useCallback(
 		(e: GestureResponderEvent, folderId: string) => {
 			setFolderMenu({
 				anchor: { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY },
@@ -189,40 +259,6 @@ export default function NoteListScreen() {
 		},
 		[],
 	);
-
-	const handleMoveToFolder = useCallback(async () => {
-		if (!noteMenu) return;
-		const { noteId, folderId } = noteMenu;
-		folderPickerRef.current?.open(folderId, async (target) => {
-			const current = noteService.getNoteList();
-			const next = moveNoteToFolder(current, noteId, target);
-			await noteService.replaceNoteList(next);
-			// 本文側にも folderId を書き戻す
-			const note = await noteService.readNote(noteId);
-			if (note) {
-				note.folderId = target;
-				await noteService.saveNote(note);
-			}
-			await syncStateManager.markNoteDirty(noteId);
-			await useNotesStore.getState().reload();
-			driveService.kickSync();
-		});
-	}, [noteMenu]);
-
-	const handleCreateFolder = useCallback(async () => {
-		const name = folderNameInput.trim();
-		if (!name) {
-			setCreateFolderDialog(false);
-			setFolderNameInput('');
-			return;
-		}
-		await noteService.createFolder(name);
-		await syncStateManager.markDirty();
-		await useNotesStore.getState().reload();
-		setCreateFolderDialog(false);
-		setFolderNameInput('');
-		driveService.kickSync();
-	}, [folderNameInput]);
 
 	const handleRenameFolderConfirm = useCallback(async () => {
 		if (!renameFolderDialog) return;
@@ -240,230 +276,195 @@ export default function NoteListScreen() {
 		driveService.kickSync();
 	}, [renameFolderDialog, folderNameInput]);
 
-	const handleDeleteFolderConfirm = useCallback(async () => {
-		if (!deleteFolderDialog) return;
-		await noteService.deleteFolder(deleteFolderDialog);
-		await syncStateManager.markFolderDeleted(deleteFolderDialog);
-		// 配下から繰り上がったノートも dirty 化（folderId が変わったので本文の再保存が必要）
-		const current = noteService.getNoteList();
-		for (const note of current.notes) {
-			if (note.folderId === '') {
-				const body = await noteService.readNote(note.id);
-				if (body && body.folderId !== '') {
-					body.folderId = '';
-					await noteService.saveNote(body);
-					await syncStateManager.markNoteDirty(note.id);
-				}
-			}
+	const handleArchiveFolderConfirm = useCallback(async () => {
+		if (!archiveFolderDialog) return;
+		const { folderId } = archiveFolderDialog;
+		// dialog は即時クローズして UI のレスポンスを上げる。
+		// 実 IO とリスト更新はその裏で進む。
+		setArchiveFolderDialog(null);
+		const archivedNoteIds = await noteService.archiveFolder(folderId);
+		for (const noteId of archivedNoteIds) {
+			await syncStateManager.markNoteDirty(noteId);
 		}
+		await syncStateManager.markDirty();
 		await useNotesStore.getState().reload();
-		setDeleteFolderDialog(null);
 		driveService.kickSync();
-	}, [deleteFolderDialog]);
+	}, [archiveFolderDialog]);
 
-	// ----- 描画 -----
+	const handleCreateFolder = useCallback(async () => {
+		const name = folderNameInput.trim();
+		if (!name) {
+			setCreateFolderDialog(false);
+			setFolderNameInput('');
+			return;
+		}
+		await noteService.createFolder(name);
+		await syncStateManager.markDirty();
+		await useNotesStore.getState().reload();
+		setCreateFolderDialog(false);
+		setFolderNameInput('');
+		driveService.kickSync();
+	}, [folderNameInput]);
+
+	// active 画面のフォルダメニュー: リネーム + フォルダごとアーカイブ
+	const folderMenuItems = useMemo<FolderMenuItem[]>(() => {
+		if (!folderMenu) return [];
+		const folder = noteList.folders.find((f) => f.id === folderMenu.folderId);
+		if (!folder) return [];
+		return [
+			{
+				icon: 'pencil',
+				label: t('noteList.renameFolder'),
+				onPress: () => {
+					setFolderNameInput(folder.name);
+					setRenameFolderDialog({ folderId: folder.id });
+				},
+			},
+			{
+				icon: 'archive-arrow-down',
+				label: t('noteList.archiveFolder'),
+				onPress: () => {
+					const count = noteList.notes.filter(
+						(n) => n.folderId === folder.id && !n.archived,
+					).length;
+					setArchiveFolderDialog({
+						folderId: folder.id,
+						name: folder.name,
+						count,
+					});
+				},
+			},
+		];
+	}, [folderMenu, noteList.folders, noteList.notes, t]);
 
 	const folderHeaderBg = theme.colors.surfaceVariant;
 	const folderChildBg = theme.colors.elevation.level1;
 	const divider = theme.colors.outline;
 
-	const renderItem = useCallback(
-		({ item, drag }: RenderItemParams<FlatRow>) => {
-			if (item.kind === 'topLevel-note') {
-				return (
-					<ScaleDecorator activeScale={0.98}>
-						<SwipeableNoteRow onArchive={() => handleArchive(item.id)}>
-							<Pressable
-								onLongPress={drag}
-								delayLongPress={150}
-								style={{ backgroundColor: theme.colors.background }}
-							>
-								<NoteListItem
-									metadata={item.note}
-									onPress={handleNoteOpen}
-									onMorePress={(e, id) => handleNoteLongPress(e, id, '')}
-								/>
-							</Pressable>
-						</SwipeableNoteRow>
-					</ScaleDecorator>
-				);
-			}
-			if (item.kind === 'folder-header') {
-				// FolderListItem 内の chevron が toggle、本体はタッチ無反応にしたので、
-				// 親 Pressable は onLongPress=drag のみ。これによりヘッダ本体のドラッグ
-				// 判定が他のジェスチャと衝突せず短い delayLongPress で反応する。
-				//
-				// 折り畳み時 (inGroupEnd=true) は単体カードに見えるよう 4 角 rounded、
-				// 展開時 (inGroupEnd=false) は children の上端と揃うよう TOP だけ rounded
-				// に切替。chevron 側の press feedback / ripple を外した事で toggle 時の
-				// 余分な再レンダが消え、style 切替を伴っても flicker は出なくなった。
-				return (
-					<ScaleDecorator activeScale={0.98}>
-						<View
-							style={[
-								{ backgroundColor: folderHeaderBg },
-								styles.groupSide,
-								styles.groupTop,
-								item.inGroupEnd && styles.groupBottom,
-							]}
-						>
-							<Pressable onLongPress={drag} delayLongPress={150}>
-								<FolderListItem
-									folder={item.folder}
-									noteCount={item.noteCount}
-									collapsed={item.collapsed}
-									onToggle={handleToggleFolder}
-									onMorePress={handleFolderLongPress}
-								/>
-							</Pressable>
-						</View>
-					</ScaleDecorator>
-				);
-			}
-			// folder-child
-			// 親フォルダが drag 中の場合は 0-height で描画して視覚的に隠す。
-			// data 配列を変えてしまうと drag state がリセットされてしまうので、
-			// あくまで「描画上だけ」見えなくする。
-			if (item.folderId === dragCollapseFolderId) {
-				return <View style={styles.dragHidden} />;
-			}
-			// 注: 最下行でも `groupBottom` を当てない (= 角を丸くしない)。理由 2 つ:
-			//  1. 展開時のヘッダ角チラつき防止。child の rounded-bottom と header の
-			//     rounded-bottom が遷移中に入れ替わる時、style 更新と child mount/unmount
-			//     のフレームずれで「一瞬 square」が見える。child 側を square 固定にすると
-			//     最終状態が「ヘッダ rounded-top + 全体 square-bottom」で安定し片方向遷移に。
-			//  2. drag 時に rounded-bottom が一緒に飛んできて視覚的に違和感がある。
-			return (
-				<ScaleDecorator activeScale={0.98}>
-					<View
-						style={[
-							{ backgroundColor: folderChildBg },
-							styles.groupSide,
-							// 角は丸めないが、グループ下端の余白だけは保つ
-							item.inGroupEnd && styles.groupTrailingSpace,
-						]}
-					>
-						<SwipeableNoteRow onArchive={() => handleArchive(item.id)}>
-							<Pressable onLongPress={drag} delayLongPress={150}>
-								<NoteListItem
-									metadata={item.note}
-									onPress={handleNoteOpen}
-									onMorePress={(e, id) =>
-										handleNoteLongPress(e, id, item.folderId)
-									}
-									indented
-								/>
-							</Pressable>
-						</SwipeableNoteRow>
-					</View>
-				</ScaleDecorator>
-			);
-		},
-		[
-			dragCollapseFolderId,
-			folderHeaderBg,
-			folderChildBg,
-			handleArchive,
-			handleFolderLongPress,
-			handleNoteLongPress,
-			handleNoteOpen,
-			handleToggleFolder,
-			theme.colors.background,
-		],
-	);
-
 	return (
 		<View
 			style={[styles.container, { backgroundColor: theme.colors.background }]}
 		>
-			<Appbar.Header>
-				<Appbar.Content title={t('app.title')} />
-				<Appbar.Action
-					icon="folder-plus"
-					onPress={() => {
-						setFolderNameInput('');
-						setCreateFolderDialog(true);
-					}}
-					accessibilityLabel={t('noteList.newFolder')}
+			{search.active ? (
+				<SearchAppbar
+					value={search.query}
+					onChangeText={search.setQuery}
+					onClose={search.close}
+					indexing={search.isIndexing}
 				/>
-				{signedIn ? (
+			) : (
+				<Appbar.Header>
+					<Appbar.Content title={t('app.title')} />
+					<Appbar.Action
+						icon="folder-plus"
+						onPress={() => {
+							setFolderNameInput('');
+							setCreateFolderDialog(true);
+						}}
+						accessibilityLabel={t('noteList.newFolder')}
+					/>
+					<Appbar.Action
+						icon="magnify"
+						onPress={search.open}
+						accessibilityLabel={t('search.placeholder')}
+					/>
+					{!signedIn && (
+						<Appbar.Action
+							icon="login"
+							onPress={() => router.push('/signin')}
+						/>
+					)}
 					<Appbar.Action icon="cog" onPress={() => router.push('/settings')} />
-				) : (
-					<Appbar.Action icon="login" onPress={() => router.push('/signin')} />
-				)}
-			</Appbar.Header>
+				</Appbar.Header>
+			)}
 			<SyncStatusBar />
 			<Divider style={{ backgroundColor: divider }} />
-			{rows.length === 0 ? (
+			{showEmpty ? (
 				<View style={styles.empty}>
 					<Text variant="bodyMedium">{t('noteList.empty')}</Text>
 				</View>
 			) : (
-				<DraggableFlatList
-					data={rows}
-					extraData={dragCollapseFolderId}
-					keyExtractor={(row) => row.key}
-					renderItem={renderItem}
-					onDragBegin={handleDragBegin}
-					onDragEnd={handleDragEnd}
-					contentContainerStyle={styles.listContent}
-					// drag 確定後は即追従させたいので 0px (デフォの 20px だと
-					// long-press 後さらに 20px 動かさないと cell が動かず重く感じる)
-					activationDistance={0}
-					// drop 後の spring を硬めにして「指を離したのに位置確定が遅い」感を消す。
-					// デフォ (damping:20, stiffness:100) だと settle まで ~500ms かかり、
-					// その間 onDragEnd が発火しない = フォルダ子要素も復帰が遅れる。
-					animationConfig={{
-						damping: 30,
-						mass: 0.2,
-						stiffness: 400,
-					}}
+				<ManualDragNoteList
+					rows={rows}
+					backgroundColor={theme.colors.background}
+					folderHeaderBg={folderHeaderBg}
+					folderChildBg={folderChildBg}
+					indicatorColor={theme.colors.primary}
+					onArchive={handleArchive}
+					onFolderMorePress={handleFolderMorePress}
+					onNoteOpen={handleNoteOpen}
+					onReorder={handleReorder}
+					onToggleFolder={handleToggleFolder}
+					disableDrag={search.active}
 				/>
 			)}
-			<AnimatedFAB
-				icon="plus"
-				label={t('noteList.newNote')}
-				extended={false}
-				onPress={handleCreate}
-				style={styles.fab}
-				visible
-				animateFrom="right"
-				iconMode="static"
-			/>
 
-			{/* 長押しメニュー */}
-			<NoteContextMenu
-				visible={noteMenu !== null}
-				anchor={noteMenu?.anchor ?? null}
-				onDismiss={() => setNoteMenu(null)}
-				onMoveToFolder={handleMoveToFolder}
-				onArchive={() => {
-					if (noteMenu) handleArchive(noteMenu.noteId);
-				}}
-			/>
+			{/* ボトムバー: ノート件数 / アーカイブ画面遷移 / 新規ノート作成。
+			    端末の角丸領域に詰まって見えないよう、内側ボックスで等間隔に並べた上で
+			    中央寄せする。 */}
+			<Divider style={{ backgroundColor: divider }} />
+			<View
+				style={[
+					styles.bottomBar,
+					{
+						backgroundColor: theme.colors.surface,
+						// Android のジェスチャーバーや iOS のホームインジケータと
+						// ボタンが密着しないよう、safe-area inset 分の下余白を確保。
+						paddingBottom: 12 + insets.bottom,
+					},
+				]}
+			>
+				{/* ノート件数と新規ノートを左右の flex:1 セルに配置する。
+				    アーカイブボタンは絶対配置の overlay に置き、bar と同じ padding を
+				    overlay 自身に付けることで「bar の content area 中央」に
+				    縦横ともに正確に揃える。Paper Button の内部 padding 差や side item の
+				    幅違いに影響されない。 */}
+				<View style={styles.bottomBarLeft}>
+					<Text
+						variant="bodyMedium"
+						style={{ color: theme.colors.onSurfaceVariant }}
+					>
+						{t('noteList.noteCount', { count: activeNoteCount })}
+					</Text>
+				</View>
+				<View style={styles.bottomBarRight}>
+					<Button
+						mode="contained-tonal"
+						icon="plus"
+						onPress={handleCreate}
+						compact
+					>
+						{t('noteList.newNote')}
+					</Button>
+				</View>
+				<View
+					style={[
+						styles.bottomBarCenterOverlay,
+						{ paddingBottom: 12 + insets.bottom },
+					]}
+					pointerEvents="box-none"
+				>
+					<Button
+						mode="text"
+						icon="archive"
+						onPress={handleArchivePress}
+						compact
+					>
+						{t('noteList.archiveListTitle')}
+					</Button>
+				</View>
+			</View>
+
+			{/* フォルダヘッダのドットメニュー */}
 			<FolderContextMenu
 				visible={folderMenu !== null}
 				anchor={folderMenu?.anchor ?? null}
 				onDismiss={() => setFolderMenu(null)}
-				onRename={() => {
-					if (!folderMenu) return;
-					const folder = noteList.folders.find(
-						(f) => f.id === folderMenu.folderId,
-					);
-					if (!folder) return;
-					setFolderNameInput(folder.name);
-					setRenameFolderDialog({ folderId: folder.id, name: folder.name });
-				}}
-				onDelete={() => {
-					if (folderMenu) setDeleteFolderDialog(folderMenu.folderId);
-				}}
+				items={folderMenuItems}
 			/>
 
-			{/* フォルダピッカー */}
-			<FolderPickerSheet ref={folderPickerRef} folders={noteList.folders} />
-
-			{/* 新規フォルダダイアログ */}
 			<Portal>
+				{/* 新規フォルダダイアログ */}
 				<Dialog
 					visible={createFolderDialog}
 					onDismiss={() => setCreateFolderDialog(false)}
@@ -487,6 +488,7 @@ export default function NoteListScreen() {
 					</Dialog.Actions>
 				</Dialog>
 
+				{/* フォルダ名変更ダイアログ */}
 				<Dialog
 					visible={renameFolderDialog !== null}
 					onDismiss={() => setRenameFolderDialog(null)}
@@ -512,25 +514,32 @@ export default function NoteListScreen() {
 					</Dialog.Actions>
 				</Dialog>
 
+				{/* フォルダごとアーカイブ確認ダイアログ */}
 				<Dialog
-					visible={deleteFolderDialog !== null}
-					onDismiss={() => setDeleteFolderDialog(null)}
+					visible={archiveFolderDialog !== null}
+					onDismiss={() => setArchiveFolderDialog(null)}
 				>
-					<Dialog.Title>{t('noteList.deleteFolder')}</Dialog.Title>
+					<Dialog.Title>{t('noteList.archiveFolder')}</Dialog.Title>
 					<Dialog.Content>
 						<Text variant="bodyMedium">
-							{t('noteList.deleteFolderConfirm')}
+							{archiveFolderDialog
+								? archiveFolderDialog.count > 0
+									? t('noteList.archiveFolderConfirm', {
+											name: archiveFolderDialog.name,
+											count: archiveFolderDialog.count,
+										})
+									: t('noteList.archiveFolderConfirmEmpty', {
+											name: archiveFolderDialog.name,
+										})
+								: ''}
 						</Text>
 					</Dialog.Content>
 					<Dialog.Actions>
-						<Button onPress={() => setDeleteFolderDialog(null)}>
+						<Button onPress={() => setArchiveFolderDialog(null)}>
 							{t('noteList.cancel')}
 						</Button>
-						<Button
-							textColor={theme.colors.error}
-							onPress={handleDeleteFolderConfirm}
-						>
-							{t('noteList.delete')}
+						<Button onPress={handleArchiveFolderConfirm}>
+							{t('noteList.archive_action')}
 						</Button>
 					</Dialog.Actions>
 				</Dialog>
@@ -542,27 +551,40 @@ export default function NoteListScreen() {
 const styles = StyleSheet.create({
 	container: { flex: 1 },
 	empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-	listContent: {
-		paddingBottom: Platform.select({ ios: 96, default: 80 }),
+	bottomBar: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingHorizontal: 16,
+		paddingTop: 8,
+		// paddingBottom はインライン側で `12 + insets.bottom` を当てる
 	},
-	fab: { position: 'absolute', right: 16, bottom: 16 },
-	groupSide: {
-		marginHorizontal: 8,
+	bottomBarLeft: {
+		// 左セル: ノート件数を外側 (画面左寄り) に寄せて、中央のアーカイブと
+		// かぶらないだけのスペースを確保する。
+		flex: 1,
+		alignItems: 'flex-start',
 	},
-	groupTop: {
-		borderTopLeftRadius: 12,
-		borderTopRightRadius: 12,
-		marginTop: 8,
+	bottomBarRight: {
+		// 右セル: 新規ノートボタンを外側 (画面右寄り) に。pill 背景があるため
+		// flex-start で中央寄りに置くと中央のアーカイブと重なってしまう。
+		flex: 1,
+		alignItems: 'flex-end',
 	},
-	groupBottom: {
-		borderBottomLeftRadius: 12,
-		borderBottomRightRadius: 12,
-		marginBottom: 8,
+	bottomBarCenterOverlay: {
+		// 物理中央 (横) + content area 中央 (縦) に archive を置くための overlay。
+		// 親の padding 領域と同じ padding を overlay 自身に持たせ、内側で
+		// alignItems/justifyContent center するので、結果として bar の
+		// content area の正中央に乗る。pointerEvents="box-none" で、archive
+		// ボタン以外の領域へのタップは下の side セルへ透過させる。
+		position: 'absolute',
+		top: 0,
+		bottom: 0,
+		left: 0,
+		right: 0,
+		paddingTop: 8,
+		paddingHorizontal: 16,
+		// paddingBottom はインライン側で `12 + insets.bottom` を当てる
+		alignItems: 'center',
+		justifyContent: 'center',
 	},
-	// folder-child 末尾用: 角は square のまま、下マージンだけ確保。
-	groupTrailingSpace: {
-		marginBottom: 8,
-	},
-	// ドラッグ中のフォルダの子要素を視覚的に隠す。data には残るので index は維持。
-	dragHidden: { height: 0, overflow: 'hidden' },
 });

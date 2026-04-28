@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { GestureResponderEvent } from 'react-native';
 import {
+	Dimensions,
 	Keyboard,
 	Platform,
 	Pressable,
@@ -23,11 +24,17 @@ import {
 	Text,
 	useTheme,
 } from 'react-native-paper';
+import Animated, {
+	useAnimatedStyle,
+	useSharedValue,
+	withTiming,
+} from 'react-native-reanimated';
 import { LanguagePicker } from '@/components/LanguagePicker';
 import { SyncStatusBar } from '@/components/SyncStatusBar';
 import { SyntaxHighlightView } from '@/components/SyntaxHighlightView';
 import { MONACO_LANGUAGE_IDS } from '@/constants/monacoLanguages';
 import { generateContentHeader } from '@/services/notes/noteService';
+import { appSettings } from '@/services/settings/appSettings';
 import { driveService } from '@/services/sync/driveService';
 import type { Note } from '@/services/sync/types';
 import { useNotesStore } from '@/stores/notesStore';
@@ -54,8 +61,22 @@ export default function NoteEditorScreen() {
 	const [loadAttempted, setLoadAttempted] = useState(false);
 	const [mode, setMode] = useState<Mode>('view');
 	const [langMenuOpen, setLangMenuOpen] = useState(false);
-	const [keyboardVisible, setKeyboardVisible] = useState(false);
 	const [snackbarVisible, setSnackbarVisible] = useState(false);
+	// 編集モード突入直後だけカーソルを (0,0) に固定する。これで multiline TextInput
+	// が「カーソル位置を表示するために末尾までスクロール」してしまうのを防ぎ、
+	// 編集開始時にノート本文の **先頭** から見える。ユーザーがタップしてカーソルを
+	// 動かしたら controlled 状態を解除して自由に編集可能に戻す。
+	const [editorSelection, setEditorSelection] = useState<
+		{ start: number; end: number } | undefined
+	>(undefined);
+	// 設定画面で変えられる本文フォントサイズ。view (SyntaxHighlightView) と
+	// edit (TextInput) の両方に同じ値を使う。
+	const [editorFontSize, setEditorFontSize] = useState<number>(
+		() => appSettings.snapshot().editorFontSize,
+	);
+	useEffect(() => {
+		return appSettings.subscribe((s) => setEditorFontSize(s.editorFontSize));
+	}, []);
 	// 長押し時に表示する「コピーする」確認メニュー（誤操作防止の 1 step）
 	const [copyMenuAnchor, setCopyMenuAnchor] = useState<{
 		x: number;
@@ -64,23 +85,62 @@ export default function NoteEditorScreen() {
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const latestNoteRef = useRef<Note | null>(null);
 
-	// キーボード表示中は下部フロートの mode toggle を消す（編集中は確定するまで隠す）。
+	// 編集モードに切り替わるたびに、初回カーソル位置を先頭に固定する。
+	useEffect(() => {
+		if (mode === 'edit') {
+			setEditorSelection({ start: 0, end: 0 });
+		} else {
+			setEditorSelection(undefined);
+		}
+	}, [mode]);
+
+	// キーボード追従の式は bar とエディタ wrapper でセットになっている。
+	//   - bar: 通常時 `bottom: 32` から、キーボード上 8px (= 24px 縮める) まで上げる。
+	//     `min(0, 24 - kh)` を translateY に当てると、kh = 0 なら 0、kh > 24 なら
+	//     `24 - kh` (負値) で上昇する。
+	//   - editor wrapper: bar 直下まで content を伸ばすため `max(0, kh - 24)` を
+	//     paddingBottom に。kh = 0 なら 0 (= bar が常時 32 上にあるので余分な
+	//     padding 不要)、kh > 24 なら kh - 24 で TextInput 領域をキーボード分縮める。
+	//
+	// `useAnimatedKeyboard` は新アーキ + edge-to-edge の Android 端末で閉じている
+	// ときも非ゼロを返すケースがある。RN 標準の `Keyboard.addListener` で
+	// 「閉じる/開く」を確実に検出し、`withTiming` でアニメーションさせる方式にする。
+	const keyboardHeight = useSharedValue(0);
 	useEffect(() => {
 		const showEv =
 			Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
 		const hideEv =
 			Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-		const showSub = Keyboard.addListener(showEv, () =>
-			setKeyboardVisible(true),
-		);
-		const hideSub = Keyboard.addListener(hideEv, () =>
-			setKeyboardVisible(false),
-		);
+		const showSub = Keyboard.addListener(showEv, (e) => {
+			// edge-to-edge の Android では `e.endCoordinates.height` がキーボードの
+			// 「app content area から見た高さ」 (nav bar 分含まず) を返すケースがある。
+			// 物理 screen bottom からキーボード上端までの距離を得るため、
+			// `screen.height - screenY` で計算しなおす。
+			const screenHeight = Dimensions.get('screen').height;
+			const fromBottom = Math.max(
+				e.endCoordinates.height,
+				screenHeight - e.endCoordinates.screenY,
+			);
+			keyboardHeight.value = withTiming(fromBottom, {
+				duration: e.duration ?? 250,
+			});
+		});
+		const hideSub = Keyboard.addListener(hideEv, (e) => {
+			keyboardHeight.value = withTiming(0, {
+				duration: e.duration ?? 250,
+			});
+		});
 		return () => {
 			showSub.remove();
 			hideSub.remove();
 		};
-	}, []);
+	}, [keyboardHeight]);
+	const floatingBarStyle = useAnimatedStyle(() => ({
+		transform: [{ translateY: Math.min(0, 24 - keyboardHeight.value) }],
+	}));
+	const editorWrapperStyle = useAnimatedStyle(() => ({
+		paddingBottom: Math.max(0, keyboardHeight.value - 24),
+	}));
 
 	// 現在のノートの言語がリストに無ければ先頭に差し込む（デスクトップ由来の Monaco 専用言語を
 	// 失わないようにするため。触らない限り language は変わらない）。
@@ -222,7 +282,11 @@ export default function NoteEditorScreen() {
 					icon={note.archived ? 'archive-off' : 'archive'}
 					onPress={handleArchive}
 				/>
-				<Appbar.Action icon="trash-can" onPress={handleDelete} />
+				{/* 削除はアーカイブ済みノートからのみ可能。アーカイブ一覧から開いた
+				    詳細ページでだけ表示される（active ノートはアーカイブを経由してから削除）。 */}
+				{note.archived && (
+					<Appbar.Action icon="trash-can" onPress={handleDelete} />
+				)}
 			</Appbar.Header>
 			<SyncStatusBar />
 			<PaperTextInput
@@ -256,25 +320,45 @@ export default function NoteEditorScreen() {
 						<SyntaxHighlightView
 							content={note.content}
 							language={note.language}
+							fontSize={editorFontSize}
 						/>
 					</Pressable>
 				</ScrollView>
 			) : (
-				<TextInput
-					style={[styles.editor, { color: theme.colors.onBackground }]}
-					placeholder={t('editor.contentPlaceholder')}
-					placeholderTextColor={theme.colors.onSurfaceVariant}
-					multiline
-					value={note.content}
-					onChangeText={(content) =>
-						scheduleSave({
-							...note,
-							content,
-							contentHeader: generateContentHeader(content),
-							modifiedTime: new Date().toISOString(),
-						})
-					}
-				/>
+				<Animated.View style={[styles.editorWrapper, editorWrapperStyle]}>
+					<TextInput
+						style={[
+							styles.editor,
+							{
+								color: theme.colors.onBackground,
+								fontSize: editorFontSize,
+								lineHeight: Math.round(editorFontSize * 1.55),
+							},
+						]}
+						placeholder={t('editor.contentPlaceholder')}
+						placeholderTextColor={theme.colors.onSurfaceVariant}
+						multiline
+						value={note.content}
+						selection={editorSelection}
+						onSelectionChange={(e) => {
+							// (0,0) でない位置にカーソルが動いたら controlled 解除。
+							// 初回 render で (0,0) を当てた直後の onSelectionChange は
+							// (0,0) で来るので無視され、ユーザーがタップした瞬間に解放される。
+							const s = e.nativeEvent.selection;
+							if (editorSelection && (s.start !== 0 || s.end !== 0)) {
+								setEditorSelection(undefined);
+							}
+						}}
+						onChangeText={(content) =>
+							scheduleSave({
+								...note,
+								content,
+								contentHeader: generateContentHeader(content),
+								modifiedTime: new Date().toISOString(),
+							})
+						}
+					/>
+				</Animated.View>
 			)}
 			<LanguagePicker
 				visible={langMenuOpen}
@@ -290,33 +374,32 @@ export default function NoteEditorScreen() {
 				}}
 				onDismiss={() => setLangMenuOpen(false)}
 			/>
-			{!keyboardVisible && (
-				<View
-					style={[
-						styles.floatingModeBar,
-						{
-							backgroundColor: theme.colors.background,
-							shadowColor: '#000',
-						},
+			<Animated.View
+				style={[
+					styles.floatingModeBar,
+					{
+						backgroundColor: theme.colors.background,
+						shadowColor: '#000',
+					},
+					floatingBarStyle,
+				]}
+				pointerEvents="box-none"
+			>
+				<SegmentedButtons
+					value={mode}
+					onValueChange={(v) => {
+						// 編集中 TextInput がフォーカス状態のまま unmount されると
+						// Android が次の TextInput（= タイトル）にフォーカスを移してしまう。
+						// 明示的に keyboard を dismiss してフォーカスを外す。
+						Keyboard.dismiss();
+						setMode(v as Mode);
+					}}
+					buttons={[
+						{ value: 'view', label: t('editor.view'), icon: 'eye' },
+						{ value: 'edit', label: t('editor.edit'), icon: 'pencil' },
 					]}
-					pointerEvents="box-none"
-				>
-					<SegmentedButtons
-						value={mode}
-						onValueChange={(v) => {
-							// 編集中 TextInput がフォーカス状態のまま unmount されると
-							// Android が次の TextInput（= タイトル）にフォーカスを移してしまう。
-							// 明示的に keyboard を dismiss してフォーカスを外す。
-							Keyboard.dismiss();
-							setMode(v as Mode);
-						}}
-						buttons={[
-							{ value: 'view', label: t('editor.view'), icon: 'eye' },
-							{ value: 'edit', label: t('editor.edit'), icon: 'pencil' },
-						]}
-					/>
-				</View>
-			)}
+				/>
+			</Animated.View>
 			{copyMenuAnchor !== null && (
 				<Portal>
 					{/* 外側タップでキャンセル */}
@@ -374,6 +457,9 @@ const styles = StyleSheet.create({
 		marginHorizontal: 12,
 		marginTop: 8,
 		marginBottom: 4,
+	},
+	editorWrapper: {
+		flex: 1,
 	},
 	viewer: {
 		flex: 1,

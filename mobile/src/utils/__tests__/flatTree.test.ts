@@ -6,16 +6,14 @@ import type {
 	TopLevelItem,
 } from '@/services/sync/types';
 import {
+	applyDropIntent,
 	applyReorder,
 	type FlatRow,
 	flattenNoteList,
 	moveNoteToFolder,
 } from '../flatTree';
 
-function meta(
-	id: string,
-	overrides: Partial<NoteMetadata> = {},
-): NoteMetadata {
+function meta(id: string, overrides: Partial<NoteMetadata> = {}): NoteMetadata {
 	return {
 		id,
 		title: overrides.title ?? id,
@@ -70,7 +68,11 @@ describe('flattenNoteList', () => {
 
 	it('フォルダと配下ノート（展開）を順序通りに展開する', () => {
 		const list = buildList(
-			[meta('a'), meta('n1', { folderId: 'f1' }), meta('n2', { folderId: 'f1' })],
+			[
+				meta('a'),
+				meta('n1', { folderId: 'f1' }),
+				meta('n2', { folderId: 'f1' }),
+			],
 			[folder('f1', 'Work')],
 			[
 				{ type: 'note', id: 'a' },
@@ -99,6 +101,21 @@ describe('flattenNoteList', () => {
 		if (header.kind !== 'folder-header') throw new Error('expected header');
 		expect(header.collapsed).toBe(true);
 		expect(header.noteCount).toBe(1); // 子はカウントには含まれる
+	});
+
+	it('includeCollapsedChildren=true なら折りたたみフォルダの子を hidden 行として出す', () => {
+		const list = buildList(
+			[meta('n1', { folderId: 'f1' })],
+			[folder('f1')],
+			[{ type: 'folder', id: 'f1' }],
+			['f1'],
+		);
+		const rows = flattenNoteList(list, { includeCollapsedChildren: true });
+
+		expect(rows.map((r) => r.kind)).toEqual(['folder-header', 'folder-child']);
+		const child = rows[1];
+		if (child.kind !== 'folder-child') throw new Error('expected child');
+		expect(child.parentCollapsed).toBe(true);
 	});
 
 	it('archived=true のビューはアクティブノートを出さない', () => {
@@ -154,12 +171,7 @@ describe('flattenNoteList', () => {
 	});
 
 	it('topLevelOrder に無いノート/フォルダはフォールバックで末尾に出す', () => {
-		const list = buildList(
-			[meta('a'), meta('b')],
-			[folder('f1')],
-			[],
-			[],
-		);
+		const list = buildList([meta('a'), meta('b')], [folder('f1')], [], []);
 		const rows = flattenNoteList(list);
 		// 順序は問わないが、両方含まれる
 		const ids = rows.map((r) => `${r.kind}:${r.id}`);
@@ -211,7 +223,7 @@ describe('applyReorder', () => {
 		expect(f1Notes).toEqual(['n2', 'n1']);
 	});
 
-	it('DnD では folderId は変わらない（kind を不変として扱う）', () => {
+	it('folder の子をフォルダの外 (folder-header より上) にドラッグすると top-level 化', () => {
 		const list = buildList(
 			[meta('a'), meta('n1', { folderId: 'f1' })],
 			[folder('f1')],
@@ -222,21 +234,25 @@ describe('applyReorder', () => {
 		);
 		const rows = flattenNoteList(list);
 		// 元: [topLevel(a), folder(f1), child(n1)]
-		// 新: [topLevel(a), child(n1), folder(f1)] — child を視覚的にフォルダの外へ
+		// 新: [topLevel(a), child(n1), folder(f1)] — n1 を folder-header の前に
 		const newRows: FlatRow[] = [rows[0], rows[2], rows[1]];
-		const { list: result, movedNoteIds } = applyReorder(list, newRows);
+		// n1 が動いた → toIndex=1
+		const { list: result, movedNoteIds } = applyReorder(list, newRows, {
+			movedIndex: 1,
+		});
 
-		// folderId は変わらない（クロスフォルダ移動はメニュー経由のみ）
-		expect(movedNoteIds).toEqual([]);
-		expect(result.notes.find((n) => n.id === 'n1')?.folderId).toBe('f1');
-		// top-level はそのまま：a, folder f1
+		// n1 は top-level 化 (folderId='')
+		expect(movedNoteIds).toEqual(['n1']);
+		expect(result.notes.find((n) => n.id === 'n1')?.folderId).toBe('');
+		// topLevelOrder は a, n1, f1 の順
 		expect(result.topLevelOrder.map((i) => `${i.type}:${i.id}`)).toEqual([
 			'note:a',
+			'note:n1',
 			'folder:f1',
 		]);
 	});
 
-	it('top-level note を展開フォルダの内部視覚位置にドロップしても folder には入らない', () => {
+	it('top-level note を展開フォルダの内部位置にドロップすると folder の子になる', () => {
 		const list = buildList(
 			[meta('a'), meta('n1', { folderId: 'f1' })],
 			[folder('f1')],
@@ -246,15 +262,79 @@ describe('applyReorder', () => {
 			],
 		);
 		const rows = flattenNoteList(list);
-		// 新: [folder(f1), topLevel-note(a), child(n1)]
+		// 新: [folder(f1), topLevel-note(a), child(n1)] — a を f1 の直下に
 		const newRows: FlatRow[] = [rows[1], rows[0], rows[2]];
-		const { list: result } = applyReorder(list, newRows);
+		// a が動いた → toIndex=1
+		const { list: result, movedNoteIds } = applyReorder(list, newRows, {
+			movedIndex: 1,
+		});
 
-		// a は依然として top-level
-		expect(result.notes.find((n) => n.id === 'a')?.folderId).toBe('');
-		expect(result.topLevelOrder).toEqual([
-			{ type: 'folder', id: 'f1' },
-			{ type: 'note', id: 'a' },
+		// a は f1 の子になる
+		expect(movedNoteIds).toEqual(['a']);
+		expect(result.notes.find((n) => n.id === 'a')?.folderId).toBe('f1');
+		// topLevelOrder は f1 だけ (a は外れた)
+		expect(result.topLevelOrder).toEqual([{ type: 'folder', id: 'f1' }]);
+		// f1 の子は a, n1 の順
+		const f1Children = result.notes
+			.filter((n) => n.folderId === 'f1')
+			.map((n) => n.id);
+		expect(f1Children).toEqual(['a', 'n1']);
+	});
+
+	it('別フォルダへドラッグ移動: folder A の子を folder B にドロップ', () => {
+		const list = buildList(
+			[meta('n1', { folderId: 'f1' }), meta('n2', { folderId: 'f2' })],
+			[folder('f1'), folder('f2')],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'folder', id: 'f2' },
+			],
+		);
+		const rows = flattenNoteList(list);
+		// 元: [folder(f1), child(n1), folder(f2), child(n2)]
+		// 新: [folder(f1), folder(f2), child(n1), child(n2)] — n1 を f2 配下へ
+		const newRows: FlatRow[] = [rows[0], rows[2], rows[1], rows[3]];
+		// n1 が動いた → toIndex=2
+		const { list: result, movedNoteIds } = applyReorder(list, newRows, {
+			movedIndex: 2,
+		});
+
+		expect(movedNoteIds).toEqual(['n1']);
+		expect(result.notes.find((n) => n.id === 'n1')?.folderId).toBe('f2');
+		expect(result.notes.find((n) => n.id === 'n2')?.folderId).toBe('f2');
+	});
+
+	// ★ ユーザ報告: 単独 top-level item を folder に入れたら、それ以降の top-level
+	// item 全部が同じ folder に吸い込まれてしまう問題の回帰テスト。
+	it('top-level note を folder に入れても、その後ろの top-level note は吸い込まれない', () => {
+		const list = buildList(
+			[meta('a'), meta('n1', { folderId: 'f1' }), meta('b'), meta('c')],
+			[folder('f1')],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'note', id: 'a' },
+				{ type: 'note', id: 'b' },
+				{ type: 'note', id: 'c' },
+			],
+		);
+		const rows = flattenNoteList(list);
+		// 元: [folder(f1), child(n1), topLevel(a), topLevel(b), topLevel(c)]
+		// 新: [folder(f1), topLevel(a), child(n1), topLevel(b), topLevel(c)] — a を f1 の中に
+		const newRows: FlatRow[] = [rows[0], rows[2], rows[1], rows[3], rows[4]];
+		const { list: result, movedNoteIds } = applyReorder(list, newRows, {
+			movedIndex: 1,
+		});
+
+		// a だけ f1 に入る。b, c は top-level のまま。
+		expect(movedNoteIds).toEqual(['a']);
+		expect(result.notes.find((n) => n.id === 'a')?.folderId).toBe('f1');
+		expect(result.notes.find((n) => n.id === 'b')?.folderId).toBe('');
+		expect(result.notes.find((n) => n.id === 'c')?.folderId).toBe('');
+		// f1 の子は [a, n1]、top-level は [f1, b, c]
+		expect(result.topLevelOrder.map((i) => `${i.type}:${i.id}`)).toEqual([
+			'folder:f1',
+			'note:b',
+			'note:c',
 		]);
 	});
 
@@ -290,6 +370,145 @@ describe('applyReorder', () => {
 		expect(result.archivedTopLevelOrder.map((i) => i.id)).toEqual(['b', 'a']);
 		// アクティブ topLevelOrder は影響を受けない
 		expect(result.topLevelOrder).toEqual([]);
+	});
+});
+
+describe('applyDropIntent', () => {
+	it('空フォルダへ top-level note を入れられる', () => {
+		const list = buildList(
+			[meta('a')],
+			[folder('f1')],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'note', id: 'a' },
+			],
+		);
+		const rows = flattenNoteList(list);
+		const { list: result, movedNoteIds } = applyDropIntent(list, rows, 1, {
+			type: 'folder-child',
+			folderId: 'f1',
+			index: 0,
+		});
+
+		expect(movedNoteIds).toEqual(['a']);
+		expect(result.topLevelOrder).toEqual([{ type: 'folder', id: 'f1' }]);
+		expect(result.notes.find((n) => n.id === 'a')?.folderId).toBe('f1');
+	});
+
+	it('フォルダ末尾へ note を追加できる', () => {
+		const list = buildList(
+			[meta('n1', { folderId: 'f1' }), meta('a')],
+			[folder('f1')],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'note', id: 'a' },
+			],
+		);
+		const rows = flattenNoteList(list);
+		const { list: result, movedNoteIds } = applyDropIntent(list, rows, 2, {
+			type: 'folder-child',
+			folderId: 'f1',
+			index: 1,
+		});
+
+		expect(movedNoteIds).toEqual(['a']);
+		expect(result.topLevelOrder).toEqual([{ type: 'folder', id: 'f1' }]);
+		expect(
+			result.notes.filter((n) => n.folderId === 'f1').map((n) => n.id),
+		).toEqual(['n1', 'a']);
+	});
+
+	it('フォルダ末尾の外側へ folder-child を出せる', () => {
+		const list = buildList(
+			[meta('n1', { folderId: 'f1' }), meta('a')],
+			[folder('f1')],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'note', id: 'a' },
+			],
+		);
+		const rows = flattenNoteList(list);
+		const { list: result, movedNoteIds } = applyDropIntent(list, rows, 1, {
+			type: 'top-level',
+			index: 1,
+		});
+
+		expect(movedNoteIds).toEqual(['n1']);
+		expect(result.notes.find((n) => n.id === 'n1')?.folderId).toBe('');
+		expect(result.topLevelOrder.map((i) => `${i.type}:${i.id}`)).toEqual([
+			'folder:f1',
+			'note:n1',
+			'note:a',
+		]);
+	});
+
+	it('同一フォルダ内の末尾へ並べ替えられる', () => {
+		const list = buildList(
+			[
+				meta('n1', { folderId: 'f1' }),
+				meta('n2', { folderId: 'f1' }),
+				meta('n3', { folderId: 'f1' }),
+			],
+			[folder('f1')],
+			[{ type: 'folder', id: 'f1' }],
+		);
+		const rows = flattenNoteList(list);
+		const { list: result, movedNoteIds } = applyDropIntent(list, rows, 1, {
+			type: 'folder-child',
+			folderId: 'f1',
+			index: 3,
+		});
+
+		expect(movedNoteIds).toEqual([]);
+		expect(
+			result.notes.filter((n) => n.folderId === 'f1').map((n) => n.id),
+		).toEqual(['n2', 'n3', 'n1']);
+	});
+
+	it('折りたたみフォルダにも末尾位置として入れられる', () => {
+		const list = buildList(
+			[meta('n1', { folderId: 'f1' }), meta('a')],
+			[folder('f1')],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'note', id: 'a' },
+			],
+			['f1'],
+		);
+		const rows = flattenNoteList(list);
+		const { list: result } = applyDropIntent(list, rows, 1, {
+			type: 'folder-child',
+			folderId: 'f1',
+			index: 1,
+		});
+
+		expect(
+			result.notes.filter((n) => n.folderId === 'f1').map((n) => n.id),
+		).toEqual(['n1', 'a']);
+	});
+
+	it('folder-header は topLevelOrder 内で移動する', () => {
+		const list = buildList(
+			[meta('a')],
+			[folder('f1'), folder('f2')],
+			[
+				{ type: 'folder', id: 'f1' },
+				{ type: 'note', id: 'a' },
+				{ type: 'folder', id: 'f2' },
+			],
+		);
+		const rows = flattenNoteList(list);
+		const { list: result, movedNoteIds } = applyDropIntent(list, rows, 0, {
+			type: 'top-level',
+			index: 3,
+		});
+
+		expect(movedNoteIds).toEqual([]);
+		expect(result.topLevelOrder.map((i) => `${i.type}:${i.id}`)).toEqual([
+			'note:a',
+			'folder:f2',
+			'folder:f1',
+		]);
 	});
 });
 
@@ -356,7 +575,11 @@ describe('moveNoteToFolder', () => {
 describe('flatten → reorder → flatten round-trip', () => {
 	it('変更なしなら同じ flat 配列が返る', () => {
 		const list = buildList(
-			[meta('a'), meta('n1', { folderId: 'f1' }), meta('n2', { folderId: 'f1' })],
+			[
+				meta('a'),
+				meta('n1', { folderId: 'f1' }),
+				meta('n2', { folderId: 'f1' }),
+			],
 			[folder('f1')],
 			[
 				{ type: 'note', id: 'a' },
