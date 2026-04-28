@@ -52,7 +52,9 @@
       "Bash(git commit *)",
       "Bash(git checkout *)",
       "WebFetch(domain:nuclearpasta.com)",
-      "Bash(npx expo-modules-autolinking:*)"
+      "Bash(npx expo-modules-autolinking:*)",
+      "WebFetch(domain:docs.expo.dev)",
+      "WebFetch(domain:expo.dev)"
     ]
   }
 }

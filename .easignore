@@ -1,0 +1,102 @@
+# EAS Build はこのファイルを git リポジトリのルートで読み込む。
+# .easignore が存在する場合 EAS は .gitignore を一切参照しないため、
+# 除外対象を**漏れなく明示列挙**する必要がある。
+#
+# 本リポジトリは Wails デスクトップ + Expo モバイルが同居する monorepo。
+# モバイル (mobile/) 以外の Wails 関連ソースを丸ごと除外する。
+#
+# 注意: gitignore 仕様上「親ディレクトリを `/*` で deny-all → 子を `!` で再包含」は
+# 動作しないため、除外対象を一つずつ列挙する方式を採用。
+
+# ─────────────────────────────────────────
+# ルート直下: mobile/ 以外を全部除外
+# ─────────────────────────────────────────
+
+# ディレクトリ
+/backend/
+/build/
+/docs/
+/frontend/
+/scripts/
+/node_modules/
+
+# 設定 / メタディレクトリ
+/.git/
+/.github/
+/.vscode/
+/.idea/
+/.claude/
+/.playwright/
+/.serena/
+/.sisyphus/
+
+# Go / Wails 設定
+/main.go
+/go.mod
+/go.sum
+/wails.json
+/build.ps1
+/build_mac.sh
+
+# ドキュメント
+/AGENTS.md
+/AGENTS_mobile.md
+/CLAUDE.md
+/README.md
+/README.en.md
+/LICENSE.txt
+
+# ルート env / VCS メタ
+/.env
+/.env.*
+/.gitattributes
+/.gitignore
+
+# ─────────────────────────────────────────
+# mobile/ 内部: ビルド成果物・依存・キャッシュ
+# ─────────────────────────────────────────
+mobile/ios/
+mobile/android/
+mobile/node_modules/
+mobile/.expo/
+mobile/.expo-shared/
+mobile/dist/
+mobile/web-build/
+mobile/coverage/
+mobile/.metro-health-check*
+mobile/expo-env.d.ts
+
+# テスト
+mobile/__tests__/
+mobile/__test__/
+mobile/src/test/
+mobile/**/*.test.ts
+mobile/**/*.test.tsx
+mobile/**/*.spec.ts
+
+# ローカル env (EAS Secrets で管理)
+mobile/.env
+mobile/.env.*
+!mobile/.env.example
+
+# 署名関連 (EAS の credential 管理に任せる)
+mobile/**/*.jks
+mobile/**/*.p8
+mobile/**/*.p12
+mobile/**/*.key
+mobile/**/*.mobileprovision
+mobile/**/*.orig.*
+
+# ローカルでビルドした成果物 (毎回数十 MB なのでアップロード不要)
+mobile/*.apk
+mobile/*.aab
+mobile/*.ipa
+mobile/build-*.apk
+
+# ─────────────────────────────────────────
+# 全体: OS / IDE ノイズ
+# ─────────────────────────────────────────
+**/.DS_Store
+**/Thumbs.db
+**/.idea/
+**/.vscode/

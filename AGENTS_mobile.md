@@ -6,7 +6,8 @@
 
 `mobile/` は、デスクトップ版と同じ Google Drive の appDataFolder をバックエンドとする **独立したモバイルアプリ** (Expo / React Native)。デスクトップ版のバイナリとは別プロセス・別 OAuth クライアント ID で動く。同期するデータ構造・ファイル配置・ハッシュ計算・競合解決ルールは**デスクトップ版と 1:1 で互換**。
 
-- **フレームワーク**: Expo SDK 52+ / Expo Router（ファイルベースルーティング）
+- **フレームワーク**: Expo SDK 55+ / Expo Router（ファイルベースルーティング）
+- **パッケージ名 / Bundle ID**: `dev.junmurakami.monaconotepad` (Android / iOS 共通)
 - **言語**: TypeScript strict
 - **UI**: React Native Paper（MD3）
 - **状態管理**: Zustand（デスクトップと同じ思想）
@@ -20,7 +21,8 @@
 
 ```
 mobile/
-├── app.json                     # Expo 設定 + OAuth client ID (extra.googleOAuth*)
+├── app.config.ts                # Expo 動的設定 + OAuth client ID (.env.local 経由で注入)
+├── eas.json                     # EAS Build プロファイル定義
 ├── app/                         # Expo Router
 │   ├── _layout.tsx              # ルートレイアウト (PaperProvider / i18n / 起動時初期化)
 │   ├── index.tsx                # ノート一覧
@@ -217,21 +219,92 @@ npm run test:coverage    # coverage
 
 ---
 
-## ビルド / 実行
+## ローカル開発 / ビルド
 
 ```bash
 cd mobile
 npm install
 npm run prebuild               # wails.json 由来のバージョン同期 + native プロジェクト生成 (ios/, android/)
-npm run ios                    # iOS simulator
-npm run android                # Android emulator
+npm run ios                    # iOS simulator (要 macOS + Xcode)
+npm run android                # Android emulator (要 Android SDK)
 npm start                      # Dev server (Expo Go ではネイティブ依存で動かないので prebuild 必要)
 ```
 
+ローカルビルドは debug 検証用。**リリースは EAS Build で行う**（次セクション参照）。
+
+---
+
+## EAS Build / リリース
+
+### 全体方針
+
+- **クラウドビルド**: Apple Distribution / Google Play Store 提出用は EAS Build (cloud) で行う
+- **OTA 配信**: JS / アセットの修正のみは `eas update` で配信し、再ビルド消費を抑える
+- **`eas build --local` は macOS/Linux のみ動作**: Windows からは cloud ビルドのみ
+- 無料枠 30 builds/月。基本は preview ビルド + OTA 運用で消費を最小化
+
+### `eas.json` プロファイル
+
+| プロファイル | 用途 | 出力 |
+|---|---|---|
+| `development` | dev client 接続用 | APK |
+| `preview` | 社内テスト配布 | APK |
+| `production` | Play Store / App Store 提出用 | AAB / IPA |
+| `production-apk` | Play Console の所有権検証など特殊用途 | APK |
+
+```bash
+# 本番リリースビルド
+npx eas-cli@latest build --profile production --platform all
+
+# 検証用 APK
+npx eas-cli@latest build --profile production-apk --platform android
+
+# 社内配布
+npx eas-cli@latest build --profile preview --platform android
+```
+
+### バージョン管理
+
+`eas.json` に `appVersionSource: "remote"` を設定。**EAS が `versionCode` (Android) / `buildNumber` (iOS) をクラウド側で自動採番**する。
+
+ローカル Gradle / Xcode でリリースビルドする場合のみ手動管理が必要 (`eas build:version:get` / `:set` で同期)。
+
+### `.easignore` (重要)
+
+**git リポジトリのルートに配置する** (`mobile/` ではない)。本リポジトリは Wails デスクトップ + Expo モバイルの monorepo なので、`mobile/` 以外の Wails ソース (`backend/` `frontend/` `build/` 等) を漏れなく除外しないとアップロードが GB 超になる。
+
+`.easignore` が存在する場合 EAS は `.gitignore` を一切参照しない。除外対象は明示列挙する (gitignore 仕様上、`/*` deny-all + `!mobile/` 再包含が機能しないため)。
+
+### Android キーストア管理
+
+- 鍵は EAS が credential 管理 (`eas credentials` で確認・差し替え)
+- ローカル `.jks` で署名する場合の制約: **EAS は PKCS#12 のストア = 鍵パスワード一致を厳格にチェック**する。Android Studio が許容する「ストアと鍵で違うパスワード」は EAS で reject される (`Invalid PKCS#12` エラー)
+  - 対処: [KeyStore Explorer](https://keystore-explorer.org/) GUI で鍵パスワードをストアパスワードに揃えて再保存し、EAS にアップロード
+  - keytool では `-keypasswd` が PKCS#12 で動かないので使えない
+
+### Play Console パッケージ登録時の注意
+
+新規パッケージ名登録時、最初の APK アップロードで使った鍵が **そのパッケージに永続バインド**される。後から別の鍵に変更不可。
+
+- 「対象となる公開鍵の選択」で過去アプリの鍵を選んでしまうと、その鍵で署名した APK しか以降アップロード不可になる
+- 安全策: 何も選ばずいきなり「APK をアップロード」する。Google が新鍵を自動登録する
+
+### Apple Distribution Certificate / Provisioning Profile
+
+EAS が Apple Developer Portal と連携して自動セットアップ。初回 iOS ビルド時に対話プロンプトで生成。
+
+- `Generate a new Apple Distribution Certificate?` → `Y` (アカウントあたり最大 3 個まで保有可)
+- `Generate a new Apple Provisioning Profile?` → `Y`
+- Push Notifications Key は不使用なら不要
+
+### Encryption Export Compliance (iOS)
+
+`app.config.ts` の `ios.infoPlist.ITSAppUsesNonExemptEncryption: false` を設定済み。本アプリは HTTPS / Keychain / SHA-256 など標準暗号のみ使用するため申告不要。これにより毎リリースの App Store Connect 申告がスキップされる。
+
 ### OAuth 設定 (Google Cloud Console 作業)
 - プロジェクトは**デスクトップ版と同じで OK**（クライアント ID だけプラットフォームごとに作成）
-- iOS OAuth Client: Bundle ID = `app.monaconotepad.mobile`
-- Android OAuth Client: パッケージ名 = `app.monaconotepad.mobile` + デバッグ／リリース SHA-1 両方
+- iOS OAuth Client: Bundle ID = `dev.junmurakami.monaconotepad`
+- Android OAuth Client: パッケージ名 = `dev.junmurakami.monaconotepad` + デバッグ／リリース SHA-1 両方
 - スコープ: `https://www.googleapis.com/auth/drive.appdata` のみ
 - OAuth 同意画面の「アプリの確認」を通しておく（テストユーザーのみなら未認証でも可）
 
@@ -303,13 +376,16 @@ keytool -list -v -keystore ~/.android/debug.keystore \
 
 ### 動作検証（着手予定）
 - [x] OAuth2 サインインフロー（Android debug build で 2026-04-22 確認）
+- [x] EAS Build セットアップ完了（production / production-apk / preview / development の 4 プロファイル）
+- [x] Play Console パッケージ登録（`dev.junmurakami.monaconotepad`、内部テスト準備中）
 - [ ] 初回同期: 空 Drive ↔ 空 local / 既存 Drive → local 取り込みの両シナリオ
 - [ ] ノート CRUD → Drive 反映（create / edit / archive / delete / move）
 - [ ] アプリ再起動後の refresh_token 自動更新
 - [ ] **デスクトップ版で作成した既存ノートがモバイルで読める** ことの検証（同期ロジック 1:1 互換の生命線）
 - [ ] 競合解決シナリオ（同じノートをデスクトップとモバイルで同時編集）
 - [ ] オフライン → オンライン復帰時の operationQueue 再生
-- [ ] iOS 実機ビルド（現状 Android debug のみ動作確認済）
+- [ ] iOS 実機での動作確認（EAS で IPA 出力可能、TestFlight 配信は次ステップ）
+- [ ] Play Console 内部テスト配信 → 実機検証
 
 ### 実装タスク
 - [ ] `expo-background-fetch` による true bg 同期（iOS は制約多いため優先度低）

@@ -38,32 +38,46 @@ const config: ExpoConfig & { newArchEnabled?: boolean } = {
 	slug: 'monaco-notepad',
 	version: '0.1.0',
 	orientation: 'portrait',
+	// トップレベル icon は Web (favicon を別指定してもフォールバック先になる) と
+	// 旧 Android 7 以下向けのレガシーアイコンとして使用される。
 	icon: './assets/icon.png',
 	scheme: 'monaconotepad',
 	userInterfaceStyle: 'automatic',
 	newArchEnabled: true,
-	splash: {
-		image: './assets/splash.png',
-		resizeMode: 'contain',
-		backgroundColor: '#ffffff',
-	},
+	// 旧 splash キーは SDK 55 で deprecated。expo-splash-screen プラグイン (plugins 配列) で設定する。
 	ios: {
 		supportsTablet: true,
-		bundleIdentifier: 'app.monaconotepad.mobile',
+		bundleIdentifier: 'dev.junmurakami.monaconotepad',
+		// iOS 18+ のホーム画面 light/dark/tinted 表示に対応。
+		// 各 1024x1024 PNG。dark/tinted を省略すると OS が light を流用する。
+		icon: {
+			light: './assets/icon-ios-light.png',
+			dark: './assets/icon-ios-dark.png',
+			tinted: './assets/icon-ios-tinted.png',
+		},
 		infoPlist: {
 			UIBackgroundModes: ['fetch', 'processing'],
 			CFBundleURLTypes: [
 				// Google OAuth callback (reverse-DNS of iOS client ID)
 				{ CFBundleURLSchemes: [IOS_REVERSE_DNS] },
 			],
+			// 米国輸出規制 (Encryption Export Compliance) の自己申告。
+			// 本アプリは HTTPS / Keychain / SHA-256 など標準・適用除外の暗号のみ使用するため
+			// false 固定で OK。これにより毎回 App Store Connect で申告する手間が省ける。
+			ITSAppUsesNonExemptEncryption: false,
 		},
 	},
 	android: {
 		adaptiveIcon: {
-			foregroundImage: './assets/adaptive-icon.png',
-			backgroundColor: '#ffffff',
+			// 1024x1024、中央 ~626px 円内に収めた前景レイヤー。
+			foregroundImage: './assets/adaptive-foreground.png',
+			// 背景はグラデーション PNG。ロード失敗時用に backgroundColor も同系色を指定。
+			backgroundImage: './assets/adaptive-background.png',
+			backgroundColor: '#60c0d0',
+			// Android 13+ のテーマアイコン（壁紙色で OS が再着色）。アルファのみ参照される。
+			monochromeImage: './assets/adaptive-monochrome.png',
 		},
-		package: 'app.monaconotepad.mobile',
+		package: 'dev.junmurakami.monaconotepad',
 		// ノート本文・同期状態は端末ローカルに保存されるため、Android Auto Backup
 		// 経由で別端末/再インストール時に復元されないよう明示的に無効化する。
 		allowBackup: false,
@@ -80,7 +94,24 @@ const config: ExpoConfig & { newArchEnabled?: boolean } = {
 		output: 'static',
 		favicon: './assets/favicon.png',
 	},
-	plugins: ['expo-router', 'expo-secure-store'],
+	plugins: [
+		'expo-router',
+		'expo-secure-store',
+		[
+			'expo-splash-screen',
+			{
+				image: './assets/splash.png',
+				imageWidth: 200,
+				resizeMode: 'contain',
+				backgroundColor: '#60c0d0',
+				dark: {
+					// アイコンは light/dark 共通。背景色のみ切り替える。
+					image: './assets/splash.png',
+					backgroundColor: '#1e1e1e',
+				},
+			},
+		],
+	],
 	experiments: {
 		typedRoutes: true,
 	},
@@ -88,6 +119,9 @@ const config: ExpoConfig & { newArchEnabled?: boolean } = {
 		googleOAuthIosClientId: IOS_CLIENT_ID,
 		googleOAuthAndroidClientId: ANDROID_CLIENT_ID,
 		googleOAuthWebClientId: WEB_CLIENT_ID,
+		eas: {
+			projectId: 'b5e4d780-4e2a-4387-a514-d893989794c6',
+		},
 	},
 };
 

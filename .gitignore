@@ -16,3 +16,6 @@ backend/*.out
 
 # Sisyphus
 .sisyphus/
+
+/build/
+/build/**
