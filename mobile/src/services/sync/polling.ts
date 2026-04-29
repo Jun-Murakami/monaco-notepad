@@ -149,6 +149,16 @@ export class PollingService {
 			}
 			skipInitialWait = false;
 
+			// ★ active なサイクルに入った時点で idle を emit して、connect() が出した
+			// `drive:status: pulling` + `sync:phase: preparing` の中間表示を解除する。
+			// 「ローカル/クラウドともに変更なし、初回同期も済み」の通常起動ケースでは下の
+			// 分岐で `syncNotes()` が呼ばれず、誰も idle を emit しないため、編集等で
+			// dirty が立つまで「Drive 接続準備中...」が表示し続けてしまう。
+			// 同期が必要なら、後続の `syncNotes()` が pulling/pushing 等で上書きする。
+			// zustand 側は同値の setState で派生 selector が再描画されないため、毎サイクル
+			// emit しても視覚的なチラつき・再レンダリングは起きない。
+			syncEvents.emit('drive:status', { status: 'idle' });
+
 			try {
 				const changed = await this.checkForChanges();
 				// ローカルに pending な変更がある場合 (前回 session で push 途中終了 →
