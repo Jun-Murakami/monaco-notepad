@@ -1,5 +1,5 @@
-import { type ReactNode, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { type ReactNode, useRef, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable, {
 	type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -40,6 +40,9 @@ export function SwipeableNoteRow({ children, actions, disabled }: Props) {
 	const ref = useRef<SwipeableMethods | null>(null);
 	const rowHeight = useSharedValue(0);
 	const removing = useSharedValue(0);
+	// 開いている / 開きかけの間は子の Pressable へのタップ伝播を止める。
+	// スワイプを引いた直後に意図せず詳細画面へ遷移するのを防ぐため。
+	const [isOpen, setIsOpen] = useState(false);
 
 	const removeStyle = useAnimatedStyle(() => {
 		if (rowHeight.value <= 0) {
@@ -104,8 +107,16 @@ export function SwipeableNoteRow({ children, actions, disabled }: Props) {
 				overshootRight={false}
 				renderRightActions={renderRightActions}
 				containerStyle={styles.container}
+				onSwipeableWillOpen={() => setIsOpen(true)}
+				onSwipeableWillClose={() => setIsOpen(false)}
 			>
 				{children}
+				{isOpen && (
+					<Pressable
+						style={StyleSheet.absoluteFill}
+						onPress={() => ref.current?.close()}
+					/>
+				)}
 			</ReanimatedSwipeable>
 		</Animated.View>
 	);

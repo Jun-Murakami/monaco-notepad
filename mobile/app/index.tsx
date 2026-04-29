@@ -362,19 +362,26 @@ export default function NoteListScreen() {
 							setCreateFolderDialog(true);
 						}}
 						accessibilityLabel={t('noteList.newFolder')}
+						style={styles.appbarAction}
 					/>
 					<Appbar.Action
 						icon="magnify"
 						onPress={search.open}
 						accessibilityLabel={t('search.placeholder')}
+						style={styles.appbarAction}
 					/>
 					{!signedIn && (
 						<Appbar.Action
 							icon="login"
 							onPress={() => router.push('/signin')}
+							style={styles.appbarAction}
 						/>
 					)}
-					<Appbar.Action icon="cog" onPress={() => router.push('/settings')} />
+					<Appbar.Action
+						icon="cog"
+						onPress={() => router.push('/settings')}
+						style={styles.appbarAction}
+					/>
 				</Appbar.Header>
 			)}
 			<SyncStatusBar />
@@ -551,6 +558,9 @@ export default function NoteListScreen() {
 const styles = StyleSheet.create({
 	container: { flex: 1 },
 	empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+	// Appbar.Action (IconButton) はデフォルトで margin: 6 → 隣接間 12dp の余白。
+	// アイコンが 4 つ並ぶと右側が間延びするので半分の 3 (= 隣接間 6dp) に詰める。
+	appbarAction: { margin: 3 },
 	bottomBar: {
 		flexDirection: 'row',
 		alignItems: 'center',
