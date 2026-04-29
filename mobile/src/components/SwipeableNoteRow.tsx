@@ -1,5 +1,8 @@
 import { type ReactNode, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+// ★ Pressable は gesture-handler 版を使う。子側の Pressable も同じく gesture-handler
+// 版に揃えてあるため、Swipeable の Pan ジェスチャーと正しく競合・キャンセルが行われる。
+import { Pressable } from 'react-native-gesture-handler';
 import ReanimatedSwipeable, {
 	type SwipeableMethods,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';

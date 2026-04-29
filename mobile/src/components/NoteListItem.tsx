@@ -1,6 +1,11 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+// ★ Pressable は react-native のものではなく gesture-handler 版を使う。
+// 親の ReanimatedSwipeable (Pan ジェスチャー) と協調し、スワイプが活性化した
+// 瞬間に press が自動キャンセルされる。RN 版だと iOS で小さく左スワイプした
+// 時に onPress が漏れて詳細ページに遷移してしまう。
+import { Pressable } from 'react-native-gesture-handler';
 import { Text, useTheme } from 'react-native-paper';
 import type { NoteMetadata } from '@/services/sync/types';
 
