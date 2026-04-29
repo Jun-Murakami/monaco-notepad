@@ -66,7 +66,8 @@
       "PowerShell(Out-File *)",
       "WebFetch(domain:shiki.style)",
       "Bash(curl -fsSL https://raw.githubusercontent.com/shikijs/textmate-grammars-themes/main/packages/tm-grammars/README.md)",
-      "Bash(python -c \"import json,sys; pkg=json.load\\(sys.stdin\\); print\\(json.dumps\\(pkg.get\\('exports', {}\\), indent=2\\)\\)\")"
+      "Bash(python -c \"import json,sys; pkg=json.load\\(sys.stdin\\); print\\(json.dumps\\(pkg.get\\('exports', {}\\), indent=2\\)\\)\")",
+      "Bash(gh api *)"
     ]
   }
 }

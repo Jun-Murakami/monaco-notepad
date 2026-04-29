@@ -30,6 +30,7 @@ import { driveService } from '@/services/sync/driveService';
 import { syncStateManager } from '@/services/sync/syncState';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotesStore } from '@/stores/notesStore';
+import { IS_IOS_TABLET } from '@/utils/appbar';
 import {
 	applyDropIntent,
 	type FlatRow,
@@ -353,36 +354,55 @@ export default function NoteListScreen() {
 					indexing={search.isIndexing}
 				/>
 			) : (
-				<Appbar.Header mode="small">
-					<Appbar.Content title={t('app.title')} />
-					<Appbar.Action
-						icon="folder-plus"
-						onPress={() => {
-							setFolderNameInput('');
-							setCreateFolderDialog(true);
-						}}
-						accessibilityLabel={t('noteList.newFolder')}
-						style={styles.appbarAction}
-					/>
-					<Appbar.Action
-						icon="magnify"
-						onPress={search.open}
-						accessibilityLabel={t('search.placeholder')}
-						style={styles.appbarAction}
-					/>
-					{!signedIn && (
+				<View>
+					<Appbar.Header mode="small">
+						<Appbar.Content title={IS_IOS_TABLET ? '' : t('app.title')} />
 						<Appbar.Action
-							icon="login"
-							onPress={() => router.push('/signin')}
+							icon="folder-plus"
+							onPress={() => {
+								setFolderNameInput('');
+								setCreateFolderDialog(true);
+							}}
+							accessibilityLabel={t('noteList.newFolder')}
 							style={styles.appbarAction}
 						/>
+						<Appbar.Action
+							icon="magnify"
+							onPress={search.open}
+							accessibilityLabel={t('search.placeholder')}
+							style={styles.appbarAction}
+						/>
+						{!signedIn && (
+							<Appbar.Action
+								icon="login"
+								onPress={() => router.push('/signin')}
+								style={styles.appbarAction}
+							/>
+						)}
+						<Appbar.Action
+							icon="cog"
+							onPress={() => router.push('/settings')}
+							style={styles.appbarAction}
+						/>
+					</Appbar.Header>
+					{IS_IOS_TABLET && (
+						<View
+							pointerEvents="none"
+							style={[
+								StyleSheet.absoluteFill,
+								styles.centeredTitleOverlay,
+								{ paddingTop: insets.top },
+							]}
+						>
+							<Text
+								variant="titleLarge"
+								style={{ color: theme.colors.onSurface }}
+							>
+								{t('app.title')}
+							</Text>
+						</View>
 					)}
-					<Appbar.Action
-						icon="cog"
-						onPress={() => router.push('/settings')}
-						style={styles.appbarAction}
-					/>
-				</Appbar.Header>
+				</View>
 			)}
 			<SyncStatusBar />
 			<Divider style={{ backgroundColor: divider }} />
@@ -561,6 +581,12 @@ const styles = StyleSheet.create({
 	// Appbar.Action (IconButton) はデフォルトで margin: 6 → 隣接間 12dp の余白。
 	// アイコンが 4 つ並ぶと右側が間延びするので半分の 3 (= 隣接間 6dp) に詰める。
 	appbarAction: { margin: 3 },
+	// iPad のみ AppBar 全幅に絶対配置でタイトルを中央寄せするための overlay。
+	// paddingTop は status bar 分をインライン側で `insets.top` 加算する。
+	centeredTitleOverlay: {
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
 	bottomBar: {
 		flexDirection: 'row',
 		alignItems: 'center',
