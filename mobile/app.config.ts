@@ -1,5 +1,6 @@
 import type { ExpoConfig } from 'expo/config';
 import buildInfo from './build-number.json';
+import pkg from './package.json';
 
 /**
  * Expo の動的設定。
@@ -64,7 +65,9 @@ const ANDROID_REVERSE_DNS = toReverseDns(ANDROID_CLIENT_ID);
 const config: ExpoConfig & { newArchEnabled?: boolean } = {
   name: 'MonacoNotepad',
   slug: 'monaco-notepad',
-  version: '0.1.0',
+  // wails.json の productVersion を単一ソースとして、
+  // sync-version.mjs が mobile/package.json まで伝搬する。ここはそれを参照するだけ。
+  version: pkg.version,
   orientation: 'portrait',
   // トップレベル icon は Web (favicon を別指定してもフォールバック先になる) と
   // 旧 Android 7 以下向けのレガシーアイコンとして使用される。

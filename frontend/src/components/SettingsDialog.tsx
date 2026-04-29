@@ -40,6 +40,7 @@ interface SettingsDialogProps {
   onClose: () => void;
   onChange: (settings: Settings) => void;
   onOpenAbout: () => void;
+  onOpenConflictBackups: () => void;
   showMessage: (
     title: string,
     message: string,
@@ -53,6 +54,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onClose,
   onChange,
   onOpenAbout,
+  onOpenConflictBackups,
   showMessage,
 }) => {
   const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
@@ -404,6 +406,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 </Box>
                 {t('settings.conflictBackupDescriptionAfterLink')}
               </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={onOpenConflictBackups}
+                sx={{ ml: 'auto' }}
+              >
+                {t('settings.manageConflictBackups')}
+              </Button>
             </Box>
 
             <Divider orientation="horizontal" sx={{ width: '100%' }} />

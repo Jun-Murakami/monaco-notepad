@@ -146,6 +146,16 @@ type IntegrityRepairSummary struct {
 	Messages []string `json:"messages,omitempty"`
 }
 
+// 競合バックアップ一覧表示用エントリ
+// cloudWinBackupRecord のうちフロントエンドが表示・復元に必要な部分のみを公開する
+type ConflictBackupEntry struct {
+	ID        string `json:"id"`        // ファイル名（一意キー）
+	Filename  string `json:"filename"`  // バックアップファイル名
+	Kind      string `json:"kind"`      // "cloud_wins" | "cloud_delete"
+	CreatedAt string `json:"createdAt"` // バックアップ作成時刻 (RFC3339Nano)
+	Note      *Note  `json:"note"`      // バックアップされていたローカル版ノート
+}
+
 // Google Driveとの同期機能を管理
 type DriveSync struct {
 	service       *drive.Service // Google Driveサービスのインスタンス

@@ -24,9 +24,13 @@ export function Console(arg1:string,arg2:Array<any>):Promise<void>;
 
 export function CreateFolder(arg1:string):Promise<backend.Folder>;
 
+export function DeleteAllCloudConflictBackups():Promise<void>;
+
 export function DeleteAllDriveData():Promise<void>;
 
 export function DeleteArchivedFolder(arg1:string):Promise<void>;
+
+export function DeleteCloudConflictBackup(arg1:string):Promise<void>;
 
 export function DeleteFolder(arg1:string):Promise<void>;
 
@@ -55,6 +59,8 @@ export function GetTopLevelOrder():Promise<Array<backend.TopLevelItem>>;
 export function InitializeDrive():Promise<void>;
 
 export function IsWindowPositionValid(arg1:number,arg2:number,arg3:number,arg4:number):Promise<boolean>;
+
+export function ListCloudConflictBackups():Promise<Array<backend.ConflictBackupEntry>>;
 
 export function ListFolders():Promise<Array<backend.Folder>>;
 

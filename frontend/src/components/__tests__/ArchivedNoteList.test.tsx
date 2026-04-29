@@ -123,7 +123,7 @@ describe('ArchivedNoteList', () => {
 
     expect(screen.getByText('Archived Note 1')).toBeInTheDocument();
     expect(screen.getByText('First line Second line')).toBeInTheDocument();
-    expect(screen.getByText('Empty Note')).toBeInTheDocument();
+    expect(screen.getByText('Untitled Note')).toBeInTheDocument();
   });
 
   it('アーカイブリストの末尾ドロップ領域が描画されること', () => {
@@ -169,7 +169,7 @@ describe('ArchivedNoteList', () => {
     );
 
     expect(screen.getByText('Content from content')).toBeInTheDocument();
-    expect(screen.getByText('Empty Note')).toBeInTheDocument();
+    expect(screen.getByText('Untitled Note')).toBeInTheDocument();
     expect(screen.getByText('Explicit Title')).toBeInTheDocument();
   });
 

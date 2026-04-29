@@ -1459,6 +1459,129 @@ func isCloudConflictBackupFile(name string) bool {
 	return strings.HasPrefix(name, cloudBackupFilePrefixWins) || strings.HasPrefix(name, cloudBackupFilePrefixDelete)
 }
 
+// conflictBackupKindFromName はバックアップファイル名から kind を判定する
+func conflictBackupKindFromName(name string) string {
+	if !strings.HasSuffix(name, ".json") {
+		return ""
+	}
+	if strings.HasPrefix(name, cloudBackupFilePrefixWins) {
+		return "cloud_wins"
+	}
+	if strings.HasPrefix(name, cloudBackupFilePrefixDelete) {
+		return "cloud_delete"
+	}
+	return ""
+}
+
+// validateCloudConflictBackupFilename はパストラバーサル等の不正なファイル名を弾く
+func validateCloudConflictBackupFilename(name string) error {
+	if name == "" {
+		return fmt.Errorf("backup filename is empty")
+	}
+	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid backup filename: %s", name)
+	}
+	if conflictBackupKindFromName(name) == "" {
+		return fmt.Errorf("not a conflict backup file: %s", name)
+	}
+	return nil
+}
+
+// listCloudConflictBackups はバックアップディレクトリのエントリを新しい順に列挙する
+// 読み取り不能・パース不能なファイルはスキップして処理を継続する
+func listCloudConflictBackups(backupDir string) ([]ConflictBackupEntry, error) {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []ConflictBackupEntry{}, nil
+		}
+		return nil, err
+	}
+
+	result := make([]ConflictBackupEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		kind := conflictBackupKindFromName(name)
+		if kind == "" {
+			continue
+		}
+		path := filepath.Join(backupDir, name)
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		var record cloudWinBackupRecord
+		if err := json.Unmarshal(data, &record); err != nil {
+			continue
+		}
+		if record.LocalNote == nil {
+			continue
+		}
+		createdAt := record.BackupCreatedAt
+		if createdAt == "" {
+			// JSON に作成時刻が無い場合はファイルの mtime をフォールバックに使う
+			if info, infoErr := entry.Info(); infoErr == nil {
+				createdAt = info.ModTime().UTC().Format(time.RFC3339Nano)
+			}
+		}
+		result = append(result, ConflictBackupEntry{
+			ID:        name,
+			Filename:  name,
+			Kind:      kind,
+			CreatedAt: createdAt,
+			Note:      record.LocalNote,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		// 新しい順にソート。CreatedAt が同値の場合はファイル名で安定させる
+		if result[i].CreatedAt == result[j].CreatedAt {
+			return result[i].Filename > result[j].Filename
+		}
+		return result[i].CreatedAt > result[j].CreatedAt
+	})
+	return result, nil
+}
+
+// deleteCloudConflictBackup は指定された 1 件のバックアップを削除する
+func deleteCloudConflictBackup(backupDir, filename string) error {
+	if err := validateCloudConflictBackupFilename(filename); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(backupDir, filename)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// deleteAllCloudConflictBackups はバックアップディレクトリ内の全バックアップファイルを削除する
+// (ディレクトリ自体や非バックアップファイルは残す)
+func deleteAllCloudConflictBackups(backupDir string) error {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !isCloudConflictBackupFile(name) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(backupDir, name)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func isSameBoolSet(a, b map[string]bool) bool {
 	if len(a) != len(b) {
 		return false

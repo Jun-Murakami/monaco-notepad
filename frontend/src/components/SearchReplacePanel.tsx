@@ -487,8 +487,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
-            backgroundColor: (theme) =>
-              alpha(theme.palette.primary.main, 0.1),
+            backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.1),
           }}
         >
           {/* ヘッダ: 集計表示のみ

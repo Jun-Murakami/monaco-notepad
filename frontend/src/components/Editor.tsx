@@ -81,6 +81,14 @@ export const Editor: React.FC<EditorProps> = ({
   const onOpenReplaceEvent = useEffectEvent(() => onOpenReplace?.());
   const onOpenFindInAllEvent = useEffectEvent(() => onOpenFindInAll?.());
 
+  // 初回マウント時のテーマ復元用。以降の変更追従は applySettingsToAllEditors() が
+  // editorRegistry 経由で命令的に処理するため、deps には含めない（含めると
+  // テーマ切替のたびにエディタが再生成され undo/scroll が失われる）。
+  const applyInitialThemeEvent = useEffectEvent(() => {
+    const pair = getThemePair(settings.editorTheme);
+    getMonaco().editor.setTheme(settings.isDarkMode ? pair.dark : pair.light);
+  });
+
   useEffect(() => {
     if (!editorRef.current) return;
 
@@ -112,8 +120,7 @@ export const Editor: React.FC<EditorProps> = ({
 
     // monaco.editor.create() の theme オプションはグローバルテーマを上書きするため、
     // 再マウント時 (例: アーカイブページからの復帰) にユーザー設定のテーマを再適用する
-    const pair = getThemePair(settings.editorTheme);
-    getMonaco().editor.setTheme(settings.isDarkMode ? pair.dark : pair.light);
+    applyInitialThemeEvent();
 
     const focusDisposable = instance.onDidFocusEditorText(() => {
       onFocusEvent();

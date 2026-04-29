@@ -10,7 +10,11 @@ import React, {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { SaveNote, UpdateNoteOrder } from '../wailsjs/go/backend/App';
+import {
+  SaveNote,
+  SetLastActiveNote,
+  UpdateNoteOrder,
+} from '../wailsjs/go/backend/App';
 import { backend } from '../wailsjs/go/models';
 import { WindowToggleMaximise } from '../wailsjs/runtime';
 import { EditorArea } from './components/EditorArea';
@@ -30,6 +34,11 @@ const SettingsDialog = React.lazy(() =>
 const LicenseDialog = React.lazy(() =>
   import('./components/LicenseDialog').then((m) => ({
     default: m.LicenseDialog,
+  })),
+);
+const ConflictBackupsDialog = React.lazy(() =>
+  import('./components/ConflictBackupsDialog').then((m) => ({
+    default: m.ConflictBackupsDialog,
   })),
 );
 
@@ -86,6 +95,7 @@ function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isConflictBackupsOpen, setIsConflictBackupsOpen] = useState(false);
 
   // 2) カスタムフック
   // エディタ設定
@@ -1133,6 +1143,10 @@ function App() {
             setIsSettingsOpen(false);
             setIsAboutOpen(true);
           }}
+          onOpenConflictBackups={() => {
+            setIsSettingsOpen(false);
+            setIsConflictBackupsOpen(true);
+          }}
           showMessage={showMessage}
         />
       </Suspense>
@@ -1140,6 +1154,39 @@ function App() {
         <LicenseDialog
           open={isAboutOpen}
           onClose={() => setIsAboutOpen(false)}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ConflictBackupsDialog
+          open={isConflictBackupsOpen}
+          onClose={() => setIsConflictBackupsOpen(false)}
+          onRestore={async (sourceNote) => {
+            const baseTitle = sourceNote.title?.trim();
+            const restoredTitle = baseTitle
+              ? t('conflictBackups.restoredTitle', { title: baseTitle })
+              : t('conflictBackups.restoredUntitled');
+            const newNote: Note = {
+              id: crypto.randomUUID(),
+              title: restoredTitle,
+              content: sourceNote.content || '',
+              contentHeader: null,
+              language: sourceNote.language || 'plaintext',
+              modifiedTime: new Date().toISOString(),
+              archived: false,
+            };
+            setShowArchived(false);
+            setNotes((prev) => [newNote, ...prev]);
+            setTopLevelOrder((prev) => [
+              { type: 'note', id: newNote.id },
+              ...prev,
+            ]);
+            setCurrentFileNote(null);
+            setCurrentNote(newNote);
+            await SaveNote(backend.Note.createFrom(newNote), 'create');
+            void SetLastActiveNote(newNote.id, false);
+          }}
+          showMessage={showMessage}
+          isDarkMode={editorSettings.isDarkMode}
         />
       </Suspense>
       <MessageDialog

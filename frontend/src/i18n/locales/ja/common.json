@@ -22,6 +22,7 @@
     "conflictBackupDescriptionBeforeLink": "競合/削除バックアップを ",
     "conflictBackupDescriptionLink": "バックアップフォルダ",
     "conflictBackupDescriptionAfterLink": " に保存します。",
+    "manageConflictBackups": "管理",
     "deleteDriveData": "Google ドライブのデータを削除",
     "deleteDriveDataDescription": "Drive 上の全ノートを削除し、ログアウトします。ローカルのノートは残ります。",
     "deleteDriveDataConfirmTitle": "Google ドライブのデータを削除",
@@ -304,6 +305,27 @@
   "conflict": {
     "autoResolveDuplicate": "競合コピーを自動解決：「{{noteId}}」を削除しました",
     "autoResolveKept": "競合コピーを自動解決：「{{noteId}}」を保持しました（固有の内容）"
+  },
+  "conflictBackups": {
+    "title": "競合バックアップ",
+    "description": "クラウド版で上書きまたは削除されたときに保存されたローカル版です。新規ノートとして復元したり、不要なものを削除できます。",
+    "empty": "保存された競合バックアップはありません",
+    "selectPrompt": "左のリストからバックアップを選択するとプレビューが表示されます",
+    "kind_cloud_wins": "クラウド版を採用 — ローカル版を保管",
+    "kind_cloud_delete": "クラウド削除時のバックアップ",
+    "noPreview": "プレビューできる本文がありません",
+    "restore": "新規ノートとして復元",
+    "delete": "削除",
+    "deleteAll": "すべて削除",
+    "deleteTitle": "バックアップを削除",
+    "deleteMessage": "このバックアップを削除しますか？この操作は取り消せません。",
+    "deleteAllTitle": "すべてのバックアップを削除",
+    "deleteAllMessage": "すべての競合バックアップを削除しますか？この操作は取り消せません。",
+    "restoredTitle": "復元: {{title}}",
+    "restoredUntitled": "復元されたノート",
+    "loadError": "競合バックアップの読み込みに失敗しました: {{error}}",
+    "restoreError": "バックアップの復元に失敗しました: {{error}}",
+    "deleteError": "バックアップの削除に失敗しました: {{error}}"
   },
   "about": {
     "title": "このアプリについて",

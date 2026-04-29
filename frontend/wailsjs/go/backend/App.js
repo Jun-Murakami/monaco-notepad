@@ -42,12 +42,20 @@ export function CreateFolder(arg1) {
   return window['go']['backend']['App']['CreateFolder'](arg1);
 }
 
+export function DeleteAllCloudConflictBackups() {
+  return window['go']['backend']['App']['DeleteAllCloudConflictBackups']();
+}
+
 export function DeleteAllDriveData() {
   return window['go']['backend']['App']['DeleteAllDriveData']();
 }
 
 export function DeleteArchivedFolder(arg1) {
   return window['go']['backend']['App']['DeleteArchivedFolder'](arg1);
+}
+
+export function DeleteCloudConflictBackup(arg1) {
+  return window['go']['backend']['App']['DeleteCloudConflictBackup'](arg1);
 }
 
 export function DeleteFolder(arg1) {
@@ -104,6 +112,10 @@ export function InitializeDrive() {
 
 export function IsWindowPositionValid(arg1, arg2, arg3, arg4) {
   return window['go']['backend']['App']['IsWindowPositionValid'](arg1, arg2, arg3, arg4);
+}
+
+export function ListCloudConflictBackups() {
+  return window['go']['backend']['App']['ListCloudConflictBackups']();
 }
 
 export function ListFolders() {

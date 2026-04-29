@@ -904,6 +904,24 @@ func (a *App) OpenConflictBackupFolder() error {
 	return a.fileService.OpenFolder(backupDir)
 }
 
+// ListCloudConflictBackups は競合バックアップを新しい順に列挙して返します
+func (a *App) ListCloudConflictBackups() ([]ConflictBackupEntry, error) {
+	backupDir := filepath.Join(a.appDataDir, cloudWinBackupDirName)
+	return listCloudConflictBackups(backupDir)
+}
+
+// DeleteCloudConflictBackup は指定されたファイル名のバックアップを 1 件削除します
+func (a *App) DeleteCloudConflictBackup(filename string) error {
+	backupDir := filepath.Join(a.appDataDir, cloudWinBackupDirName)
+	return deleteCloudConflictBackup(backupDir, filename)
+}
+
+// DeleteAllCloudConflictBackups はすべての競合バックアップを削除します
+func (a *App) DeleteAllCloudConflictBackups() error {
+	backupDir := filepath.Join(a.appDataDir, cloudWinBackupDirName)
+	return deleteAllCloudConflictBackups(backupDir)
+}
+
 // CheckFileExists は指定されたパスのファイルが存在するかチェックします
 func (a *App) CheckFileExists(path string) bool {
 	return a.fileService.CheckFileExists(path)

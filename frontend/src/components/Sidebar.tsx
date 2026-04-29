@@ -1,6 +1,11 @@
 import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Close, CreateNewFolder, History, Inventory } from '@mui/icons-material';
+import {
+  Close,
+  CreateNewFolder,
+  History,
+  Inventory,
+} from '@mui/icons-material';
 import {
   Box,
   Button,

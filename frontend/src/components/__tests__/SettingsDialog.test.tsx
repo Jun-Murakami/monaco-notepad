@@ -50,6 +50,7 @@ describe('SettingsDialog', () => {
     onClose: vi.fn(),
     onChange: vi.fn(),
     onOpenAbout: vi.fn(),
+    onOpenConflictBackups: vi.fn(),
     showMessage: vi.fn().mockResolvedValue(false),
   };
 

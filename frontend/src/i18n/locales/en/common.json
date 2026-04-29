@@ -22,6 +22,7 @@
     "conflictBackupDescriptionBeforeLink": "Keep conflict/deletion backups in ",
     "conflictBackupDescriptionLink": "backup folder",
     "conflictBackupDescriptionAfterLink": ".",
+    "manageConflictBackups": "Manage",
     "deleteDriveData": "Delete Google Drive Data",
     "deleteDriveDataDescription": "Remove the monaco-notepad folder and all notes from Google Drive and sign out. Local notes stay intact.",
     "deleteDriveDataConfirmTitle": "Delete Google Drive Data",
@@ -304,6 +305,27 @@
   "conflict": {
     "autoResolveDuplicate": "Auto-resolved conflict copy: deleted \"{{noteId}}\"",
     "autoResolveKept": "Auto-resolved conflict copy: kept \"{{noteId}}\" (unique content)"
+  },
+  "conflictBackups": {
+    "title": "Conflict Backups",
+    "description": "Local copies preserved when the cloud version overrode or removed your note. Restore as a new note or delete what you no longer need.",
+    "empty": "No conflict backups saved",
+    "selectPrompt": "Select a backup on the left to preview",
+    "kind_cloud_wins": "Cloud version won — local kept here",
+    "kind_cloud_delete": "Cloud deletion backup",
+    "noPreview": "No content available to preview",
+    "restore": "Restore as new note",
+    "delete": "Delete",
+    "deleteAll": "Delete all",
+    "deleteTitle": "Delete backup",
+    "deleteMessage": "Delete this backup? This cannot be undone.",
+    "deleteAllTitle": "Delete all backups",
+    "deleteAllMessage": "Delete all conflict backups? This cannot be undone.",
+    "restoredTitle": "Restored: {{title}}",
+    "restoredUntitled": "Restored note",
+    "loadError": "Failed to load conflict backups: {{error}}",
+    "restoreError": "Failed to restore backup: {{error}}",
+    "deleteError": "Failed to delete backup: {{error}}"
   },
   "about": {
     "title": "About",
