@@ -8,6 +8,7 @@ import type { DriveSyncService } from '../driveSyncService';
 import { computeContentHash } from '../hash';
 import { SyncOrchestrator } from '../orchestrator';
 import { SyncStateManager } from '../syncState';
+import type { NoteList } from '../types';
 
 /**
  * SyncOrchestrator の全シナリオテスト。
@@ -248,6 +249,289 @@ describe('SyncOrchestrator.syncNotes: pull only (cloud changed, local clean)', (
 		expect(state.lastSyncedHash('a')).toBeDefined();
 		// b/c は未完なので hash 無し
 		expect(state.lastSyncedHash('c')).toBeUndefined();
+	});
+});
+
+describe('SyncOrchestrator.syncNotes: 構造先行コミット (pull 中の UI 整合性)', () => {
+	// pull 中は cloudList の folders / 順序 / 折りたたみ状態だけを先にローカルへ反映し、
+	// notes は localList のものに保つ。これにより、フォルダ配下のノートが「フォルダ未確立」
+	// で一時的に top-level にフラット落ちするのを防ぐ。
+	// flattenNoteList が order 上の未知 ID を silent skip する仕様に支えられている。
+
+	it('1 件目 download が始まる時点で cloud の folders / 順序 / 折りたたみ状態が反映されている', async () => {
+		// folder 配下に 2 ノート + top-level に 1 ノートを cloud に置く
+		const inFolder1 = makeNote({ id: 'in1', content: 'in1', folderId: 'f1' });
+		const inFolder2 = makeNote({ id: 'in2', content: 'in2', folderId: 'f1' });
+		const topLevel = makeNote({ id: 'top', content: 'top' });
+		for (const n of [inFolder1, inFolder2, topLevel]) cloud.setCloudNote(n);
+		cloud.noteList.folders = [{ id: 'f1', name: 'Work', archived: false }];
+		cloud.noteList.topLevelOrder = [
+			{ type: 'note', id: 'top' },
+			{ type: 'folder', id: 'f1' },
+		];
+		cloud.noteList.collapsedFolderIds = ['f1'];
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		// 最初の downloadNote 呼び出し時点でローカル側 noteList を捕獲
+		let midSnapshot: NoteList | null = null;
+		const origDownload = cloud.downloadNote.bind(cloud);
+		cloud.downloadNote = async (id) => {
+			if (midSnapshot === null) {
+				midSnapshot = notes.getNoteList();
+			}
+			return origDownload(id);
+		};
+
+		await orch.syncNotes();
+
+		// 1 件目 download の時点で folder 構造が確立している
+		expect(midSnapshot).not.toBeNull();
+		const snap = midSnapshot as unknown as NoteList;
+		expect(snap.folders).toEqual([{ id: 'f1', name: 'Work', archived: false }]);
+		expect(snap.topLevelOrder).toEqual([
+			{ type: 'note', id: 'top' },
+			{ type: 'folder', id: 'f1' },
+		]);
+		expect(snap.collapsedFolderIds).toEqual(['f1']);
+		// notes はまだ空（既存ローカルがゼロなので localList が空のまま継承される）。
+		// → 未着のノートが「フォルダから外れて top-level に出る」誤表示は起きない。
+		expect(snap.notes).toEqual([]);
+
+		// pull 完了後は cloudList と完全一致
+		const finalList = notes.getNoteList();
+		expect(finalList.notes.map((n) => n.id).sort()).toEqual(
+			['in1', 'in2', 'top'].sort(),
+		);
+		expect(finalList.folders).toHaveLength(1);
+	});
+
+	it('既存ローカルノートは pull 中も保持される（pre-commit が notes を上書きしない）', async () => {
+		// 前回 sync 済みの a が local に存在する状態
+		const existing = makeNote({ id: 'a', content: 'existing' });
+		cloud.setCloudNote(existing);
+		await notes.saveNote(existing);
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+		await state.updateSyncedState(cloud.noteListModifiedTime, {
+			a: await computeContentHash(existing),
+		});
+
+		// cloud に新しい b が増えた → pull がトリガされる
+		const newOne = makeNote({ id: 'b', content: 'new' });
+		cloud.setCloudNote(newOne);
+		await cloud.rebuildNoteListFromCloud(iso(20_000));
+
+		let midSnapshot: NoteList | null = null;
+		const origDownload = cloud.downloadNote.bind(cloud);
+		cloud.downloadNote = async (id) => {
+			if (midSnapshot === null) {
+				midSnapshot = notes.getNoteList();
+			}
+			return origDownload(id);
+		};
+
+		await orch.syncNotes();
+
+		// pull 中: a は依然としてローカル側に見える
+		expect(midSnapshot).not.toBeNull();
+		const snap2 = midSnapshot as unknown as NoteList;
+		expect(snap2.notes.find((n) => n.id === 'a')).toBeDefined();
+		// pull 完了後: a / b 両方
+		const finalList = notes.getNoteList();
+		expect(finalList.notes.map((n) => n.id).sort()).toEqual(['a', 'b']);
+	});
+
+	it('partial pull の中断後、kill 直前のローカル状態でも folder 構造が維持されている', async () => {
+		// folder 配下に 3 ノート
+		const all = ['a', 'b', 'c'].map((id) =>
+			makeNote({ id, content: `cloud-${id}`, folderId: 'f1' }),
+		);
+		for (const n of all) cloud.setCloudNote(n);
+		cloud.noteList.folders = [{ id: 'f1', name: 'Work', archived: false }];
+		cloud.noteList.topLevelOrder = [{ type: 'folder', id: 'f1' }];
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		// b の download だけ失敗させて mid-pull kill を擬似的に再現
+		const origDownload = cloud.downloadNote.bind(cloud);
+		cloud.downloadNote = async (noteId) => {
+			if (noteId === 'b') throw new Error('simulated kill');
+			return origDownload(noteId);
+		};
+
+		await expect(orch.syncNotes()).rejects.toThrow('simulated kill');
+
+		// 中断時点: 構造は確立、a だけ届いている、b/c は未着
+		const interrupted = notes.getNoteList();
+		expect(interrupted.folders).toEqual([
+			{ id: 'f1', name: 'Work', archived: false },
+		]);
+		expect(interrupted.topLevelOrder).toEqual([{ type: 'folder', id: 'f1' }]);
+		// 届いた a は folder 配下のメタとして登録されている
+		expect(interrupted.notes.map((n) => n.id)).toEqual(['a']);
+		expect(interrupted.notes[0].folderId).toBe('f1');
+		// → flattenNoteList で b/c は order 上の未知 ID として silent skip され、
+		//   a だけが folder 配下に表示される。フラット落ちは起きない。
+
+		// 再起動 simulate: 失敗注入を解除して resume
+		cloud.downloadNote = origDownload;
+		await orch.syncNotes();
+
+		const finalList = notes.getNoteList();
+		expect(finalList.notes.map((n) => n.id).sort()).toEqual(['a', 'b', 'c']);
+		expect(finalList.notes.every((n) => n.folderId === 'f1')).toBe(true);
+		expect(finalList.folders).toHaveLength(1);
+	});
+
+	it('toDownload が空なら pre-commit は走らない (replaceNoteList は最終の 1 回だけ)', async () => {
+		// cloud と local の note は完全一致、cloudTs だけ進んだ状態
+		const note = makeNote({ id: 'a', content: 'same' });
+		cloud.setCloudNote(note);
+		await notes.saveNote(note);
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+		// updateSyncedState は呼ばずに cloudChanged を維持
+		// → 同じ hash なので toDownload は空になる
+
+		let replaceCount = 0;
+		const origReplace = notes.replaceNoteList.bind(notes);
+		notes.replaceNoteList = async (list) => {
+			replaceCount++;
+			return origReplace(list);
+		};
+
+		await orch.syncNotes();
+
+		// pre-commit はスキップされ、最終の 1 回だけ
+		expect(replaceCount).toBe(1);
+	});
+});
+
+describe('SyncOrchestrator.syncNotes: ユーザー操作勝ちマージ (pull 中の dirty 検出)', () => {
+	// pull 開始時に revision を取り、終了時に変化していたらユーザー操作ありと判断。
+	// その場合 cloudList での全置換をやめてローカル list を勝たせ、
+	// dirty フラグも維持して次サイクル push でユーザー変更を Drive に伝搬させる。
+
+	it('pull 中に reorder すると、完了後もユーザーの並び順が維持される', async () => {
+		// cloud に 2 ノートを順序 [a, b] で置く
+		const a = makeNote({ id: 'a', content: 'a' });
+		const b = makeNote({ id: 'b', content: 'b' });
+		cloud.setCloudNote(a);
+		cloud.setCloudNote(b);
+		cloud.noteList.topLevelOrder = [
+			{ type: 'note', id: 'a' },
+			{ type: 'note', id: 'b' },
+		];
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		// 1 件目 download 完了直後にユーザーが reorder した想定で
+		// topLevelOrder を [b, a] に書き換え + markDirty
+		let mutated = false;
+		const origDownload = cloud.downloadNote.bind(cloud);
+		cloud.downloadNote = async (id) => {
+			const result = await origDownload(id);
+			if (!mutated) {
+				mutated = true;
+				const list = notes.getNoteList();
+				list.topLevelOrder = [
+					{ type: 'note', id: 'b' },
+					{ type: 'note', id: 'a' },
+				];
+				await notes.replaceNoteList(list);
+				await state.markDirty();
+			}
+			return result;
+		};
+
+		await orch.syncNotes();
+
+		// ユーザーの reorder が残っている
+		const final = notes.getNoteList();
+		expect(final.topLevelOrder).toEqual([
+			{ type: 'note', id: 'b' },
+			{ type: 'note', id: 'a' },
+		]);
+		// dirty も維持 (次 sync で push される)
+		expect(state.isDirty()).toBe(true);
+	});
+
+	it('pull 中に新規ノートを作成すると、完了後もリストに残り dirty が立つ', async () => {
+		const cloudA = makeNote({ id: 'cloud-a', content: 'from-cloud' });
+		cloud.setCloudNote(cloudA);
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		// download 中にユーザーが 'user-b' を新規作成
+		let mutated = false;
+		const origDownload = cloud.downloadNote.bind(cloud);
+		cloud.downloadNote = async (id) => {
+			const result = await origDownload(id);
+			if (!mutated) {
+				mutated = true;
+				const newNote = makeNote({
+					id: 'user-b',
+					content: 'created-during-pull',
+				});
+				await notes.saveNote(newNote);
+				await state.markNoteDirty(newNote.id);
+			}
+			return result;
+		};
+
+		await orch.syncNotes();
+
+		// 両方ローカルに残る (cloud-a は pull で取得、user-b はユーザー作成)
+		const final = notes.getNoteList();
+		expect(final.notes.map((n) => n.id).sort()).toEqual(['cloud-a', 'user-b']);
+		// 'user-b' は dirty として記録され、次 sync で push される
+		expect(state.isDirty()).toBe(true);
+		expect(state.snapshot().dirtyNoteIds).toHaveProperty('user-b');
+		// user-b の本文ファイルも残っている
+		expect((await notes.readNote('user-b'))?.content).toBe(
+			'created-during-pull',
+		);
+	});
+
+	it('pull 中にフォルダを作成すると、完了後もフォルダが残る', async () => {
+		const cloudA = makeNote({ id: 'a', content: 'from-cloud' });
+		cloud.setCloudNote(cloudA);
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		let mutated = false;
+		const origDownload = cloud.downloadNote.bind(cloud);
+		cloud.downloadNote = async (id) => {
+			const result = await origDownload(id);
+			if (!mutated) {
+				mutated = true;
+				await notes.createFolder('UserFolder');
+				await state.markDirty();
+			}
+			return result;
+		};
+
+		await orch.syncNotes();
+
+		const final = notes.getNoteList();
+		expect(final.folders.some((f) => f.name === 'UserFolder')).toBe(true);
+		expect(state.isDirty()).toBe(true);
+	});
+
+	it('ユーザー操作なしの pull は従来通り cloudList で全置換される (dirty を立てない)', async () => {
+		// cloud 側の構造 (folders / collapsedFolderIds) を仕込む
+		const a = makeNote({ id: 'a', content: 'a' });
+		cloud.setCloudNote(a);
+		cloud.noteList.folders = [
+			{ id: 'cloud-f', name: 'CloudFolder', archived: false },
+		];
+		cloud.noteList.collapsedFolderIds = ['cloud-f'];
+		await cloud.rebuildNoteListFromCloud(iso(10_000));
+
+		await orch.syncNotes();
+
+		// dirty は立っていない
+		expect(state.isDirty()).toBe(false);
+		const final = notes.getNoteList();
+		// cloud の構造がそのまま反映されている
+		expect(final.folders).toEqual([
+			{ id: 'cloud-f', name: 'CloudFolder', archived: false },
+		]);
+		expect(final.collapsedFolderIds).toEqual(['cloud-f']);
 	});
 });
 

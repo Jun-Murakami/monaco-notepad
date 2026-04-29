@@ -223,6 +223,12 @@ export class SyncOrchestrator {
 
 	// ---- PULL ----
 	private async pullCloudChanges(cloudTs: string): Promise<void> {
+		// 開始時 revision: pull 終了時に「ユーザーが pull 中に編集等したか」を判定するため。
+		// userMutated なら cloudList での全置換をやめて、ローカル list を勝たせる
+		// (pre-commit で cloud structure は既にユーザーへ提示済みなので、
+		//  その上で行われた reorder / 新規作成 / フォルダ操作は明示的な意思決定とみなす)。
+		const startSnap = await this.syncState.getDirtySnapshotWithRevision();
+
 		// noteList JSON 取得は単一リクエストで progress 出せない。
 		// phase だけでも UI に伝えて「何が遅いのか」を可視化する。
 		syncEvents.emit('sync:phase', { phase: 'fetching-notelist' });
@@ -242,6 +248,32 @@ export class SyncOrchestrator {
 				continue;
 			}
 			toDownload.push(meta);
+		}
+
+		// 構造先行コミット: cloudList の folders / 順序 / 折りたたみ状態だけを先にローカルへ反映する。
+		// notes は **localList のものをそのまま継承** し、未ダウンロードのノートをメタだけで
+		// 表示することは避ける。これにより UI は最初から正しいフォルダ構造を持った状態になり、
+		// ダウンロード途中で「フォルダ配下のノートがフラットに落ちて見える」誤認が起きない。
+		//
+		// flattenNoteList は topLevelOrder 上の未知 ID を silent skip するので、未着ノートの
+		// 位置は一時的な「空き」として描画される（フォルダ header は出るが children は徐々に増える）。
+		// upsertMetadata は既存 order エントリがあれば push しないため、ダウンロード完了時にも
+		// クラウドの意図した位置にノートが収まる。
+		//
+		// ダウンロード対象がある場合だけ実施: toDownload が空 = 既に同期済みなら、
+		// 古いローカル順序を一時的にクラウド順序へ書き換える意味がない（次の最終 replaceNoteList
+		// で同じ結果になる）。
+		if (toDownload.length > 0) {
+			const structurePreCommit: NoteList = {
+				version: 'v2',
+				notes: localList.notes,
+				folders: cloudList.folders,
+				topLevelOrder: cloudList.topLevelOrder,
+				archivedTopLevelOrder: cloudList.archivedTopLevelOrder,
+				collapsedFolderIds: cloudList.collapsedFolderIds,
+			};
+			await this.noteService.replaceNoteList(structurePreCommit);
+			syncEvents.emit('notes:reload', undefined);
 		}
 
 		if (toDownload.length > 0) {
@@ -296,14 +328,25 @@ export class SyncOrchestrator {
 			}
 		}
 
+		// pull 中にユーザーが reorder / 新規作成 / フォルダ操作 / 編集を行ったか判定。
+		// markDirty / markNoteDirty / markNoteDeleted / markFolderDeleted は全て
+		// SyncStateManager.mutate 経由で revision++ するので、これだけで全種別を検出できる。
+		const endSnap = await this.syncState.getDirtySnapshotWithRevision();
+		const userMutated = endSnap.revision !== startSnap.revision;
+
+		// 後続の zombie / bulkRepair / 最終 commit の対象 list:
+		// - userMutated なら現在のローカル list (= ユーザーの reorder 等が乗っている)
+		// - そうでなければ cloudList (従来の挙動)
+		const target = userMutated ? this.noteService.getNoteList() : cloudList;
+
 		// ダウンロード失敗 = cloud noteList に載っているが実ファイルが無いゾンビ。
 		// UI で誤表示とクラッシュの原因になるのでここで除去。markDirty で Drive 側も浄化する。
 		if (zombieIds.size > 0) {
-			cloudList.notes = cloudList.notes.filter((n) => !zombieIds.has(n.id));
-			cloudList.topLevelOrder = cloudList.topLevelOrder.filter(
+			target.notes = target.notes.filter((n) => !zombieIds.has(n.id));
+			target.topLevelOrder = target.topLevelOrder.filter(
 				(i) => !(i.type === 'note' && zombieIds.has(i.id)),
 			);
-			cloudList.archivedTopLevelOrder = cloudList.archivedTopLevelOrder.filter(
+			target.archivedTopLevelOrder = target.archivedTopLevelOrder.filter(
 				(i) => !(i.type === 'note' && zombieIds.has(i.id)),
 			);
 			await this.syncState.markDirty();
@@ -312,13 +355,13 @@ export class SyncOrchestrator {
 			);
 		}
 
-		// サインイン直後（明示ログイン）のみ: cloudList の contentHeader 欠落を
+		// サインイン直後（明示ログイン）のみ: target の contentHeader 欠落を
 		// ローカル本文ファイルから補完して in-place 修正 → replaceNoteList でそのまま反映 →
 		// markDirty で次回 sync が Drive に修復済み noteList を push する。
 		if (this.bulkRepairPending) {
-			const emptyCount = cloudList.notes.filter((n) => !n.contentHeader).length;
+			const emptyCount = target.notes.filter((n) => !n.contentHeader).length;
 			const fixed =
-				await this.noteService.fillEmptyContentHeadersInList(cloudList);
+				await this.noteService.fillEmptyContentHeadersInList(target);
 			console.log(
 				`[bulkRepair] contentHeader empty: ${emptyCount}, fixed: ${fixed}`,
 			);
@@ -328,8 +371,12 @@ export class SyncOrchestrator {
 			this.bulkRepairPending = false;
 		}
 
-		// noteList 全体を置き換え（順序・フォルダも同期）
-		await this.noteService.replaceNoteList(cloudList);
+		// noteList 全体を置き換え。
+		// userMutated=false: cloudList で全置換（従来挙動）
+		// userMutated=true:  ユーザーの操作を保持したローカル list を維持し、
+		//                    dirty フラグもそのまま (updateSyncedState は clear しない) →
+		//                    次サイクルの push でユーザー変更が Drive へ伝搬する。
+		await this.noteService.replaceNoteList(target);
 
 		await this.syncState.updateSyncedState(cloudTs, mergedHashes);
 		syncEvents.emit('notes:reload', undefined);
