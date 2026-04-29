@@ -12,6 +12,7 @@
     "eas-build-pre-install": "rm -f package-lock.json",
     "postinstall": "node scripts/generate-licenses.mjs",
     "generate-licenses": "node scripts/generate-licenses.mjs",
+    "version": "node ../scripts/sync-version.mjs --bump-mobile-build && node scripts/generate-licenses.mjs",
     "start": "expo start",
     "prebuild": "node ../scripts/sync-version.mjs --bump-mobile-build && node scripts/generate-licenses.mjs && expo prebuild",
     "preandroid": "node ../scripts/sync-version.mjs --bump-mobile-build && node scripts/generate-licenses.mjs",
