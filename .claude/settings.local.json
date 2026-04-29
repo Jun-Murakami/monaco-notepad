@@ -59,7 +59,9 @@
       "Bash(findstr /i node)",
       "mcp__plugin_context7_context7__resolve-library-id",
       "mcp__plugin_context7_context7__query-docs",
-      "Bash(npx --no-install tsc --noEmit)"
+      "Bash(npx --no-install tsc --noEmit)",
+      "Bash(git ls-files *)",
+      "Bash(go env *)"
     ]
   }
 }

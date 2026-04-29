@@ -244,6 +244,14 @@ export default function SettingsScreen() {
 					onPress={() => router.push('/conflict-backups')}
 				/>
 
+				<SectionBar>{t('settings.about')}</SectionBar>
+				<List.Item
+					title={t('about.title')}
+					left={(props) => <List.Icon {...props} icon="information-outline" />}
+					right={(props) => <List.Icon {...props} icon="chevron-right" />}
+					onPress={() => router.push('/about')}
+				/>
+
 				<SectionBar>{t('settings.dataDeletion')}</SectionBar>
 				<View style={styles.dangerActions}>
 					{signedIn && (

@@ -1,6 +1,6 @@
 import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CreateNewFolder, History, Inventory } from '@mui/icons-material';
+import { Close, CreateNewFolder, History, Inventory } from '@mui/icons-material';
 import {
   Box,
   Button,
@@ -106,6 +106,7 @@ interface SidebarProps {
   // Recent files
   recentFiles: string[];
   openRecentFile: (filePath: string) => Promise<void>;
+  removeRecentFile: (filePath: string) => Promise<void>;
   clearRecentFiles: () => Promise<void>;
   // Archive
   showArchived: boolean;
@@ -154,6 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(
     onUpdateTopLevelOrder,
     recentFiles,
     openRecentFile,
+    removeRecentFile,
     clearRecentFiles,
     showArchived,
     onToggleShowArchived,
@@ -306,7 +308,11 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                           setRecentFilesAnchorEl(null);
                           await openRecentFile(filePath);
                         }}
-                        sx={{ py: 0.5 }}
+                        sx={{
+                          py: 0.5,
+                          pr: 5,
+                          '&:hover .recent-file-remove': { opacity: 1 },
+                        }}
                       >
                         <ListItemText
                           primary={filePath.split(/[/\\]/).pop()}
@@ -320,6 +326,31 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                             },
                           }}
                         />
+                        <Tooltip
+                          title={t('file.removeFromRecent')}
+                          arrow
+                          placement="left"
+                        >
+                          <IconButton
+                            className="recent-file-remove"
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void removeRecentFile(filePath);
+                            }}
+                            sx={{
+                              position: 'absolute',
+                              right: 8,
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              opacity: 0,
+                              transition: 'opacity 0.15s',
+                              p: 0.5,
+                            }}
+                          >
+                            <Close sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
                       </MenuItem>
                     ))}
                   </MenuList>

@@ -11,6 +11,7 @@ frontend/dist
 frontend/coverage
 frontend/public/frontend-licenses.json
 frontend/public/backend-licenses.json
+mobile/src/data/licenses.json
 
 # Go
 backend/*.out

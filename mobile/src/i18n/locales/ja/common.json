@@ -125,6 +125,28 @@
 		"localRecoveryDone": "ローカル孤立ノートを「不明ノート」へ復元しました",
 		"cloudRecoveryDone": "クラウド孤立ノートを「不明ノート」へ復元しました"
 	},
+	"about": {
+		"title": "このアプリについて",
+		"version": "バージョン {{version}}（ビルド {{build}}）",
+		"privacySection": "プライバシー",
+		"privacyPolicy": "プライバシーポリシー",
+		"creditSection": "クレジット",
+		"developer": "Developed by Jun Murakami",
+		"website": "ウェブサイト",
+		"repository": "リポジトリ",
+		"licenseSection": "ライセンス",
+		"appLicense": "MIT License",
+		"appLicenseDescription": "本アプリは MIT License のもとで公開されています。",
+		"openSourceLicenses": "オープンソースライセンス",
+		"openSourceLicensesDescription": "本アプリが使用する依存パッケージ一覧",
+		"copyright": "© {{year}} Jun Murakami"
+	},
+	"licenses": {
+		"title": "オープンソースライセンス",
+		"searchPlaceholder": "パッケージ名・ライセンスで検索",
+		"count": "{{count}} / {{total}} 件",
+		"noMatches": "該当するパッケージはありません"
+	},
 	"conflictBackups": {
 		"title": "競合バックアップ",
 		"empty": "保存された競合バックアップはありません",

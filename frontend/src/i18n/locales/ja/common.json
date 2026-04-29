@@ -161,7 +161,8 @@
     "recentFilesNone": "最近開いたファイルはありません",
     "recentFileNotFound": "ファイルが見つかりません。履歴から削除しますか？",
     "recentFileNotFoundTitle": "ファイルが見つかりません",
-    "clearRecentFiles": "履歴をクリア"
+    "clearRecentFiles": "履歴をクリア",
+    "removeFromRecent": "履歴から削除"
   },
   "driveUI": {
     "syncErrorTitle": "Drive同期エラー",

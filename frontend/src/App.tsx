@@ -273,12 +273,17 @@ function App() {
   );
 
   // 最近開いたファイル
-  const { recentFiles, addRecentFile, clearRecentFiles, openRecentFile } =
-    useRecentFiles({
-      fileNotes,
-      handleOpenFileByPath,
-      showMessage,
-    });
+  const {
+    recentFiles,
+    addRecentFile,
+    removeRecentFile,
+    clearRecentFiles,
+    openRecentFile,
+  } = useRecentFiles({
+    fileNotes,
+    handleOpenFileByPath,
+    showMessage,
+  });
   addRecentFileRef.current = addRecentFile;
 
   // サイドバーノートリスト絞り込み（統合検索クエリから駆動、useEffect で同期）
@@ -1034,6 +1039,7 @@ function App() {
                 onUpdateTopLevelOrder={handleUpdateTopLevelOrder}
                 recentFiles={recentFiles}
                 openRecentFile={openRecentFile}
+                removeRecentFile={removeRecentFile}
                 clearRecentFiles={clearRecentFiles}
                 showArchived={showArchived}
                 onToggleShowArchived={handleToggleShowArchived}

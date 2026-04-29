@@ -64,6 +64,8 @@ export default function RootLayout() {
 								<Stack.Screen name="archive" />
 								<Stack.Screen name="conflict-backups" />
 								<Stack.Screen name="settings" />
+								<Stack.Screen name="about" />
+								<Stack.Screen name="licenses" />
 								<Stack.Screen
 									name="signin"
 									options={{ presentation: 'modal' }}

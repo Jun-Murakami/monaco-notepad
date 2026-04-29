@@ -10,11 +10,13 @@
   },
   "scripts": {
     "eas-build-pre-install": "rm -f package-lock.json",
+    "postinstall": "node scripts/generate-licenses.mjs",
+    "generate-licenses": "node scripts/generate-licenses.mjs",
     "start": "expo start",
-    "prebuild": "node ../scripts/sync-version.mjs --bump-mobile-build && expo prebuild",
-    "preandroid": "node ../scripts/sync-version.mjs --bump-mobile-build",
+    "prebuild": "node ../scripts/sync-version.mjs --bump-mobile-build && node scripts/generate-licenses.mjs && expo prebuild",
+    "preandroid": "node ../scripts/sync-version.mjs --bump-mobile-build && node scripts/generate-licenses.mjs",
     "android": "expo run:android",
-    "preios": "node ../scripts/sync-version.mjs --bump-mobile-build",
+    "preios": "node ../scripts/sync-version.mjs --bump-mobile-build && node scripts/generate-licenses.mjs",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "biome check",
@@ -62,6 +64,7 @@
     "@types/react": "~19.2.14",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitest/coverage-v8": "^4.1.4",
+    "license-checker": "^25.0.1",
     "typescript": "~5.9.2",
     "vitest": "^4.1.4"
   }

@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import { Allotment } from 'allotment';
 
 import { useEditorSettingsStore } from '../stores/useEditorSettingsStore';
@@ -162,7 +162,21 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
       }}
     >
       {showArchived ? (
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <Box
+              sx={{
+                flexGrow: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 0,
+              }}
+            >
+              <CircularProgress />
+            </Box>
+          }
+        >
           <ArchivedNoteList
             notes={notes}
             folders={folders}

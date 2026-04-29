@@ -7,7 +7,14 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["src/**/*", "app/**/*", "!node_modules/**/*", "!.expo/**/*"]
+		"includes": [
+			"src/**/*",
+			"app/**/*",
+			"scripts/**/*",
+			"!src/data/licenses.json",
+			"!node_modules/**/*",
+			"!.expo/**/*"
+		]
 	},
 	"formatter": {
 		"enabled": true,

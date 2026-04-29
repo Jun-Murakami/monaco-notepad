@@ -1,7 +1,12 @@
 import { useEffect, useEffectEvent, useRef } from 'react';
 import { Box } from '@mui/material';
 
-import { createEditor, disposeEditorInstance, getMonaco } from '../lib/monaco';
+import {
+  createEditor,
+  disposeEditorInstance,
+  getMonaco,
+  getThemePair,
+} from '../lib/monaco';
 import {
   registerEditorRef,
   unregisterEditorRef,
@@ -104,6 +109,11 @@ export const Editor: React.FC<EditorProps> = ({
 
     // ストアにエディタインスタンスを登録（ハンドラからのMonaco同期用）
     registerEditorRef(paneId, editorInstanceRef);
+
+    // monaco.editor.create() の theme オプションはグローバルテーマを上書きするため、
+    // 再マウント時 (例: アーカイブページからの復帰) にユーザー設定のテーマを再適用する
+    const pair = getThemePair(settings.editorTheme);
+    getMonaco().editor.setTheme(settings.isDarkMode ? pair.dark : pair.light);
 
     const focusDisposable = instance.onDidFocusEditorText(() => {
       onFocusEvent();

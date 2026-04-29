@@ -125,6 +125,28 @@
 		"localRecoveryDone": "Recovered local orphan notes into 'Unknown Notes'",
 		"cloudRecoveryDone": "Recovered cloud orphan notes into 'Unknown Notes'"
 	},
+	"about": {
+		"title": "About",
+		"version": "Version {{version}} (build {{build}})",
+		"privacySection": "Privacy",
+		"privacyPolicy": "Privacy Policy",
+		"creditSection": "Credits",
+		"developer": "Developed by Jun Murakami",
+		"website": "Website",
+		"repository": "Repository",
+		"licenseSection": "License",
+		"appLicense": "MIT License",
+		"appLicenseDescription": "This app is released under the MIT License.",
+		"openSourceLicenses": "Open source licenses",
+		"openSourceLicensesDescription": "Third-party packages used by this app",
+		"copyright": "© {{year}} Jun Murakami"
+	},
+	"licenses": {
+		"title": "Open source licenses",
+		"searchPlaceholder": "Search package or license",
+		"count": "{{count}} of {{total}} packages",
+		"noMatches": "No matching packages"
+	},
 	"conflictBackups": {
 		"title": "Conflict Backups",
 		"empty": "No conflict backups saved",

@@ -401,7 +401,14 @@ export const useNotes = (options: UseNotesOptions = {}) => {
 
     const loadedNote = await LoadArchivedNote(noteId);
     if (loadedNote) {
-      const unarchivedNote = { ...loadedNote, archived: false };
+      // 単独復元時は常にトップレベルへ戻す（アーカイブ済みフォルダ配下に取り残されると
+      // どこにも表示されなくなるため、folderId をクリアする）
+      const previousFolderId = loadedNote.folderId;
+      const unarchivedNote = {
+        ...loadedNote,
+        archived: false,
+        folderId: undefined,
+      };
       setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note)),
       );
@@ -418,6 +425,9 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       setArchivedTopLevelOrder(newArchivedOrder);
       // リストア後はノートを開かずアーカイブページのままにする（setCurrentNote / setShowArchived は呼ばない）
       await SaveNote(backend.Note.createFrom(unarchivedNote), 'update');
+      if (previousFolderId) {
+        await MoveNoteToFolder(noteId, '');
+      }
       await Promise.all([
         UpdateTopLevelOrder(
           newTopLevelOrder.map((item) => backend.TopLevelItem.createFrom(item)),

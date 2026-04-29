@@ -857,13 +857,21 @@ func (a *App) SaveWindowState(ctx *Context) error {
 // フォーカスチェックの抑制イベントを先に発行し、BringToFront起因の
 // ウィンドウフォーカスで「外部で変更されました」ダイアログが出るのを防ぐ
 func (a *App) BringToFront() {
-	isMaximized := wailsRuntime.WindowIsMaximised(a.ctx.ctx)
 	wailsRuntime.EventsEmit(a.ctx.ctx, "file:suppress-focus-check")
-	wailsRuntime.WindowUnminimise(a.ctx.ctx)
-	wailsRuntime.Show(a.ctx.ctx)
-	if isMaximized {
-		wailsRuntime.WindowMaximise(a.ctx.ctx)
+	// WindowUnminimise は内部で SC_RESTORE を送るため、最大化中の
+	// ウィンドウに対して呼ぶと一旦通常サイズに戻ってしまう
+	// (= 最大化解除 → 再最大化のチラつき)。
+	// 実際に最小化されているときだけ復元し、最大化状態だった場合は
+	// 復元後に再度 Maximise で最大化を維持する。
+	isMinimized := wailsRuntime.WindowIsMinimised(a.ctx.ctx)
+	isMaximized := wailsRuntime.WindowIsMaximised(a.ctx.ctx)
+	if isMinimized {
+		wailsRuntime.WindowUnminimise(a.ctx.ctx)
+		if isMaximized {
+			wailsRuntime.WindowMaximise(a.ctx.ctx)
+		}
 	}
+	wailsRuntime.Show(a.ctx.ctx)
 }
 
 // 保存されたウィンドウ位置が現在のモニター配置で表示可能かを返す

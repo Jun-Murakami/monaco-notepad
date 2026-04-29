@@ -380,8 +380,11 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
             }
           />
 
-          {/* 置換アクション行: 「置換」(現マッチ 1 件) + 「すべて置換」(現ノート全件)。
-           * Undo/Redo は Monaco モデルの組み込み履歴 (Ctrl+Z) に委ねるため設けない。 */}
+          {/* 置換アクション行: 「置換」(現マッチ) + 「すべて置換」(現ノート全件) +
+           * 「すべてのノートで置換」を 1 行に詰め込む。各ボタンはラベル長に応じた
+           * 自然幅を取り、フォントはやや小さめに揃える。
+           * Undo/Redo は Monaco モデルの組み込み履歴 (Ctrl+Z) に委ねるため設けない。
+           * 実行前に `confirmReplaceAll*` で確認ダイアログを表示。 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <Tooltip arrow title={t('searchReplace.replaceOne')}>
               <span>
@@ -392,11 +395,12 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                   disabled={currentMatches.length === 0 || !!patternError}
                   sx={{
                     py: 0.25,
-                    px: 1,
+                    px: 0.75,
                     minWidth: 0,
-                    fontSize: '0.75rem',
+                    fontSize: '0.68rem',
                     lineHeight: 1.5,
                     textTransform: 'none',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   {t('searchReplace.replaceOne')}
@@ -412,41 +416,40 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                   disabled={currentMatches.length === 0 || !!patternError}
                   sx={{
                     py: 0.25,
-                    px: 1,
+                    px: 0.75,
                     minWidth: 0,
-                    fontSize: '0.75rem',
+                    fontSize: '0.68rem',
                     lineHeight: 1.5,
                     textTransform: 'none',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   {t('searchReplace.replaceAllInCurrentShort')}
                 </Button>
               </span>
             </Tooltip>
+            <Tooltip arrow title={t('searchReplace.replaceAllInAll')}>
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={onReplaceAllInAllNotes}
+                  disabled={!!patternError || totalAllMatches === 0}
+                  sx={{
+                    py: 0.25,
+                    px: 0.75,
+                    minWidth: 0,
+                    fontSize: '0.68rem',
+                    lineHeight: 1.5,
+                    textTransform: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {t('searchReplace.replaceAllInAllShort')}
+                </Button>
+              </span>
+            </Tooltip>
           </Box>
-
-          {/* すべてのノートで置換: 置換アクションのすぐ下に常時配置
-           * (押せない時は disable)。スタイルは上 2 ボタンと統一 (outlined)。
-           * 実行前に `confirmReplaceAll*` で確認ダイアログを表示。 */}
-          <Tooltip arrow title={t('searchReplace.replaceAllInAll')}>
-            <span style={{ width: '100%', display: 'block' }}>
-              <Button
-                fullWidth
-                size="small"
-                variant="outlined"
-                onClick={onReplaceAllInAllNotes}
-                disabled={!!patternError || totalAllMatches === 0}
-                sx={{
-                  py: 0.25,
-                  fontSize: '0.75rem',
-                  lineHeight: 1.5,
-                  textTransform: 'none',
-                }}
-              >
-                {t('searchReplace.replaceAllInAllShort')}
-              </Button>
-            </span>
-          </Tooltip>
 
           {/* 置換実行直後のフィードバック (4 秒で自動消去)。
            * 「すべてのノートで置換」ボタンの直下に表示。 */}
@@ -473,6 +476,8 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
       {/* ============================================================
        * RESULTS セクション: 集計ヘッダ + ノート横断結果ツリー
        * ヒット 1 件以上のときのみ表示
+       * 全体の背景はアイテム選択色 (薄プライマリー) で塗り、
+       * 検索結果エリアであることを視覚的に区別する。
        * ============================================================ */}
       {crossNoteResults.length > 0 && (
         <Box
@@ -482,6 +487,8 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
+            backgroundColor: (theme) =>
+              alpha(theme.palette.primary.main, 0.1),
           }}
         >
           {/* ヘッダ: 集計表示のみ
@@ -492,7 +499,6 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
               py: 0.75,
               display: 'flex',
               alignItems: 'center',
-              backgroundColor: 'action.hover',
             }}
           >
             <Typography
