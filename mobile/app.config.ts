@@ -62,7 +62,7 @@ const ANDROID_REVERSE_DNS = toReverseDns(ANDROID_CLIENT_ID);
 
 // `newArchEnabled` は Expo SDK 52+ で有効な設定だが @expo/config-types の型が追いついていないため拡張する。
 const config: ExpoConfig & { newArchEnabled?: boolean } = {
-  name: 'Monaco Notepad',
+  name: 'MonacoNotepad',
   slug: 'monaco-notepad',
   version: '0.1.0',
   orientation: 'portrait',

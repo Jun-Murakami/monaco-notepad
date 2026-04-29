@@ -133,12 +133,23 @@ function getSlotFromY(
 	rows: FlatRow[],
 	layouts: Map<string, RowLayout>,
 	dragInsertionY: number,
+	excludeFolderChildrenOf: string | null = null,
 ) {
 	let slot = rows.length;
 	for (let i = 0; i < rows.length; i++) {
-		const layout = layouts.get(rows[i].key);
+		const row = rows[i];
+		const layout = layouts.get(row.key);
 		if (!layout) continue;
 		if (layout.height <= 0) continue;
+		// drag 中だけ折り畳んだフォルダの子は、まだ layout が更新されていない
+		// 1〜2 フレームの間も「無いもの」として扱う。
+		if (
+			excludeFolderChildrenOf &&
+			row.kind === 'folder-child' &&
+			row.folderId === excludeFolderChildrenOf
+		) {
+			continue;
+		}
 		if (dragInsertionY <= layout.y + layout.height / 2) {
 			slot = i;
 			break;
@@ -194,6 +205,7 @@ function getRowKindCode(row: FlatRow) {
 function buildRowMetrics(
 	rows: FlatRow[],
 	layouts: Map<string, RowLayout>,
+	excludeFolderChildrenOf: string | null = null,
 ): RowMetric[] {
 	const metrics: RowMetric[] = [];
 	for (let index = 0; index < rows.length; index++) {
@@ -201,6 +213,15 @@ function buildRowMetrics(
 		const layout = layouts.get(row.key);
 		if (!layout) continue;
 		if (layout.height <= 0) continue;
+		// drag 中だけ折り畳んだフォルダの子は、layout 反映が遅れる短時間も含めて
+		// 計測対象から外し、ドロップ位置の判定に紛れ込ませない。
+		if (
+			excludeFolderChildrenOf &&
+			row.kind === 'folder-child' &&
+			row.folderId === excludeFolderChildrenOf
+		) {
+			continue;
+		}
 		metrics.push({
 			...layout,
 			index,
@@ -486,6 +507,14 @@ export function ManualDragNoteList({
 	const grabOffsetYRef = useRef(0);
 	const dragRowsRef = useRef<FlatRow[]>([]);
 	const [dragState, setDragState] = useState<DragState | null>(null);
+	// drag 中だけ「展開フォルダを一時的に折り畳む」ためのフラグ。
+	// noteList 側の collapsedFolderIds は変更せず、純粋に視覚 + 計測上の制御。
+	// drag 中身が後ろの行を押し下げて「置いて行かれる」ように見える現象を抑え、
+	// ヘッダだけの単位でドロップ位置を選べるようにする。
+	const autoCollapsedFolderIdRef = useRef<string | null>(null);
+	const [autoCollapsedFolderId, setAutoCollapsedFolderId] = useState<
+		string | null
+	>(null);
 	const overlayTop = useSharedValue(0);
 	const indicatorIndent = useSharedValue(0);
 	const indicatorTop = useSharedValue(0);
@@ -549,6 +578,7 @@ export function ManualDragNoteList({
 			rowMetrics.value = buildRowMetrics(
 				rowsRef.current,
 				rowLayoutsRef.current,
+				autoCollapsedFolderIdRef.current,
 			);
 		},
 		[rowMetrics],
@@ -670,6 +700,7 @@ export function ManualDragNoteList({
 				rowsAtDragStart,
 				rowLayoutsRef.current,
 				dragInsertionY,
+				autoCollapsedFolderIdRef.current,
 			);
 			const target = resolveDropTarget(
 				rowsAtDragStart,
@@ -743,6 +774,21 @@ export function ManualDragNoteList({
 			const layout = rowLayoutsRef.current.get(item.key);
 			if (!layout) return;
 
+			// 展開済みフォルダのヘッダを drag するときは、drag 中だけ中身を視覚的に
+			// 折り畳む。中身が後ろに残って「置いて行かれる」現象を防ぎ、ヘッダ単位で
+			// 素早くドロップ位置まで運べるようにする。drag 終了時に元へ戻す。
+			if (
+				item.kind === 'folder-header' &&
+				!item.collapsed &&
+				item.noteCount > 0
+			) {
+				autoCollapsedFolderIdRef.current = item.id;
+				setAutoCollapsedFolderId(item.id);
+			} else {
+				autoCollapsedFolderIdRef.current = null;
+				setAutoCollapsedFolderId(null);
+			}
+
 			latestPointerRef.current = { x: absoluteX, y: absoluteY };
 			dragRowsRef.current = rowsRef.current;
 			activeIndexRef.current = index;
@@ -757,6 +803,7 @@ export function ManualDragNoteList({
 			rowMetrics.value = buildRowMetrics(
 				rowsRef.current,
 				rowLayoutsRef.current,
+				autoCollapsedFolderIdRef.current,
 			);
 			scrollOffset.value = scrollOffsetRef.current;
 			visualBoundaryIndented.value = 0;
@@ -841,6 +888,13 @@ export function ManualDragNoteList({
 				activeHeightSV.value = 0;
 				indicatorVisible.value = 0;
 				setDragState(null);
+				// auto-collapse はここで一緒に解除する。commit 経路なら
+				// requestAnimationFrame 越しなので、親の state 更新で folder が
+				// 新位置に並んだ後に展開状態へ戻り、中身が旧位置にチラ見えするのを防ぐ。
+				if (autoCollapsedFolderIdRef.current !== null) {
+					autoCollapsedFolderIdRef.current = null;
+					setAutoCollapsedFolderId(null);
+				}
 			};
 			if (
 				commit &&
@@ -1045,7 +1099,11 @@ export function ManualDragNoteList({
 
 	const renderRows = () =>
 		rows.map((item, index) => {
-			const hidden = item.kind === 'folder-child' && !!item.parentCollapsed;
+			const hidden =
+				item.kind === 'folder-child' &&
+				(!!item.parentCollapsed ||
+					(autoCollapsedFolderId !== null &&
+						item.folderId === autoCollapsedFolderId));
 			return (
 				<DraggableRow
 					key={item.key}
@@ -1111,7 +1169,20 @@ export function ManualDragNoteList({
 					pointerEvents="none"
 					style={[styles.dragOverlay, overlayStyle]}
 				>
-					{renderRowContent(dragState.item, dragState.folderId)}
+					{renderRowContent(
+						// drag 中の自動折り畳みに合わせて、overlay 上のヘッダも
+						// 折り畳み状態 (chevron / folder icon / 下角 rounded) で見せる。
+						autoCollapsedFolderId !== null &&
+							dragState.item.kind === 'folder-header' &&
+							dragState.item.id === autoCollapsedFolderId
+							? {
+									...dragState.item,
+									collapsed: true,
+									inGroupEnd: true,
+								}
+							: dragState.item,
+						dragState.folderId,
+					)}
 				</Reanimated.View>
 			)}
 		</View>

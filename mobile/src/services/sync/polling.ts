@@ -34,6 +34,11 @@ export class PollingService {
 	private stopFlag = false;
 	private intervalMs = MIN_INTERVAL_MS;
 	private pageToken: string | null = null;
+	// 次回のループサイクルで Changes API のゲートをバイパスして強制的に
+	// syncNotes() を走らせるフラグ。foreground 復帰や UI からの kick() で
+	// セットする。Changes API は伝播ラグがあるため、これを見ないと「裏から
+	// 戻った瞬間に最新を取り込みたい」UX が満たせない。
+	private forceSync = false;
 	// `NetInfo.fetch()` がコールドスタート時にキャッシュ済みの古い state を
 	// 返してくる端末がある (Android で頻発)。実際にネット接続があるのに
 	// `connectivity = 'offline'` になり、polling が「offline」を emit し続けて
@@ -118,6 +123,7 @@ export class PollingService {
 	/** UI からの明示的な再同期要求。interval リセット + 即時 kick。 */
 	kick(): void {
 		this.intervalMs = MIN_INTERVAL_MS;
+		this.forceSync = true;
 		// 古い connectivity 値で「offline」分岐に入ったままだと、ユーザーが同期ボタンを
 		// 押しても何も起きない。NetInfo を再取得 (非同期、wake は先に呼ぶ) して、
 		// 次のループ判定までに最新状態を反映する。
@@ -155,7 +161,11 @@ export class PollingService {
 				// 完了していない」を判定軸にする。lastSyncedDriveTs が空文字なら、updateSyncedState
 				// に到達したことが無い = 初回 sync 未完了。
 				const neverSynced = this.syncState.lastSyncedDriveTs() === '';
-				if (changed || localDirty || neverSynced) {
+				// foreground 復帰や UI kick() で立つフラグ。Changes API の伝播ラグを
+				// 待たずに強制 sync する。フラグは消費したらクリア。
+				const forced = this.forceSync;
+				this.forceSync = false;
+				if (forced || changed || localDirty || neverSynced) {
 					await this.runSyncSafe();
 					this.intervalMs = MIN_INTERVAL_MS;
 				} else {
@@ -256,6 +266,8 @@ export class PollingService {
 		this.appState = state;
 		if (state === 'active' && !wasActive) {
 			this.intervalMs = MIN_INTERVAL_MS;
+			// foreground 復帰時は Changes API の伝播ラグを待たずに強制 sync する。
+			this.forceSync = true;
 			// バックグラウンド復帰時の NetInfo state は古いことがあるので、明示的に
 			// refresh して最新の接続状態に揃える。
 			this.refreshConnectivity();

@@ -158,6 +158,47 @@ describe('PollingService: local dirty triggers sync even when cloud unchanged', 
 		expect(orchestrator.syncNotes).toHaveBeenCalled();
 	});
 
+	// ★ foreground 復帰時は Changes API の伝播ラグを待たずに強制 sync する。
+	// background から active へ戻った瞬間に sync が呼ばれる事を保証する。
+	it('background → active 復帰時は cloud unchanged + localDirty=false でも syncNotes が呼ばれる', async () => {
+		await seedPageToken('tok-existing');
+
+		const client = makeFakeClient();
+		const driveSync = makeFakeDriveSync();
+		const state = new SyncStateManager();
+		await state.load();
+		// dirty なし、sync 経験あり (= forceSync が無ければ syncNotes は呼ばれない条件)
+		await state.updateSyncedState('2026-04-01T00:00:00Z', {});
+
+		const orchestrator = {
+			syncNotes: vi.fn(async () => {}),
+		} as unknown as SyncOrchestrator;
+
+		const polling = new PollingService(client, driveSync, orchestrator, state);
+		await polling.start();
+
+		// 初回サイクル (起動直後の即時 sync) を消化させてから
+		// syncNotes 呼び出し回数をリセットし、background → active のみを観測する
+		await vi.waitFor(() => expect(client.listChanges).toHaveBeenCalled(), {
+			timeout: 1000,
+		});
+		(orchestrator.syncNotes as ReturnType<typeof vi.fn>).mockClear();
+
+		__setAppState('background');
+		// background 中はループが offline 待機に入る。少し待ってから active へ。
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		__setAppState('active');
+
+		await vi.waitFor(
+			() => {
+				expect(orchestrator.syncNotes).toHaveBeenCalled();
+			},
+			{ timeout: 1000 },
+		);
+
+		await polling.stop();
+	});
+
 	it('syncOnCellular=false かつ cellular 接続なら同期しない', async () => {
 		await appSettings.update({ syncOnCellular: false });
 		__setNetState({ isConnected: true, type: 'cellular' });
