@@ -33,7 +33,10 @@ describe('conflictBackup', () => {
 	});
 
 	it('バックアップを一覧取得して削除できる', async () => {
-		await backupLocalNote('cloud_wins', makeNote({ id: 'a', content: 'local' }));
+		await backupLocalNote(
+			'cloud_wins',
+			makeNote({ id: 'a', content: 'local' }),
+		);
 		const backups = await listConflictBackups();
 
 		expect(backups).toHaveLength(1);

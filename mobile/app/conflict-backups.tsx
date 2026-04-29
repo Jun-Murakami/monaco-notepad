@@ -1,5 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
 	Appbar,
@@ -14,19 +15,20 @@ import {
 	useTheme,
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTranslation } from 'react-i18next';
-import { noteService } from '@/services/notes/noteService';
 import {
+	generateContentHeader,
+	noteService,
+} from '@/services/notes/noteService';
+import {
+	type ConflictBackupEntry,
 	deleteAllConflictBackups,
 	deleteConflictBackup,
-	type ConflictBackupEntry,
 	listConflictBackups,
 } from '@/services/sync/conflictBackup';
 import { driveService } from '@/services/sync/driveService';
 import { syncStateManager } from '@/services/sync/syncState';
 import type { Note } from '@/services/sync/types';
 import { useNotesStore } from '@/stores/notesStore';
-import { generateContentHeader } from '@/services/notes/noteService';
 import { uuidv4 } from '@/utils/uuid';
 
 export default function ConflictBackupsScreen() {

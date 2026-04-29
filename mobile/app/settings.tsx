@@ -2,9 +2,9 @@ import { useRouter } from 'expo-router';
 import { type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+	Alert,
 	ScrollView,
 	StyleSheet,
-	Alert,
 	useWindowDimensions,
 	View,
 } from 'react-native';
@@ -106,7 +106,11 @@ export default function SettingsScreen() {
 	const confirmDanger = (title: string, message: string): Promise<boolean> =>
 		new Promise((resolve) => {
 			Alert.alert(title, message, [
-				{ text: t('settings.cancel'), style: 'cancel', onPress: () => resolve(false) },
+				{
+					text: t('settings.cancel'),
+					style: 'cancel',
+					onPress: () => resolve(false),
+				},
 				{
 					text: t('settings.delete'),
 					style: 'destructive',

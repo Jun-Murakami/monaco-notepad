@@ -54,7 +54,11 @@ export async function listConflictBackups(): Promise<ConflictBackupEntry[]> {
 				note,
 			});
 		} catch (error) {
-			console.warn('[ConflictBackup] failed to parse backup:', file.name, error);
+			console.warn(
+				'[ConflictBackup] failed to parse backup:',
+				file.name,
+				error,
+			);
 		}
 	}
 	entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));

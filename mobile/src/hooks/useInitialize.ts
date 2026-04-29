@@ -4,6 +4,10 @@ import { authService } from '@/services/auth/authService';
 import { driveService } from '@/services/sync/driveService';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotesStore } from '@/stores/notesStore';
+// syncStore はモジュール読み込み時に syncEvents の購読を登録する。
+// Drive 初期化中に emit される接続成功イベントを取りこぼさないよう、
+// 画面表示前の初期化フック側で必ず先に読み込んでおく。
+import '@/stores/syncStore';
 
 /**
  * アプリ起動時にサービス層を初期化する。

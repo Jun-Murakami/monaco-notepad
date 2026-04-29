@@ -304,7 +304,7 @@ export default function NoteEditorScreen() {
 			setEditorScrollMeasurement(null);
 			setEditorSelection(undefined);
 		}
-	}, [centerEditorAroundCursor, mode, releaseInitialEditorSelection]);
+	}, [centerEditorAroundCursor, isIOS, mode, releaseInitialEditorSelection]);
 
 	useEffect(() => {
 		if (mode !== 'edit' || !keyboardVisible) return;
@@ -322,7 +322,13 @@ export default function NoteEditorScreen() {
 				requestAnimationFrame(releaseInitialEditorSelection);
 			}
 		});
-	}, [centerEditorAroundCursor, keyboardVisible, mode, releaseInitialEditorSelection]);
+	}, [
+		centerEditorAroundCursor,
+		isIOS,
+		keyboardVisible,
+		mode,
+		releaseInitialEditorSelection,
+	]);
 
 	// キーボード追従の式は bar とエディタ wrapper でセットになっている。
 	//   - bar: 通常時 `bottom: 32` から、キーボード上 8px (= 24px 縮める) まで上げる。

@@ -1,12 +1,12 @@
-import { Directory } from 'expo-file-system';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
+import { Directory } from 'expo-file-system';
 import { AppState, type AppStateStatus } from 'react-native';
 import { authService } from '../auth/authService';
 import { noteService } from '../notes/noteService';
 import { appSettings } from '../settings/appSettings';
 import { APP_DATA_DIR } from '../storage/paths';
 import { DriveClient } from './driveClient';
-import { ensureDriveLayout } from './driveLayout';
+import { type DriveLayout, ensureDriveLayout } from './driveLayout';
 import { DriveSyncService } from './driveSyncService';
 import { syncEvents } from './events';
 import { operationQueue } from './operationQueue';
@@ -135,7 +135,11 @@ export class DriveService {
 			syncEvents.emit('drive:status', { status: 'offline' });
 			return;
 		}
-		if (net && !appSettings.snapshot().syncOnCellular && isCellularOrExpensive(net)) {
+		if (
+			net &&
+			!appSettings.snapshot().syncOnCellular &&
+			isCellularOrExpensive(net)
+		) {
 			console.warn('[Drive] reconnect skipped: cellular sync disabled');
 			syncEvents.emit('drive:disconnected', undefined);
 			syncEvents.emit('drive:status', { status: 'offline' });
@@ -247,7 +251,10 @@ export class DriveService {
 			console.warn('[Drive] signOut before local data deletion failed:', error);
 		});
 		await operationQueue.cleanupAll().catch((error) => {
-			console.warn('[Drive] queue cleanup before local data deletion failed:', error);
+			console.warn(
+				'[Drive] queue cleanup before local data deletion failed:',
+				error,
+			);
 		});
 
 		const dir = new Directory(APP_DATA_DIR);
@@ -329,7 +336,11 @@ export class DriveService {
 
 	async kickSync(): Promise<void> {
 		const net = await NetInfo.refresh().catch(() => null);
-		if (net && !appSettings.snapshot().syncOnCellular && isCellularOrExpensive(net)) {
+		if (
+			net &&
+			!appSettings.snapshot().syncOnCellular &&
+			isCellularOrExpensive(net)
+		) {
 			syncEvents.emit('drive:status', { status: 'offline' });
 			return;
 		}
@@ -371,7 +382,7 @@ export class DriveService {
 		if (opts.optimisticEmit) {
 			syncEvents.emit('sync:phase', { phase: 'preparing' });
 		}
-		let layout;
+		let layout: DriveLayout;
 		try {
 			layout = await ensureDriveLayout(tempClient);
 		} catch (e) {
