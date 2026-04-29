@@ -294,7 +294,7 @@ export default function ArchiveListScreen() {
 					indexing={search.isIndexing}
 				/>
 			) : (
-				<Appbar.Header>
+				<Appbar.Header mode="small">
 					<Appbar.BackAction onPress={() => router.back()} />
 					<Appbar.Content title={t('noteList.archiveListTitle')} />
 					<Appbar.Action

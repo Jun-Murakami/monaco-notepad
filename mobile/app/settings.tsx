@@ -150,7 +150,7 @@ export default function SettingsScreen() {
 
 	return (
 		<View style={styles.container}>
-			<Appbar.Header>
+			<Appbar.Header mode="small">
 				<Appbar.BackAction onPress={() => router.back()} />
 				<Appbar.Content title={t('settings.title')} />
 			</Appbar.Header>

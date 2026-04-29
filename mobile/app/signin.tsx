@@ -40,7 +40,7 @@ export default function SignInScreen() {
 		<View
 			style={[styles.container, { backgroundColor: theme.colors.background }]}
 		>
-			<Appbar.Header>
+			<Appbar.Header mode="small">
 				<Appbar.BackAction onPress={closeSignIn} disabled={loading} />
 				<Appbar.Content title={t('auth.signIn')} />
 			</Appbar.Header>

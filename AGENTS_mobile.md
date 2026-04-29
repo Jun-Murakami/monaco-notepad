@@ -83,8 +83,11 @@ mobile/
    - デスクトップ版は期限切れで手動再ログインだが、モバイルは `expo-auth-session` の `refreshAsync` で自動更新する
    - トークンは `expo-secure-store` (iOS Keychain / Android Keystore)
 5. **シンタックスハイライトは View 時のみ** (`components/SyntaxHighlightView.tsx`)
-   - GitHub モバイル方式。`react-native-syntax-highlighter` (hljs) で atomOneDark/Light
-   - 編集モードは素の `TextInput` + monospace
+   - **Shiki** (TextMate grammar = VSCode/Monaco と同一エンジン) でデスクトップとほぼパリティの色付け
+   - エンジンは `react-native-shiki-engine` の `createNativeEngine()` (JSI + 直リンク Oniguruma)、テーマは `dark-plus` / `light-plus` (VSCode デフォルト)
+   - Highlighter は `src/lib/syntaxHighlight/highlighter.ts` のシングルトン。grammar は `languageLoaders.ts` の dynamic import で**遅延ロード**（起動時パースを回避）
+   - Monaco ID → Shiki ID の対応は `languageMap.ts`。Shiki に grammar が無い 14 言語 (`UNSUPPORTED_MONACO_IDS`) は**モバイルピッカーから除外**するが、デスクトップで選ばれた値はそのまま保持し plaintext 描画にフォールバック
+   - 編集モードは素の `TextInput` + monospace（ハイライトしない）
 
 ---
 

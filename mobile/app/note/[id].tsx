@@ -35,7 +35,7 @@ import {
 	type SyntaxHighlightPressPosition,
 	SyntaxHighlightView,
 } from '@/components/SyntaxHighlightView';
-import { MONACO_LANGUAGE_IDS } from '@/constants/monacoLanguages';
+import { SUPPORTED_MONACO_IDS } from '@/lib/syntaxHighlight/languageMap';
 import {
 	getTextInputCaretRect,
 	scrollTextInputCaretToVisibleCenter,
@@ -56,13 +56,12 @@ interface EditorScrollMeasurement {
 }
 
 /**
- * モバイルで選択可能な言語リスト。デスクトップ版 Monaco と同じ ID 体系。
- * `MONACO_LANGUAGE_IDS` は basic-languages に基づく。
- *
- * 現在のノートの language がこのリストに無い場合（将来 Monaco に新言語が追加されて
- * リスト更新前に作られたノート等）でも、`menuLanguages` で先頭に差し込んで保持する。
+ * モバイルで選択可能な言語リスト。Monaco の全言語のうち Shiki がハイライト
+ * 可能なものだけをピッカーに出す。デスクトップで未対応 ID が選ばれている
+ * ノートを開いた場合は `menuLanguages` で先頭に差し込んで保持する（その場合は
+ * SyntaxHighlightView 側で plaintext フォールバック描画）。
  */
-const LANGUAGES = MONACO_LANGUAGE_IDS;
+const LANGUAGES = SUPPORTED_MONACO_IDS;
 
 export default function NoteEditorScreen() {
 	const { t } = useTranslation();
@@ -79,6 +78,9 @@ export default function NoteEditorScreen() {
 	// edit モード + キーボード表示中は同期ステータスバーとタイトル欄を畳んで
 	// 作業領域を最大化する。Keyboard リスナと連動。
 	const [keyboardVisible, setKeyboardVisible] = useState(false);
+	// タイトル欄に focus がある時はキーボード表示中でもタイトル欄を残す。
+	// （畳むと unmount → focus 喪失 → キーボード閉じる、で編集できなくなるため）
+	const [titleFocused, setTitleFocused] = useState(false);
 	// 編集モード突入直後だけカーソルを (0,0) に固定する。これで multiline TextInput
 	// が「カーソル位置を表示するために末尾までスクロール」してしまうのを防ぎ、
 	// 編集開始時にノート本文の **先頭** から見える。閲覧モードの本文タップで
@@ -458,7 +460,7 @@ export default function NoteEditorScreen() {
 			<View
 				style={[styles.container, { backgroundColor: theme.colors.background }]}
 			>
-				<Appbar.Header>
+				<Appbar.Header mode="small">
 					<Appbar.BackAction onPress={() => router.back()} />
 					<Appbar.Content title="" />
 				</Appbar.Header>
@@ -555,7 +557,7 @@ export default function NoteEditorScreen() {
 		<View
 			style={[styles.container, { backgroundColor: theme.colors.background }]}
 		>
-			<Appbar.Header>
+			<Appbar.Header mode="small">
 				<Appbar.BackAction onPress={() => router.back()} />
 				{/* タイトルは下のボディに表示するので AppBar 側は空の Content で
 				    スペーサとして使い、右側にアクション類を寄せる。 */}
@@ -599,8 +601,10 @@ export default function NoteEditorScreen() {
 				)}
 			</Appbar.Header>
 			{/* edit モード + キーボード表示中は同期バーとタイトル欄を畳んで
-			    本文の作業領域を最大化する。キーボードを閉じれば再表示される。 */}
-			{!(mode === 'edit' && keyboardVisible) && (
+			    本文の作業領域を最大化する。キーボードを閉じれば再表示される。
+			    ただしタイトル欄自身に focus がある間は畳まない（タップ直後の
+			    キーボード表示で unmount されると編集が成立しないため）。 */}
+			{!(mode === 'edit' && keyboardVisible && !titleFocused) && (
 				<>
 					<SyncStatusBar />
 					<PaperTextInput
@@ -615,6 +619,8 @@ export default function NoteEditorScreen() {
 								modifiedTime: new Date().toISOString(),
 							})
 						}
+						onFocus={() => setTitleFocused(true)}
+						onBlur={() => setTitleFocused(false)}
 						style={styles.titleInput}
 						dense
 						// label / アウトラインは theme.colors.onSurfaceVariant を使うが、

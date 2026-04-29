@@ -38,7 +38,7 @@ export default function AboutScreen() {
 
 	return (
 		<View style={styles.container}>
-			<Appbar.Header>
+			<Appbar.Header mode="small">
 				<Appbar.BackAction onPress={() => router.back()} />
 				<Appbar.Content title={t('about.title')} />
 			</Appbar.Header>

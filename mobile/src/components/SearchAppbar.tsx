@@ -30,7 +30,7 @@ export function SearchAppbar({
 	const { t } = useTranslation();
 	const theme = useTheme();
 	return (
-		<Appbar.Header>
+		<Appbar.Header mode="small">
 			<Appbar.BackAction onPress={onClose} />
 			<View style={styles.inputWrap}>
 				<TextInput

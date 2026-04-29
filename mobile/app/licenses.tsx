@@ -156,7 +156,7 @@ export default function LicensesScreen() {
 
 	return (
 		<View style={styles.container}>
-			<Appbar.Header>
+			<Appbar.Header mode="small">
 				<Appbar.BackAction onPress={() => router.back()} />
 				<Appbar.Content title={t('licenses.title')} />
 			</Appbar.Header>

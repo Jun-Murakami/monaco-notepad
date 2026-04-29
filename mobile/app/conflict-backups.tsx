@@ -133,7 +133,7 @@ export default function ConflictBackupsScreen() {
 
 	return (
 		<View style={styles.container}>
-			<Appbar.Header>
+			<Appbar.Header mode="small">
 				<Appbar.BackAction onPress={() => router.back()} />
 				<Appbar.Content title={t('conflictBackups.title')} />
 				<Appbar.Action

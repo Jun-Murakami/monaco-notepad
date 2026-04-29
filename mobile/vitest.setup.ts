@@ -12,6 +12,9 @@ vi.mock('@react-native-community/netinfo', async () =>
 	await import('./src/test/mocks/netinfo'),
 );
 vi.mock('react-native', async () => await import('./src/test/mocks/reactNative'));
+vi.mock('react-native-shiki-engine', async () =>
+	await import('./src/test/mocks/shikiEngine'),
+);
 
 // 各テスト後にモック状態をリセット。
 afterEach(async () => {

@@ -353,7 +353,7 @@ export default function NoteListScreen() {
 					indexing={search.isIndexing}
 				/>
 			) : (
-				<Appbar.Header>
+				<Appbar.Header mode="small">
 					<Appbar.Content title={t('app.title')} />
 					<Appbar.Action
 						icon="folder-plus"

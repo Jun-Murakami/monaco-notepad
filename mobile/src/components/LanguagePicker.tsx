@@ -56,7 +56,7 @@ export function LanguagePicker({
 					{ backgroundColor: theme.colors.background },
 				]}
 			>
-				<Appbar.Header elevated={false} style={styles.header}>
+				<Appbar.Header mode="small" elevated={false} style={styles.header}>
 					<Appbar.Content
 						title={t('editor.selectLanguage')}
 						titleStyle={styles.headerTitle}

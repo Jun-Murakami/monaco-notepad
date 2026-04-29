@@ -1,20 +1,21 @@
-import { type ReactNode, useCallback, useMemo, useRef } from 'react';
+import type { ThemedToken } from '@shikijs/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	type GestureResponderEvent,
 	Platform,
 	Pressable,
-	type StyleProp,
 	StyleSheet,
 	Text,
-	type TextStyle,
 	View,
 } from 'react-native';
 import { useTheme } from 'react-native-paper';
-import SyntaxHighlighter from 'react-syntax-highlighter';
 import {
-	atomOneDark,
-	atomOneLight,
-} from 'react-syntax-highlighter/dist/esm/styles/hljs';
+	ensureLanguage,
+	getHighlighter,
+	SHIKI_THEME_DARK,
+	SHIKI_THEME_LIGHT,
+} from '@/lib/syntaxHighlight/highlighter';
+import { toShikiLanguage } from '@/lib/syntaxHighlight/languageMap';
 
 interface Props {
 	content: string;
@@ -31,20 +32,6 @@ export interface SyntaxHighlightPressPosition {
 	visualY: number;
 }
 
-interface HighlightNode {
-	type?: string;
-	value?: string;
-	properties?: {
-		className?: string[];
-	};
-	children?: HighlightNode[];
-}
-
-type HighlightStyleSheet = Record<
-	string,
-	Record<string, string | number | undefined> | undefined
->;
-
 interface LogicalLineLayout {
 	y: number;
 	textX: number;
@@ -52,15 +39,22 @@ interface LogicalLineLayout {
 	charWidth: number;
 }
 
+// Shiki の FontStyle bitmask（@shikijs/vscode-textmate より）。
+const FONT_STYLE_ITALIC = 1;
+const FONT_STYLE_BOLD = 2;
+const FONT_STYLE_UNDERLINE = 4;
+const FONT_STYLE_STRIKETHROUGH = 8;
+
 /**
  * 閲覧モード専用のシンタックスハイライト。
+ *
+ * ハイライト本体は Shiki (TextMate grammar + dark-plus/light-plus テーマ) を使い、
+ * VSCode/Monaco と同等の色付けを得る。Native engine の初期化と grammar の
+ * ロードは非同期なので、初回は素のテキストで描画してロード完了後に再描画する。
  *
  * 左に行番号カラム、右に本文カラムの 2 カラム構成。本文が wrap した時は
  * 行番号を先頭行のみ表示して、続きは本文カラムでインデントされたまま継続する
  * （Monaco の gutter + wrap と同じ体験）。
- *
- * 段落間（行 View 区切り）と wrap 行間は完全一致させるのが難しいため、
- * `lineHeight` を小さめにして全体をタイトにまとめる方針。
  */
 export function SyntaxHighlightView({
 	content,
@@ -69,11 +63,11 @@ export function SyntaxHighlightView({
 	onPressPosition,
 }: Props) {
 	const theme = useTheme();
-	const hljsStyle = theme.dark ? atomOneDark : atomOneLight;
 	const dim = theme.colors.outline;
 	const fg = theme.colors.onSurface;
 	const lineLayoutsRef = useRef<Record<number, LogicalLineLayout>>({});
 	const logicalLines = useMemo(() => buildLogicalLines(content), [content]);
+	const tokens = useShikiTokens(content, language, theme.dark);
 
 	// fontSize に応じて行高 / 行番号サイズも追従させる。
 	const lineHeight = Math.round(fontSize * 1.55);
@@ -139,151 +133,168 @@ export function SyntaxHighlightView({
 		[fontSize, lineHeight, logicalLines, onPressPosition],
 	);
 
-	const renderer = useCallback(
-		// biome-ignore lint/suspicious/noExplicitAny: renderer の型は any
-		({ rows, stylesheet }: { rows: any[]; stylesheet: any }): ReactNode => {
-			const digits = String(rows.length).length;
-			return (
-				<View>
-					{rows.map((row, idx) => (
-						<Pressable
-							// biome-ignore lint/suspicious/noArrayIndexKey: 行 index は安定
-							key={idx}
-							style={styles.line}
-							onLayout={(event) => {
-								const prev = lineLayoutsRef.current[idx];
-								lineLayoutsRef.current[idx] = {
-									y: event.nativeEvent.layout.y,
-									textX: prev?.textX ?? 0,
-									textWidth: prev?.textWidth ?? 0,
-									charWidth: prev?.charWidth ?? fontSize * 0.6,
-								};
-							}}
-							onPress={(event) => handleLinePress(idx, event)}
-						>
-							<Text
-								selectable={false}
-								style={[
-									dynamicStyles.lineNumber,
-									{ color: dim, minWidth: digits * 8 + 12 },
-								]}
-							>
-								{idx + 1}
-							</Text>
-							<Text
-								selectable={false}
-								style={[dynamicStyles.lineText, { color: fg }]}
-								onLayout={(event) => {
-									const prev = lineLayoutsRef.current[idx];
-									lineLayoutsRef.current[idx] = {
-										y: prev?.y ?? 0,
-										textX: event.nativeEvent.layout.x,
-										textWidth: event.nativeEvent.layout.width,
-										charWidth: prev?.charWidth ?? fontSize * 0.6,
-									};
-								}}
-								onTextLayout={(event) => {
-									const prev = lineLayoutsRef.current[idx];
-									const measured = event.nativeEvent.lines.find(
-										(line) => line.text.length > 0 && line.width > 0,
-									);
-									lineLayoutsRef.current[idx] = {
-										y: prev?.y ?? 0,
-										textX: prev?.textX ?? 0,
-										textWidth: prev?.textWidth ?? 0,
-										// 等幅フォント前提で、実描画から 1 文字幅だけを補正する。
-										// 折り返し後の文字列長は使わず、論理行内 column だけを返す。
-										charWidth: measured
-											? measured.width / measured.text.length
-											: (prev?.charWidth ?? fontSize * 0.6),
-									};
-								}}
-							>
-								{renderTokens(
-									(row.children ?? []) as HighlightNode[],
-									stylesheet as HighlightStyleSheet,
-									dynamicStyles.tokenText,
-								)}
-							</Text>
-						</Pressable>
-					))}
-				</View>
+	const digits = String(Math.max(1, logicalLines.length)).length;
+
+	// tokens が未ロード or 取得失敗時は素のテキストで描画。
+	// 行配列の長さと logicalLines の長さは一致させる。tokens 側が短ければ
+	// 余り行は素のテキストでフォールバック。
+	const rows: ThemedToken[][] = useMemo(() => {
+		if (tokens && tokens.length > 0) {
+			return logicalLines.map(
+				(line, idx): ThemedToken[] =>
+					tokens[idx] ?? [{ content: line, color: undefined, offset: 0 }],
 			);
-		},
-		[dim, fg, dynamicStyles, handleLinePress, fontSize],
-	);
+		}
+		return logicalLines.map((line): ThemedToken[] => [
+			{ content: line, color: undefined, offset: 0 },
+		]);
+	}, [tokens, logicalLines]);
 
 	return (
-		<SyntaxHighlighter
-			language={normalizeLang(language)}
-			style={hljsStyle}
-			// biome-ignore lint/suspicious/noExplicitAny: PreTag/CodeTag を View に差し替え
-			PreTag={View as any}
-			// biome-ignore lint/suspicious/noExplicitAny: 同上
-			CodeTag={View as any}
-			renderer={renderer}
-		>
-			{content || ' '}
-		</SyntaxHighlighter>
+		<View>
+			{rows.map((row, idx) => (
+				<Pressable
+					// biome-ignore lint/suspicious/noArrayIndexKey: 行 index は安定
+					key={idx}
+					style={styles.line}
+					onLayout={(event) => {
+						const prev = lineLayoutsRef.current[idx];
+						lineLayoutsRef.current[idx] = {
+							y: event.nativeEvent.layout.y,
+							textX: prev?.textX ?? 0,
+							textWidth: prev?.textWidth ?? 0,
+							charWidth: prev?.charWidth ?? fontSize * 0.6,
+						};
+					}}
+					onPress={(event) => handleLinePress(idx, event)}
+				>
+					<Text
+						selectable={false}
+						style={[
+							dynamicStyles.lineNumber,
+							{ color: dim, minWidth: digits * 8 + 12 },
+						]}
+					>
+						{idx + 1}
+					</Text>
+					<Text
+						selectable={false}
+						style={[dynamicStyles.lineText, { color: fg }]}
+						onLayout={(event) => {
+							const prev = lineLayoutsRef.current[idx];
+							lineLayoutsRef.current[idx] = {
+								y: prev?.y ?? 0,
+								textX: event.nativeEvent.layout.x,
+								textWidth: event.nativeEvent.layout.width,
+								charWidth: prev?.charWidth ?? fontSize * 0.6,
+							};
+						}}
+						onTextLayout={(event) => {
+							const prev = lineLayoutsRef.current[idx];
+							const measured = event.nativeEvent.lines.find(
+								(line) => line.text.length > 0 && line.width > 0,
+							);
+							lineLayoutsRef.current[idx] = {
+								y: prev?.y ?? 0,
+								textX: prev?.textX ?? 0,
+								textWidth: prev?.textWidth ?? 0,
+								// 等幅フォント前提で、実描画から 1 文字幅だけを補正する。
+								// 折り返し後の文字列長は使わず、論理行内 column だけを返す。
+								charWidth: measured
+									? measured.width / measured.text.length
+									: (prev?.charWidth ?? fontSize * 0.6),
+							};
+						}}
+					>
+						{row.length === 0 ? (
+							// 空行は ' ' を入れないと Pressable のヒット領域がゼロになる。
+							<Text style={dynamicStyles.tokenText}> </Text>
+						) : (
+							row.map((token, ti) => (
+								<Text
+									// biome-ignore lint/suspicious/noArrayIndexKey: token 順は安定
+									key={ti}
+									style={[dynamicStyles.tokenText, tokenStyle(token, fg)]}
+								>
+									{stripNewlines(token.content)}
+								</Text>
+							))
+						)}
+					</Text>
+				</Pressable>
+			))}
+		</View>
 	);
 }
 
-function renderTokens(
-	nodes: HighlightNode[],
-	stylesheet: HighlightStyleSheet,
-	tokenTextStyle: StyleProp<TextStyle>,
-): ReactNode[] {
-	return nodes.map((node, i) => {
-		if (node.type === 'text') {
-			// react-syntax-highlighter は各 row の末尾に '\n' を含めることがある。
-			// ここでは row 境界がすでに改行を表すため、token 内に残った改行はすべて不要。
-			// iOS では入れ子 Text 内の改行が行ブロック自体の高さを押し広げることがある。
-			const value = node.value ?? '';
-			return value.replace(/[\r\n]+/g, '');
-		}
-		const classes: string[] = node.properties?.className ?? [];
-		const merged: Record<string, string | number> = {};
-		for (const cls of classes) {
-			const styleObj = stylesheet?.[cls];
-			if (styleObj) Object.assign(merged, styleObj);
-		}
-		const rnStyle = {
-			color: typeof merged.color === 'string' ? merged.color : undefined,
-			fontStyle:
-				merged.fontStyle === 'italic'
-					? ('italic' as const)
-					: ('normal' as const),
-			fontWeight:
-				merged.fontWeight === 'bold' || merged.fontWeight === '700'
-					? ('700' as const)
-					: undefined,
-		};
-		return (
-			<Text
-				// biome-ignore lint/suspicious/noArrayIndexKey: 位置 index は安定
-				key={i}
-				style={[tokenTextStyle, rnStyle]}
-			>
-				{renderTokens(node.children ?? [], stylesheet, tokenTextStyle)}
-			</Text>
-		);
-	});
+/**
+ * Shiki で content をトークナイズする hook。
+ *
+ * 言語ロード中・失敗時は null を返す（呼び出し側はプレーンテキストで描画）。
+ * 入力が変わるたびに最新の結果だけを反映するよう ref で世代管理する。
+ */
+function useShikiTokens(
+	content: string,
+	monacoLanguage: string,
+	isDark: boolean,
+): ThemedToken[][] | null {
+	const [tokens, setTokens] = useState<ThemedToken[][] | null>(null);
+	const generationRef = useRef(0);
+
+	useEffect(() => {
+		const generation = ++generationRef.current;
+		const shikiLang = toShikiLanguage(monacoLanguage);
+		const themeName = isDark ? SHIKI_THEME_DARK : SHIKI_THEME_LIGHT;
+
+		(async () => {
+			try {
+				const highlighter = await getHighlighter();
+				await ensureLanguage(shikiLang);
+				if (generation !== generationRef.current) return;
+				const result = highlighter.codeToTokensBase(content, {
+					lang: shikiLang,
+					theme: themeName,
+				});
+				if (generation !== generationRef.current) return;
+				setTokens(result);
+			} catch {
+				// Native engine 不在 等。プレーンテキスト表示に倒す。
+				if (generation !== generationRef.current) return;
+				setTokens(null);
+			}
+		})();
+	}, [content, monacoLanguage, isDark]);
+
+	return tokens;
 }
 
-function normalizeLang(lang: string): string {
-	const map: Record<string, string> = {
-		plaintext: 'plaintext',
-		'': 'plaintext',
-		md: 'markdown',
-		ts: 'typescript',
-		tsx: 'typescript',
-		js: 'javascript',
-		jsx: 'javascript',
-		py: 'python',
-		sh: 'bash',
-		yml: 'yaml',
+function tokenStyle(token: ThemedToken, fallbackColor: string) {
+	const fs = token.fontStyle ?? 0;
+	const decorations: ('underline' | 'line-through')[] = [];
+	if (fs & FONT_STYLE_UNDERLINE) decorations.push('underline');
+	if (fs & FONT_STYLE_STRIKETHROUGH) decorations.push('line-through');
+	return {
+		color: token.color ?? fallbackColor,
+		fontStyle:
+			fs & FONT_STYLE_ITALIC ? ('italic' as const) : ('normal' as const),
+		fontWeight: fs & FONT_STYLE_BOLD ? ('700' as const) : undefined,
+		textDecorationLine:
+			decorations.length === 0
+				? undefined
+				: (decorations.join(' ') as
+						| 'underline'
+						| 'line-through'
+						| 'underline line-through'),
 	};
-	return map[lang] ?? lang;
+}
+
+/**
+ * Shiki の token.content には行末 '\n' が含まれることがある。
+ * row 境界が既に改行を表すため、token 内に残る改行は不要。
+ * iOS では入れ子 Text 内の改行が行ブロックの高さを押し広げてしまう。
+ */
+function stripNewlines(value: string): string {
+	return value.replace(/[\r\n]+/g, '');
 }
 
 function buildLogicalLines(content: string): string[] {
