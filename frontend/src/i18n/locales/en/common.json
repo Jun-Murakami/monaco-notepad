@@ -70,27 +70,24 @@
     "next": "Next match (Enter)",
     "replaceOne": "Replace",
     "replaceAllInCurrent": "Replace all in current note",
+    "replaceAllInCurrentShort": "Replace All",
     "replaceAllInAll": "Replace all in all notes",
-    "replaceAllInAllShort": "Replace in all",
+    "replaceAllInAllShort": "Replace in All Notes",
+    "feedback": {
+      "replaceOne": "Replace: {{count}} replaced",
+      "replaceAllInCurrent": "Replace All: {{count}} replaced",
+      "replaceAllInAll": "Replace in All Notes: {{count}} replaced"
+    },
     "crossNoteSummary": "{{matchCount}} hits in {{noteCount}} notes",
     "toggleReplace": "Toggle replace",
     "all": "All",
-    "undo": "Undo bulk edit",
-    "redo": "Redo bulk edit",
     "matchCount": "{{count}} matches",
     "invalidPattern": "Invalid pattern",
     "confirmReplaceAllTitle": "Replace in all notes",
     "confirmReplaceAllMessage": "Replace {{matchCount}} matches across {{noteCount}} notes?",
-    "conflictTitle": "Cannot undo cleanly",
-    "conflictMessage": "The target text has been modified after the bulk replace. The undo was cancelled to avoid overwriting your edits.",
-    "historyReplace": "Replace",
-    "historyReplaceAll": "Replace all in note ({{count}})",
-    "historyReplaceAllNotes": "Replace all in {{noteCount}} notes ({{matchCount}})",
     "mode": {
       "find": "Find",
-      "replace": "Replace",
-      "findInAll": "Find in All",
-      "replaceInAll": "Replace in All"
+      "replace": "Replace"
     }
   },
   "notes": {

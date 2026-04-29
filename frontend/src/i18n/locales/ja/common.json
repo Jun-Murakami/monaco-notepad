@@ -70,27 +70,24 @@
     "next": "次のヒット (Enter)",
     "replaceOne": "置換",
     "replaceAllInCurrent": "現在のノート内を一括置換",
+    "replaceAllInCurrentShort": "すべて置換",
     "replaceAllInAll": "全ノートを一括置換",
-    "replaceAllInAllShort": "全ノート一括置換",
+    "replaceAllInAllShort": "すべてのノートで置換",
+    "feedback": {
+      "replaceOne": "置換: {{count}} 件を置換しました",
+      "replaceAllInCurrent": "すべて置換: {{count}} 件を置換しました",
+      "replaceAllInAll": "すべてのノートで置換: {{count}} 件を置換しました"
+    },
     "crossNoteSummary": "{{noteCount}} 件のノートで {{matchCount}} 件ヒット",
     "toggleReplace": "置換欄を表示/非表示",
     "all": "全て",
-    "undo": "一括編集を元に戻す",
-    "redo": "一括編集をやり直す",
     "matchCount": "{{count}} 件",
     "invalidPattern": "正規表現が不正です",
     "confirmReplaceAllTitle": "全ノート一括置換",
     "confirmReplaceAllMessage": "{{noteCount}} 件のノートにわたり {{matchCount}} 件を置換しますか？",
-    "conflictTitle": "元に戻せません",
-    "conflictMessage": "一括置換後に該当ノートが変更されているため、編集の上書きを避けて Undo を取り消しました。",
-    "historyReplace": "置換",
-    "historyReplaceAll": "ノート内全置換 ({{count}})",
-    "historyReplaceAllNotes": "{{noteCount}} 件のノートを一括置換 ({{matchCount}})",
     "mode": {
       "find": "検索",
-      "replace": "置換",
-      "findInAll": "全検索",
-      "replaceInAll": "全置換"
+      "replace": "置換"
     }
   },
   "notes": {

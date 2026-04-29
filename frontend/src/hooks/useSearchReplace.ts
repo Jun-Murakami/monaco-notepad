@@ -8,21 +8,29 @@ import {
   buildReplacementEdits,
   compileSearchRegex,
   findAllMatches,
+  type PlannedEdit,
   type SearchMatch,
   type SearchOptions,
 } from '../utils/searchUtils';
-import {
-  type BulkCommand,
-  type BulkEdit,
-  type CommandApplier,
-  useBulkEditHistory,
-} from './useBulkEditHistory';
 
 import type { editor } from 'monaco-editor';
 import type { Note } from '../types';
 
 // ノート横断検索は常に有効。find / replace は置換欄の表示切替のみ。
 export type SearchPanelMode = 'find' | 'replace';
+
+// 置換実行直後のフィードバック表示用。種類ごとに i18n キーを切り替える。
+export type ReplaceResultKind =
+  | 'replaceOne'
+  | 'replaceAllInCurrent'
+  | 'replaceAllInAll';
+
+export interface ReplaceResult {
+  kind: ReplaceResultKind;
+  count: number;
+  // 同じ kind/count を続けて置換した場合でも表示更新を検知できるよう識別子を持たせる
+  token: number;
+}
 
 export interface NoteMatchGroup {
   noteId: string;
@@ -53,11 +61,9 @@ export interface UseSearchReplaceOptions {
 const DECORATION_CLASS_ALL = 'app-search-match';
 const DECORATION_CLASS_CURRENT = 'app-search-match-current';
 
-// 指定モデルに対して編集を適用（pushEditOperations 経由で Monaco の undo stack に載せる）
-const applyEditsToModel = (
-  model: editor.ITextModel,
-  edits: BulkEdit['edits'],
-) => {
+// 指定モデルに対して編集を適用（pushEditOperations 経由で Monaco の undo stack に載せる）。
+// Monaco がモデルごとに undo 履歴を保持するため、Ctrl+Z で置換を取り消せる。
+const applyEditsToModel = (model: editor.ITextModel, edits: PlannedEdit[]) => {
   const monaco = getMonaco();
   // Monaco は range ベースなので、offset から Position を導出
   const monacoEdits = edits.map((e) => {
@@ -90,10 +96,11 @@ const tryGetModel = (noteId: string): editor.ITextModel | null => {
 
 // Note に一括編集を適用し、新しい content 文字列を返す。
 // モデルがロードされていれば Monaco 経由で適用し、なければ文字列操作。
+// 前者は Monaco の undo stack に登録されるため Ctrl+Z で取り消し可能。
 const applyEditsToNote = (
   noteId: string,
   currentContent: string,
-  edits: BulkEdit['edits'],
+  edits: PlannedEdit[],
 ): string => {
   const model = tryGetModel(noteId);
   if (model) {
@@ -125,6 +132,30 @@ export const useSearchReplace = ({
 
   // UI 状態（パネルは常時表示なので isOpen は持たない）
   const [mode, setMode] = useState<SearchPanelMode>('find');
+
+  // 直近の置換結果（フィードバック表示用）。
+  // 置換モードを閉じる (mode を 'find' に切替) まで表示を維持する。
+  const [replaceResult, setReplaceResult] = useState<ReplaceResult | null>(
+    null,
+  );
+  const replaceResultTokenRef = useRef(0);
+  const announceReplaceResult = useCallback(
+    (kind: ReplaceResultKind, count: number) => {
+      replaceResultTokenRef.current += 1;
+      setReplaceResult({
+        kind,
+        count,
+        token: replaceResultTokenRef.current,
+      });
+    },
+    [],
+  );
+  // 置換モードを閉じたら (find に戻したら) フィードバックを消去
+  useEffect(() => {
+    if (mode === 'find' && replaceResult) {
+      setReplaceResult(null);
+    }
+  }, [mode, replaceResult]);
 
   const [query, setQuery] = useState('');
   const [replacement, setReplacement] = useState('');
@@ -371,95 +402,8 @@ export const useSearchReplace = ({
   }, [currentMatches]);
 
   // --- 置換処理 ---
-  const applyCommand: CommandApplier = useCallback((cmd, direction) => {
-    type Prepared = {
-      noteId: string;
-      edits: BulkEdit['edits'];
-    };
-    const prepared: Prepared[] = [];
-    for (const perNote of cmd.perNote) {
-      const note = notesRef.current.find((n) => n.id === perNote.noteId);
-      if (!note) return false;
-
-      const base = note.content ?? '';
-      const inverted = perNote.edits.map((e) => {
-        if (direction === 'undo') {
-          const endInCurrent = e.start + e.replacement.length;
-          return {
-            start: e.start,
-            end: endInCurrent,
-            original: e.replacement,
-            replacement: e.original,
-          };
-        }
-        const endInCurrent = e.start + e.original.length;
-        return {
-          start: e.start,
-          end: endInCurrent,
-          original: e.original,
-          replacement: e.replacement,
-        };
-      });
-
-      // 競合検出: 期待する文字列が対象位置に存在しているか
-      const model = tryGetModel(note.id);
-      const liveContent = model ? model.getValue() : base;
-      for (const e of inverted) {
-        const sliceNow = liveContent.slice(e.start, e.end);
-        if (sliceNow !== e.original) {
-          return false;
-        }
-      }
-      prepared.push({ noteId: note.id, edits: inverted });
-    }
-
-    // 適用
-    const toSave: Note[] = [];
-    for (const p of prepared) {
-      const note = notesRef.current.find((n) => n.id === p.noteId);
-      if (!note) continue;
-      const next = applyEditsToNote(note.id, note.content ?? '', p.edits);
-      toSave.push({ ...note, content: next });
-    }
-
-    if (toSave.length === 0) return true;
-    setNotesRef.current((prev) =>
-      prev.map((n) => toSave.find((ts) => ts.id === n.id) ?? n),
-    );
-    // バックエンド永続化は fire-and-forget（失敗は既存ログ経路で扱う）
-    (async () => {
-      for (const n of toSave) {
-        try {
-          await SaveNote(backend.Note.createFrom(n), 'update');
-        } catch {
-          // エラーは既存の通知経路で処理
-        }
-      }
-    })();
-    return true;
-  }, []);
-
-  const history = useBulkEditHistory({ apply: applyCommand });
-
-  // コマンドを生成して push
-  const commitCommand = useCallback(
-    (
-      labelKey: string,
-      perNote: BulkEdit[],
-      labelArgs?: BulkCommand['labelArgs'],
-    ) => {
-      if (perNote.length === 0) return;
-      const cmd: BulkCommand = {
-        id: `bulk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        labelKey,
-        labelArgs,
-        perNote,
-        timestamp: Date.now(),
-      };
-      history.pushCommand(cmd);
-    },
-    [history],
-  );
+  // Undo/Redo は Monaco モデルが各ノート毎に保持する標準の編集履歴 (Ctrl+Z) に
+  // 委ねており、本フックではアプリレベルの履歴管理を持たない。
 
   // 現在ノートで現在のマッチを 1 件置換
   const replaceCurrent = useCallback(() => {
@@ -473,7 +417,6 @@ export const useSearchReplace = ({
     if (!m) return;
     const edits = buildReplacementEdits([m], replacement, useRegex);
     if (edits.length === 0) return;
-    const perNote: BulkEdit[] = [{ noteId, edits }];
     applyEditsToModel(model, edits);
     const note = notesRef.current.find((n) => n.id === noteId);
     if (note) {
@@ -487,14 +430,14 @@ export const useSearchReplace = ({
         'update',
       ).catch(() => {});
     }
-    commitCommand('searchReplace.historyReplace', perNote, { count: 1 });
+    announceReplaceResult('replaceOne', 1);
   }, [
     currentMatches,
     currentMatchIndex,
     replacement,
     useRegex,
     patternError,
-    commitCommand,
+    announceReplaceResult,
   ]);
 
   // 現在ノートの全マッチを置換
@@ -508,7 +451,6 @@ export const useSearchReplace = ({
     if (currentMatches.length === 0) return;
 
     const edits = buildReplacementEdits(currentMatches, replacement, useRegex);
-    const perNote: BulkEdit[] = [{ noteId, edits }];
     applyEditsToModel(model, edits);
     const note = notesRef.current.find((n) => n.id === noteId);
     if (note) {
@@ -521,10 +463,14 @@ export const useSearchReplace = ({
         'update',
       ).catch(() => {});
     }
-    commitCommand('searchReplace.historyReplaceAll', perNote, {
-      count: edits.length,
-    });
-  }, [currentMatches, replacement, useRegex, patternError, commitCommand]);
+    announceReplaceResult('replaceAllInCurrent', edits.length);
+  }, [
+    currentMatches,
+    replacement,
+    useRegex,
+    patternError,
+    announceReplaceResult,
+  ]);
 
   // 全ノートで一括置換
   const replaceAllInAllNotes = useCallback(async () => {
@@ -546,7 +492,8 @@ export const useSearchReplace = ({
     );
     if (!confirmed) return;
 
-    const perNote: BulkEdit[] = [];
+    type PerNote = { noteId: string; edits: PlannedEdit[] };
+    const perNote: PerNote[] = [];
     for (const group of crossNoteResults) {
       const edits = buildReplacementEdits(group.matches, replacement, useRegex);
       if (edits.length > 0) {
@@ -579,10 +526,8 @@ export const useSearchReplace = ({
       }
     }
 
-    commitCommand('searchReplace.historyReplaceAllNotes', perNote, {
-      noteCount: perNote.length,
-      matchCount: perNote.reduce((s, p) => s + p.edits.length, 0),
-    });
+    const totalReplaced = perNote.reduce((s, p) => s + p.edits.length, 0);
+    announceReplaceResult('replaceAllInAll', totalReplaced);
 
     // 結果を再計算（すべて置換済みなのでクリアされるはず）
     recomputeCrossNoteMatches();
@@ -593,54 +538,9 @@ export const useSearchReplace = ({
     useRegex,
     patternError,
     showMessage,
-    commitCommand,
     recomputeCrossNoteMatches,
     recomputeCurrentMatches,
-  ]);
-
-  // Undo（競合時はダイアログ）
-  const undo = useCallback(async () => {
-    const cmd = history.peekUndo();
-    if (!cmd) return;
-    const ok = await history.undo();
-    if (ok) {
-      recomputeCurrentMatches();
-      recomputeCrossNoteMatches();
-      return;
-    }
-    await showMessage(
-      tRef.current('searchReplace.conflictTitle'),
-      tRef.current('searchReplace.conflictMessage'),
-      false,
-      tRef.current('dialog.ok'),
-    );
-  }, [
-    history,
-    showMessage,
-    recomputeCurrentMatches,
-    recomputeCrossNoteMatches,
-  ]);
-
-  const redo = useCallback(async () => {
-    const cmd = history.peekRedo();
-    if (!cmd) return;
-    const ok = await history.redo();
-    if (ok) {
-      recomputeCurrentMatches();
-      recomputeCrossNoteMatches();
-      return;
-    }
-    await showMessage(
-      tRef.current('searchReplace.conflictTitle'),
-      tRef.current('searchReplace.conflictMessage'),
-      false,
-      tRef.current('dialog.ok'),
-    );
-  }, [
-    history,
-    showMessage,
-    recomputeCurrentMatches,
-    recomputeCrossNoteMatches,
+    announceReplaceResult,
   ]);
 
   // 外部からフォーカス要求（モードも合わせて切替）
@@ -666,9 +566,8 @@ export const useSearchReplace = ({
     currentMatches,
     currentMatchIndex,
     crossNoteResults,
-    canUndo: history.canUndo,
-    canRedo: history.canRedo,
     focusToken,
+    replaceResult,
     // アクション
     setQuery,
     setReplacement,
@@ -684,8 +583,5 @@ export const useSearchReplace = ({
     replaceCurrent,
     replaceAllInCurrent,
     replaceAllInAllNotes,
-    undo,
-    redo,
-    invalidateForNote: history.invalidateForNote,
   };
 };

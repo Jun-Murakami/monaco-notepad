@@ -2,6 +2,10 @@
 // wails.json の productVersion を正として、
 // frontend/package.json と mobile/package.json の version を揃える。
 // ビルドスクリプト (build.ps1 / build_mac.sh) から呼ばれる。
+//
+// `--bump-mobile-build` フラグを渡すと、追加で mobile/build-number.json の
+// buildNumber をインクリメントする（iOS CFBundleVersion / Android versionCode
+// の単一ソース）。mobile の prebuild / preandroid / preios から呼ばれる想定。
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -9,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..');
+const bumpMobileBuild = process.argv.includes('--bump-mobile-build');
 
 const wailsPath = join(repoRoot, 'wails.json');
 const targets = [
@@ -40,4 +45,16 @@ for (const file of targets) {
 
 if (changed === 0) {
 	console.log(`sync-version: all package.json already at v${version}`);
+}
+
+if (bumpMobileBuild) {
+	const buildNumberPath = join(repoRoot, 'mobile', 'build-number.json');
+	const raw = readFileSync(buildNumberPath, 'utf8');
+	const data = JSON.parse(raw);
+	const prev = typeof data.buildNumber === 'number' ? data.buildNumber : 0;
+	const next = prev + 1;
+	data.buildNumber = next;
+	const trailing = raw.endsWith('\n') ? '\n' : '';
+	writeFileSync(buildNumberPath, `${JSON.stringify(data, null, 2)}${trailing}`);
+	console.log(`sync-version: mobile build number ${prev} -> ${next}`);
 }

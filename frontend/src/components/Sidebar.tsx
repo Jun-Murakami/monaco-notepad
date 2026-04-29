@@ -22,6 +22,7 @@ import { SearchReplacePanel } from './SearchReplacePanel';
 
 import type {
   NoteMatchGroup,
+  ReplaceResult,
   SearchPanelMode,
 } from '../hooks/useSearchReplace';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
@@ -47,9 +48,8 @@ interface SidebarProps {
     currentMatchIndex: number;
     crossNoteResults: NoteMatchGroup[];
     activeNoteId: string | null;
-    canUndo: boolean;
-    canRedo: boolean;
     focusToken: number;
+    replaceResult: ReplaceResult | null;
     sidebarMatchCount: number;
     onSetQuery: (v: string) => void;
     onSetReplacement: (v: string) => void;
@@ -65,8 +65,6 @@ interface SidebarProps {
     onReplaceAllInAllNotes: () => void;
     onJumpToNoteMatch: (noteId: string, indexInNote: number) => void;
     onSelectNote: (noteId: string) => Promise<void> | void;
-    onUndo: () => void;
-    onRedo: () => void;
   };
   // File notes
   fileNotes: FileNote[];
@@ -222,9 +220,8 @@ export const Sidebar: React.FC<SidebarProps> = memo(
           currentMatchIndex={searchReplace.currentMatchIndex}
           crossNoteResults={searchReplace.crossNoteResults}
           activeNoteId={searchReplace.activeNoteId}
-          canUndo={searchReplace.canUndo}
-          canRedo={searchReplace.canRedo}
           focusToken={searchReplace.focusToken}
+          replaceResult={searchReplace.replaceResult}
           sidebarMatchCount={searchReplace.sidebarMatchCount}
           onSetQuery={searchReplace.onSetQuery}
           onSetReplacement={searchReplace.onSetReplacement}
@@ -240,8 +237,6 @@ export const Sidebar: React.FC<SidebarProps> = memo(
           onReplaceAllInAllNotes={searchReplace.onReplaceAllInAllNotes}
           onJumpToNoteMatch={searchReplace.onJumpToNoteMatch}
           onSelectNote={searchReplace.onSelectNote}
-          onUndo={searchReplace.onUndo}
-          onRedo={searchReplace.onRedo}
         />
         <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
           <SimpleBar style={{ height: '100%' }}>

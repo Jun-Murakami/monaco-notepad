@@ -3,6 +3,7 @@ credentials.json
 token.json
 .env
 .DS_Store
+*.jks
 
 build/bin
 node_modules
@@ -19,3 +20,5 @@ backend/*.out
 
 /build/
 /build/**
+mobile/modules/caret-position/android/*/**
+mobile/modules/caret-position/ios/*/**

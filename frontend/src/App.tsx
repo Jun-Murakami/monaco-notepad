@@ -975,9 +975,8 @@ function App() {
                   currentMatchIndex: searchReplace.currentMatchIndex,
                   crossNoteResults: searchReplace.crossNoteResults,
                   activeNoteId: getActiveNoteId(),
-                  canUndo: searchReplace.canUndo,
-                  canRedo: searchReplace.canRedo,
                   focusToken: searchReplace.focusToken,
+                  replaceResult: searchReplace.replaceResult,
                   sidebarMatchCount: totalSearchMatches,
                   onSetQuery: searchReplace.setQuery,
                   onSetReplacement: searchReplace.setReplacement,
@@ -1003,8 +1002,6 @@ function App() {
                     if (isSplit) await handleSelectNoteForPane(n);
                     else await handleSelecAnyNote(n);
                   },
-                  onUndo: searchReplace.undo,
-                  onRedo: searchReplace.redo,
                 }}
                 fileNotes={fileNotes}
                 filteredFileNotes={filteredFileNotes}

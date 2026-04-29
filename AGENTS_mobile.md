@@ -318,7 +318,7 @@ EAS が Apple Developer Portal と連携して自動セットアップ。初回 
    GOOGLE_OAUTH_ANDROID_CLIENT_ID=yyyyy.apps.googleusercontent.com
    ```
 3. `.env.local` は `.gitignore` 済。コミットされないことを `git check-ignore` で確認可能
-4. EAS Build では `eas secret:create --scope project --name GOOGLE_OAUTH_IOS_CLIENT_ID --value ...` で同名のシークレットを登録
+4. EAS Build では `eas env:create --name GOOGLE_OAUTH_IOS_CLIENT_ID --value ... --scope project --visibility sensitive --environment production --environment preview --environment development` で同名の環境変数を登録（旧 `eas secret:create` は deprecated）
 5. 未設定のまま起動すると `authService.resolveClientId` が明示エラーを投げる（プレースホルダのまま通さない）
 
 ### Android デバッグ SHA-1 の取得
@@ -388,7 +388,6 @@ keytool -list -v -keystore ~/.android/debug.keystore \
 - [ ] Play Console 内部テスト配信 → 実機検証
 
 ### 実装タスク
-- [ ] `expo-background-fetch` による true bg 同期（iOS は制約多いため優先度低）
 - [ ] UI コンポーネントの render テスト（Vitest + react-native-web or Jest + jest-expo）
 - [ ] `polling.ts` / `driveService.ts` の結合テスト
 - [ ] v1 legacy Drive からの移行フロー（モバイルは新規前提で未対応）

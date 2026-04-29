@@ -54,7 +54,12 @@
       "WebFetch(domain:nuclearpasta.com)",
       "Bash(npx expo-modules-autolinking:*)",
       "WebFetch(domain:docs.expo.dev)",
-      "WebFetch(domain:expo.dev)"
+      "WebFetch(domain:expo.dev)",
+      "Bash(tasklist)",
+      "Bash(findstr /i node)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(npx --no-install tsc --noEmit)"
     ]
   }
 }

@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Close,
   FindReplace,
   KeyboardArrowDown,
   KeyboardArrowUp,
-  Redo,
   Search,
-  Undo,
 } from '@mui/icons-material';
 import {
   alpha,
@@ -28,6 +26,7 @@ import { extractLineAt } from '../utils/searchUtils';
 
 import type {
   NoteMatchGroup,
+  ReplaceResult,
   SearchPanelMode,
 } from '../hooks/useSearchReplace';
 import type { SearchMatch } from '../utils/searchUtils';
@@ -45,9 +44,9 @@ interface SearchReplacePanelProps {
   crossNoteResults: NoteMatchGroup[];
   // 現在フォーカスされているノートの ID。カウンタのグローバル位置計算に使う。
   activeNoteId: string | null;
-  canUndo: boolean;
-  canRedo: boolean;
   focusToken: number;
+  // 直近の置換実行結果。置換モードを閉じるまで表示を維持。
+  replaceResult: ReplaceResult | null;
   // 検索クエリが空のとき、サイドバー絞り込み件数をバッジに表示
   sidebarMatchCount: number;
   onSetQuery: (v: string) => void;
@@ -64,8 +63,6 @@ interface SearchReplacePanelProps {
   onReplaceAllInAllNotes: () => void;
   onJumpToNoteMatch: (noteId: string, indexInNote: number) => void;
   onSelectNote: (noteId: string) => Promise<void> | void;
-  onUndo: () => void;
-  onRedo: () => void;
 }
 
 const toggleReplaceMode = (mode: SearchPanelMode): SearchPanelMode =>
@@ -90,9 +87,8 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   currentMatchIndex,
   crossNoteResults,
   activeNoteId,
-  canUndo,
-  canRedo,
   focusToken,
+  replaceResult,
   sidebarMatchCount,
   onSetQuery,
   onSetReplacement,
@@ -108,8 +104,6 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   onReplaceAllInAllNotes,
   onJumpToNoteMatch,
   onSelectNote,
-  onUndo,
-  onRedo,
 }) => {
   const { t } = useTranslation();
   const findInputRef = useRef<HTMLInputElement>(null);
@@ -198,16 +192,21 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           },
         }}
       />
-      {/* 検索行 */}
+
+      {/* ============================================================
+       * FIND セクション: 検索 input + マッチカウンタ + オプショントグル
+       * ============================================================ */}
       <Box
         sx={{
-          px: 1,
-          py: 0.5,
+          px: 1.25,
+          pt: 1,
+          pb: 0.75,
           display: 'flex',
-          alignItems: 'center',
-          gap: 0.25,
+          flexDirection: 'column',
+          gap: 0.75,
         }}
       >
+        {/* 検索 input (close ボタンのみ end adornment) */}
         <InputBase
           inputRef={findInputRef}
           value={query}
@@ -216,13 +215,12 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           placeholder={t('search.placeholder')}
           size="small"
           sx={{
-            flexGrow: 1,
-            fontSize: '0.8rem',
+            fontSize: '0.85rem',
             border: 1,
             borderColor: patternError ? 'error.main' : 'divider',
             borderRadius: 1,
             '& .MuiInputBase-input': {
-              py: 0.5,
+              py: 0.6,
               px: 0.5,
               fontFamily: useRegex ? 'monospace' : undefined,
               // プレースホルダは UI フォントに固定し、regex モード切替によるサイズ揺れを回避
@@ -233,124 +231,123 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           }}
           startAdornment={
             <InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
-              <Search sx={{ fontSize: 16, color: 'text.secondary' }} />
+              <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
             </InputAdornment>
           }
           endAdornment={
             hasQuery ? (
               <InputAdornment position="end" sx={{ mr: 0.25 }}>
-                <Box
-                  component="span"
-                  sx={{
-                    fontSize: '0.7rem',
-                    color: patternError ? 'error.main' : 'text.secondary',
-                    whiteSpace: 'nowrap',
-                    minWidth: 36,
-                    textAlign: 'center',
-                  }}
-                >
-                  {patternError
-                    ? t('searchReplace.invalidPattern')
-                    : matchBadge}
-                </Box>
-                <IconButton
-                  size="small"
-                  onClick={onFindPrevious}
-                  disabled={currentMatches.length === 0}
-                  sx={{ p: 0.25 }}
-                >
-                  <KeyboardArrowUp sx={{ fontSize: 16 }} />
-                </IconButton>
-                <IconButton
-                  size="small"
-                  onClick={onFindNext}
-                  disabled={currentMatches.length === 0}
-                  sx={{ p: 0.25 }}
-                >
-                  <KeyboardArrowDown sx={{ fontSize: 16 }} />
-                </IconButton>
-                <IconButton size="small" onClick={onClear} sx={{ p: 0.25 }}>
-                  <Close sx={{ fontSize: 14 }} />
+                <IconButton size="small" onClick={onClear} sx={{ p: 0.5 }}>
+                  <Close sx={{ fontSize: 16 }} />
                 </IconButton>
               </InputAdornment>
             ) : null
           }
         />
+
+        {/* マッチカウンタ + 前/次 ナビゲーション (検索クエリがある時のみ) */}
+        {hasQuery && (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              minHeight: 28,
+            }}
+          >
+            <Typography
+              component="span"
+              sx={{
+                fontSize: '0.8rem',
+                fontWeight: 500,
+                color: patternError ? 'error.main' : 'text.secondary',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {patternError ? t('searchReplace.invalidPattern') : matchBadge}
+            </Typography>
+            <Box sx={{ flexGrow: 1 }} />
+            <Tooltip arrow title={t('searchReplace.previous')}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={onFindPrevious}
+                  disabled={currentMatches.length === 0}
+                  sx={{ p: 0.5 }}
+                >
+                  <KeyboardArrowUp sx={{ fontSize: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip arrow title={t('searchReplace.next')}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={onFindNext}
+                  disabled={currentMatches.length === 0}
+                  sx={{ p: 0.5 }}
+                >
+                  <KeyboardArrowDown sx={{ fontSize: 18 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Box>
+        )}
+
+        {/* オプショントグル + 置換モード切替 */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.5,
+            flexWrap: 'wrap',
+          }}
+        >
+          <OptionToggle
+            selected={caseSensitive}
+            onChange={onToggleCaseSensitive}
+            title={t('searchReplace.caseMatch')}
+            label="Aa"
+          />
+          <OptionToggle
+            selected={wholeWord}
+            onChange={onToggleWholeWord}
+            title={t('searchReplace.wholeWord')}
+            label="ab"
+          />
+          <OptionToggle
+            selected={useRegex}
+            onChange={onToggleUseRegex}
+            title={t('searchReplace.regex')}
+            label=".*"
+          />
+          <Box sx={{ flexGrow: 1 }} />
+          <OptionToggle
+            selected={replaceOn}
+            onChange={toggleReplace}
+            title={t('searchReplace.toggleReplace')}
+            label={t('searchReplace.mode.replace')}
+          />
+        </Box>
       </Box>
 
-      {/* オプショントグル行 */}
-      <Box
-        sx={{
-          px: 1,
-          pb: 0.5,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.25,
-          flexWrap: 'wrap',
-        }}
-      >
-        <OptionToggle
-          selected={caseSensitive}
-          onChange={onToggleCaseSensitive}
-          title={t('searchReplace.caseMatch')}
-          label="Aa"
-        />
-        <OptionToggle
-          selected={wholeWord}
-          onChange={onToggleWholeWord}
-          title={t('searchReplace.wholeWord')}
-          label="ab"
-        />
-        <OptionToggle
-          selected={useRegex}
-          onChange={onToggleUseRegex}
-          title={t('searchReplace.regex')}
-          label=".*"
-        />
-        <Box sx={{ flexGrow: 1 }} />
-        <OptionToggle
-          selected={replaceOn}
-          onChange={toggleReplace}
-          title={t('searchReplace.toggleReplace')}
-          label={t('searchReplace.mode.replace')}
-        />
-        <Tooltip arrow title={t('searchReplace.undo')}>
-          <span>
-            <IconButton
-              size="small"
-              onClick={onUndo}
-              disabled={!canUndo}
-              sx={{ p: 0.25 }}
-            >
-              <Undo sx={{ fontSize: 16 }} />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip arrow title={t('searchReplace.redo')}>
-          <span>
-            <IconButton
-              size="small"
-              onClick={onRedo}
-              disabled={!canRedo}
-              sx={{ p: 0.25 }}
-            >
-              <Redo sx={{ fontSize: 16 }} />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Box>
-
-      {/* 置換行 */}
+      {/* ============================================================
+       * REPLACE セクション: 置換 input + 置換アクション + Undo/Redo
+       * 置換モード ON のときのみ表示
+       * ============================================================ */}
       {replaceOn && (
         <Box
           sx={{
-            px: 1,
-            pb: 0.5,
+            px: 1.25,
+            py: 0.75,
+            borderTop: 1,
+            borderColor: 'divider',
             display: 'flex',
-            alignItems: 'center',
-            gap: 0.25,
+            flexDirection: 'column',
+            gap: 0.75,
           }}
         >
+          {/* 置換 input */}
           <InputBase
             value={replacement}
             onChange={(e) => onSetReplacement(e.target.value)}
@@ -363,13 +360,12 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
             placeholder={t('searchReplace.replacePlaceholder')}
             size="small"
             sx={{
-              flexGrow: 1,
-              fontSize: '0.8rem',
+              fontSize: '0.85rem',
               border: 1,
               borderColor: 'divider',
               borderRadius: 1,
               '& .MuiInputBase-input': {
-                py: 0.5,
+                py: 0.6,
                 px: 0.5,
                 fontFamily: useRegex ? 'monospace' : undefined,
                 '&::placeholder': {
@@ -377,96 +373,142 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                 },
               },
             }}
+            startAdornment={
+              <InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
+                <FindReplace sx={{ fontSize: 18, color: 'text.secondary' }} />
+              </InputAdornment>
+            }
           />
-          <Tooltip arrow title={t('searchReplace.replaceOne')}>
-            <span>
-              <IconButton
-                size="small"
-                onClick={onReplaceCurrent}
-                disabled={currentMatches.length === 0 || !!patternError}
-                sx={{ p: 0.25 }}
-              >
-                <FindReplace sx={{ fontSize: 16 }} />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip arrow title={t('searchReplace.replaceAllInCurrent')}>
-            <span>
-              <IconButton
-                size="small"
-                onClick={onReplaceAllInCurrent}
-                disabled={currentMatches.length === 0 || !!patternError}
-                sx={{ p: 0.25, px: 0.5 }}
-              >
-                <Typography
-                  component="span"
-                  sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}
+
+          {/* 置換アクション行: 「置換」(現マッチ 1 件) + 「すべて置換」(現ノート全件)。
+           * Undo/Redo は Monaco モデルの組み込み履歴 (Ctrl+Z) に委ねるため設けない。 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Tooltip arrow title={t('searchReplace.replaceOne')}>
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={onReplaceCurrent}
+                  disabled={currentMatches.length === 0 || !!patternError}
+                  sx={{
+                    py: 0.25,
+                    px: 1,
+                    minWidth: 0,
+                    fontSize: '0.75rem',
+                    lineHeight: 1.5,
+                    textTransform: 'none',
+                  }}
                 >
-                  {t('searchReplace.all')}
-                </Typography>
-              </IconButton>
+                  {t('searchReplace.replaceOne')}
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip arrow title={t('searchReplace.replaceAllInCurrent')}>
+              <span>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={onReplaceAllInCurrent}
+                  disabled={currentMatches.length === 0 || !!patternError}
+                  sx={{
+                    py: 0.25,
+                    px: 1,
+                    minWidth: 0,
+                    fontSize: '0.75rem',
+                    lineHeight: 1.5,
+                    textTransform: 'none',
+                  }}
+                >
+                  {t('searchReplace.replaceAllInCurrentShort')}
+                </Button>
+              </span>
+            </Tooltip>
+          </Box>
+
+          {/* すべてのノートで置換: 置換アクションのすぐ下に常時配置
+           * (押せない時は disable)。スタイルは上 2 ボタンと統一 (outlined)。
+           * 実行前に `confirmReplaceAll*` で確認ダイアログを表示。 */}
+          <Tooltip arrow title={t('searchReplace.replaceAllInAll')}>
+            <span style={{ width: '100%', display: 'block' }}>
+              <Button
+                fullWidth
+                size="small"
+                variant="outlined"
+                onClick={onReplaceAllInAllNotes}
+                disabled={!!patternError || totalAllMatches === 0}
+                sx={{
+                  py: 0.25,
+                  fontSize: '0.75rem',
+                  lineHeight: 1.5,
+                  textTransform: 'none',
+                }}
+              >
+                {t('searchReplace.replaceAllInAllShort')}
+              </Button>
             </span>
           </Tooltip>
+
+          {/* 置換実行直後のフィードバック (4 秒で自動消去)。
+           * 「すべてのノートで置換」ボタンの直下に表示。 */}
+          {replaceResult && (
+            <Typography
+              key={replaceResult.token}
+              component="div"
+              sx={{
+                fontSize: '0.7rem',
+                color: 'success.main',
+                fontWeight: 500,
+                lineHeight: 1.4,
+                px: 0.5,
+              }}
+            >
+              {t(`searchReplace.feedback.${replaceResult.kind}`, {
+                count: replaceResult.count,
+              })}
+            </Typography>
+          )}
         </Box>
       )}
 
-      {/* ノート横断結果ツリー（常時表示、SimpleBar でスタイル統一） */}
+      {/* ============================================================
+       * RESULTS セクション: 集計ヘッダ + ノート横断結果ツリー
+       * ヒット 1 件以上のときのみ表示
+       * ============================================================ */}
       {crossNoteResults.length > 0 && (
         <Box
           sx={{
             borderTop: 1,
             borderColor: 'divider',
-            fontSize: '0.75rem',
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
           }}
         >
-          {replaceOn && crossNoteResults.length > 0 && (
-            <Box
+          {/* ヘッダ: 集計表示のみ
+           * 全ノート一括置換ボタンは Replace セクション内に移動 */}
+          <Box
+            sx={{
+              px: 1.25,
+              py: 0.75,
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'action.hover',
+            }}
+          >
+            <Typography
+              component="span"
               sx={{
-                px: 1,
-                py: 0.5,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-                borderBottom: 1,
-                borderColor: 'divider',
-                backgroundColor: 'action.hover',
+                fontSize: '0.75rem',
+                fontWeight: 500,
+                color: 'text.secondary',
               }}
             >
-              <Typography
-                component="span"
-                sx={{ fontSize: '0.7rem', color: 'text.secondary' }}
-              >
-                {t('searchReplace.crossNoteSummary', {
-                  matchCount: totalAllMatches,
-                  noteCount: crossNoteResults.length,
-                })}
-              </Typography>
-              <Box sx={{ flexGrow: 1 }} />
-              <Tooltip arrow title={t('searchReplace.replaceAllInAll')}>
-                <span>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={onReplaceAllInAllNotes}
-                    disabled={!!patternError}
-                    sx={{
-                      py: 0,
-                      px: 0.75,
-                      minWidth: 0,
-                      fontSize: '0.7rem',
-                      lineHeight: 1.6,
-                      textTransform: 'none',
-                    }}
-                  >
-                    {t('searchReplace.replaceAllInAllShort')}
-                  </Button>
-                </span>
-              </Tooltip>
-            </Box>
-          )}
+              {t('searchReplace.crossNoteSummary', {
+                matchCount: totalAllMatches,
+                noteCount: crossNoteResults.length,
+              })}
+            </Typography>
+          </Box>
           <SimpleBar style={{ maxHeight: '50vh' }}>
             {crossNoteResults.map((group) => (
               <CrossNoteGroup
@@ -485,7 +527,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   );
 };
 
-// 汎用小さなトグルボタン
+// 汎用トグルボタン (オプション切替用)
 const OptionToggle: React.FC<{
   selected: boolean;
   onChange: () => void;
@@ -499,11 +541,12 @@ const OptionToggle: React.FC<{
       selected={selected}
       onChange={onChange}
       sx={{
-        py: 0,
-        px: 0.75,
-        fontSize: '0.7rem',
+        py: 0.25,
+        px: 1,
+        fontSize: '0.75rem',
         fontWeight: 'bold',
-        minWidth: 24,
+        minWidth: 30,
+        height: 26,
         lineHeight: 1.4,
         textTransform: 'none',
         // 未選択時は MUI Button variant="outlined" color="primary" 相当
@@ -535,11 +578,19 @@ const OptionToggle: React.FC<{
   </Tooltip>
 );
 
-// 結果ツリーの各ノートブロック
-const CrossNoteGroup: React.FC<{
+// 結果ツリーの各ノートブロック。
+// タイピング中の再レンダー連打で重くなるのを避けるため `memo` で囲み、
+// `group` の reference 変化のみで再レンダー判定する (onJump の arrow は無視)。
+// `crossNoteResults` は debounce 後に setState されるので、タイピング中は
+// 各 group の reference 不変 → ツリー全体の再描画がスキップされる。
+type CrossNoteGroupProps = {
   group: NoteMatchGroup;
   onJump: (indexInNote: number) => void;
-}> = ({ group, onJump }) => {
+};
+const CrossNoteGroupImpl: React.FC<CrossNoteGroupProps> = ({
+  group,
+  onJump,
+}) => {
   const { t } = useTranslation();
   return (
     <Box
@@ -659,3 +710,11 @@ const CrossNoteGroup: React.FC<{
     </Box>
   );
 };
+
+// `group` の reference が同じなら再レンダーをスキップ。
+// `onJump` は親で毎回新規 arrow が作られるが、ジャンプ先は group.noteId に
+// 依存するだけで挙動が変わらないため比較対象から除外。
+const CrossNoteGroup = memo(
+  CrossNoteGroupImpl,
+  (prev, next) => prev.group === next.group,
+);
