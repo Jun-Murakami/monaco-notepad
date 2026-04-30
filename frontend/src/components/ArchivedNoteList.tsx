@@ -51,6 +51,7 @@ import {
 import SimpleBar from 'simplebar-react';
 
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
+import { formatNoteDate } from '../utils/dateFormat';
 import { ArchivedNoteContentDialog } from './ArchivedNoteContentDialog';
 import { NotePreviewPopper } from './NotePreviewPopper';
 import {
@@ -77,6 +78,7 @@ interface ArchivedNoteListProps {
   onUpdateArchivedTopLevelOrder: (order: TopLevelItem[]) => void;
   onMoveNoteToFolder?: (noteID: string, folderID: string) => void;
   isDarkMode: boolean;
+  systemLocale?: string;
 }
 
 // 1) DnDメタ情報
@@ -289,6 +291,7 @@ interface ArchivedNoteItemProps {
   selected?: boolean;
   isDragging?: boolean;
   hideBottomBorder?: boolean;
+  systemLocale?: string;
 }
 
 const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
@@ -301,15 +304,16 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
     selected,
     isDragging,
     hideBottomBorder,
+    systemLocale,
   }) => {
     const { t } = useTranslation();
     const titleInfo = getNoteTitle(note, t);
+    const formattedDate = formatNoteDate(note.modifiedTime, systemLocale);
     const actionButtonSx = { width: 28, height: 28 };
 
     return (
       <NotePreviewPopper
         content={note.content || note.contentHeader || undefined}
-        modifiedTime={note.modifiedTime}
         disabled={isDragging}
       >
         <ListItemButton
@@ -345,11 +349,25 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
               sx={{
                 fontSize: '0.875rem',
                 fontStyle: titleInfo.isFallback ? 'italic' : 'normal',
-                opacity: titleInfo.isFallback ? 0.6 : 1,
+                opacity: titleInfo.isFallback ? 0.7 : 1,
               }}
             >
               {titleInfo.text}
             </Typography>
+            {formattedDate && (
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  color: 'text.disabled',
+                  fontSize: '0.7rem',
+                  lineHeight: 1.2,
+                  mt: 0.25,
+                }}
+              >
+                {formattedDate}
+              </Typography>
+            )}
           </Box>
           <Box
             sx={{ display: 'flex', gap: 1, flexShrink: 0 }}
@@ -633,6 +651,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   onUpdateArchivedTopLevelOrder,
   onMoveNoteToFolder,
   isDarkMode,
+  systemLocale,
 }) => {
   const isTestEnv = import.meta.env.MODE === 'test';
   const { t } = useTranslation();
@@ -1460,6 +1479,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                           onSelect={handleSelectNote}
                           selected={selectedNote?.id === row.note.id}
                           isDragging={!!activeDrag}
+                          systemLocale={systemLocale}
                         />
                       </PragmaticRow>
                     );
@@ -1572,6 +1592,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
                             selected={selectedNote?.id === row.note.id}
                             isDragging={!!activeDrag}
                             hideBottomBorder={row.isLastInFolder}
+                            systemLocale={systemLocale}
                           />
                         </Box>
                       </PragmaticRow>
@@ -1704,6 +1725,7 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
           selectedNote ? getPreviousNote(selectedNote.id) !== null : false
         }
         hasNext={selectedNote ? getNextNote(selectedNote.id) !== null : false}
+        systemLocale={systemLocale}
       />
     </Box>
   );

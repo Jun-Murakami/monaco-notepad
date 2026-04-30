@@ -5,7 +5,6 @@ import { DEFAULT_EDITOR_FONT_FAMILY } from '../types';
 
 interface NotePreviewPopperProps {
   content: string | undefined;
-  modifiedTime?: string;
   anchorX?: number;
   disabled?: boolean;
   children: React.ReactNode;
@@ -13,7 +12,6 @@ interface NotePreviewPopperProps {
 
 export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
   content,
-  modifiedTime,
   anchorX,
   disabled,
   children,
@@ -22,35 +20,15 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
   if (disabled) return <>{children}</>;
 
   return (
-    <NotePreviewPopperInner
-      content={content}
-      modifiedTime={modifiedTime}
-      anchorX={anchorX}
-    >
+    <NotePreviewPopperInner content={content} anchorX={anchorX}>
       {children}
     </NotePreviewPopperInner>
   );
 };
 
-const formatLocalizedDateTime = (value?: string): string => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const locale =
-    typeof navigator === 'undefined' ? undefined : navigator.language;
-  return new Intl.DateTimeFormat(locale, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(date);
-};
-
 const NotePreviewPopperInner: React.FC<
   Omit<NotePreviewPopperProps, 'disabled'>
-> = ({ content, modifiedTime, anchorX, children }) => {
+> = ({ content, anchorX, children }) => {
   const [open, setOpen] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
   const mouseYRef = useRef(0);
@@ -102,10 +80,6 @@ const NotePreviewPopperInner: React.FC<
       .slice(0, 10)
       .join('\n');
   }, [content]);
-  const previewModifiedTime = useMemo(
-    () => formatLocalizedDateTime(modifiedTime),
-    [modifiedTime],
-  );
 
   return (
     <Box
@@ -137,24 +111,10 @@ const NotePreviewPopperInner: React.FC<
               flexDirection: 'column',
             }}
           >
-            {previewModifiedTime && (
-              <Box sx={{ px: 1.5, pt: 1, pb: 0.5, flex: '0 0 auto' }}>
-                <Typography
-                  variant="body1"
-                  sx={{
-                    color: 'text.disabled',
-                    display: 'block',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  {previewModifiedTime}
-                </Typography>
-              </Box>
-            )}
             <Box
               sx={{
                 px: 1.5,
-                pt: previewModifiedTime ? 0 : 1,
+                pt: 1,
                 overflow: 'hidden',
                 flex: '1 1 auto',
                 minHeight: 0,

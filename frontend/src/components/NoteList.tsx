@@ -51,6 +51,7 @@ import {
 } from '@mui/material';
 
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
+import { formatNoteDate } from '../utils/dateFormat';
 import { NotePreviewPopper } from './NotePreviewPopper';
 import {
   insertTopLevelNote,
@@ -129,6 +130,7 @@ interface NoteListProps {
   onCloseFile?: (note: FileNote) => Promise<void>;
   isFileModified?: (fileId: string) => boolean;
   platform: string;
+  systemLocale?: string;
   folders?: Folder[];
   collapsedFolders?: Set<string>;
   onToggleFolderCollapse?: (folderId: string) => void;
@@ -168,6 +170,7 @@ interface NoteItemProps {
   onCloseFile?: (note: FileNote) => Promise<void>;
   isFileModified?: (fileId: string) => boolean;
   platform: string;
+  systemLocale?: string;
   secondarySelectedNoteId?: string;
   onOpenInPane?: (note: Note | FileNote, pane: 'left' | 'right') => void;
   canSplit?: boolean;
@@ -188,6 +191,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     onCloseFile,
     isFileModified,
     platform,
+    systemLocale,
     secondarySelectedNoteId,
     onOpenInPane,
     canSplit,
@@ -197,6 +201,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     const cmdKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
     const { t } = useTranslation();
     const noteTitle = getNoteTitle(note);
+    const formattedDate = formatNoteDate(note.modifiedTime, systemLocale);
     const [contextMenu, setContextMenu] = useState<{
       mouseX: number;
       mouseY: number;
@@ -224,7 +229,6 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     return (
       <NotePreviewPopper
         content={'content' in note ? (note.content ?? undefined) : undefined}
-        modifiedTime={note.modifiedTime}
         disabled={contextMenu !== null || isSyncing || !!isDragging}
       >
         <Box
@@ -283,7 +287,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                   isFileModified?.(note.id) || noteTitle.isFallback
                     ? 'italic'
                     : 'normal',
-                opacity: noteTitle.isFallback ? 0.6 : 1,
+                opacity: noteTitle.isFallback ? 0.7 : 1,
               }}
             >
               {isFileModified?.(note.id) && (
@@ -299,6 +303,20 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               )}
               {noteTitle.text}
             </Typography>
+            {formattedDate && (
+              <Typography
+                variant="caption"
+                sx={{
+                  width: '100%',
+                  color: 'text.disabled',
+                  fontSize: '0.7rem',
+                  lineHeight: 1.2,
+                  mt: 0.25,
+                }}
+              >
+                {formattedDate}
+              </Typography>
+            )}
           </ListItemButton>
           {isFileMode ? (
             <>
@@ -1096,6 +1114,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   onCloseFile,
   isFileModified,
   platform,
+  systemLocale,
   folders = [],
   collapsedFolders = new Set(),
   onToggleFolderCollapse,
@@ -1330,6 +1349,7 @@ export const NoteList: React.FC<NoteListProps> = ({
         onCloseFile={onCloseFile}
         isFileModified={isFileModified}
         platform={platform}
+        systemLocale={systemLocale}
         secondarySelectedNoteId={secondarySelectedNoteId}
         onOpenInPane={onOpenInPane}
         canSplit={canSplit}
@@ -1349,6 +1369,7 @@ export const NoteList: React.FC<NoteListProps> = ({
       onOpenInPane,
       onSaveFile,
       platform,
+      systemLocale,
       secondarySelectedNoteId,
       getLocalizedNoteTitle,
     ],

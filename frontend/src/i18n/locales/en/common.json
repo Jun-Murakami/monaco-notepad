@@ -48,7 +48,9 @@
     "archives": "Archives",
     "paneTitle": "Title",
     "paneFilePath": "File Path",
-    "language": "Language"
+    "language": "Language",
+    "selectPreviousNote": "Previous note ({{shortcut}} + Shift + Tab)",
+    "selectNextNote": "Next note ({{shortcut}} + Tab)"
   },
   "toolbar": {
     "new": "New",

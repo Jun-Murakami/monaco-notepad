@@ -48,6 +48,7 @@ interface EditorAreaProps {
   // Editor pane data
   languages: LanguageInfo[];
   platform: string;
+  systemLocale: string;
   leftEditorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
   rightEditorInstanceRef: React.RefObject<editor.IStandaloneCodeEditor | null>;
   // Left pane
@@ -73,8 +74,12 @@ interface EditorAreaProps {
   searchMatchIndexInNote: number;
   onNew: () => void;
   onOpen: () => void;
-  onSelectNext: () => Promise<void>;
-  onSelectPrevious: () => Promise<void>;
+  leftOnSelectNext: () => Promise<void>;
+  leftOnSelectPrevious: () => Promise<void>;
+  rightOnSelectNext: () => Promise<void>;
+  rightOnSelectPrevious: () => Promise<void>;
+  canSelectAdjacentLeft: boolean;
+  canSelectAdjacentRight: boolean;
   // Status bar
   canSplit: boolean;
   onToggleSplit: () => void;
@@ -113,6 +118,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
   onAllotmentChange,
   languages,
   platform,
+  systemLocale,
   leftEditorInstanceRef,
   rightEditorInstanceRef,
   leftNote,
@@ -135,8 +141,12 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
   searchMatchIndexInNote,
   onNew,
   onOpen,
-  onSelectNext,
-  onSelectPrevious,
+  leftOnSelectNext,
+  leftOnSelectPrevious,
+  rightOnSelectNext,
+  rightOnSelectPrevious,
+  canSelectAdjacentLeft,
+  canSelectAdjacentRight,
   canSplit,
   onToggleSplit,
   onToggleMarkdownPreview,
@@ -190,6 +200,7 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
             onUpdateArchivedTopLevelOrder={onUpdateArchivedTopLevelOrder}
             onMoveNoteToFolder={onMoveNoteToFolder}
             isDarkMode={settings.isDarkMode}
+            systemLocale={systemLocale}
           />
         </Suspense>
       ) : (
@@ -236,8 +247,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
               onOpen={onOpen}
               onSave={leftOnSave}
               onClose={leftOnClose}
-              onSelectNext={onSelectNext}
-              onSelectPrevious={onSelectPrevious}
+              onSelectNext={leftOnSelectNext}
+              onSelectPrevious={leftOnSelectPrevious}
+              canSelectAdjacent={canSelectAdjacentLeft}
               onOpenFind={onOpenFind}
               onOpenReplace={onOpenReplace}
               onOpenFindInAll={onOpenFindInAll}
@@ -270,8 +282,9 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 onOpen={onOpen}
                 onSave={rightOnSave}
                 onClose={rightOnClose}
-                onSelectNext={onSelectNext}
-                onSelectPrevious={onSelectPrevious}
+                onSelectNext={rightOnSelectNext}
+                onSelectPrevious={rightOnSelectPrevious}
+                canSelectAdjacent={canSelectAdjacentRight}
                 onOpenFind={onOpenFind}
                 onOpenReplace={onOpenReplace}
                 onOpenFindInAll={onOpenFindInAll}

@@ -309,8 +309,56 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   // ノートをアーカイブする ------------------------------------------------------------
   const handleArchiveNote = useCallback(
     async (noteId: string) => {
-      const note = notesRef.current.find((note) => note.id === noteId);
+      // 状態変更前にスナップショットを取る (await の途中で再レンダーが入って
+      // ref が更新される可能性があるため、後段の位置計算にはスナップショットを使う)
+      const oldNotes = notesRef.current;
+      const oldTopLevelOrder = topLevelOrderRef.current;
+      const oldArchivedTopLevelOrder = archivedTopLevelOrderRef.current;
+      const wasCurrent = currentNoteRef.current?.id === noteId;
+
+      const note = oldNotes.find((note) => note.id === noteId);
       if (!note) return;
+
+      // ★ アーカイブ前にノートリスト表示順のフラット列とアーカイブ対象の位置を確定する
+      let nextNote: Note | undefined;
+      if (wasCurrent) {
+        const oldFlat: Note[] = [];
+        const seenFlat = new Set<string>();
+        const oldNoteMap = new Map(
+          oldNotes.filter((n) => !n.archived).map((n) => [n.id, n]),
+        );
+        for (const item of oldTopLevelOrder) {
+          if (item.type === 'note') {
+            const n = oldNoteMap.get(item.id);
+            if (n && !seenFlat.has(n.id)) {
+              oldFlat.push(n);
+              seenFlat.add(n.id);
+            }
+          } else if (item.type === 'folder') {
+            for (const n of oldNotes) {
+              if (n.folderId === item.id && !n.archived && !seenFlat.has(n.id)) {
+                oldFlat.push(n);
+                seenFlat.add(n.id);
+              }
+            }
+          }
+        }
+        for (const n of oldNotes) {
+          if (!n.archived && !seenFlat.has(n.id)) {
+            oldFlat.push(n);
+            seenFlat.add(n.id);
+          }
+        }
+
+        const archivedIdx = oldFlat.findIndex((n) => n.id === noteId);
+        if (archivedIdx >= 0) {
+          if (archivedIdx + 1 < oldFlat.length) {
+            nextNote = oldFlat[archivedIdx + 1];
+          } else if (archivedIdx > 0) {
+            nextNote = oldFlat[archivedIdx - 1];
+          }
+        }
+      }
 
       const content = note.content || '';
       const contentHeader =
@@ -325,7 +373,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       };
 
       setNotes((prev) => prev.map((n) => (n.id === noteId ? archivedNote : n)));
-      const newTopLevelOrder = topLevelOrderRef.current.filter(
+      const newTopLevelOrder = oldTopLevelOrder.filter(
         (item) => !(item.type === 'note' && item.id === noteId),
       );
       setTopLevelOrder(newTopLevelOrder);
@@ -336,7 +384,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
 
       const newArchivedOrder = [
         { type: 'note' as const, id: noteId },
-        ...archivedTopLevelOrderRef.current.filter(
+        ...oldArchivedTopLevelOrder.filter(
           (item) => !(item.type === 'note' && item.id === noteId),
         ),
       ];
@@ -345,29 +393,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         newArchivedOrder.map((item) => backend.TopLevelItem.createFrom(item)),
       );
 
-      if (currentNoteRef.current?.id === noteId) {
-        const currentNotes = notesRef.current;
-        const activeNoteMap = new Map(
-          currentNotes
-            .filter((n) => !n.archived && n.id !== noteId)
-            .map((n) => [n.id, n]),
-        );
-        let nextNote: Note | undefined;
-        for (const item of topLevelOrderRef.current) {
-          if (item.type === 'note' && activeNoteMap.has(item.id)) {
-            nextNote = activeNoteMap.get(item.id);
-            break;
-          }
-          if (item.type === 'folder') {
-            const folderNote = currentNotes.find(
-              (n) => n.folderId === item.id && !n.archived && n.id !== noteId,
-            );
-            if (folderNote) {
-              nextNote = folderNote;
-              break;
-            }
-          }
-        }
+      if (wasCurrent) {
         if (nextNote) {
           setCurrentNote(nextNote);
         } else {

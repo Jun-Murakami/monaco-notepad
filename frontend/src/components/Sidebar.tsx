@@ -35,6 +35,7 @@ import type { SearchMatch } from '../utils/searchUtils';
 
 interface SidebarProps {
   platform: string;
+  systemLocale: string;
   onNew: () => Promise<void>;
   onOpen: () => Promise<void>;
   onSaveAs: () => Promise<void>;
@@ -124,6 +125,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = memo(
   ({
     platform,
+    systemLocale,
     onNew,
     onOpen,
     onSaveAs,
@@ -401,6 +403,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                   onCloseFile={onCloseFile}
                   isFileModified={isFileModified}
                   platform={platform}
+                  systemLocale={systemLocale}
                   secondarySelectedNoteId={secondarySelectedNoteId}
                   onOpenInPane={onOpenInPane}
                   canSplit={canSplit}
@@ -463,6 +466,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(
               onArchive={onArchive}
               onReorder={handleNotesReorder}
               platform={platform}
+              systemLocale={systemLocale}
               folders={folders}
               collapsedFolders={collapsedFolders}
               onToggleFolderCollapse={onToggleFolderCollapse}

@@ -50,6 +50,8 @@ export function GetCollapsedFolderIDs():Promise<Array<string>>;
 
 export function GetModifiedTime(arg1:string):Promise<time.Time>;
 
+export function GetNativeSystemLocale():Promise<string>;
+
 export function GetReleaseInfo():Promise<backend.ReleaseInfo>;
 
 export function GetSystemLocale():Promise<string>;

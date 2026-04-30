@@ -48,7 +48,9 @@
     "archives": "アーカイブ",
     "paneTitle": "タイトル",
     "paneFilePath": "ファイルパス",
-    "language": "言語"
+    "language": "言語",
+    "selectPreviousNote": "前のノート ({{shortcut}} + Shift + Tab)",
+    "selectNextNote": "次のノート ({{shortcut}} + Tab)"
   },
   "toolbar": {
     "new": "新規",

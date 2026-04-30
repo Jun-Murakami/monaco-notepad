@@ -186,11 +186,7 @@ function App() {
   });
 
   // ノート選択ユーティリティ
-  const {
-    handleSelecAnyNote,
-    handleSelectNextAnyNote,
-    handleSelectPreviousAnyNote,
-  } = useNoteSelecter({
+  const { handleSelecAnyNote } = useNoteSelecter({
     currentNote,
     currentFileNote,
     notes,
@@ -270,7 +266,7 @@ function App() {
   closeFileRef.current = handleCloseFile;
 
   // 初期化
-  const { languages, platform } = useInitialize(
+  const { languages, platform, systemLocale } = useInitialize(
     setNotes,
     setFileNotes,
     setFolders,
@@ -367,6 +363,158 @@ function App() {
     fileNotes.length + notes.filter((n) => !n.archived).length;
   const canSplit = isSplit || totalAvailableItems >= 2;
 
+  // ノートリスト表示順序に従った巡回対象ノート列
+  // (ローカルファイル → topLevelOrder の順、フォルダ内ノートは folderId 一致順)
+  const orderedAvailableNotes = ((): (Note | FileNote)[] => {
+    const activeNotes = notes.filter((n) => !n.archived);
+    const noteMap = new Map(activeNotes.map((n) => [n.id, n]));
+    const result: (Note | FileNote)[] = [...fileNotes];
+    const seen = new Set<string>();
+
+    for (const item of topLevelOrder) {
+      if (item.type === 'note') {
+        const n = noteMap.get(item.id);
+        if (n && !seen.has(n.id)) {
+          result.push(n);
+          seen.add(n.id);
+        }
+      } else if (item.type === 'folder') {
+        for (const n of activeNotes) {
+          if (n.folderId === item.id && !seen.has(n.id)) {
+            result.push(n);
+            seen.add(n.id);
+          }
+        }
+      }
+    }
+
+    // topLevelOrder にもフォルダにも紐づかないフォールバックノート
+    for (const n of activeNotes) {
+      if (!seen.has(n.id)) {
+        result.push(n);
+        seen.add(n.id);
+      }
+    }
+    return result;
+  })();
+
+  // 指定ペインに対し、ノートリスト順序に従って隣接ノートを選択する
+  // 2 ペイン分割時は反対ペインに表示中のノートをスキップする
+  const handleSelectAdjacentForPane = useCallback(
+    async (pane: 'left' | 'right', direction: 'next' | 'previous') => {
+      const list = orderedAvailableNotes;
+      if (list.length === 0) return;
+
+      const paneNote = isSplit
+        ? pane === 'left'
+          ? (leftNote ?? leftFileNote)
+          : (rightNote ?? rightFileNote)
+        : (currentNote ?? currentFileNote);
+
+      const otherPaneNoteId = isSplit
+        ? pane === 'left'
+          ? (rightNote?.id ?? rightFileNote?.id)
+          : (leftNote?.id ?? leftFileNote?.id)
+        : undefined;
+
+      let idx = paneNote
+        ? list.findIndex((n) => n.id === paneNote.id)
+        : direction === 'next'
+          ? -1
+          : 0;
+      const step = direction === 'next' ? 1 : -1;
+      for (let i = 0; i < list.length; i++) {
+        idx = (idx + step + list.length) % list.length;
+        const candidate = list[idx];
+        if (otherPaneNoteId && candidate.id === otherPaneNoteId) continue;
+        if (paneNote && candidate.id === paneNote.id) continue;
+        if (isSplit) {
+          // ペインが現在フォーカスでなければ先にフォーカスを移す
+          // (handleSelectNoteForPane は内部の focusedPaneRef を参照するため)
+          handleFocusPane(pane);
+          await handleSelectNoteForPane(candidate);
+        } else {
+          await handleSelecAnyNote(candidate);
+        }
+        return;
+      }
+    },
+    [
+      orderedAvailableNotes,
+      isSplit,
+      leftNote,
+      leftFileNote,
+      rightNote,
+      rightFileNote,
+      currentNote,
+      currentFileNote,
+      handleFocusPane,
+      handleSelectNoteForPane,
+      handleSelecAnyNote,
+    ],
+  );
+
+  // 指定ペインに対し、隣接ノート選択が可能か判定する (UIの活性制御用)
+  const canSelectAdjacentForPane = useCallback(
+    (pane: 'left' | 'right'): boolean => {
+      const list = orderedAvailableNotes;
+      if (list.length === 0) return false;
+      const paneId = isSplit
+        ? pane === 'left'
+          ? (leftNote?.id ?? leftFileNote?.id ?? null)
+          : (rightNote?.id ?? rightFileNote?.id ?? null)
+        : (currentNote?.id ?? currentFileNote?.id ?? null);
+      const otherId = isSplit
+        ? pane === 'left'
+          ? (rightNote?.id ?? rightFileNote?.id)
+          : (leftNote?.id ?? leftFileNote?.id)
+        : undefined;
+      return list.some(
+        (n) => n.id !== paneId && (!otherId || n.id !== otherId),
+      );
+    },
+    [
+      orderedAvailableNotes,
+      isSplit,
+      leftNote,
+      leftFileNote,
+      rightNote,
+      rightFileNote,
+      currentNote,
+      currentFileNote,
+    ],
+  );
+
+  const leftOnSelectNext = useCallback(
+    () => handleSelectAdjacentForPane('left', 'next'),
+    [handleSelectAdjacentForPane],
+  );
+  const leftOnSelectPrevious = useCallback(
+    () => handleSelectAdjacentForPane('left', 'previous'),
+    [handleSelectAdjacentForPane],
+  );
+  const rightOnSelectNext = useCallback(
+    () => handleSelectAdjacentForPane('right', 'next'),
+    [handleSelectAdjacentForPane],
+  );
+  const rightOnSelectPrevious = useCallback(
+    () => handleSelectAdjacentForPane('right', 'previous'),
+    [handleSelectAdjacentForPane],
+  );
+  const canSelectAdjacentLeft = canSelectAdjacentForPane('left');
+  const canSelectAdjacentRight = canSelectAdjacentForPane('right');
+
+  // フォーカス中ペインに対する隣接選択 (キーボードショートカット用)
+  const handleSelectNextInFocusedPane = useCallback(
+    () => handleSelectAdjacentForPane(isSplit ? focusedPane : 'left', 'next'),
+    [handleSelectAdjacentForPane, isSplit, focusedPane],
+  );
+  const handleSelectPreviousInFocusedPane = useCallback(
+    () =>
+      handleSelectAdjacentForPane(isSplit ? focusedPane : 'left', 'previous'),
+    [handleSelectAdjacentForPane, isSplit, focusedPane],
+  );
+
   const handleToggleSplit = useCallback(() => {
     if (!isSplit) {
       if (!canSplit) return;
@@ -427,6 +575,25 @@ function App() {
     [fileNotes, notes, topLevelOrder],
   );
 
+  // 指定 ID 直後のノート(orderedAvailableNotes 上)を返す。最後だった場合は直前。
+  // skipIds は除外。アーカイブ等で「次のノート」を開きたいとき向け。
+  const findNoteAfterPosition = useCallback(
+    (afterId: string, ...skipIds: string[]): Note | FileNote | undefined => {
+      const list = orderedAvailableNotes;
+      const idx = list.findIndex((n) => n.id === afterId);
+      if (idx < 0) return undefined;
+      const skip = new Set([afterId, ...skipIds.filter(Boolean)]);
+      for (let i = idx + 1; i < list.length; i++) {
+        if (!skip.has(list[i].id)) return list[i];
+      }
+      for (let i = idx - 1; i >= 0; i--) {
+        if (!skip.has(list[i].id)) return list[i];
+      }
+      return undefined;
+    },
+    [orderedAvailableNotes],
+  );
+
   const handleOpenNoteInPane = useCallback(
     (note: Note | FileNote, pane: 'left' | 'right') => {
       if (!canSplit && !isSplit) return;
@@ -437,7 +604,7 @@ function App() {
   );
 
   const replacePaneAfterClose = useCallback(
-    (closedId: string) => {
+    (closedId: string, explicitReplacement?: Note | FileNote) => {
       if (!isSplit) return;
       const leftId = leftNote?.id ?? leftFileNote?.id;
       const rightId = rightNote?.id ?? rightFileNote?.id;
@@ -463,14 +630,16 @@ function App() {
       };
 
       if (inLeft) {
-        const replacement = findFirstOtherNote(closedId, rightId ?? '');
+        const replacement =
+          explicitReplacement ?? findFirstOtherNote(closedId, rightId ?? '');
         if (replacement) {
           setPaneNote('left', replacement);
         } else {
           toggleSplit();
         }
       } else if (inRight) {
-        const replacement = findFirstOtherNote(closedId, leftId ?? '');
+        const replacement =
+          explicitReplacement ?? findFirstOtherNote(closedId, leftId ?? '');
         if (replacement) {
           setPaneNote('right', replacement);
         } else {
@@ -500,10 +669,29 @@ function App() {
 
   const handleArchiveNoteWithSplit = useCallback(
     async (noteId: string) => {
+      // 分割表示中はアーカイブ前に「次のノート」を確定する。
+      // (アーカイブ後は orderedAvailableNotes から対象が消えて位置が取れなくなるため)
+      let replacement: Note | FileNote | undefined;
+      if (isSplit) {
+        const otherPaneId =
+          (leftNote?.id ?? leftFileNote?.id) === noteId
+            ? (rightNote?.id ?? rightFileNote?.id ?? '')
+            : (leftNote?.id ?? leftFileNote?.id ?? '');
+        replacement = findNoteAfterPosition(noteId, otherPaneId);
+      }
       await handleArchiveNote(noteId);
-      replacePaneAfterClose(noteId);
+      replacePaneAfterClose(noteId, replacement);
     },
-    [handleArchiveNote, replacePaneAfterClose],
+    [
+      handleArchiveNote,
+      replacePaneAfterClose,
+      isSplit,
+      leftNote,
+      leftFileNote,
+      rightNote,
+      rightFileNote,
+      findNoteAfterPosition,
+    ],
   );
 
   const handleCloseFileWithSplit = useCallback(
@@ -695,8 +883,8 @@ function App() {
       (noteId: string) => archiveNoteRef.current(noteId),
       [],
     ),
-    handleSelectNextAnyNote,
-    handleSelectPreviousAnyNote,
+    handleSelectNextAnyNote: handleSelectNextInFocusedPane,
+    handleSelectPreviousAnyNote: handleSelectPreviousInFocusedPane,
     isFileModified,
     onOpenFind: useCallback(
       () => searchReplace.focusFind('find'),
@@ -974,6 +1162,7 @@ function App() {
             >
               <Sidebar
                 platform={platform}
+                systemLocale={systemLocale}
                 onNew={handleNewNote}
                 onOpen={handleOpenFile}
                 onSaveAs={handleSaveAsFile}
@@ -1089,6 +1278,7 @@ function App() {
                 onAllotmentChange={handleEditorAllotmentChange}
                 languages={languages}
                 platform={platform}
+                systemLocale={systemLocale}
                 leftEditorInstanceRef={leftEditorInstanceRef}
                 rightEditorInstanceRef={rightEditorInstanceRef}
                 leftNote={leftNote}
@@ -1111,8 +1301,12 @@ function App() {
                 searchMatchIndexInNote={searchMatchIndexInNote}
                 onNew={handleNewNote}
                 onOpen={handleOpenFile}
-                onSelectNext={handleSelectNextAnyNote}
-                onSelectPrevious={handleSelectPreviousAnyNote}
+                leftOnSelectNext={leftOnSelectNext}
+                leftOnSelectPrevious={leftOnSelectPrevious}
+                rightOnSelectNext={rightOnSelectNext}
+                rightOnSelectPrevious={rightOnSelectPrevious}
+                canSelectAdjacentLeft={canSelectAdjacentLeft}
+                canSelectAdjacentRight={canSelectAdjacentRight}
                 canSplit={canSplit}
                 onToggleSplit={handleToggleSplit}
                 onToggleMarkdownPreview={toggleMarkdownPreview}

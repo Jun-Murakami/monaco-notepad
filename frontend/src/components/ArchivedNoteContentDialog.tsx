@@ -22,7 +22,7 @@ import * as monaco from 'monaco-editor';
 
 import { LoadArchivedNote } from '../../wailsjs/go/backend/App';
 import { DEFAULT_EDITOR_FONT_FAMILY, type Note } from '../types';
-import dayjs from '../utils/dayjs';
+import { formatNoteDateTime } from '../utils/dateFormat';
 
 interface ArchivedNoteContentDialogProps {
   open: boolean;
@@ -35,6 +35,7 @@ interface ArchivedNoteContentDialogProps {
   onNext?: () => void;
   hasPrevious?: boolean;
   hasNext?: boolean;
+  systemLocale?: string;
 }
 
 export const ArchivedNoteContentDialog: React.FC<
@@ -50,6 +51,7 @@ export const ArchivedNoteContentDialog: React.FC<
   onNext,
   hasPrevious = false,
   hasNext = false,
+  systemLocale,
 }) => {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -155,7 +157,7 @@ export const ArchivedNoteContentDialog: React.FC<
             {titleInfo.text}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {dayjs(note.modifiedTime).format('L HH:mm:ss')}
+            {formatNoteDateTime(note.modifiedTime, systemLocale)}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>

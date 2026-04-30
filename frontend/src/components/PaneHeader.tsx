@@ -2,12 +2,20 @@ import { useTranslation } from 'react-i18next';
 import {
   Box,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import {
+  Archive,
+  Close,
+  KeyboardArrowDown,
+  KeyboardArrowUp,
+} from '@mui/icons-material';
 
 import type { SelectProps, Theme } from '@mui/material';
 import type { LanguageInfo } from '../lib/monaco';
@@ -58,6 +66,11 @@ interface PaneHeaderProps {
   paneColor?: 'primary' | 'secondary';
   paneLabel?: string;
   dimmed?: boolean;
+  onSelectPrevious?: () => void;
+  onSelectNext?: () => void;
+  canSelectAdjacent?: boolean;
+  onClose?: () => void;
+  platform?: string;
 }
 
 export const PaneHeader = ({
@@ -71,8 +84,18 @@ export const PaneHeader = ({
   paneColor,
   paneLabel,
   dimmed,
+  onSelectPrevious,
+  onSelectNext,
+  canSelectAdjacent,
+  onClose,
+  platform,
 }: PaneHeaderProps) => {
   const { t } = useTranslation();
+  const commandKey = platform === 'darwin' ? 'Command' : 'Ctrl';
+  const isFile = isFileNote(note);
+  const closeShortcutLabel = isFile
+    ? t('notes.closeShortcut', { shortcut: commandKey })
+    : t('notes.archiveShortcut', { shortcut: commandKey });
 
   return (
     <Box
@@ -211,6 +234,85 @@ export const PaneHeader = ({
           ))}
         </Select>
       </FormControl>
+      {(onSelectPrevious || onSelectNext) && (
+        <Box sx={{ display: 'flex', flexShrink: 0 }}>
+          <Tooltip
+            arrow
+            title={t('app.selectPreviousNote', { shortcut: commandKey })}
+          >
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  onActivatePane?.();
+                  onSelectPrevious?.();
+                }}
+                disabled={!canSelectAdjacent || !onSelectPrevious}
+                sx={{
+                  p: 0.25,
+                  ...(isSplit &&
+                    paneColor && {
+                      color: `${paneColor}.main`,
+                    }),
+                }}
+              >
+                <KeyboardArrowUp sx={{ fontSize: 20 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip
+            arrow
+            title={t('app.selectNextNote', { shortcut: commandKey })}
+          >
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  onActivatePane?.();
+                  onSelectNext?.();
+                }}
+                disabled={!canSelectAdjacent || !onSelectNext}
+                sx={{
+                  p: 0.25,
+                  ...(isSplit &&
+                    paneColor && {
+                      color: `${paneColor}.main`,
+                    }),
+                }}
+              >
+                <KeyboardArrowDown sx={{ fontSize: 20 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
+      )}
+      {onClose && note && (
+        <Tooltip arrow title={closeShortcutLabel}>
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => {
+                onActivatePane?.();
+                onClose();
+              }}
+              sx={{
+                flexShrink: 0,
+                p: 0.5,
+                ...(isSplit &&
+                  paneColor && {
+                    color: `${paneColor}.main`,
+                  }),
+              }}
+            >
+              {isFile ? (
+                <Close sx={{ fontSize: 18 }} />
+              ) : (
+                <Archive sx={{ fontSize: 18 }} />
+              )}
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
     </Box>
   );
 };

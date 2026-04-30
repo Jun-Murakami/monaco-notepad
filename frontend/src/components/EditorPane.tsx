@@ -33,6 +33,7 @@ interface EditorPaneProps {
   onClose: () => void;
   onSelectNext: () => Promise<void>;
   onSelectPrevious: () => Promise<void>;
+  canSelectAdjacent?: boolean;
   onOpenFind?: () => void;
   onOpenReplace?: () => void;
   onOpenFindInAll?: () => void;
@@ -62,6 +63,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   onClose,
   onSelectNext,
   onSelectPrevious,
+  canSelectAdjacent,
   onOpenFind,
   onOpenReplace,
   onOpenFindInAll,
@@ -99,6 +101,15 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
         paneColor={paneColor}
         paneLabel={paneLabel}
         dimmed={dimmed}
+        onSelectPrevious={() => {
+          void onSelectPrevious();
+        }}
+        onSelectNext={() => {
+          void onSelectNext();
+        }}
+        canSelectAdjacent={canSelectAdjacent}
+        onClose={onClose}
+        platform={platform}
       />
       <Box sx={{ flex: 1, minHeight: 0 }}>
         <Editor

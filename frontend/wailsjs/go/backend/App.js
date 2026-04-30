@@ -94,6 +94,10 @@ export function GetModifiedTime(arg1) {
   return window['go']['backend']['App']['GetModifiedTime'](arg1);
 }
 
+export function GetNativeSystemLocale() {
+  return window['go']['backend']['App']['GetNativeSystemLocale']();
+}
+
 export function GetReleaseInfo() {
   return window['go']['backend']['App']['GetReleaseInfo']();
 }

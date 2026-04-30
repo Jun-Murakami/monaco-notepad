@@ -59,6 +59,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -940,4 +941,31 @@ func (a *App) SaveRecentFiles(list []string) error {
 // GetSystemLocale はOSのシステムロケールを返します
 func (a *App) GetSystemLocale() string {
 	return DetectSystemLocale()
+}
+
+// GetNativeSystemLocale はOSの完全なBCP47形式ロケール (例: "ja-JP", "en-US") を返します。
+// DetectSystemLocale が言語コードのみへ正規化するのに対し、こちらは地域情報を含むロケール文字列を
+// そのまま返すため、Intl.DateTimeFormat 等での日付ローカライズに使えます。
+// 取得失敗時は空文字を返します。
+func (a *App) GetNativeSystemLocale() string {
+	// 環境変数を最優先 (CI/CLI 環境などでの上書きに対応)
+	keys := []string{"LC_ALL", "LC_MESSAGES", "LANG"}
+	for _, key := range keys {
+		value := strings.TrimSpace(os.Getenv(key))
+		if value == "" {
+			continue
+		}
+		// "ja_JP.UTF-8" → "ja_JP" → "ja-JP" の形式に正規化
+		if idx := strings.Index(value, "."); idx != -1 {
+			value = value[:idx]
+		}
+		value = strings.ReplaceAll(value, "_", "-")
+		return value
+	}
+
+	if value := strings.TrimSpace(getNativeSystemLocale()); value != "" {
+		return value
+	}
+
+	return ""
 }

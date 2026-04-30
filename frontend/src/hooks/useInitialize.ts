@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApplyIntegrityFixes,
   GetArchivedTopLevelOrder,
+  GetNativeSystemLocale,
   GetTopLevelOrder,
   ListFolders,
   ListNotes,
@@ -58,6 +59,7 @@ export const useInitialize = (
 ) => {
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
+  const [systemLocale, setSystemLocale] = useState<string>('');
   const isInitializedRef = useRef(false);
 
   const initialNortLoader = useCallback(async () => {
@@ -262,6 +264,15 @@ export const useInitialize = (
         const env = await runtime.Environment();
         setPlatform(env.platform);
 
+        // OS のシステムロケール (例: "ja-JP", "en-US") を取得。
+        // 失敗しても致命傷ではないので無視する (ランタイム既定にフォールバック)。
+        try {
+          const locale = await GetNativeSystemLocale();
+          if (locale) setSystemLocale(locale);
+        } catch (_e) {
+          /* noop */
+        }
+
         // ノートリストを先に読み込み（UIを早く表示するため）
         await initialNortLoader();
 
@@ -281,5 +292,6 @@ export const useInitialize = (
   return {
     languages,
     platform,
+    systemLocale,
   };
 };
