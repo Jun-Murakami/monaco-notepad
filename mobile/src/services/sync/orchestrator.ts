@@ -299,7 +299,15 @@ export class SyncOrchestrator {
 			});
 			const note = await this.driveSync.downloadNote(meta.id);
 			if (note) {
-				await this.noteService.saveNoteFromSync(note);
+				await this.noteService.saveNoteFromSync({
+					...note,
+					// デスクトップ版は個別 note JSON から folderId を省いて保存する。
+					// pull 中にユーザー操作が入って最終 cloudList 置換を見送る場合でも、
+					// noteList 側の所属フォルダをここで反映しておく必要がある。
+					contentHeader: note.contentHeader || meta.contentHeader,
+					archived: meta.archived,
+					folderId: meta.folderId,
+				});
 				mergedHashes[meta.id] = meta.contentHash;
 				// 個別 hash を即時永続化: 大量 pull 中に kill されても次回起動で
 				// 該当ノートの再 download を skip できる (resume 最適化)。
@@ -328,55 +336,51 @@ export class SyncOrchestrator {
 			}
 		}
 
-		// pull 中にユーザーが reorder / 新規作成 / フォルダ操作 / 編集を行ったか判定。
-		// markDirty / markNoteDirty / markNoteDeleted / markFolderDeleted は全て
-		// SyncStateManager.mutate 経由で revision++ するので、これだけで全種別を検出できる。
-		const endSnap = await this.syncState.getDirtySnapshotWithRevision();
-		const userMutated = endSnap.revision !== startSnap.revision;
-
-		// 後続の zombie / bulkRepair / 最終 commit の対象 list:
-		// - userMutated なら現在のローカル list (= ユーザーの reorder 等が乗っている)
-		// - そうでなければ cloudList (従来の挙動)
-		const target = userMutated ? this.noteService.getNoteList() : cloudList;
+		let endSnap = await this.syncState.getDirtySnapshotWithRevision();
+		let userMutated = endSnap.revision !== startSnap.revision;
 
 		// ダウンロード失敗 = cloud noteList に載っているが実ファイルが無いゾンビ。
 		// UI で誤表示とクラッシュの原因になるのでここで除去。markDirty で Drive 側も浄化する。
 		if (zombieIds.size > 0) {
-			target.notes = target.notes.filter((n) => !zombieIds.has(n.id));
-			target.topLevelOrder = target.topLevelOrder.filter(
-				(i) => !(i.type === 'note' && zombieIds.has(i.id)),
-			);
-			target.archivedTopLevelOrder = target.archivedTopLevelOrder.filter(
-				(i) => !(i.type === 'note' && zombieIds.has(i.id)),
-			);
+			const beforeZombieRevision = endSnap.revision;
+			for (const id of zombieIds) {
+				await this.noteService.deleteNote(id);
+				await this.syncState.forgetNoteHash(id);
+			}
+			removeNoteEntries(cloudList, zombieIds);
+			endSnap = await this.syncState.getDirtySnapshotWithRevision();
+			if (endSnap.revision !== beforeZombieRevision) {
+				userMutated = true;
+			}
 			await this.syncState.markDirty();
+			endSnap = await this.syncState.getDirtySnapshotWithRevision();
 			console.warn(
 				`[Sync] removed ${zombieIds.size} zombie entries from noteList`,
 			);
 		}
 
-		// サインイン直後（明示ログイン）のみ: target の contentHeader 欠落を
-		// ローカル本文ファイルから補完して in-place 修正 → replaceNoteList でそのまま反映 →
+		// サインイン直後（明示ログイン）のみ: this.list の contentHeader 欠落を
+		// ローカル本文ファイルから補完して in-place 修正 →
 		// markDirty で次回 sync が Drive に修復済み noteList を push する。
 		if (this.bulkRepairPending) {
-			const emptyCount = target.notes.filter((n) => !n.contentHeader).length;
-			const fixed =
-				await this.noteService.fillEmptyContentHeadersInList(target);
-			console.log(
-				`[bulkRepair] contentHeader empty: ${emptyCount}, fixed: ${fixed}`,
-			);
+			const beforeRepairRevision = endSnap.revision;
+			const fixed = await this.noteService.bulkRepairContentHeaders();
+			console.log(`[bulkRepair] fixed: ${fixed}`);
+			endSnap = await this.syncState.getDirtySnapshotWithRevision();
+			if (endSnap.revision !== beforeRepairRevision) {
+				userMutated = true;
+			}
 			if (fixed > 0) {
+				copyContentHeaders(this.noteService.getNoteList(), cloudList);
 				await this.syncState.markDirty();
+				endSnap = await this.syncState.getDirtySnapshotWithRevision();
 			}
 			this.bulkRepairPending = false;
 		}
 
-		// noteList 全体を置き換え。
-		// userMutated=false: cloudList で全置換（従来挙動）
-		// userMutated=true:  ユーザーの操作を保持したローカル list を維持し、
-		//                    dirty フラグもそのまま (updateSyncedState は clear しない) →
-		//                    次サイクルの push でユーザー変更が Drive へ伝搬する。
-		await this.noteService.replaceNoteList(target);
+		if (!userMutated) {
+			await this.noteService.replaceNoteList(cloudList);
+		}
 
 		await this.syncState.updateSyncedState(cloudTs, mergedHashes);
 		syncEvents.emit('notes:reload', undefined);
@@ -576,4 +580,27 @@ function mergeOrder<T extends { type: string; id: string }>(
 		}
 	}
 	return merged;
+}
+
+function removeNoteEntries(list: NoteList, noteIds: Set<string>): void {
+	list.notes = list.notes.filter((n) => !noteIds.has(n.id));
+	list.topLevelOrder = list.topLevelOrder.filter(
+		(i) => !(i.type === 'note' && noteIds.has(i.id)),
+	);
+	list.archivedTopLevelOrder = list.archivedTopLevelOrder.filter(
+		(i) => !(i.type === 'note' && noteIds.has(i.id)),
+	);
+}
+
+function copyContentHeaders(from: NoteList, to: NoteList): void {
+	const headers = new Map(
+		from.notes
+			.filter((n) => n.contentHeader)
+			.map((n) => [n.id, n.contentHeader]),
+	);
+	for (const meta of to.notes) {
+		if (!meta.contentHeader) {
+			meta.contentHeader = headers.get(meta.id) ?? '';
+		}
+	}
 }

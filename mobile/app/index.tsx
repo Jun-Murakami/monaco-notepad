@@ -89,13 +89,15 @@ export default function NoteListScreen() {
 	const [createFolderDialog, setCreateFolderDialog] = useState(false);
 	const [renameFolderDialog, setRenameFolderDialog] = useState<{
 		folderId: string;
+		initialName: string;
 	} | null>(null);
 	const [archiveFolderDialog, setArchiveFolderDialog] = useState<{
 		folderId: string;
 		name: string;
 		count: number;
 	} | null>(null);
-	const [folderNameInput, setFolderNameInput] = useState('');
+	// Dialog 内 TextInput は IME 変換中に親画面を再描画しないよう uncontrolled にする。
+	const folderNameDraftRef = useRef('');
 
 	// ----- ハンドラ -----
 
@@ -137,7 +139,7 @@ export default function NoteListScreen() {
 		);
 		await syncStateManager.markNoteDirty(id);
 		await useNotesStore.getState().reload();
-		router.push(`/note/${id}`);
+		router.push(`/note/${id}?initialFocus=title`);
 	}, [router]);
 
 	const applyOptimisticNoteList = useCallback((list: typeof noteList) => {
@@ -146,7 +148,8 @@ export default function NoteListScreen() {
 		useNotesStore.setState({ noteList: list });
 		scheduleAfterPaint(() => {
 			if (revision === optimisticRevisionRef.current) {
-				noteService.replaceNoteListInMemory(list);
+				// 同期 pull 並行で upsertMetadata したエントリを保持する
+				noteService.replaceNoteListInMemory(list, { preserveExtras: true });
 			}
 		});
 		return revision;
@@ -158,7 +161,7 @@ export default function NoteListScreen() {
 				void (async () => {
 					try {
 						if (revision !== optimisticRevisionRef.current) return;
-						await noteService.replaceNoteList(list);
+						await noteService.replaceNoteList(list, { preserveExtras: true });
 
 						// クロスフォルダ移動: 本文ファイル側にも新 folderId を書き戻す。
 						// 古い遅延保存がスキップされても、ID は最新保存へ持ち越す。
@@ -193,7 +196,8 @@ export default function NoteListScreen() {
 
 	const handleToggleFolder = useCallback(
 		(folderId: string) => {
-			const current = useNotesStore.getState().noteList;
+			// baseline は noteService から取る (pull 中の Zustand は notes=[] のまま停滞しうる)
+			const current = noteService.getNoteList();
 			const collapsed = new Set(current.collapsedFolderIds);
 			if (collapsed.has(folderId)) {
 				collapsed.delete(folderId);
@@ -212,7 +216,8 @@ export default function NoteListScreen() {
 
 	const handleReorder = useCallback(
 		({ rows: dragRows, fromIndex, dropIntent }: ManualReorderEvent) => {
-			const current = useNotesStore.getState().noteList;
+			// baseline は noteService から取る (pull 中の Zustand は notes=[] のまま停滞しうる)
+			const current = noteService.getNoteList();
 			const { list, movedNoteIds } = applyDropIntent(
 				current,
 				dragRows,
@@ -263,26 +268,20 @@ export default function NoteListScreen() {
 
 	const handleRenameFolderConfirm = useCallback(async () => {
 		if (!renameFolderDialog) return;
-		const name = folderNameInput.trim();
+		const name = folderNameDraftRef.current.trim();
+		const { folderId } = renameFolderDialog;
+		setRenameFolderDialog(null);
+		folderNameDraftRef.current = '';
 		if (!name) {
-			setRenameFolderDialog(null);
-			setFolderNameInput('');
 			return;
 		}
-		await noteService.renameFolder(renameFolderDialog.folderId, name);
+		await noteService.renameFolder(folderId, name);
 		await syncStateManager.markDirty();
 		await useNotesStore.getState().reload();
-		setRenameFolderDialog(null);
-		setFolderNameInput('');
 		driveService.kickSync();
-	}, [renameFolderDialog, folderNameInput]);
+	}, [renameFolderDialog]);
 
-	const handleArchiveFolderConfirm = useCallback(async () => {
-		if (!archiveFolderDialog) return;
-		const { folderId } = archiveFolderDialog;
-		// dialog は即時クローズして UI のレスポンスを上げる。
-		// 実 IO とリスト更新はその裏で進む。
-		setArchiveFolderDialog(null);
+	const archiveFolderNow = useCallback(async (folderId: string) => {
 		const archivedNoteIds = await noteService.archiveFolder(folderId);
 		for (const noteId of archivedNoteIds) {
 			await syncStateManager.markNoteDirty(noteId);
@@ -290,22 +289,29 @@ export default function NoteListScreen() {
 		await syncStateManager.markDirty();
 		await useNotesStore.getState().reload();
 		driveService.kickSync();
-	}, [archiveFolderDialog]);
+	}, []);
+
+	const handleArchiveFolderConfirm = useCallback(async () => {
+		if (!archiveFolderDialog) return;
+		const { folderId } = archiveFolderDialog;
+		// dialog は即時クローズして UI のレスポンスを上げる。
+		// 実 IO とリスト更新はその裏で進む。
+		setArchiveFolderDialog(null);
+		await archiveFolderNow(folderId);
+	}, [archiveFolderDialog, archiveFolderNow]);
 
 	const handleCreateFolder = useCallback(async () => {
-		const name = folderNameInput.trim();
+		const name = folderNameDraftRef.current.trim();
+		setCreateFolderDialog(false);
+		folderNameDraftRef.current = '';
 		if (!name) {
-			setCreateFolderDialog(false);
-			setFolderNameInput('');
 			return;
 		}
 		await noteService.createFolder(name);
 		await syncStateManager.markDirty();
 		await useNotesStore.getState().reload();
-		setCreateFolderDialog(false);
-		setFolderNameInput('');
 		driveService.kickSync();
-	}, [folderNameInput]);
+	}, []);
 
 	// active 画面のフォルダメニュー: リネーム + フォルダごとアーカイブ
 	const folderMenuItems = useMemo<FolderMenuItem[]>(() => {
@@ -317,8 +323,11 @@ export default function NoteListScreen() {
 				icon: 'pencil',
 				label: t('noteList.renameFolder'),
 				onPress: () => {
-					setFolderNameInput(folder.name);
-					setRenameFolderDialog({ folderId: folder.id });
+					folderNameDraftRef.current = folder.name;
+					setRenameFolderDialog({
+						folderId: folder.id,
+						initialName: folder.name,
+					});
 				},
 			},
 			{
@@ -328,6 +337,10 @@ export default function NoteListScreen() {
 					const count = noteList.notes.filter(
 						(n) => n.folderId === folder.id && !n.archived,
 					).length;
+					if (count === 0) {
+						void archiveFolderNow(folder.id);
+						return;
+					}
 					setArchiveFolderDialog({
 						folderId: folder.id,
 						name: folder.name,
@@ -336,7 +349,7 @@ export default function NoteListScreen() {
 				},
 			},
 		];
-	}, [folderMenu, noteList.folders, noteList.notes, t]);
+	}, [archiveFolderNow, folderMenu, noteList.folders, noteList.notes, t]);
 
 	const folderHeaderBg = theme.colors.surfaceVariant;
 	const folderChildBg = theme.colors.elevation.level1;
@@ -360,7 +373,7 @@ export default function NoteListScreen() {
 						<Appbar.Action
 							icon="folder-plus"
 							onPress={() => {
-								setFolderNameInput('');
+								folderNameDraftRef.current = '';
 								setCreateFolderDialog(true);
 							}}
 							accessibilityLabel={t('noteList.newFolder')}
@@ -494,21 +507,35 @@ export default function NoteListScreen() {
 				{/* 新規フォルダダイアログ */}
 				<Dialog
 					visible={createFolderDialog}
-					onDismiss={() => setCreateFolderDialog(false)}
+					onDismiss={() => {
+						setCreateFolderDialog(false);
+						folderNameDraftRef.current = '';
+					}}
 				>
 					<Dialog.Title>{t('noteList.newFolder')}</Dialog.Title>
 					<Dialog.Content>
-						<TextInput
-							autoFocus
-							mode="outlined"
-							label={t('noteList.newFolderPrompt')}
-							value={folderNameInput}
-							onChangeText={setFolderNameInput}
-							onSubmitEditing={handleCreateFolder}
-						/>
+						{createFolderDialog ? (
+							<TextInput
+								key="create-folder-open"
+								autoFocus
+								mode="outlined"
+								label={t('noteList.newFolderPrompt')}
+								defaultValue=""
+								onChangeText={(text) => {
+									folderNameDraftRef.current = text;
+								}}
+								returnKeyType="done"
+								submitBehavior="blurAndSubmit"
+							/>
+						) : null}
 					</Dialog.Content>
 					<Dialog.Actions>
-						<Button onPress={() => setCreateFolderDialog(false)}>
+						<Button
+							onPress={() => {
+								setCreateFolderDialog(false);
+								folderNameDraftRef.current = '';
+							}}
+						>
 							{t('noteList.cancel')}
 						</Button>
 						<Button onPress={handleCreateFolder}>{t('noteList.ok')}</Button>
@@ -518,21 +545,35 @@ export default function NoteListScreen() {
 				{/* フォルダ名変更ダイアログ */}
 				<Dialog
 					visible={renameFolderDialog !== null}
-					onDismiss={() => setRenameFolderDialog(null)}
+					onDismiss={() => {
+						setRenameFolderDialog(null);
+						folderNameDraftRef.current = '';
+					}}
 				>
 					<Dialog.Title>{t('noteList.renameFolder')}</Dialog.Title>
 					<Dialog.Content>
-						<TextInput
-							autoFocus
-							mode="outlined"
-							label={t('noteList.newFolderPrompt')}
-							value={folderNameInput}
-							onChangeText={setFolderNameInput}
-							onSubmitEditing={handleRenameFolderConfirm}
-						/>
+						{renameFolderDialog ? (
+							<TextInput
+								key={`rename-folder-open:${renameFolderDialog.folderId}`}
+								autoFocus
+								mode="outlined"
+								label={t('noteList.newFolderPrompt')}
+								defaultValue={renameFolderDialog.initialName}
+								onChangeText={(text) => {
+									folderNameDraftRef.current = text;
+								}}
+								returnKeyType="done"
+								submitBehavior="blurAndSubmit"
+							/>
+						) : null}
 					</Dialog.Content>
 					<Dialog.Actions>
-						<Button onPress={() => setRenameFolderDialog(null)}>
+						<Button
+							onPress={() => {
+								setRenameFolderDialog(null);
+								folderNameDraftRef.current = '';
+							}}
+						>
 							{t('noteList.cancel')}
 						</Button>
 						<Button onPress={handleRenameFolderConfirm}>

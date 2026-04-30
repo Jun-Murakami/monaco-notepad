@@ -56,13 +56,18 @@ describe('NoteService', () => {
 		expect(await s.readNote('a')).toBeNull();
 	});
 
-	it('createFolder でフォルダが増え topLevelOrder に追加される', async () => {
+	it('createFolder でフォルダが増え topLevelOrder の先頭に追加される', async () => {
 		const s = await fresh();
-		const folder = await s.createFolder('Work');
-		expect(s.getNoteList().folders).toHaveLength(1);
-		expect(s.getNoteList().topLevelOrder).toContainEqual({
+		const first = await s.createFolder('Work');
+		const second = await s.createFolder('Personal');
+		expect(s.getNoteList().folders).toHaveLength(2);
+		expect(s.getNoteList().topLevelOrder[0]).toEqual({
 			type: 'folder',
-			id: folder.id,
+			id: second.id,
+		});
+		expect(s.getNoteList().topLevelOrder[1]).toEqual({
+			type: 'folder',
+			id: first.id,
 		});
 	});
 
@@ -138,6 +143,72 @@ describe('NoteService', () => {
 		const reloaded = new NoteService();
 		await reloaded.load();
 		expect(reloaded.getNoteList().notes[0]?.id).toBe('a');
+	});
+
+	it('replaceNoteList({ preserveExtras: true }) は incoming に無い既存ノート/フォルダを保持する', async () => {
+		// 同期 pull が並行で upsertMetadata した直後に、UI の楽観更新が古い baseline で
+		// replaceNoteList を呼ぶ race。preserveExtras なしで上書きするとファイルが孤立する。
+		const s = await fresh();
+		// 既存 (= 「pull 中にダウンロード済み」相当)
+		await s.saveNote(makeNote({ id: 'pulled-1', folderId: '' }));
+		await s.saveNote(makeNote({ id: 'pulled-2', folderId: 'folder-x' }));
+		const folder = await s.createFolder('Cloud Folder');
+		const cloudFolderId = folder.id;
+		// 「ユーザーが古い baseline で計算した」ように見える list (extras を全部欠いている)
+		const stale: Parameters<typeof s.replaceNoteList>[0] = {
+			version: 'v2',
+			notes: [],
+			folders: [],
+			topLevelOrder: [{ type: 'folder', id: 'moved-folder' }],
+			archivedTopLevelOrder: [],
+			collapsedFolderIds: [],
+		};
+		await s.replaceNoteList(stale, { preserveExtras: true });
+		const list = s.getNoteList();
+		// 既存ノートはどちらも保持される
+		expect(list.notes.map((n) => n.id).sort()).toEqual([
+			'pulled-1',
+			'pulled-2',
+		]);
+		// 既存フォルダも保持
+		expect(list.folders.find((f) => f.id === cloudFolderId)).toBeDefined();
+		// topLevelOrder: stale が指定した moved-folder + 既存 (extras) が末尾追加される
+		const orderKeys = list.topLevelOrder.map((i) => `${i.type}:${i.id}`);
+		expect(orderKeys).toContain('folder:moved-folder');
+		expect(orderKeys).toContain(`folder:${cloudFolderId}`);
+		// folderId 付きノートは topLevelOrder に乗らない (data model 整合)
+		expect(orderKeys).not.toContain('note:pulled-2');
+		// folderId なしノートは末尾追加
+		expect(orderKeys).toContain('note:pulled-1');
+	});
+
+	it('replaceNoteList ({ preserveExtras: true }) でも incoming にある同一 ID は incoming 側で上書きされる', async () => {
+		const s = await fresh();
+		await s.saveNote(makeNote({ id: 'a', title: 'old' }));
+		await s.replaceNoteList(
+			{
+				version: 'v2',
+				notes: [
+					{
+						id: 'a',
+						title: 'new',
+						contentHeader: '',
+						language: 'plaintext',
+						modifiedTime: '2026-01-02T00:00:00.000Z',
+						archived: false,
+						folderId: '',
+						contentHash: 'h',
+					},
+				],
+				folders: [],
+				topLevelOrder: [{ type: 'note', id: 'a' }],
+				archivedTopLevelOrder: [],
+				collapsedFolderIds: [],
+			},
+			{ preserveExtras: true },
+		);
+		expect(s.getNoteList().notes).toHaveLength(1);
+		expect(s.getNoteList().notes[0].title).toBe('new');
 	});
 
 	it('永続化: 別インスタンスで load しても noteList が復元される', async () => {

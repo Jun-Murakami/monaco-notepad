@@ -127,7 +127,8 @@ export default function ArchiveListScreen() {
 		useNotesStore.setState({ noteList: list });
 		scheduleAfterPaint(() => {
 			if (revision === optimisticRevisionRef.current) {
-				noteService.replaceNoteListInMemory(list);
+				// 同期 pull 並行で upsertMetadata したエントリを保持する
+				noteService.replaceNoteListInMemory(list, { preserveExtras: true });
 			}
 		});
 		return revision;
@@ -139,7 +140,7 @@ export default function ArchiveListScreen() {
 				void (async () => {
 					try {
 						if (revision !== optimisticRevisionRef.current) return;
-						await noteService.replaceNoteList(list);
+						await noteService.replaceNoteList(list, { preserveExtras: true });
 						if (revision !== optimisticRevisionRef.current) return;
 						await syncStateManager.markDirty();
 						driveService.kickSync();
@@ -154,7 +155,8 @@ export default function ArchiveListScreen() {
 
 	const handleToggleFolder = useCallback(
 		(folderId: string) => {
-			const current = useNotesStore.getState().noteList;
+			// baseline は noteService から取る (pull 中の Zustand は notes=[] のまま停滞しうる)
+			const current = noteService.getNoteList();
 			const collapsed = new Set(current.collapsedFolderIds);
 			if (collapsed.has(folderId)) {
 				collapsed.delete(folderId);
@@ -173,7 +175,8 @@ export default function ArchiveListScreen() {
 
 	const handleReorder = useCallback(
 		({ rows: dragRows, fromIndex, dropIntent }: ManualReorderEvent) => {
-			const current = useNotesStore.getState().noteList;
+			// baseline は noteService から取る (pull 中の Zustand は notes=[] のまま停滞しうる)
+			const current = noteService.getNoteList();
 			const { list } = applyDropIntent(
 				current,
 				dragRows,
@@ -240,13 +243,18 @@ export default function ArchiveListScreen() {
 		driveService.kickSync();
 	}, []);
 
+	const deleteFolderNow = useCallback(async (folderId: string) => {
+		await driveService.deleteFolderAndSync(folderId);
+		await useNotesStore.getState().reload();
+		driveService.kickSync();
+	}, []);
+
 	const handleDeleteFolderConfirm = useCallback(async () => {
 		if (!deleteFolderDialog) return;
-		await driveService.deleteFolderAndSync(deleteFolderDialog.folderId);
-		await useNotesStore.getState().reload();
+		const { folderId } = deleteFolderDialog;
 		setDeleteFolderDialog(null);
-		driveService.kickSync();
-	}, [deleteFolderDialog]);
+		await deleteFolderNow(folderId);
+	}, [deleteFolderDialog, deleteFolderNow]);
 
 	// archive 画面のフォルダメニュー: フォルダ復元 + フォルダ削除
 	const folderMenuItems = useMemo<FolderMenuItem[]>(() => {
@@ -268,6 +276,10 @@ export default function ArchiveListScreen() {
 					const count = noteList.notes.filter(
 						(n) => n.folderId === folder.id,
 					).length;
+					if (count === 0) {
+						void deleteFolderNow(folder.id);
+						return;
+					}
 					setDeleteFolderDialog({
 						folderId: folder.id,
 						name: folder.name,
@@ -276,7 +288,14 @@ export default function ArchiveListScreen() {
 				},
 			},
 		];
-	}, [folderMenu, handleRestoreFolder, noteList.folders, noteList.notes, t]);
+	}, [
+		deleteFolderNow,
+		folderMenu,
+		handleRestoreFolder,
+		noteList.folders,
+		noteList.notes,
+		t,
+	]);
 
 	const folderHeaderBg = theme.colors.surfaceVariant;
 	const folderChildBg = theme.colors.elevation.level1;

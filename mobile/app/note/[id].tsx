@@ -67,7 +67,10 @@ export default function NoteEditorScreen() {
 	const { t } = useTranslation();
 	const theme = useTheme();
 	const router = useRouter();
-	const { id } = useLocalSearchParams<{ id: string }>();
+	const { id, initialFocus } = useLocalSearchParams<{
+		id: string;
+		initialFocus?: string;
+	}>();
 
 	const [note, setNote] = useState<Note | null>(null);
 	// 初回ロードが終わったかどうかのフラグ（読み込み中 vs 見つからない の区別用）
@@ -122,6 +125,7 @@ export default function NoteEditorScreen() {
 	}, [editorViewportHeight]);
 	const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const latestNoteRef = useRef<Note | null>(null);
+	const titleInputRef = useRef<{ focus: () => void } | null>(null);
 	const editorRef = useRef<TextInput>(null);
 	const androidEditorScrollerRef = useRef<ScrollView>(null);
 	const pendingInitialSelectionRef = useRef<EditorSelection | null>(null);
@@ -132,6 +136,7 @@ export default function NoteEditorScreen() {
 		null,
 	);
 	const pendingFocusRef = useRef(false);
+	const pendingTitleFocusRef = useRef(false);
 
 	const getEditorVisibilityMetrics = useCallback(
 		(lineHeight: number) => {
@@ -258,16 +263,8 @@ export default function NoteEditorScreen() {
 		[applyEditorScroll],
 	);
 
-	// 編集モードに切り替わるたびに、初回カーソル位置とフォーカスをまとめて適用する。
-	useEffect(() => {
-		if (mode === 'edit') {
-			const initialSelection = pendingInitialSelectionRef.current ?? {
-				start: 0,
-				end: 0,
-			};
-			const initialCursorOffset = pendingEditorCursorOffsetRef.current;
-			pendingInitialSelectionRef.current = null;
-			pendingEditorCursorOffsetRef.current = null;
+	const focusEditorWithInitialSelection = useCallback(
+		(initialSelection: EditorSelection, initialCursorOffset: number | null) => {
 			lastEditorCursorOffsetRef.current = initialCursorOffset;
 			pendingFocusRef.current = true;
 			setEditorSelection(initialSelection);
@@ -298,15 +295,39 @@ export default function NoteEditorScreen() {
 				// 先に解放すると UIKit の scrollRangeToVisible が発火し、
 				// キーボード高さを考慮しない位置へスクロールされてしまう。
 			});
+		},
+		[centerEditorAroundCursor, isIOS, releaseInitialEditorSelection],
+	);
+
+	// 編集モードに切り替わるたびに、初回カーソル位置とフォーカスをまとめて適用する。
+	useEffect(() => {
+		if (mode === 'edit') {
+			if (pendingTitleFocusRef.current) {
+				pendingTitleFocusRef.current = false;
+				pendingFocusRef.current = false;
+				setEditorSelection(undefined);
+				requestAnimationFrame(() => titleInputRef.current?.focus());
+				return;
+			}
+
+			const initialSelection = pendingInitialSelectionRef.current ?? {
+				start: 0,
+				end: 0,
+			};
+			const initialCursorOffset = pendingEditorCursorOffsetRef.current;
+			pendingInitialSelectionRef.current = null;
+			pendingEditorCursorOffsetRef.current = null;
+			focusEditorWithInitialSelection(initialSelection, initialCursorOffset);
 		} else {
 			pendingFocusRef.current = false;
+			pendingTitleFocusRef.current = false;
 			pendingInitialSelectionRef.current = null;
 			pendingEditorCursorOffsetRef.current = null;
 			lastEditorCursorOffsetRef.current = null;
 			setEditorScrollMeasurement(null);
 			setEditorSelection(undefined);
 		}
-	}, [centerEditorAroundCursor, isIOS, mode, releaseInitialEditorSelection]);
+	}, [focusEditorWithInitialSelection, mode]);
 
 	useEffect(() => {
 		if (mode !== 'edit' || !keyboardVisible) return;
@@ -428,9 +449,10 @@ export default function NoteEditorScreen() {
 		latestNoteRef.current = loaded;
 		setLoadAttempted(true);
 		if (loaded && loaded.content.length === 0 && loaded.title.length === 0) {
+			pendingTitleFocusRef.current = initialFocus === 'title';
 			setMode('edit');
 		}
-	}, [id]);
+	}, [id, initialFocus]);
 
 	useEffect(() => {
 		reload();
@@ -547,6 +569,9 @@ export default function NoteEditorScreen() {
 			modifiedTime: new Date().toISOString(),
 		});
 	};
+	const handleTitleSubmitEditing = () => {
+		focusEditorWithInitialSelection({ start: 0, end: 0 }, 0);
+	};
 	const editorBaseStyle = {
 		color: theme.colors.onBackground,
 		fontSize: editorFontSize,
@@ -608,6 +633,9 @@ export default function NoteEditorScreen() {
 				<>
 					<SyncStatusBar />
 					<PaperTextInput
+						ref={(ref: { focus: () => void } | null) => {
+							titleInputRef.current = ref;
+						}}
 						mode="outlined"
 						label={t('editor.titleLabel')}
 						placeholder={t('editor.titlePlaceholder')}
@@ -619,8 +647,11 @@ export default function NoteEditorScreen() {
 								modifiedTime: new Date().toISOString(),
 							})
 						}
+						onSubmitEditing={handleTitleSubmitEditing}
 						onFocus={() => setTitleFocused(true)}
 						onBlur={() => setTitleFocused(false)}
+						returnKeyType="next"
+						submitBehavior="submit"
 						style={styles.titleInput}
 						dense
 						// label / アウトラインは theme.colors.onSurfaceVariant を使うが、

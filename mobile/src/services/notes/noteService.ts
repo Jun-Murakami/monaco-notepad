@@ -113,16 +113,27 @@ export class NoteService {
 		return fixed;
 	}
 
-	/** 内部共通処理: 実際に contentHeader を生成して list 更新。返り値は修正件数。 */
+	/** 内部共通処理: 実際に contentHeader を生成して list 更新。返り値は修正件数。
+	 *
+	 * 注: ループ中に `this.list` が外部から置き換えられる (UI 楽観更新の merge 等) 可能性があるため、
+	 * meta 参照を保持せず、各 await 後に ID で取り直して書き戻す。
+	 */
 	private async runContentHeaderRepair(): Promise<number> {
 		let repaired = 0;
-		for (const meta of this.list.notes) {
-			if (meta.contentHeader) continue;
-			const note = await this.readNote(meta.id);
+		// 開始時点での「修復対象 ID リスト」を確定。await 中に this.list が
+		// merge されても、ID ベースで同じ対象を順に処理する。
+		const targets = this.list.notes
+			.filter((n) => !n.contentHeader)
+			.map((n) => n.id);
+		for (const id of targets) {
+			const note = await this.readNote(id);
 			if (!note?.content) continue;
 			const generated = generateContentHeader(note.content);
 			if (!generated) continue;
-			meta.contentHeader = generated;
+			// await 後に this.list が置換されている可能性があるので再 lookup
+			const currentMeta = this.list.notes.find((n) => n.id === id);
+			if (!currentMeta || currentMeta.contentHeader) continue;
+			currentMeta.contentHeader = generated;
 			repaired++;
 		}
 		if (repaired > 0) {
@@ -144,18 +155,88 @@ export class NoteService {
 	/**
 	 * UI の楽観的更新用に、メモリ上の noteList だけを先に差し替える。
 	 * 呼び出し側は後続で replaceNoteList() を呼び、必ず永続化すること。
+	 *
+	 * preserveExtras=true: 同期 pull が並行して upsertMetadata した notes/folders を
+	 * 失わないよう、incoming に存在しないものは末尾に保持して merge する。
+	 * UI 楽観更新の baseline が古い場合の race（pull 中ドラッグでフォルダ配下が消える等）
+	 * を防ぐためのもの。orchestrator は authoritative 置換のため preserveExtras なしで呼ぶ。
 	 */
-	replaceNoteListInMemory(list: NoteList): void {
-		this.list = cloneNoteList(list);
+	replaceNoteListInMemory(
+		list: NoteList,
+		opts?: { preserveExtras?: boolean },
+	): void {
+		this.list = opts?.preserveExtras
+			? this.mergeNoteListPreservingExtras(list)
+			: cloneNoteList(list);
 	}
 
-	async replaceNoteList(list: NoteList): Promise<void> {
-		this.list = cloneNoteList(list);
+	async replaceNoteList(
+		list: NoteList,
+		opts?: { preserveExtras?: boolean },
+	): Promise<void> {
+		this.list = opts?.preserveExtras
+			? this.mergeNoteListPreservingExtras(list)
+			: cloneNoteList(list);
 		await this.persistList();
 		// cloud の noteList に contentHeader が未設定のエントリが含まれていても、
 		// ローカル notes/ 上の本文ファイルから補完する。
 		// （サーバ側を汚さず表示のためだけにローカルで補修する方針）
 		await this.repairMissingContentHeaders();
+	}
+
+	/**
+	 * incoming を主とし、現在の this.list にしか存在しない notes/folders を
+	 * 末尾に保持して返す。topLevelOrder / archivedTopLevelOrder にも extra を
+	 * 末尾追加する（孤立メタ防止）。
+	 */
+	private mergeNoteListPreservingExtras(incoming: NoteList): NoteList {
+		const incomingNoteIds = new Set(incoming.notes.map((n) => n.id));
+		const incomingFolderIds = new Set(incoming.folders.map((f) => f.id));
+
+		const extraNotes = this.list.notes.filter(
+			(n) => !incomingNoteIds.has(n.id),
+		);
+		const extraFolders = this.list.folders.filter(
+			(f) => !incomingFolderIds.has(f.id),
+		);
+
+		if (extraNotes.length === 0 && extraFolders.length === 0) {
+			return cloneNoteList(incoming);
+		}
+
+		const merged = cloneNoteList(incoming);
+		merged.notes = [...merged.notes, ...extraNotes];
+		merged.folders = [...merged.folders, ...extraFolders];
+
+		const inTop = new Set(merged.topLevelOrder.map((i) => `${i.type}:${i.id}`));
+		const inArch = new Set(
+			merged.archivedTopLevelOrder.map((i) => `${i.type}:${i.id}`),
+		);
+		const appendOrder = (
+			archived: boolean,
+			type: 'note' | 'folder',
+			id: string,
+		) => {
+			const set = archived ? inArch : inTop;
+			const order = archived
+				? merged.archivedTopLevelOrder
+				: merged.topLevelOrder;
+			const key = `${type}:${id}`;
+			if (!set.has(key)) {
+				order.push({ type, id });
+				set.add(key);
+			}
+		};
+		for (const f of extraFolders) {
+			appendOrder(f.archived, 'folder', f.id);
+		}
+		for (const n of extraNotes) {
+			// folderId 付きノートは topLevelOrder には載せない（data model 整合）
+			if (!n.folderId) {
+				appendOrder(n.archived, 'note', n.id);
+			}
+		}
+		return merged;
 	}
 
 	async readNote(noteId: string): Promise<Note | null> {
@@ -226,7 +307,7 @@ export class NoteService {
 		const order = archived
 			? this.list.archivedTopLevelOrder
 			: this.list.topLevelOrder;
-		order.push({ type: 'folder', id });
+		order.unshift({ type: 'folder', id });
 		await this.persistList();
 		return folder;
 	}
