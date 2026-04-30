@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef } from 'react';
 
 import {
   CheckFileExists,
@@ -16,11 +10,13 @@ import {
 import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
 import i18n from '../i18n';
+import { useCurrentNoteStore } from '../stores/useCurrentNoteStore';
+import { useFileNotesStore } from '../stores/useFileNotesStore';
+import { useNotesStore } from '../stores/useNotesStore';
 
 import type { FileNote, Note } from '../types';
 
 interface UseFileNotesProps {
-  notes: Note[];
   setCurrentNote: (note: Note | null) => void;
   handleNewNote: () => Promise<void>;
   handleSelectNote: (note: Note) => Promise<void>;
@@ -33,17 +29,36 @@ interface UseFileNotesProps {
   ) => Promise<boolean>;
 }
 
+// fileNotes は useFileNotesStore に集約済み。フックは購読せず、
+// getState() / setFileNotes (action) 経由で操作する。
+const getFileNotes = () => useFileNotesStore.getState().fileNotes;
+const setFileNotes = (
+  updater: FileNote[] | ((prev: FileNote[]) => FileNote[]),
+) => useFileNotesStore.getState().setFileNotes(updater);
+
 export const useFileNotes = ({
-  notes,
   setCurrentNote,
   handleNewNote,
   handleSelectNote,
   showMessage,
 }: UseFileNotesProps) => {
-  const [fileNotes, setFileNotes] = useState<FileNote[]>([]);
-  const [currentFileNote, setCurrentFileNote] = useState<FileNote | null>(null);
-  const currentFileNoteRef = useRef(currentFileNote);
-  currentFileNoteRef.current = currentFileNote;
+  // currentFileNote は useCurrentNoteStore（Zustand）が真の保持者。
+  // ここで購読すると App.tsx ごと再レンダーが走るので、書き込み action のみ取得し、
+  // 読み出しは getState() / ref 経由に統一する。
+  const setCurrentFileNote = useCurrentNoteStore(
+    (state) => state.setCurrentFileNote,
+  );
+  const currentFileNoteRef = useRef<FileNote | null>(
+    useCurrentNoteStore.getState().currentFileNote,
+  );
+
+  // currentFileNote は store の subscribe 経由で ref へ追従させる
+  useEffect(() => {
+    currentFileNoteRef.current = useCurrentNoteStore.getState().currentFileNote;
+    return useCurrentNoteStore.subscribe((state) => {
+      currentFileNoteRef.current = state.currentFileNote;
+    });
+  }, []);
 
   // BringToFront起因のフォーカスチェックを一時的に抑制するフラグ
   const suppressFocusCheckRef = useRef(false);
@@ -77,32 +92,34 @@ export const useFileNotes = ({
               modifiedTime: fileNote.modifiedTime,
             };
             setCurrentFileNote(newFileNote);
-            // fileNotesRef.currentで最新のファイルノート一覧を参照
+            // getFileNotes()で最新のファイルノート一覧を参照
             // （awaitの後なのでrefはレンダー済みの最新値に同期されている）
-            const updatedFileNotes = fileNotesRef.current.map((note) =>
+            const updatedFileNotes = getFileNotes().map((note) =>
               note.id === fileNote.id ? newFileNote : note,
             );
             setFileNotes(updatedFileNotes);
-            await SaveFileNotes(
+            SaveFileNotes(
               updatedFileNotes.map((note) => backend.FileNote.createFrom(note)),
-            );
+            ).catch((err) => console.error('SaveFileNotes failed:', err));
           } else {
             // ファイルノートを削除
-            // fileNotesRef.currentで最新のファイルノート一覧を参照
-            const newFileNotes = fileNotesRef.current.filter(
+            // getFileNotes()で最新のファイルノート一覧を参照
+            const newFileNotes = getFileNotes().filter(
               (note) => note.id !== fileNote.id,
             );
             setFileNotes(newFileNotes);
-            await SaveFileNotes(
+            SaveFileNotes(
               newFileNotes.map((note) => backend.FileNote.createFrom(note)),
-            );
+            ).catch((err) => console.error('SaveFileNotes failed:', err));
 
             // 他のノートに切り替え
             if (newFileNotes.length > 0) {
               setCurrentFileNote(newFileNotes[0]);
             } else {
               setCurrentFileNote(null);
-              const activeNotes = notes.filter((note) => !note.archived);
+              const activeNotes = useNotesStore
+                .getState()
+                .notes.filter((note) => !note.archived);
               if (activeNotes.length > 0) {
                 await handleSelectNote(activeNotes[0]);
                 setCurrentNote(activeNotes[0]);
@@ -143,13 +160,13 @@ export const useFileNotes = ({
               modifiedTime: modifiedTime.toString(),
             };
             setCurrentFileNote(newFileNote);
-            const updatedFileNotes = fileNotesRef.current.map((note) =>
+            const updatedFileNotes = getFileNotes().map((note) =>
               note.id === fileNote.id ? newFileNote : note,
             );
             setFileNotes(updatedFileNotes);
-            await SaveFileNotes(
+            SaveFileNotes(
               updatedFileNotes.map((note) => backend.FileNote.createFrom(note)),
-            );
+            ).catch((err) => console.error('SaveFileNotes failed:', err));
             return true;
           }
         }
@@ -159,20 +176,26 @@ export const useFileNotes = ({
         return false;
       }
     },
-    [showMessage, notes, handleSelectNote, handleNewNote, setCurrentNote],
+    [
+      showMessage,
+      handleSelectNote,
+      handleNewNote,
+      setCurrentNote,
+      setCurrentFileNote,
+    ],
   );
 
   // ファイルノートを保存したときの処理 ------------------------------------------------------------
+  // バックエンド永続化は fire-and-forget。caller 側で await されているが
+  // 関数内部では Promise を投げっぱなしにしてエラーだけログる。
   const handleSaveFileNotes = useCallback(
     async (fileNotesToSave: FileNote[]) => {
-      try {
-        if (!fileNotesToSave) return;
-        await SaveFileNotes(
-          fileNotesToSave.map((note) => backend.FileNote.createFrom(note)),
-        );
-      } catch (error) {
+      if (!fileNotesToSave) return;
+      SaveFileNotes(
+        fileNotesToSave.map((note) => backend.FileNote.createFrom(note)),
+      ).catch((error) => {
         console.error('Failed to save file:', error);
-      }
+      });
     },
     [],
   );
@@ -214,8 +237,6 @@ export const useFileNotes = ({
 
   // ファイルノート自動保存のデバウンスタイマー
   const fileNoteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fileNotesRef = useRef(fileNotes);
-  fileNotesRef.current = fileNotes;
 
   useEffect(() => {
     return () => {
@@ -243,10 +264,10 @@ export const useFileNotes = ({
         clearTimeout(fileNoteSaveTimer.current);
       }
       fileNoteSaveTimer.current = setTimeout(() => {
-        handleSaveFileNotes(fileNotesRef.current);
+        handleSaveFileNotes(getFileNotes());
       }, 1000);
     },
-    [handleSaveFileNotes],
+    [handleSaveFileNotes, setCurrentFileNote],
   );
 
   // ノートを選択したときの処理 ------------------------------------------------------------
@@ -262,7 +283,7 @@ export const useFileNotes = ({
         setCurrentFileNote(note);
       }
     },
-    [checkAndReloadFile, setCurrentNote],
+    [checkAndReloadFile, setCurrentNote, setCurrentFileNote],
   );
 
   // ファイルを閉じる処理 ------------------------------------------------------------
@@ -283,11 +304,13 @@ export const useFileNotes = ({
         }
       }
       // ファイルを閉じる
-      const newFileNotes = fileNotes.filter((note) => note.id !== fileNote.id);
-      setFileNotes(newFileNotes);
-      await SaveFileNotes(
-        newFileNotes.map((note) => backend.FileNote.createFrom(note)),
+      const newFileNotes = getFileNotes().filter(
+        (note) => note.id !== fileNote.id,
       );
+      setFileNotes(newFileNotes);
+      SaveFileNotes(
+        newFileNotes.map((note) => backend.FileNote.createFrom(note)),
+      ).catch((err) => console.error('SaveFileNotes failed:', err));
       // 閉じたファイルが現在表示中のファイルでない場合は選択を変更しない
       if (currentFileNoteRef.current?.id !== fileNote.id) {
         return;
@@ -296,10 +319,10 @@ export const useFileNotes = ({
       if (newFileNotes.length > 0) {
         setCurrentFileNote(newFileNotes[0]);
       } else {
-        // ファイルがない場合は、現在のファイルを閉じる
         setCurrentFileNote(null);
-        // アクティブなノートがある場合は、そのノートを選択
-        const activeNotes = notes.filter((note) => !note.archived);
+        const activeNotes = useNotesStore
+          .getState()
+          .notes.filter((note) => !note.archived);
         if (activeNotes.length > 0) {
           await handleSelectNote(activeNotes[0]);
           setCurrentFileNote(null);
@@ -310,29 +333,22 @@ export const useFileNotes = ({
       }
     },
     [
-      fileNotes,
-      notes.filter,
       setCurrentNote,
       showMessage,
       handleSelectNote,
       handleNewNote,
-      notes,
+      setCurrentFileNote,
     ],
   );
 
   // ファイルが変更されているかどうかを確認する ------------------------------------------------------------
-  const isFileModified = useCallback(
-    (fileId: string) => {
-      const note = fileNotes.find((note) => note.id === fileId);
-      return note ? note.content !== note.originalContent : false;
-    },
-    [fileNotes],
-  );
+  // fileNotes はストアから都度読む。selector を通さないので isFileModified の参照は不変。
+  const isFileModified = useCallback((fileId: string) => {
+    const note = getFileNotes().find((note) => note.id === fileId);
+    return note ? note.content !== note.originalContent : false;
+  }, []);
 
   return {
-    fileNotes,
-    setFileNotes,
-    currentFileNote,
     setCurrentFileNote,
     handleSelectFileNote,
     handleSaveFileNotes,

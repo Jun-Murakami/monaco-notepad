@@ -1,14 +1,15 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 
+import { useNotesStore } from '../../stores/useNotesStore';
 import {
   ArchivedNoteList,
   insertTopLevelNote,
   moveTopLevelItem,
 } from '../ArchivedNoteList';
 
-import type { Folder, Note, TopLevelItem } from '../../types';
+import type { Note, TopLevelItem } from '../../types';
 
 describe('ArchivedNoteList', () => {
   const mockNotes: Note[] = [
@@ -48,9 +49,6 @@ describe('ArchivedNoteList', () => {
   ];
 
   const defaultProps = {
-    notes: mockNotes,
-    folders: [] as Folder[],
-    archivedTopLevelOrder: mockArchivedTopLevelOrder,
     onUnarchive: vi.fn(),
     onDelete: vi.fn(),
     onDeleteAll: vi.fn(),
@@ -60,6 +58,19 @@ describe('ArchivedNoteList', () => {
     onUpdateArchivedTopLevelOrder: vi.fn(),
     isDarkMode: false,
   };
+
+  // notes / folders / archivedTopLevelOrder は store 直購読になったので、
+  // 各テスト前に既定値を流し込む。テストごとの上書きは setState で行う。
+  beforeEach(() => {
+    useNotesStore.setState({
+      notes: mockNotes,
+      folders: [],
+      topLevelOrder: [],
+      archivedTopLevelOrder: mockArchivedTopLevelOrder,
+      collapsedFolders: new Set(),
+      showArchived: false,
+    });
+  });
 
   describe('topLevelOrder の並び替え', () => {
     it('上からフォルダ直前へノートを移動してもフォルダ下に落ちないこと', () => {
@@ -108,13 +119,8 @@ describe('ArchivedNoteList', () => {
   });
 
   it('アーカイブされたノートがない場合、メッセージが表示されること', () => {
-    render(
-      <ArchivedNoteList
-        {...defaultProps}
-        notes={[]}
-        archivedTopLevelOrder={[]}
-      />,
-    );
+    useNotesStore.setState({ notes: [], archivedTopLevelOrder: [] });
+    render(<ArchivedNoteList {...defaultProps} />);
     expect(screen.getByText('No archived notes')).toBeInTheDocument();
   });
 
@@ -160,13 +166,11 @@ describe('ArchivedNoteList', () => {
       id: n.id,
     }));
 
-    render(
-      <ArchivedNoteList
-        {...defaultProps}
-        notes={notesWithVariousTitles}
-        archivedTopLevelOrder={order}
-      />,
-    );
+    useNotesStore.setState({
+      notes: notesWithVariousTitles,
+      archivedTopLevelOrder: order,
+    });
+    render(<ArchivedNoteList {...defaultProps} />);
 
     expect(screen.getByText('Content from content')).toBeInTheDocument();
     expect(screen.getByText('Untitled Note')).toBeInTheDocument();

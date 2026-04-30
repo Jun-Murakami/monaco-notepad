@@ -12,6 +12,10 @@ import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
 import i18n from '../i18n';
 import { getExtensionByLanguage, getLanguageByExtension } from '../lib/monaco';
+import { useCurrentNoteStore } from '../stores/useCurrentNoteStore';
+import { useFileNotesStore } from '../stores/useFileNotesStore';
+import { useNotesStore } from '../stores/useNotesStore';
+import { useSplitEditorStore } from '../stores/useSplitEditorStore';
 import { isBinaryFile } from '../utils/fileUtils';
 
 import type { FileNote, Note } from '../types';
@@ -28,13 +32,14 @@ const detectTargetPane = (x: number, y: number): 'left' | 'right' | null => {
   return null;
 };
 
+// useCallback の依存配列を安定させるため、ストアアクセスはモジュールレベル関数で。
+const getIsSplit = () => useSplitEditorStore.getState().isSplit;
+const getFileNotes = () => useFileNotesStore.getState().fileNotes;
+const setFileNotes = (
+  updater: FileNote[] | ((prev: FileNote[]) => FileNote[]),
+) => useFileNotesStore.getState().setFileNotes(updater);
+
 export function useFileOperations(
-  notes: Note[],
-  setNotes: (notes: Note[]) => void,
-  currentNote: Note | null,
-  currentFileNote: FileNote | null,
-  fileNotes: FileNote[],
-  setFileNotes: (files: FileNote[]) => void,
   handleSelecAnyNote: (note: Note | FileNote) => Promise<void>,
   _showMessage: (
     title: string,
@@ -42,7 +47,6 @@ export function useFileOperations(
     isTwoButton?: boolean,
   ) => Promise<boolean>,
   handleSaveFileNotes: (fileNotes: FileNote[]) => Promise<void>,
-  isSplitRef: React.RefObject<boolean>,
   openNoteInPaneRef: React.RefObject<
     ((note: Note | FileNote, pane: 'left' | 'right') => void) | null
   >,
@@ -97,13 +101,9 @@ export function useFileOperations(
   );
 
   // ref経由で最新値を参照（effect外のハンドラからも参照するためref維持）
-  const fileNotesRef = useRef(fileNotes);
   const handleSelecAnyNoteRef = useRef(handleSelecAnyNote);
-  const setFileNotesRef = useRef(setFileNotes);
   const handleSaveFileNotesRef = useRef(handleSaveFileNotes);
-  fileNotesRef.current = fileNotes;
   handleSelecAnyNoteRef.current = handleSelecAnyNote;
-  setFileNotesRef.current = setFileNotes;
   handleSaveFileNotesRef.current = handleSaveFileNotes;
 
   // ファイルを開く
@@ -113,7 +113,9 @@ export function useFileOperations(
       if (!filePath || Array.isArray(filePath)) return;
 
       // 既に同じファイルが開かれているかチェック
-      const existingFile = fileNotes.find((note) => note.filePath === filePath);
+      const existingFile = getFileNotes().find(
+        (note) => note.filePath === filePath,
+      );
       if (existingFile) {
         await handleSelecAnyNote(existingFile);
         return;
@@ -129,7 +131,7 @@ export function useFileOperations(
       );
       if (!newFileNote) return;
 
-      const updatedFileNotes = [newFileNote, ...fileNotes];
+      const updatedFileNotes = [newFileNote, ...getFileNotes()];
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
       await handleSelecAnyNote(newFileNote);
@@ -146,7 +148,7 @@ export function useFileOperations(
         if (!filePath) return;
 
         // 既に同じファイルが開かれているかチェック
-        const existingFile = fileNotesRef.current.find(
+        const existingFile = getFileNotes().find(
           (note) => note.filePath === filePath,
         );
         if (existingFile) {
@@ -164,11 +166,11 @@ export function useFileOperations(
         );
         if (!newFileNote) return;
 
-        const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
-        setFileNotesRef.current(updatedFileNotes);
+        const updatedFileNotes = [newFileNote, ...getFileNotes()];
+        setFileNotes(updatedFileNotes);
         await handleSaveFileNotesRef.current(updatedFileNotes);
 
-        if (targetPane && isSplitRef.current && openNoteInPaneRef.current) {
+        if (targetPane && getIsSplit() && openNoteInPaneRef.current) {
           openNoteInPaneRef.current(newFileNote, targetPane);
         } else {
           await handleSelecAnyNoteRef.current(newFileNote);
@@ -178,7 +180,7 @@ export function useFileOperations(
         console.error('Failed to handle dropped file:', error);
       }
     },
-    [createFileNote, isSplitRef, openNoteInPaneRef, addRecentFileRef],
+    [createFileNote, openNoteInPaneRef, addRecentFileRef],
   );
 
   // パスを指定してファイルを開く（最近開いたファイル用）
@@ -187,7 +189,9 @@ export function useFileOperations(
       if (!filePath) return;
 
       // 既に同じファイルが開かれているかチェック
-      const existingFile = fileNotes.find((note) => note.filePath === filePath);
+      const existingFile = getFileNotes().find(
+        (note) => note.filePath === filePath,
+      );
       if (existingFile) {
         await handleSelecAnyNote(existingFile);
         return;
@@ -203,7 +207,7 @@ export function useFileOperations(
       );
       if (!newFileNote) return;
 
-      const updatedFileNotes = [newFileNote, ...fileNotes];
+      const updatedFileNotes = [newFileNote, ...getFileNotes()];
       setFileNotes(updatedFileNotes);
       await handleSaveFileNotes(updatedFileNotes);
       await handleSelecAnyNote(newFileNote);
@@ -216,6 +220,8 @@ export function useFileOperations(
   // ファイルをエクスポートする
   const handleSaveAsFile = async () => {
     try {
+      // currentNote / currentFileNote はストアから直接取得（再レンダー回避のため）
+      const { currentNote, currentFileNote } = useCurrentNoteStore.getState();
       // pendingContentRefから最新のコンテンツを取得（Noteのコンテンツ変更はpendingContentRefに
       // 保持され、currentNote.contentには反映されないため）
       const latestNoteContent = currentNote
@@ -251,7 +257,7 @@ export function useFileOperations(
       const savedTime = new Date().toISOString();
       // refから最新のfileNotesを取得して更新する（await中にユーザーが編集した場合、
       // クロージャの古いfileNotesで上書きしてしまうのを防ぐ）
-      const updatedFileNotes = fileNotesRef.current.map((note) =>
+      const updatedFileNotes = getFileNotes().map((note) =>
         note.id === fileNote.id
           ? { ...note, originalContent: savedContent, modifiedTime: savedTime }
           : note,
@@ -276,11 +282,14 @@ export function useFileOperations(
       archived: false,
     };
 
-    setNotes([newNote, ...notes]);
-    const updatedFileNotes = fileNotes.filter((f) => f.id !== fileNote.id);
+    useNotesStore.getState().setNotes((prev) => [newNote, ...prev]);
+    const updatedFileNotes = getFileNotes().filter((f) => f.id !== fileNote.id);
     setFileNotes(updatedFileNotes);
-    await handleSaveFileNotes(updatedFileNotes);
-    await SaveNote(backend.Note.createFrom(newNote), 'create');
+    // 永続化系は fire-and-forget。in-memory はすでに更新済み。
+    handleSaveFileNotes(updatedFileNotes);
+    SaveNote(backend.Note.createFrom(newNote), 'create').catch((err) =>
+      console.error('SaveNote (convert) failed:', err),
+    );
     await handleSelecAnyNote(newNote);
   };
 
@@ -292,7 +301,7 @@ export function useFileOperations(
       sourceEncoding?: string;
     }) => {
       // 既に同じファイルが開かれているかチェック
-      const existingFile = fileNotesRef.current.find(
+      const existingFile = getFileNotes().find(
         (note) => note.filePath === data.path,
       );
       if (existingFile) {
@@ -304,10 +313,10 @@ export function useFileOperations(
           originalContent: data.sourceEncoding ? '' : data.content,
           modifiedTime: modifiedTime.toString(),
         };
-        const updatedFileNotes = fileNotesRef.current.map((note) =>
+        const updatedFileNotes = getFileNotes().map((note) =>
           note.id === existingFile.id ? updatedFile : note,
         );
-        setFileNotesRef.current(updatedFileNotes);
+        setFileNotes(updatedFileNotes);
         await handleSaveFileNotesRef.current(updatedFileNotes);
         await handleSelecAnyNoteRef.current(updatedFile);
         return;
@@ -320,11 +329,11 @@ export function useFileOperations(
       );
       if (!newFileNote) return;
 
-      const updatedFileNotes = [newFileNote, ...fileNotesRef.current];
-      setFileNotesRef.current(updatedFileNotes);
+      const updatedFileNotes = [newFileNote, ...getFileNotes()];
+      setFileNotes(updatedFileNotes);
       await handleSaveFileNotesRef.current(updatedFileNotes);
 
-      if (isSplitRef.current && openNoteInPaneRef.current) {
+      if (getIsSplit() && openNoteInPaneRef.current) {
         openNoteInPaneRef.current(newFileNote, 'left');
       } else {
         await handleSelecAnyNoteRef.current(newFileNote);
@@ -338,7 +347,7 @@ export function useFileOperations(
       if (paths.length > 0) {
         const file = paths[0];
         if (file) {
-          const targetPane = isSplitRef.current
+          const targetPane = getIsSplit()
             ? (detectTargetPane(x, y) ?? 'left')
             : undefined;
           await handleFileDrop(file, targetPane);
@@ -361,9 +370,10 @@ export function useFileOperations(
   }, []);
 
   const handleCloseFile = async (note: FileNote) => {
-    const updatedFileNotes = fileNotes.filter((f) => f.id !== note.id);
+    const updatedFileNotes = getFileNotes().filter((f) => f.id !== note.id);
     setFileNotes(updatedFileNotes);
     await handleSaveFileNotes(updatedFileNotes);
+    const notes = useNotesStore.getState().notes;
     if (notes.length > 0) {
       await handleSelecAnyNote(notes[0]);
     }

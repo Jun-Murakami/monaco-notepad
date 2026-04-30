@@ -1,8 +1,20 @@
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import { initI18n } from '../i18n';
+import { useCurrentNoteStore } from '../stores/useCurrentNoteStore';
+import { useFileNotesStore } from '../stores/useFileNotesStore';
+import { useNotesStore } from '../stores/useNotesStore';
+import { useSplitEditorStore } from '../stores/useSplitEditorStore';
 
 initI18n('en');
+
+// Zustand のグローバルストアはテスト間で状態が漏れるので、毎テスト後に初期化する。
+afterEach(() => {
+  useCurrentNoteStore.getState().resetCurrentNote();
+  useNotesStore.getState().reset();
+  useFileNotesStore.getState().reset();
+  useSplitEditorStore.getState().reset();
+});
 
 const originalGetComputedStyle = window.getComputedStyle;
 Object.defineProperty(window, 'getComputedStyle', {

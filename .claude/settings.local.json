@@ -73,7 +73,12 @@
       "WebFetch(domain:support.google.com)",
       "WebFetch(domain:appscreenmagic.com)",
       "WebFetch(domain:framd.app)",
-      "WebFetch(domain:www.apptamin.com)"
+      "WebFetch(domain:www.apptamin.com)",
+      "Bash(awk 'NR>=110 && NR<=170 {print NR\": \"$0}' src/hooks/__test__/useFileOperations.test.ts)",
+      "Bash(awk 'NR>=110 {p=1} p {print NR\":\"$0} NR>=700 {exit}' src/hooks/__test__/useFileOperations.test.ts)",
+      "Bash(git *)",
+      "Bash(awk 'NR==141 || NR==142 {for\\(i=1;i<=length\\($0\\);i++\\) printf \"%d \", ord = substr\\($0,i,1\\) ? sprintf\\(\"%c\",substr\\($0,i,1\\)\\) : \"\"; print \"\"}' src/components/SearchReplaceEngine.tsx)",
+      "Bash(xxd)"
     ]
   }
 }

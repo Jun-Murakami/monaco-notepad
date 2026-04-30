@@ -1,8 +1,10 @@
 import {
   type ComponentProps,
+  forwardRef,
   memo,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -119,7 +121,7 @@ export { insertTopLevelNote, moveTopLevelItem };
 
 interface NoteListProps {
   notes: Note[] | FileNote[];
-  currentNote: Note | FileNote | null;
+  currentNoteId: string | null;
   onNoteSelect: (note: Note | FileNote) => Promise<void>;
   allowReselect?: boolean;
   onArchive?: (noteId: string) => Promise<void>;
@@ -156,7 +158,7 @@ interface NoteListProps {
 
 interface NoteItemProps {
   note: Note | FileNote;
-  currentNote: Note | FileNote | null;
+  isSelected: boolean;
   onNoteSelect: (note: Note | FileNote) => Promise<void>;
   allowReselect?: boolean;
   onArchive?: (noteId: string) => Promise<void>;
@@ -171,7 +173,7 @@ interface NoteItemProps {
   isFileModified?: (fileId: string) => boolean;
   platform: string;
   systemLocale?: string;
-  secondarySelectedNoteId?: string;
+  isSecondarySelected?: boolean;
   onOpenInPane?: (note: Note | FileNote, pane: 'left' | 'right') => void;
   canSplit?: boolean;
   isDragging?: boolean;
@@ -180,7 +182,7 @@ interface NoteItemProps {
 const NoteItem: React.FC<NoteItemProps> = memo(
   ({
     note,
-    currentNote,
+    isSelected,
     onNoteSelect,
     allowReselect,
     onArchive,
@@ -192,7 +194,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     isFileModified,
     platform,
     systemLocale,
-    secondarySelectedNoteId,
+    isSecondarySelected,
     onOpenInPane,
     canSplit,
     isDragging,
@@ -238,13 +240,10 @@ const NoteItem: React.FC<NoteItemProps> = memo(
           }}
         >
           <ListItemButton
-            selected={!isSyncing && currentNote?.id === note.id}
+            selected={!isSyncing && isSelected}
             disabled={isSyncing}
             onClick={async () => {
-              if (
-                !isSyncing &&
-                (allowReselect || currentNote?.id !== note.id)
-              ) {
+              if (!isSyncing && (allowReselect || !isSelected)) {
                 await onNoteSelect(note);
               }
             }}
@@ -263,8 +262,8 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                   backgroundColor: alpha(theme.palette.primary.main, 0.24),
                 },
               }),
-              ...(currentNote?.id !== note.id &&
-                note.id === secondarySelectedNoteId && {
+              ...(!isSelected &&
+                isSecondarySelected && {
                   backgroundColor: alpha(
                     theme.palette.secondary.main,
                     theme.palette.mode === 'dark' ? 0.16 : 0.16,
@@ -826,10 +825,9 @@ type HoverState = {
   indicatorIndented: boolean;
 };
 
-type ActiveDragState = {
-  item: DragData;
-  pointer: { x: number; y: number };
-  hover: HoverState | null;
+type DropIndicatorHandle = {
+  update: (hover: HoverState | null) => void;
+  clear: () => void;
 };
 
 type DisplayRow =
@@ -975,6 +973,29 @@ const computeIndicatorIndented = (
 const isDropEdge = (value: Edge | null): value is 'top' | 'bottom' =>
   value === 'top' || value === 'bottom';
 
+const isSameDropData = (left: DropData, right: DropData): boolean =>
+  left.kind === right.kind &&
+  left.rowId === right.rowId &&
+  left.noteId === right.noteId &&
+  left.folderId === right.folderId &&
+  left.topLevelIndex === right.topLevelIndex &&
+  left.isLastInFolder === right.isLastInFolder;
+
+const isSameHoverState = (
+  left: HoverState | null,
+  right: HoverState | null,
+): boolean => {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.edge === right.edge &&
+    left.boundaryIndented === right.boundaryIndented &&
+    left.indicatorTop === right.indicatorTop &&
+    left.indicatorIndented === right.indicatorIndented &&
+    isSameDropData(left.target, right.target)
+  );
+};
+
 const getInsertIndexForFolder = (
   activeNotes: Note[],
   targetFolderId: string,
@@ -1002,6 +1023,47 @@ const getInsertIndexForFolder = (
   return targetPositions[positionInFolder] ?? activeNotes.length;
 };
 
+const DropIndicator = memo(
+  forwardRef<DropIndicatorHandle>(function DropIndicator(_props, ref) {
+    const [hover, setHover] = useState<HoverState | null>(null);
+    const hoverRef = useRef<HoverState | null>(null);
+
+    const update = useCallback((nextHover: HoverState | null) => {
+      if (isSameHoverState(hoverRef.current, nextHover)) return;
+      hoverRef.current = nextHover;
+      setHover(nextHover);
+    }, []);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        update,
+        clear: () => update(null),
+      }),
+      [update],
+    );
+
+    if (!hover) return null;
+
+    return (
+      <Box
+        sx={{
+          position: 'absolute',
+          top: hover.indicatorTop,
+          left:
+            INDICATOR_INSET +
+            (hover.indicatorIndented ? INDENT_INDICATOR_OFFSET : 0),
+          right: INDICATOR_INSET,
+          height: 2,
+          bgcolor: 'primary.main',
+          zIndex: 2,
+          pointerEvents: 'none',
+        }}
+      />
+    );
+  }),
+);
+
 const PragmaticRow: React.FC<{
   isTestEnv: boolean;
   dragData?: DragData;
@@ -1020,6 +1082,11 @@ const PragmaticRow: React.FC<{
   sx,
 }) => {
   const rowRef = useRef<HTMLDivElement>(null);
+  const dragDataRef = useRef(dragData);
+  const dropDataRef = useRef(dropData);
+  dragDataRef.current = dragData;
+  dropDataRef.current = dropData;
+  const canDrag = dragData !== undefined;
 
   useEffect(() => {
     if (isTestEnv) return;
@@ -1034,19 +1101,21 @@ const PragmaticRow: React.FC<{
         canDrop: ({ source }) => {
           const drag = readDragData(source.data);
           if (!drag) return false;
-          return canDropOnTarget(drag, dropData);
+          return canDropOnTarget(drag, dropDataRef.current);
         },
         getData: ({ input, element: targetElement }) => {
+          const currentDropData = dropDataRef.current;
           const baseData = {
-            [DROP_TARGET_KEY]: dropData,
+            [DROP_TARGET_KEY]: currentDropData,
           } as Record<string | symbol, unknown>;
 
-          if (dropData.kind === 'unfiled-bottom') {
+          if (currentDropData.kind === 'unfiled-bottom') {
             return baseData;
           }
 
           const allowedEdges: Edge[] =
-            dropData.kind === 'folder-tail' || dropData.kind === 'flat-tail'
+            currentDropData.kind === 'folder-tail' ||
+            currentDropData.kind === 'flat-tail'
               ? ['top']
               : ['top', 'bottom'];
           return attachClosestEdge(baseData, {
@@ -1058,21 +1127,23 @@ const PragmaticRow: React.FC<{
       }),
     );
 
-    if (dragData) {
+    if (canDrag) {
       cleanups.push(
         draggable({
           element,
           getInitialData: () =>
             ({
-              [DRAG_ITEM_KEY]: dragData,
+              [DRAG_ITEM_KEY]: dragDataRef.current,
             }) as Record<string | symbol, unknown>,
           onGenerateDragPreview: ({ nativeSetDragImage }) => {
             setCustomNativeDragPreview({
               nativeSetDragImage,
               getOffset: pointerOutsideOfPreview({ x: '12px', y: '8px' }),
               render: ({ container }) => {
+                const currentDragData = dragDataRef.current;
+                if (!currentDragData) return () => {};
                 onNativePreviewChange?.({
-                  item: dragData,
+                  item: currentDragData,
                   container,
                   width: element.getBoundingClientRect().width,
                 });
@@ -1085,7 +1156,7 @@ const PragmaticRow: React.FC<{
     }
 
     return combine(...cleanups);
-  }, [dragData, dropData, isTestEnv, onNativePreviewChange]);
+  }, [canDrag, onNativePreviewChange, isTestEnv]);
 
   return (
     <Box
@@ -1101,9 +1172,259 @@ const PragmaticRow: React.FC<{
   );
 };
 
+type NoteRowKind = 'flat-note' | 'top-note' | 'folder-note';
+
+interface MemoizedNoteRowProps
+  extends Omit<NoteItemProps, 'isSelected' | 'isSecondarySelected'> {
+  rowKind: NoteRowKind;
+  rowId: string;
+  topLevelIndex?: number;
+  folderId?: string;
+  isLastInFolder?: boolean;
+  isTestEnv: boolean;
+  currentNoteId: string | null;
+  secondarySelectedNoteId?: string;
+  isDraggingAny: boolean;
+  isDragSource: boolean;
+  onNativePreviewChange: (preview: NativePreviewState | null) => void;
+}
+
+const hasSameSelectionForNote = (
+  noteId: string,
+  prevId: string | null | undefined,
+  nextId: string | null | undefined,
+): boolean => (prevId === noteId) === (nextId === noteId);
+
+const MemoizedNoteRow = memo(
+  ({
+    rowKind,
+    rowId,
+    topLevelIndex,
+    folderId,
+    isLastInFolder,
+    isTestEnv,
+    currentNoteId,
+    secondarySelectedNoteId,
+    isDraggingAny,
+    isDragSource,
+    onNativePreviewChange,
+    note,
+    ...noteItemProps
+  }: MemoizedNoteRowProps) => {
+    const dropData: DropData =
+      rowKind === 'folder-note'
+        ? {
+            kind: 'folder-note',
+            rowId,
+            noteId: note.id,
+            folderId,
+            topLevelIndex,
+            isLastInFolder,
+          }
+        : rowKind === 'top-note'
+          ? {
+              kind: 'top-note',
+              rowId,
+              noteId: note.id,
+              topLevelIndex,
+            }
+          : {
+              kind: 'flat-note',
+              rowId,
+              noteId: note.id,
+            };
+    const dragData: DragData | undefined =
+      !('filePath' in note) && note.syncing
+        ? undefined
+        : {
+            kind: 'note',
+            noteId: note.id,
+            source: noteItemProps.isFileMode ? 'file' : 'note',
+          };
+    const noteItem = (
+      <NoteItem
+        {...noteItemProps}
+        note={note}
+        isSelected={currentNoteId === note.id}
+        isSecondarySelected={secondarySelectedNoteId === note.id}
+        isDragging={isDraggingAny}
+      />
+    );
+
+    return (
+      <PragmaticRow
+        isTestEnv={isTestEnv}
+        dropData={dropData}
+        dragData={dragData}
+        onNativePreviewChange={onNativePreviewChange}
+        isDragSource={isDragSource}
+        sx={{
+          mx: 1,
+          ...(rowKind === 'folder-note' && {
+            borderLeft: '1px solid',
+            borderRight: '1px solid',
+            borderColor: 'action.disabled',
+          }),
+        }}
+      >
+        {rowKind === 'folder-note' ? (
+          <Box
+            sx={(theme) => ({
+              borderLeft: `${theme.spacing(1.5)} solid ${
+                theme.palette.mode === 'dark'
+                  ? 'rgba(255,255,255,0.08)'
+                  : 'rgba(0,0,0,0.06)'
+              }`,
+              backgroundColor:
+                theme.palette.mode === 'dark'
+                  ? 'rgba(255,255,255,0.04)'
+                  : 'rgba(0,0,0,0.06)',
+            })}
+          >
+            {noteItem}
+          </Box>
+        ) : (
+          noteItem
+        )}
+      </PragmaticRow>
+    );
+  },
+  (prev, next) =>
+    prev.note === next.note &&
+    prev.rowKind === next.rowKind &&
+    prev.rowId === next.rowId &&
+    prev.topLevelIndex === next.topLevelIndex &&
+    prev.folderId === next.folderId &&
+    prev.isLastInFolder === next.isLastInFolder &&
+    prev.isTestEnv === next.isTestEnv &&
+    hasSameSelectionForNote(
+      prev.note.id,
+      prev.currentNoteId,
+      next.currentNoteId,
+    ) &&
+    hasSameSelectionForNote(
+      prev.note.id,
+      prev.secondarySelectedNoteId,
+      next.secondarySelectedNoteId,
+    ) &&
+    prev.isDraggingAny === next.isDraggingAny &&
+    prev.isDragSource === next.isDragSource &&
+    prev.onNativePreviewChange === next.onNativePreviewChange &&
+    prev.onNoteSelect === next.onNoteSelect &&
+    prev.allowReselect === next.allowReselect &&
+    prev.onArchive === next.onArchive &&
+    prev.onConvertToNote === next.onConvertToNote &&
+    prev.onSaveFile === next.onSaveFile &&
+    prev.getNoteTitle === next.getNoteTitle &&
+    prev.isFileMode === next.isFileMode &&
+    prev.onCloseFile === next.onCloseFile &&
+    prev.isFileModified === next.isFileModified &&
+    prev.platform === next.platform &&
+    prev.systemLocale === next.systemLocale &&
+    prev.onOpenInPane === next.onOpenInPane &&
+    prev.canSplit === next.canSplit,
+);
+
+interface MemoizedFolderRowProps {
+  rowId: string;
+  folder: Folder;
+  topLevelIndex: number;
+  noteCount: number;
+  isCollapsed: boolean;
+  isDraggingThis: boolean;
+  isTestEnv: boolean;
+  editingFolderId?: string | null;
+  onNativePreviewChange: (preview: NativePreviewState | null) => void;
+  onToggleFolderCollapse?: (folderId: string) => void;
+  onRenameFolder?: (id: string, name: string) => void;
+  onDeleteFolder?: (id: string) => void;
+  onArchiveFolder?: (folderId: string) => Promise<void>;
+  onEditingFolderDone?: () => void;
+}
+
+const MemoizedFolderRow = memo(
+  ({
+    rowId,
+    folder,
+    topLevelIndex,
+    noteCount,
+    isCollapsed,
+    isDraggingThis,
+    isTestEnv,
+    editingFolderId,
+    onNativePreviewChange,
+    onToggleFolderCollapse,
+    onRenameFolder,
+    onDeleteFolder,
+    onArchiveFolder,
+    onEditingFolderDone,
+  }: MemoizedFolderRowProps) => {
+    const dropData: DropData = {
+      kind: 'folder',
+      rowId,
+      folderId: folder.id,
+      topLevelIndex,
+    };
+    const dragData: DragData = {
+      kind: 'folder',
+      folderId: folder.id,
+    };
+
+    return (
+      <PragmaticRow
+        isTestEnv={isTestEnv}
+        dropData={dropData}
+        dragData={dragData}
+        onNativePreviewChange={onNativePreviewChange}
+        isDragSource={isDraggingThis}
+        sx={{
+          mx: 1,
+          border: '1px solid',
+          borderColor: 'action.disabled',
+          borderRadius:
+            isCollapsed || noteCount === 0 || isDraggingThis
+              ? 1
+              : '4px 4px 0 0',
+          borderBottomWidth:
+            noteCount > 0 && !isCollapsed && !isDraggingThis ? 0 : undefined,
+        }}
+      >
+        <FolderHeader
+          folder={folder}
+          isCollapsed={isCollapsed || isDraggingThis}
+          onToggle={() => onToggleFolderCollapse?.(folder.id)}
+          onRename={(name) => onRenameFolder?.(folder.id, name)}
+          onDelete={() => onDeleteFolder?.(folder.id)}
+          onArchive={() => onArchiveFolder?.(folder.id)}
+          isEmpty={noteCount === 0}
+          noteCount={noteCount}
+          autoEdit={editingFolderId === folder.id}
+          onAutoEditDone={onEditingFolderDone}
+        />
+      </PragmaticRow>
+    );
+  },
+  (prev, next) =>
+    prev.rowId === next.rowId &&
+    prev.folder === next.folder &&
+    prev.topLevelIndex === next.topLevelIndex &&
+    prev.noteCount === next.noteCount &&
+    prev.isCollapsed === next.isCollapsed &&
+    prev.isDraggingThis === next.isDraggingThis &&
+    prev.isTestEnv === next.isTestEnv &&
+    (prev.editingFolderId === prev.folder.id) ===
+      (next.editingFolderId === next.folder.id) &&
+    prev.onNativePreviewChange === next.onNativePreviewChange &&
+    prev.onToggleFolderCollapse === next.onToggleFolderCollapse &&
+    prev.onRenameFolder === next.onRenameFolder &&
+    prev.onDeleteFolder === next.onDeleteFolder &&
+    prev.onArchiveFolder === next.onArchiveFolder &&
+    prev.onEditingFolderDone === next.onEditingFolderDone,
+);
+
 export const NoteList: React.FC<NoteListProps> = ({
   notes,
-  currentNote,
+  currentNoteId,
   onNoteSelect,
   allowReselect,
   onArchive,
@@ -1134,10 +1455,12 @@ export const NoteList: React.FC<NoteListProps> = ({
   const isTestEnv = import.meta.env.MODE === 'test';
   const { t } = useTranslation();
   const listContentRef = useRef<HTMLDivElement>(null);
+  const dropIndicatorRef = useRef<DropIndicatorHandle>(null);
   const [nativePreview, setNativePreview] = useState<NativePreviewState | null>(
     null,
   );
-  const [activeDrag, setActiveDrag] = useState<ActiveDragState | null>(null);
+  const [activeDragItem, setActiveDragItem] = useState<DragData | null>(null);
+  const activeDragItemRef = useRef<DragData | null>(null);
 
   // monitorForElements の再登録を防ぐためにコールバックをrefで保持
   const handleFlatModeDropRef = useRef<
@@ -1332,47 +1655,6 @@ export const NoteList: React.FC<NoteListProps> = ({
   const getLocalizedNoteTitle = useCallback(
     (note: Note | FileNote) => getNoteTitle(note, t),
     [t],
-  );
-
-  const renderNoteItem = useCallback(
-    (note: Note | FileNote, isDraggingAny: boolean) => (
-      <NoteItem
-        note={note}
-        currentNote={currentNote}
-        onNoteSelect={onNoteSelect}
-        allowReselect={allowReselect}
-        onArchive={onArchive}
-        onConvertToNote={onConvertToNote}
-        onSaveFile={onSaveFile}
-        getNoteTitle={getLocalizedNoteTitle}
-        isFileMode={isFileMode}
-        onCloseFile={onCloseFile}
-        isFileModified={isFileModified}
-        platform={platform}
-        systemLocale={systemLocale}
-        secondarySelectedNoteId={secondarySelectedNoteId}
-        onOpenInPane={onOpenInPane}
-        canSplit={canSplit}
-        isDragging={isDraggingAny}
-      />
-    ),
-    [
-      canSplit,
-      currentNote,
-      isFileMode,
-      isFileModified,
-      allowReselect,
-      onArchive,
-      onCloseFile,
-      onConvertToNote,
-      onNoteSelect,
-      onOpenInPane,
-      onSaveFile,
-      platform,
-      systemLocale,
-      secondarySelectedNoteId,
-      getLocalizedNoteTitle,
-    ],
   );
 
   const resolveHoverState = useCallback(
@@ -1884,6 +2166,13 @@ export const NoteList: React.FC<NoteListProps> = ({
   useEffect(() => {
     if (isTestEnv) return;
 
+    const clearDragState = () => {
+      activeDragItemRef.current = null;
+      setActiveDragItem(null);
+      dropIndicatorRef.current?.clear();
+      setNativePreview(null);
+    };
+
     return monitorForElements({
       canMonitor: ({ source }) => readDragData(source.data) !== null,
       onDragStart: ({ source, location }) => {
@@ -1891,46 +2180,28 @@ export const NoteList: React.FC<NoteListProps> = ({
         if (!dragItem) return;
         const hover = resolveHoverStateRef.current(location.current, dragItem);
 
-        setActiveDrag({
-          item: dragItem,
-          pointer: {
-            x: location.current.input.clientX,
-            y: location.current.input.clientY,
-          },
-          hover,
-        });
+        activeDragItemRef.current = dragItem;
+        setActiveDragItem(dragItem);
+        dropIndicatorRef.current?.update(hover);
       },
       onDrag: ({ location }) => {
-        setActiveDrag((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            pointer: {
-              x: location.current.input.clientX,
-              y: location.current.input.clientY,
-            },
-            hover: resolveHoverStateRef.current(location.current, prev.item),
-          };
-        });
+        const dragItem = activeDragItemRef.current;
+        if (!dragItem) return;
+        dropIndicatorRef.current?.update(
+          resolveHoverStateRef.current(location.current, dragItem),
+        );
       },
       onDropTargetChange: ({ location }) => {
-        setActiveDrag((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            pointer: {
-              x: location.current.input.clientX,
-              y: location.current.input.clientY,
-            },
-            hover: resolveHoverStateRef.current(location.current, prev.item),
-          };
-        });
+        const dragItem = activeDragItemRef.current;
+        if (!dragItem) return;
+        dropIndicatorRef.current?.update(
+          resolveHoverStateRef.current(location.current, dragItem),
+        );
       },
       onDrop: ({ source, location }) => {
         const dragItem = readDragData(source.data);
         if (!dragItem) {
-          setActiveDrag(null);
-          setNativePreview(null);
+          clearDragState();
           return;
         }
 
@@ -1950,15 +2221,13 @@ export const NoteList: React.FC<NoteListProps> = ({
               void onNoteSelectRef.current(note);
             }
           }
-          setActiveDrag(null);
-          setNativePreview(null);
+          clearDragState();
           return;
         }
 
         const hover = resolveHoverStateRef.current(location.current, dragItem);
         if (!hover) {
-          setActiveDrag(null);
-          setNativePreview(null);
+          clearDragState();
           return;
         }
 
@@ -1968,23 +2237,20 @@ export const NoteList: React.FC<NoteListProps> = ({
           void handleFlatModeDropRef.current(dragItem, hover);
         }
 
-        setActiveDrag(null);
-        setNativePreview(null);
+        clearDragState();
       },
     });
   }, [activeNotes, isFolderMode]);
 
   useEffect(() => {
-    if (!activeDrag) return;
+    if (!activeDragItem) return;
     const style = document.createElement('style');
     style.textContent = '* { cursor: grabbing !important; }';
     document.head.appendChild(style);
     return () => {
       style.remove();
     };
-  }, [activeDrag]);
-
-  const indicator = activeDrag?.hover;
+  }, [activeDragItem]);
 
   return (
     <List
@@ -1997,37 +2263,41 @@ export const NoteList: React.FC<NoteListProps> = ({
         {rows.map((row) => {
           if (row.kind === 'flat-note') {
             const isDraggingThis =
-              activeDrag?.item.kind === 'note' &&
-              activeDrag.item.noteId === row.note.id;
-            const dropData: DropData = {
-              kind: 'flat-note',
-              rowId: row.rowId,
-              noteId: row.note.id,
-            };
-            const dragData: DragData | undefined = {
-              kind: 'note',
-              noteId: row.note.id,
-              source: isFileMode ? 'file' : 'note',
-            };
+              activeDragItem?.kind === 'note' &&
+              activeDragItem.noteId === row.note.id;
             return (
-              <PragmaticRow
+              <MemoizedNoteRow
                 key={row.rowId}
-                isTestEnv={isTestEnv}
-                dropData={dropData}
-                dragData={dragData}
-                onNativePreviewChange={handleNativePreviewChange}
+                rowKind="flat-note"
+                rowId={row.rowId}
+                note={row.note}
+                currentNoteId={currentNoteId}
+                secondarySelectedNoteId={secondarySelectedNoteId}
+                onNoteSelect={onNoteSelect}
+                allowReselect={allowReselect}
+                onArchive={onArchive}
+                onConvertToNote={onConvertToNote}
+                onSaveFile={onSaveFile}
+                getNoteTitle={getLocalizedNoteTitle}
+                isFileMode={isFileMode}
+                onCloseFile={onCloseFile}
+                isFileModified={isFileModified}
+                platform={platform}
+                systemLocale={systemLocale}
+                onOpenInPane={onOpenInPane}
+                canSplit={canSplit}
+                isDraggingAny={activeDragItem !== null}
                 isDragSource={isDraggingThis}
-                sx={{ mx: 1 }}
-              >
-                {renderNoteItem(row.note, !!activeDrag)}
-              </PragmaticRow>
+                isTestEnv={isTestEnv}
+                onNativePreviewChange={handleNativePreviewChange}
+              />
             );
           }
 
           if (row.kind === 'flat-tail') {
             const shouldRender =
               isFileMode ||
-              (activeDrag !== null && activeDrag.item.kind === 'note');
+              (activeDragItem !== null && activeDragItem.kind === 'note');
             if (!shouldRender) {
               return null;
             }
@@ -2046,138 +2316,96 @@ export const NoteList: React.FC<NoteListProps> = ({
 
           if (row.kind === 'top-note') {
             const isDraggingThis =
-              activeDrag?.item.kind === 'note' &&
-              activeDrag.item.noteId === row.note.id;
-            const dropData: DropData = {
-              kind: 'top-note',
-              rowId: row.rowId,
-              noteId: row.note.id,
-              topLevelIndex: row.topLevelIndex,
-            };
-            const dragData: DragData | undefined = row.note.syncing
-              ? undefined
-              : {
-                  kind: 'note',
-                  noteId: row.note.id,
-                  source: 'note',
-                };
+              activeDragItem?.kind === 'note' &&
+              activeDragItem.noteId === row.note.id;
             return (
-              <PragmaticRow
+              <MemoizedNoteRow
                 key={row.rowId}
-                isTestEnv={isTestEnv}
-                dropData={dropData}
-                dragData={dragData}
-                onNativePreviewChange={handleNativePreviewChange}
+                rowKind="top-note"
+                rowId={row.rowId}
+                note={row.note}
+                topLevelIndex={row.topLevelIndex}
+                currentNoteId={currentNoteId}
+                secondarySelectedNoteId={secondarySelectedNoteId}
+                onNoteSelect={onNoteSelect}
+                allowReselect={allowReselect}
+                onArchive={onArchive}
+                onConvertToNote={onConvertToNote}
+                onSaveFile={onSaveFile}
+                getNoteTitle={getLocalizedNoteTitle}
+                isFileMode={isFileMode}
+                onCloseFile={onCloseFile}
+                isFileModified={isFileModified}
+                platform={platform}
+                systemLocale={systemLocale}
+                onOpenInPane={onOpenInPane}
+                canSplit={canSplit}
+                isDraggingAny={activeDragItem !== null}
                 isDragSource={isDraggingThis}
-                sx={{ mx: 1 }}
-              >
-                {renderNoteItem(row.note, !!activeDrag)}
-              </PragmaticRow>
+                isTestEnv={isTestEnv}
+                onNativePreviewChange={handleNativePreviewChange}
+              />
             );
           }
 
           if (row.kind === 'folder') {
             const isDraggingThis =
-              activeDrag?.item.kind === 'folder' &&
-              activeDrag.item.folderId === row.folder.id;
-            const dropData: DropData = {
-              kind: 'folder',
-              rowId: row.rowId,
-              folderId: row.folder.id,
-              topLevelIndex: row.topLevelIndex,
-            };
-            const dragData: DragData = {
-              kind: 'folder',
-              folderId: row.folder.id,
-            };
+              activeDragItem?.kind === 'folder' &&
+              activeDragItem.folderId === row.folder.id;
             return (
-              <PragmaticRow
+              <MemoizedFolderRow
                 key={row.rowId}
+                rowId={row.rowId}
+                folder={row.folder}
+                topLevelIndex={row.topLevelIndex}
+                noteCount={row.noteCount}
+                isCollapsed={row.isCollapsed}
+                isDraggingThis={isDraggingThis}
                 isTestEnv={isTestEnv}
-                dropData={dropData}
-                dragData={dragData}
+                editingFolderId={editingFolderId}
                 onNativePreviewChange={handleNativePreviewChange}
-                isDragSource={isDraggingThis}
-                sx={{
-                  mx: 1,
-                  border: '1px solid',
-                  borderColor: 'action.disabled',
-                  borderRadius:
-                    row.isCollapsed || row.noteCount === 0 || isDraggingThis
-                      ? 1
-                      : '4px 4px 0 0',
-                  borderBottomWidth:
-                    row.noteCount > 0 && !row.isCollapsed && !isDraggingThis
-                      ? 0
-                      : undefined,
-                }}
-              >
-                <FolderHeader
-                  folder={row.folder}
-                  isCollapsed={row.isCollapsed || isDraggingThis}
-                  onToggle={() => onToggleFolderCollapse?.(row.folder.id)}
-                  onRename={(name) => onRenameFolder?.(row.folder.id, name)}
-                  onDelete={() => onDeleteFolder?.(row.folder.id)}
-                  onArchive={() => onArchiveFolder?.(row.folder.id)}
-                  isEmpty={row.noteCount === 0}
-                  noteCount={row.noteCount}
-                  autoEdit={editingFolderId === row.folder.id}
-                  onAutoEditDone={onEditingFolderDone}
-                />
-              </PragmaticRow>
+                onToggleFolderCollapse={onToggleFolderCollapse}
+                onRenameFolder={onRenameFolder}
+                onDeleteFolder={onDeleteFolder}
+                onArchiveFolder={onArchiveFolder}
+                onEditingFolderDone={onEditingFolderDone}
+              />
             );
           }
 
           if (row.kind === 'folder-note') {
             const isDraggingThis =
-              activeDrag?.item.kind === 'note' &&
-              activeDrag.item.noteId === row.note.id;
-            const dropData: DropData = {
-              kind: 'folder-note',
-              rowId: row.rowId,
-              noteId: row.note.id,
-              folderId: row.folderId,
-              topLevelIndex: row.topLevelIndex,
-              isLastInFolder: row.isLastInFolder,
-            };
-            const dragData: DragData | undefined = row.note.syncing
-              ? undefined
-              : {
-                  kind: 'note',
-                  noteId: row.note.id,
-                  source: 'note',
-                };
+              activeDragItem?.kind === 'note' &&
+              activeDragItem.noteId === row.note.id;
             return (
-              <PragmaticRow
+              <MemoizedNoteRow
                 key={row.rowId}
-                isTestEnv={isTestEnv}
-                dropData={dropData}
-                dragData={dragData}
-                onNativePreviewChange={handleNativePreviewChange}
+                rowKind="folder-note"
+                rowId={row.rowId}
+                note={row.note}
+                folderId={row.folderId}
+                topLevelIndex={row.topLevelIndex}
+                isLastInFolder={row.isLastInFolder}
+                currentNoteId={currentNoteId}
+                secondarySelectedNoteId={secondarySelectedNoteId}
+                onNoteSelect={onNoteSelect}
+                allowReselect={allowReselect}
+                onArchive={onArchive}
+                onConvertToNote={onConvertToNote}
+                onSaveFile={onSaveFile}
+                getNoteTitle={getLocalizedNoteTitle}
+                isFileMode={isFileMode}
+                onCloseFile={onCloseFile}
+                isFileModified={isFileModified}
+                platform={platform}
+                systemLocale={systemLocale}
+                onOpenInPane={onOpenInPane}
+                canSplit={canSplit}
+                isDraggingAny={activeDragItem !== null}
                 isDragSource={isDraggingThis}
-                sx={{
-                  mx: 1,
-                  borderLeft: '1px solid',
-                  borderRight: '1px solid',
-                  borderColor: 'action.disabled',
-                }}
-              >
-                <Box
-                  sx={(theme) => ({
-                    borderLeft: `${theme.spacing(1.5)} solid ${
-                      theme.palette.mode === 'dark'
-                        ? 'rgba(255,255,255,0.08)'
-                        : 'rgba(0,0,0,0.06)'
-                    }`,
-                    backgroundColor:
-                      theme.palette.mode === 'dark'
-                        ? 'rgba(255,255,255,0.04)'
-                        : 'rgba(0,0,0,0.06)',
-                  })}
-                >
-                  {renderNoteItem(row.note, !!activeDrag)}
-                </Box>
-              </PragmaticRow>
+                isTestEnv={isTestEnv}
+                onNativePreviewChange={handleNativePreviewChange}
+              />
             );
           }
 
@@ -2226,22 +2454,7 @@ export const NoteList: React.FC<NoteListProps> = ({
           );
         })}
 
-        {indicator && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: indicator.indicatorTop,
-              left:
-                INDICATOR_INSET +
-                (indicator.indicatorIndented ? INDENT_INDICATOR_OFFSET : 0),
-              right: INDICATOR_INSET,
-              height: 2,
-              bgcolor: 'primary.main',
-              zIndex: 2,
-              pointerEvents: 'none',
-            }}
-          />
-        )}
+        <DropIndicator ref={dropIndicatorRef} />
       </Box>
 
       {nativePreview &&

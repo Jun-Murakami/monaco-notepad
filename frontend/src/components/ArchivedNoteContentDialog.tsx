@@ -151,7 +151,7 @@ export const ArchivedNoteContentDialog: React.FC<
             noWrap
             sx={{
               fontStyle: titleInfo.isFallback ? 'italic' : 'normal',
-              opacity: titleInfo.isFallback ? 0.6 : 1,
+              opacity: titleInfo.isFallback ? 0.65 : 1,
             }}
           >
             {titleInfo.text}

@@ -8,31 +8,26 @@ import {
 } from '@mui/material';
 
 import { Console } from '../../wailsjs/go/backend/App';
+import { useMessageDialogStore } from '../stores/useMessageDialogStore';
 
-interface MessageDialogProps {
-  isOpen: boolean;
-  title: string;
-  message: string;
-  isTwoButton?: boolean;
-  primaryButtonText?: string;
-  secondaryButtonText?: string;
-  onResult: ((result: boolean) => Promise<void>) | null;
-}
-
-export const MessageDialog = ({
-  isOpen,
-  title,
-  message,
-  isTwoButton,
-  primaryButtonText,
-  secondaryButtonText,
-  onResult,
-}: MessageDialogProps) => {
+// グローバルに 1 つだけ存在する確認/通知ダイアログ。
+// 状態は useMessageDialogStore (Zustand) から購読し、props は受け取らない。
+// 呼び出し側は `showMessage(...)` を import するだけで Promise<boolean> を得られる。
+export const MessageDialog = () => {
   const { t } = useTranslation();
+  const isOpen = useMessageDialogStore((s) => s.isOpen);
+  const title = useMessageDialogStore((s) => s.title);
+  const message = useMessageDialogStore((s) => s.message);
+  const isTwoButton = useMessageDialogStore((s) => s.isTwoButton);
+  const primaryButtonText = useMessageDialogStore((s) => s.primaryButtonText);
+  const secondaryButtonText = useMessageDialogStore(
+    (s) => s.secondaryButtonText,
+  );
+  const resolveResult = useMessageDialogStore((s) => s.resolveResult);
 
   const handleClose = async (result: boolean) => {
     try {
-      await onResult?.(result);
+      resolveResult(result);
     } catch (error) {
       if (error instanceof Error) {
         await Console('Dialog close error:', [error.message]);

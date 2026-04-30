@@ -1,5 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import {
+  Archive,
+  Close,
+  KeyboardArrowDown,
+  KeyboardArrowUp,
+} from '@mui/icons-material';
+import {
   Box,
   FormControl,
   IconButton,
@@ -10,12 +16,6 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import {
-  Archive,
-  Close,
-  KeyboardArrowDown,
-  KeyboardArrowUp,
-} from '@mui/icons-material';
 
 import type { SelectProps, Theme } from '@mui/material';
 import type { LanguageInfo } from '../lib/monaco';

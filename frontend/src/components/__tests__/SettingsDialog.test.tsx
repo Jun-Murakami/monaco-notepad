@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 
 import * as runtime from '../../../wailsjs/runtime';
+import { saveAndApplyEditorSettings } from '../../hooks/useEditorSettings';
+import { useDialogsStore } from '../../stores/useDialogsStore';
+import { useEditorSettingsStore } from '../../stores/useEditorSettingsStore';
 import { DEFAULT_EDITOR_SETTINGS } from '../../types';
 import { SettingsDialog } from '../SettingsDialog';
 
@@ -23,6 +26,16 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   DeleteLocalAppData: vi.fn().mockResolvedValue(undefined),
   OpenAppFolder: vi.fn(),
   OpenConflictBackupFolder: vi.fn(),
+  GetSystemLocale: vi.fn().mockResolvedValue('en'),
+  SaveSettings: vi.fn().mockResolvedValue(undefined),
+}));
+
+// useEditorSettings の save 関数を直接 mock する。
+// SettingsDialog はこの関数を import して即時呼び出すため、
+// vi.mock で差し替えないと spy が効かない。
+vi.mock('../../hooks/useEditorSettings', () => ({
+  saveAndApplyEditorSettings: vi.fn().mockResolvedValue(undefined),
+  useEditorSettings: vi.fn(),
 }));
 
 describe('SettingsDialog', () => {
@@ -44,22 +57,24 @@ describe('SettingsDialog', () => {
     ...DEFAULT_EDITOR_SETTINGS,
   };
 
-  const defaultProps = {
-    open: true,
-    settings: mockSettings,
-    onClose: vi.fn(),
-    onChange: vi.fn(),
-    onOpenAbout: vi.fn(),
-    onOpenConflictBackups: vi.fn(),
-    showMessage: vi.fn().mockResolvedValue(false),
-  };
+  const saveSpy = saveAndApplyEditorSettings as ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // ストアを Settings ダイアログが「開いている」状態に初期化し、
+    // 値もテスト用設定にしておく。
+    useEditorSettingsStore.setState({ settings: mockSettings });
+    useDialogsStore.setState({
+      isSettingsOpen: true,
+      settingsKey: 0,
+      isAboutOpen: false,
+      isConflictBackupsOpen: false,
+      onRestoreFromBackup: null,
+    });
   });
 
   it('設定値が正しく表示されること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     expect(screen.getByLabelText('Font Family')).toHaveValue(
       mockSettings.fontFamily,
@@ -82,94 +97,82 @@ describe('SettingsDialog', () => {
   });
 
   it('フォントファミリーの変更が正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     const input = screen.getByLabelText('Font Family');
     fireEvent.change(input, { target: { value: 'New Font' } });
 
-    expect(defaultProps.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fontFamily: 'New Font',
-      }),
+    expect(saveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ fontFamily: 'New Font' }),
     );
   });
 
   it('フォントサイズの変更が正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     const select = screen.getByText('14px');
     fireEvent.mouseDown(select);
     const option = screen.getByText('16px');
     fireEvent.click(option);
 
-    expect(defaultProps.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fontSize: 16,
-      }),
+    expect(saveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ fontSize: 16 }),
     );
   });
 
   it('ダークモードの切り替えが正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     const switch_ = screen.getByRole('switch', { name: /Light Mode/i });
     fireEvent.click(switch_);
 
     expect(runtime.WindowSetDarkTheme).toHaveBeenCalled();
-    expect(defaultProps.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        isDarkMode: true,
-      }),
+    expect(saveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ isDarkMode: true }),
     );
   });
 
   it('ワードラップの切り替えが正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     const switch_ = screen.getByRole('switch', { name: /Word Wrap/i });
     fireEvent.click(switch_);
 
-    expect(defaultProps.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        wordWrap: 'on',
-      }),
+    expect(saveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ wordWrap: 'on' }),
     );
   });
 
   it('競合バックアップ設定の切り替えが正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     const switch_ = screen.getByRole('switch', { name: /Conflict Backup/i });
     fireEvent.click(switch_);
 
-    expect(defaultProps.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        enableConflictBackup: false,
-      }),
+    expect(saveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ enableConflictBackup: false }),
     );
   });
 
   it('デフォルト設定へのリセットが正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     const resetButton = screen.getByRole('button', {
       name: /Reset to Default/i,
     });
     fireEvent.click(resetButton);
 
-    expect(defaultProps.onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ...DEFAULT_EDITOR_SETTINGS,
-      }),
+    expect(saveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ ...DEFAULT_EDITOR_SETTINGS }),
     );
   });
 
   it('閉じるボタンが正しく動作すること', () => {
-    render(<SettingsDialog {...defaultProps} />);
+    render(<SettingsDialog />);
 
     const closeButton = screen.getByRole('button', { name: /Close/i });
     fireEvent.click(closeButton);
 
-    expect(defaultProps.onClose).toHaveBeenCalled();
+    expect(useDialogsStore.getState().isSettingsOpen).toBe(false);
   });
 });

@@ -182,7 +182,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   ListNotes: vi.fn(),
   LoadArchivedNote: vi.fn(),
   LoadFileNotes: vi.fn().mockResolvedValue([]),
-  SaveNote: vi.fn(),
+  SaveNote: vi.fn().mockResolvedValue(undefined),
   SelectFile: vi.fn(),
   OpenFile: vi.fn(),
   SaveFile: vi.fn(),
@@ -256,9 +256,9 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   CreateFolder: vi.fn(),
   RenameFolder: vi.fn(),
   DeleteFolder: vi.fn(),
-  MoveNoteToFolder: vi.fn(),
-  DeleteNote: vi.fn(),
-  SetLastActiveNote: vi.fn(),
+  MoveNoteToFolder: vi.fn().mockResolvedValue(undefined),
+  DeleteNote: vi.fn().mockResolvedValue(undefined),
+  SetLastActiveNote: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe('App', () => {

@@ -29,6 +29,9 @@ import {
   DeleteCloudConflictBackup,
   ListCloudConflictBackups,
 } from '../../wailsjs/go/backend/App';
+import { useDialogsStore } from '../stores/useDialogsStore';
+import { useEditorSettingsStore } from '../stores/useEditorSettingsStore';
+import { showMessage } from '../stores/useMessageDialogStore';
 import { DEFAULT_EDITOR_FONT_FAMILY, type Note } from '../types';
 import dayjs from '../utils/dayjs';
 
@@ -36,25 +39,19 @@ import type { backend } from '../../wailsjs/go/models';
 
 type Entry = backend.ConflictBackupEntry;
 
-interface ConflictBackupsDialogProps {
-  open: boolean;
-  onClose: () => void;
-  onRestore: (sourceNote: Note) => Promise<void>;
-  showMessage: (
-    title: string,
-    message: string,
-    isTwoButton?: boolean,
-  ) => Promise<boolean>;
-  isDarkMode: boolean;
-}
-
-export const ConflictBackupsDialog: React.FC<ConflictBackupsDialogProps> = ({
-  open,
-  onClose,
-  onRestore,
-  showMessage,
-  isDarkMode,
-}) => {
+// プロップレス。開閉と復元ハンドラは useDialogsStore、テーマは
+// useEditorSettingsStore から購読する。
+export const ConflictBackupsDialog: React.FC = () => {
+  const open = useDialogsStore((s) => s.isConflictBackupsOpen);
+  const onClose = useDialogsStore((s) => s.closeConflictBackups);
+  const isDarkMode = useEditorSettingsStore((s) => s.settings.isDarkMode);
+  // 復元ハンドラは App.tsx 側で setRestoreHandler() を通じて store に登録される。
+  // ここで購読することで、登録前 (=null) でも安全にレンダーできる。
+  const registeredRestore = useDialogsStore((s) => s.onRestoreFromBackup);
+  const onRestore = (sourceNote: Note) =>
+    registeredRestore
+      ? registeredRestore(sourceNote)
+      : Promise.resolve(undefined);
   const { t } = useTranslation();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [selected, setSelected] = useState<Entry | null>(null);
@@ -84,7 +81,8 @@ export const ConflictBackupsDialog: React.FC<ConflictBackupsDialogProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [showMessage, t]);
+    // showMessage は import されたトップレベル関数（参照不変）のため依存に含めない。
+  }, [t]);
 
   // 開いた時にロード、閉じた時に状態をリセット
   useEffect(() => {

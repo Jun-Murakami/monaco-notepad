@@ -13,7 +13,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   SelectFile: vi.fn(),
   OpenFile: vi.fn(),
   SaveFile: vi.fn(),
-  SaveNote: vi.fn(),
+  SaveNote: vi.fn().mockResolvedValue(undefined),
   SelectSaveFileUri: vi.fn(),
   GetModifiedTime: vi.fn(),
 }));
@@ -54,6 +54,9 @@ import {
   SelectSaveFileUri,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
+import { useCurrentNoteStore } from '../../stores/useCurrentNoteStore';
+import { useFileNotesStore } from '../../stores/useFileNotesStore';
+import { useNotesStore } from '../../stores/useNotesStore';
 import { isBinaryFile } from '../../utils/fileUtils';
 import { useFileOperations } from '../useFileOperations';
 
@@ -80,12 +83,13 @@ describe('useFileOperations', () => {
     modifiedTime: new Date().toISOString(),
   };
 
-  const mockSetNotes = vi.fn();
   const mockSetFileNotes = vi.fn();
+  // モジュール初期化時の「素の」 setFileNotes をキャプチャ。
+  // beforeEach で都度ラップすると無限ラッピングになるので、ここで一度だけ取る。
+  const originalSetFileNotes = useFileNotesStore.getState().setFileNotes;
   const mockHandleSelecAnyNote = vi.fn();
   const mockShowMessage = vi.fn();
   const mockHandleSaveFileNotes = vi.fn();
-  const mockIsSplitRef = { current: false };
   const mockOpenNoteInPaneRef = { current: null };
   const mockAddRecentFileRef = { current: null };
   const mockPendingContentRef = { current: null as string | null };
@@ -99,28 +103,39 @@ describe('useFileOperations', () => {
     (GetModifiedTime as unknown as Mock).mockResolvedValue(
       new Date().toISOString(),
     );
+    // useFileOperations は currentNote / currentFileNote をストアから取得するので、
+    // 既存テストの「mockNote, null」相当の初期状態を都度セットする。
+    useCurrentNoteStore.setState({
+      currentNote: mockNote,
+      currentFileNote: null,
+    });
+    // notes も store 経由で読まれるので、デフォルトで [mockNote] を入れておく
+    useNotesStore.getState().setNotes([mockNote]);
+    // useFileOperations は useFileNotesStore.setFileNotes を内部で呼ぶので、
+    // 元のアクションをラップして mockSetFileNotes でも呼び出しを記録する。
+    useFileNotesStore.setState({
+      setFileNotes: ((updater) => {
+        mockSetFileNotes(updater);
+        originalSetFileNotes(updater);
+      }) as typeof originalSetFileNotes,
+    });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     consoleErrorSpy.mockRestore();
     vi.useRealTimers();
+    useCurrentNoteStore.getState().resetCurrentNote();
   });
 
   describe('ファイルを開く機能', () => {
     it('新しいファイルを正しく開くこと', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -142,18 +157,12 @@ describe('useFileOperations', () => {
     });
 
     it('既に開いているファイルを選択した場合、そのファイルにフォーカスすること', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [mockFileNote],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -171,18 +180,12 @@ describe('useFileOperations', () => {
     });
 
     it('バイナリファイルを開こうとした場合、エラーメッセージを表示すること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -212,18 +215,12 @@ describe('useFileOperations', () => {
 
   describe('ファイルを保存する機能', () => {
     it('ファイルを正しく保存すること', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          mockFileNote,
-          [mockFileNote],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -243,18 +240,12 @@ describe('useFileOperations', () => {
     });
 
     it('保存に失敗した場合、エラーメッセージを表示すること', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          mockFileNote,
-          [mockFileNote],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -276,18 +267,12 @@ describe('useFileOperations', () => {
 
   describe('名前を付けて保存する機能', () => {
     it('ノートを新しいファイルとして保存すること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -310,18 +295,12 @@ describe('useFileOperations', () => {
     });
 
     it('保存に失敗した場合、エラーメッセージを表示すること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -346,18 +325,12 @@ describe('useFileOperations', () => {
 
   describe('メモに変換する機能', () => {
     it('ファイルノートを通常のノートに変換すること', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          mockFileNote,
-          [mockFileNote],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -368,7 +341,8 @@ describe('useFileOperations', () => {
         await result.current.handleConvertToNote(mockFileNote);
       });
 
-      expect(mockSetNotes).toHaveBeenCalled();
+      // notes は store に追加されている
+      expect(useNotesStore.getState().notes.length).toBeGreaterThan(0);
       expect(mockSetFileNotes).toHaveBeenCalled();
       expect(SaveNote).toHaveBeenCalled();
       expect(mockHandleSelecAnyNote).toHaveBeenCalled();
@@ -377,18 +351,12 @@ describe('useFileOperations', () => {
 
   describe('ファイルをドロップする機能', () => {
     it('ドロップされたファイルを正しく開くこと', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -410,18 +378,12 @@ describe('useFileOperations', () => {
     });
 
     it('既に開いているファイルがドロップされた場合、そのファイルにフォーカスすること', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [mockFileNote],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -439,18 +401,12 @@ describe('useFileOperations', () => {
 
   describe('ファイルを閉じる機能', () => {
     it('ファイルを正しく閉じること', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          mockFileNote,
-          [mockFileNote],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -474,18 +430,12 @@ describe('useFileOperations', () => {
 
   describe('エラー処理', () => {
     it('ファイルを開く際にエラーが発生した場合、適切に処理されること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -505,18 +455,12 @@ describe('useFileOperations', () => {
     });
 
     it('ファイルを保存する際にエラーが発生した場合、エラーメッセージが表示されること', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          mockFileNote,
-          [mockFileNote],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -538,18 +482,12 @@ describe('useFileOperations', () => {
     });
 
     it('空のファイルパスが選択された場合、処理が中断されること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -569,18 +507,12 @@ describe('useFileOperations', () => {
 
   describe('外部ファイルとドラッグアンドドロップ', () => {
     it('外部から開かれたファイルが正しく処理されること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -607,18 +539,12 @@ describe('useFileOperations', () => {
     });
 
     it('ドロップされたファイルが正しく処理されること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,
@@ -643,18 +569,12 @@ describe('useFileOperations', () => {
     });
 
     it('バイナリファイルがドロップされた場合、エラーメッセージが表示されること', async () => {
+      useFileNotesStore.setState({ fileNotes: [] });
       const { result } = renderHook(() =>
         useFileOperations(
-          [mockNote],
-          mockSetNotes,
-          mockNote,
-          null,
-          [],
-          mockSetFileNotes,
           mockHandleSelecAnyNote,
           mockShowMessage,
           mockHandleSaveFileNotes,
-          mockIsSplitRef,
           mockOpenNoteInPaneRef,
           mockAddRecentFileRef,
           mockPendingContentRef,

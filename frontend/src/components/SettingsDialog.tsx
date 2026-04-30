@@ -28,35 +28,24 @@ import {
 } from '../../wailsjs/go/backend/App';
 import * as runtime from '../../wailsjs/runtime';
 import { EventsOn } from '../../wailsjs/runtime';
+import { saveAndApplyEditorSettings } from '../hooks/useEditorSettings';
 import { THEME_PAIRS } from '../lib/theme-pairs';
-import { DEFAULT_EDITOR_SETTINGS } from '../types';
+import { useDialogsStore } from '../stores/useDialogsStore';
+import { useEditorSettingsStore } from '../stores/useEditorSettingsStore';
+import { showMessage } from '../stores/useMessageDialogStore';
+import { DEFAULT_EDITOR_SETTINGS, type Settings } from '../types';
 import { LightDarkSwitch } from './LightDarkSwitch';
 
-import type { Settings } from '../types';
-
-interface SettingsDialogProps {
-  open: boolean;
-  settings: Settings;
-  onClose: () => void;
-  onChange: (settings: Settings) => void;
-  onOpenAbout: () => void;
-  onOpenConflictBackups: () => void;
-  showMessage: (
-    title: string,
-    message: string,
-    isTwoButton?: boolean,
-  ) => Promise<boolean>;
-}
-
-export const SettingsDialog: React.FC<SettingsDialogProps> = ({
-  open,
-  settings,
-  onClose,
-  onChange,
-  onOpenAbout,
-  onOpenConflictBackups,
-  showMessage,
-}) => {
+// プロップレス。すべての状態 / アクションは store から取得する。
+// 開閉は useDialogsStore、設定値は useEditorSettingsStore を直接購読する。
+// onChange は hook の init 副作用を巻き込まないようトップレベル関数 saveAndApplyEditorSettings を使う。
+export const SettingsDialog: React.FC = () => {
+  const open = useDialogsStore((s) => s.isSettingsOpen);
+  const onClose = useDialogsStore((s) => s.closeSettings);
+  const onOpenAbout = useDialogsStore((s) => s.openAbout);
+  const onOpenConflictBackups = useDialogsStore((s) => s.openConflictBackups);
+  const settings = useEditorSettingsStore((s) => s.settings);
+  const onChange = saveAndApplyEditorSettings;
   const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
   const { t } = useTranslation();
 

@@ -1,11 +1,11 @@
 import { useRef } from 'react';
 import { useHotkeys } from '@tanstack/react-hotkeys';
 
-import type { FileNote, Note } from '../types';
+import { useCurrentNoteStore } from '../stores/useCurrentNoteStore';
+
+import type { FileNote } from '../types';
 
 interface UseKeyboardShortcutsProps {
-  currentNote: Note | null;
-  currentFileNote: FileNote | null;
   setCurrentFileNote: (file: FileNote | null) => void;
   handleNewNote: () => void;
   handleOpenFile: () => Promise<void>;
@@ -23,8 +23,6 @@ interface UseKeyboardShortcutsProps {
 }
 
 export const useKeyboardShortcuts = ({
-  currentNote,
-  currentFileNote,
   setCurrentFileNote,
   handleNewNote,
   handleOpenFile,
@@ -40,8 +38,7 @@ export const useKeyboardShortcuts = ({
   onOpenFindInAll,
 }: UseKeyboardShortcutsProps) => {
   // ref経由で最新値を参照し、コールバックの再生成を防止
-  const currentFileNoteRef = useRef(currentFileNote);
-  const currentNoteRef = useRef(currentNote);
+  // currentNote / currentFileNote はストアから都度 getState() で取得する。
   const setCurrentFileNoteRef = useRef(setCurrentFileNote);
   const handleNewNoteRef = useRef(handleNewNote);
   const handleOpenFileRef = useRef(handleOpenFile);
@@ -55,8 +52,6 @@ export const useKeyboardShortcuts = ({
   const onOpenFindRef = useRef(onOpenFind);
   const onOpenReplaceRef = useRef(onOpenReplace);
   const onOpenFindInAllRef = useRef(onOpenFindInAll);
-  currentFileNoteRef.current = currentFileNote;
-  currentNoteRef.current = currentNote;
   setCurrentFileNoteRef.current = setCurrentFileNote;
   handleNewNoteRef.current = handleNewNote;
   handleOpenFileRef.current = handleOpenFile;
@@ -88,7 +83,7 @@ export const useKeyboardShortcuts = ({
     {
       hotkey: 'Mod+S',
       callback: () => {
-        const fileNote = currentFileNoteRef.current;
+        const fileNote = useCurrentNoteStore.getState().currentFileNote;
         if (fileNote && isFileModifiedRef.current(fileNote.id)) {
           void handleSaveFileRef.current(fileNote);
         }
@@ -97,7 +92,8 @@ export const useKeyboardShortcuts = ({
     {
       hotkey: 'Mod+Alt+S',
       callback: () => {
-        if (currentNoteRef.current || currentFileNoteRef.current) {
+        const { currentNote, currentFileNote } = useCurrentNoteStore.getState();
+        if (currentNote || currentFileNote) {
           void handleSaveAsFileRef.current();
         }
       },
@@ -105,12 +101,11 @@ export const useKeyboardShortcuts = ({
     {
       hotkey: 'Mod+W',
       callback: () => {
-        const fileNote = currentFileNoteRef.current;
-        const note = currentNoteRef.current;
-        if (fileNote) {
-          void handleCloseFileRef.current(fileNote);
-        } else if (note) {
-          void handleArchiveNoteRef.current(note.id);
+        const { currentNote, currentFileNote } = useCurrentNoteStore.getState();
+        if (currentFileNote) {
+          void handleCloseFileRef.current(currentFileNote);
+        } else if (currentNote) {
+          void handleArchiveNoteRef.current(currentNote.id);
         }
       },
     },

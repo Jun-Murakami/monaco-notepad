@@ -21,17 +21,36 @@ import {
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 
+import { useNoteSearch } from '../hooks/useNoteSearch';
+import {
+  useCurrentFileNoteId,
+  useCurrentNoteId,
+} from '../stores/useCurrentNoteStore';
+import {
+  useAllFileNotes,
+  useFileNotesStore,
+} from '../stores/useFileNotesStore';
+import {
+  useActiveNotesCount,
+  useAllNotes,
+  useCollapsedFolders,
+  useFolders,
+  useNotesStore,
+  useShowArchived,
+  useTopLevelOrder,
+} from '../stores/useNotesStore';
+import { useSearchReplaceStore } from '../stores/useSearchReplaceStore';
+import {
+  useIsSplit,
+  useLeftFileNote,
+  useLeftNote,
+  useSecondarySelectedNoteId,
+} from '../stores/useSplitEditorStore';
 import { AppBar } from './AppBar';
 import { type FileDropInsertionTarget, NoteList } from './NoteList';
 import { SearchReplacePanel } from './SearchReplacePanel';
 
-import type {
-  NoteMatchGroup,
-  ReplaceResult,
-  SearchPanelMode,
-} from '../hooks/useSearchReplace';
 import type { FileNote, Folder, Note, TopLevelItem } from '../types';
-import type { SearchMatch } from '../utils/searchUtils';
 
 interface SidebarProps {
   platform: string;
@@ -39,53 +58,7 @@ interface SidebarProps {
   onNew: () => Promise<void>;
   onOpen: () => Promise<void>;
   onSaveAs: () => Promise<void>;
-  // 既存のサイドバー絞り込みフラグ（統合検索クエリが空でないとき true）
-  noteSearch: string;
-  // Search / Replace panel (統合検索・置換、常時表示)
-  searchReplace: {
-    mode: SearchPanelMode;
-    query: string;
-    replacement: string;
-    caseSensitive: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
-    patternError: string | null;
-    currentMatches: SearchMatch[];
-    currentMatchIndex: number;
-    crossNoteResults: NoteMatchGroup[];
-    activeNoteId: string | null;
-    focusToken: number;
-    replaceResult: ReplaceResult | null;
-    sidebarMatchCount: number;
-    onSetQuery: (v: string) => void;
-    onSetReplacement: (v: string) => void;
-    onToggleCaseSensitive: () => void;
-    onToggleWholeWord: () => void;
-    onToggleUseRegex: () => void;
-    onSetMode: (m: SearchPanelMode) => void;
-    onClear: () => void;
-    onFindNext: () => void;
-    onFindPrevious: () => void;
-    onReplaceCurrent: () => void;
-    onReplaceAllInCurrent: () => void;
-    onReplaceAllInAllNotes: () => void;
-    onJumpToNoteMatch: (noteId: string, indexInNote: number) => void;
-    onSelectNote: (noteId: string) => Promise<void> | void;
-  };
-  // File notes
-  fileNotes: FileNote[];
-  filteredFileNotes: FileNote[];
-  currentFileNote: FileNote | null;
-  // Notes
-  notes: Note[];
-  filteredNotes: Note[];
-  currentNote: Note | null;
-  // Split
-  isSplit: boolean;
-  leftNote: Note | null;
-  leftFileNote: FileNote | null;
-  secondarySelectedNoteId?: string;
-  canSplit: boolean;
+  // File notes / Split editor の state は store 直購読する
   // Handlers
   onNoteSelect: (note: Note | FileNote) => Promise<void>;
   onArchive: (noteId: string) => Promise<void>;
@@ -98,16 +71,13 @@ interface SidebarProps {
   ) => Promise<void>;
   onOpenInPane: (note: Note | FileNote, pane: 'left' | 'right') => void;
   isFileModified: (fileId: string) => boolean;
-  // Folders
-  folders: Folder[];
-  collapsedFolders: Set<string>;
+  // Folders 関連 handlers (state は store 直購読)
   onToggleFolderCollapse: (folderId: string) => void;
   onMoveNoteToFolder: (noteId: string, folderId: string) => Promise<void>;
   onRenameFolder: (id: string, name: string) => Promise<void>;
   onDeleteFolder: (id: string) => Promise<void>;
   onArchiveFolder: (id: string) => Promise<void>;
   onCreateFolder: (name: string) => Promise<Folder>;
-  topLevelOrder: TopLevelItem[];
   onUpdateTopLevelOrder: (order: TopLevelItem[]) => Promise<void>;
   // Recent files
   recentFiles: string[];
@@ -115,11 +85,7 @@ interface SidebarProps {
   removeRecentFile: (filePath: string) => Promise<void>;
   clearRecentFiles: () => Promise<void>;
   // Archive
-  showArchived: boolean;
   onToggleShowArchived: () => void;
-  // State setters for NoteList reorder
-  setNotes: React.Dispatch<React.SetStateAction<Note[]>>;
-  setFileNotes: (files: FileNote[]) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = memo(
@@ -129,19 +95,6 @@ export const Sidebar: React.FC<SidebarProps> = memo(
     onNew,
     onOpen,
     onSaveAs,
-    noteSearch,
-    searchReplace,
-    fileNotes,
-    filteredFileNotes,
-    currentFileNote,
-    notes,
-    filteredNotes,
-    currentNote,
-    isSplit,
-    leftNote,
-    leftFileNote,
-    secondarySelectedNoteId,
-    canSplit,
     onNoteSelect,
     onArchive,
     onCloseFile,
@@ -150,29 +103,53 @@ export const Sidebar: React.FC<SidebarProps> = memo(
     onDropFileNoteToNotes,
     onOpenInPane,
     isFileModified,
-    folders,
-    collapsedFolders,
     onToggleFolderCollapse,
     onMoveNoteToFolder,
     onRenameFolder,
     onDeleteFolder,
     onArchiveFolder,
     onCreateFolder,
-    topLevelOrder,
     onUpdateTopLevelOrder,
     recentFiles,
     openRecentFile,
     removeRecentFile,
     clearRecentFiles,
-    showArchived,
     onToggleShowArchived,
-    setNotes,
-    setFileNotes,
   }) => {
     const { t } = useTranslation();
     const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
     const [recentFilesAnchorEl, setRecentFilesAnchorEl] =
       useState<HTMLElement | null>(null);
+    // currentNote / currentFileNote は ID のみ購読する。
+    const currentNoteId = useCurrentNoteId();
+    const currentFileNoteId = useCurrentFileNoteId();
+    // 検索クエリ・notes 系は store 直購読
+    const noteSearch = useSearchReplaceStore((s) => s.query);
+    const notes = useAllNotes();
+    const folders = useFolders();
+    const collapsedFolders = useCollapsedFolders();
+    const topLevelOrder = useTopLevelOrder();
+    const showArchived = useShowArchived();
+    // setNotes は Zustand action（参照不変）。NoteList の reorder で利用する。
+    const setNotes = useNotesStore((s) => s.setNotes);
+    // FileNote 一覧 / 並び替え action もストア直購読
+    const fileNotes = useAllFileNotes();
+    const setFileNotes = useFileNotesStore((s) => s.setFileNotes);
+    // Split editor 状態も store 直購読
+    const isSplit = useIsSplit();
+    const leftNote = useLeftNote();
+    const leftFileNote = useLeftFileNote();
+    const secondarySelectedNoteId = useSecondarySelectedNoteId();
+
+    // フィルタリング・件数集計は Sidebar の中で完結させる
+    // （App.tsx を notes 変化で再レンダーさせないための要）
+    const { filteredNotes, filteredFileNotes, totalSearchMatches } =
+      useNoteSearch();
+
+    // canSplit は note + fileNote が 2 件以上あれば true。
+    // 数値の閾値判定なので Sidebar の再レンダーは閾値跨ぎでしか起きない。
+    const activeNotesCount = useActiveNotesCount();
+    const canSplit = isSplit || fileNotes.length + activeNotesCount >= 2;
 
     const archivedCount = notes.filter((note) => note.archived).length;
     const hasArchivedFolders = folders.some((f) => f.archived);
@@ -217,36 +194,8 @@ export const Sidebar: React.FC<SidebarProps> = memo(
           onSave={onSaveAs}
         />
         <Divider />
-        <SearchReplacePanel
-          mode={searchReplace.mode}
-          query={searchReplace.query}
-          replacement={searchReplace.replacement}
-          caseSensitive={searchReplace.caseSensitive}
-          wholeWord={searchReplace.wholeWord}
-          useRegex={searchReplace.useRegex}
-          patternError={searchReplace.patternError}
-          currentMatches={searchReplace.currentMatches}
-          currentMatchIndex={searchReplace.currentMatchIndex}
-          crossNoteResults={searchReplace.crossNoteResults}
-          activeNoteId={searchReplace.activeNoteId}
-          focusToken={searchReplace.focusToken}
-          replaceResult={searchReplace.replaceResult}
-          sidebarMatchCount={searchReplace.sidebarMatchCount}
-          onSetQuery={searchReplace.onSetQuery}
-          onSetReplacement={searchReplace.onSetReplacement}
-          onToggleCaseSensitive={searchReplace.onToggleCaseSensitive}
-          onToggleWholeWord={searchReplace.onToggleWholeWord}
-          onToggleUseRegex={searchReplace.onToggleUseRegex}
-          onSetMode={searchReplace.onSetMode}
-          onClear={searchReplace.onClear}
-          onFindNext={searchReplace.onFindNext}
-          onFindPrevious={searchReplace.onFindPrevious}
-          onReplaceCurrent={searchReplace.onReplaceCurrent}
-          onReplaceAllInCurrent={searchReplace.onReplaceAllInCurrent}
-          onReplaceAllInAllNotes={searchReplace.onReplaceAllInAllNotes}
-          onJumpToNoteMatch={searchReplace.onJumpToNoteMatch}
-          onSelectNote={searchReplace.onSelectNote}
-        />
+        {/* SearchReplacePanel はストア駆動。サイドバー件数だけ Sidebar 側で計算して渡す */}
+        <SearchReplacePanel sidebarMatchCount={totalSearchMatches} />
         <Box sx={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden' }}>
           <SimpleBar style={{ height: '100%' }}>
             {/* Local Files ヘッダー */}
@@ -393,7 +342,9 @@ export const Sidebar: React.FC<SidebarProps> = memo(
               <>
                 <NoteList
                   notes={noteSearch ? filteredFileNotes : fileNotes}
-                  currentNote={isSplit ? leftFileNote : currentFileNote}
+                  currentNoteId={
+                    isSplit ? (leftFileNote?.id ?? null) : currentFileNoteId
+                  }
                   onNoteSelect={onNoteSelect}
                   allowReselect={showArchived}
                   onConvertToNote={onConvertToNote}
@@ -460,7 +411,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(
             {/* Notes リスト */}
             <NoteList
               notes={noteSearch ? filteredNotes : notes}
-              currentNote={isSplit ? leftNote : currentNote}
+              currentNoteId={isSplit ? (leftNote?.id ?? null) : currentNoteId}
               onNoteSelect={onNoteSelect}
               allowReselect={showArchived}
               onArchive={onArchive}

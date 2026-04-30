@@ -14,6 +14,7 @@ import {
 import * as runtime from '../../wailsjs/runtime';
 import i18n from '../i18n';
 import { getSupportedLanguages, type LanguageInfo } from '../lib/monaco';
+import { useFileNotesStore } from '../stores/useFileNotesStore';
 
 import type {
   FileNote,
@@ -42,7 +43,6 @@ const loadSplitEditorState = (): {
 
 export const useInitialize = (
   setNotes: (notes: Note[]) => void,
-  setFileNotes: (files: FileNote[]) => void,
   setFolders: (folders: Folder[]) => void,
   setTopLevelOrder: (order: TopLevelItem[]) => void,
   setArchivedTopLevelOrder: (order: TopLevelItem[]) => void,
@@ -57,6 +57,8 @@ export const useInitialize = (
   ) => Promise<boolean>,
   restorePaneNotes: (notes: Note[], fileNotes: FileNote[]) => void,
 ) => {
+  // setFileNotes は Zustand action（参照不変）。store から直接取り出す。
+  const setFileNotes = useFileNotesStore((s) => s.setFileNotes);
   const [languages, setLanguages] = useState<LanguageInfo[]>([]);
   const [platform, setPlatform] = useState<string>('');
   const [systemLocale, setSystemLocale] = useState<string>('');

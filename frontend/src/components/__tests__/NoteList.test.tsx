@@ -51,7 +51,7 @@ describe('NoteList', () => {
 
   const defaultProps = {
     notes: mockNotes,
-    currentNote: null,
+    currentNoteId: null,
     onNoteSelect: vi.fn(),
     onArchive: vi.fn(),
     onReorder: vi.fn(),
@@ -60,7 +60,7 @@ describe('NoteList', () => {
 
   const defaultFileProps = {
     notes: mockFileNotes,
-    currentNote: null,
+    currentNoteId: null,
     onNoteSelect: vi.fn(),
     onConvertToNote: vi.fn(),
     onSaveFile: vi.fn(),
@@ -203,7 +203,7 @@ describe('NoteList', () => {
   });
 
   it('現在選択中のノートが強調表示されること', () => {
-    render(<NoteList {...defaultProps} currentNote={mockNotes[0]} />);
+    render(<NoteList {...defaultProps} currentNoteId={mockNotes[0].id} />);
     const selectedNote = screen
       .getByText('Note 1')
       .closest('.MuiListItemButton-root');

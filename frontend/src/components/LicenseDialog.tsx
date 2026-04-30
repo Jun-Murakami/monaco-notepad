@@ -16,6 +16,7 @@ import {
 import { DataGrid, type GridColDef } from '@mui/x-data-grid';
 
 import { GetAppVersion, OpenURL } from '../../wailsjs/go/backend/App';
+import { useDialogsStore } from '../stores/useDialogsStore';
 
 interface LicenseEntry {
   id: number;
@@ -24,15 +25,10 @@ interface LicenseEntry {
   repository: string;
 }
 
-interface LicenseDialogProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-export const LicenseDialog: React.FC<LicenseDialogProps> = ({
-  open,
-  onClose,
-}) => {
+// プロップレス。開閉状態は useDialogsStore から取得する。
+export const LicenseDialog: React.FC = () => {
+  const open = useDialogsStore((s) => s.isAboutOpen);
+  const onClose = useDialogsStore((s) => s.closeAbout);
   const { t } = useTranslation();
   const [version, setVersion] = useState('');
   const [frontendLicenses, setFrontendLicenses] = useState<LicenseEntry[]>([]);

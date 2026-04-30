@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import {
   ArchiveFolder,
@@ -24,58 +24,58 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
+import { useCurrentNoteStore } from '../stores/useCurrentNoteStore';
+import { useNotesStore } from '../stores/useNotesStore';
 
-import type {
-  EditorPane,
-  FileNote,
-  Folder,
-  Note,
-  TopLevelItem,
-} from '../types';
+import { useSplitEditorStore } from '../stores/useSplitEditorStore';
+
+import type { EditorPane, FileNote, Note, TopLevelItem } from '../types';
 
 interface UseNotesOptions {
   onNotesReloaded?: React.RefObject<
     ((notes: Note[], topLevelOrder?: TopLevelItem[]) => void) | null
   >;
-  isSplit?: boolean;
-  focusedPane?: EditorPane;
-  openNoteInSplitPane?: (note: Note | FileNote, pane: EditorPane) => void;
+  // スプリットモードのとき新規ノートを開くためのハンドラ。
+  // useSplitEditor の openNoteInPane を ref 経由で受け取る（循環依存回避）。
+  openNoteInPaneRef?: React.RefObject<
+    ((note: Note | FileNote, pane: EditorPane) => void) | null
+  >;
 }
 
+// 各 setter は Zustand action そのもの（参照不変）。
+// store にひとつだけ存在する関数を取り出して使う。
+const getStoreActions = () => useNotesStore.getState();
+
+// state は store の getState() から都度読む。フックは購読しないので
+// App.tsx を再レンダー誘発源にしない。
 export const useNotes = (options: UseNotesOptions = {}) => {
-  const { onNotesReloaded, isSplit, focusedPane, openNoteInSplitPane } =
-    options;
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [currentNote, setCurrentNote] = useState<Note | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [topLevelOrder, setTopLevelOrder] = useState<TopLevelItem[]>([]);
-  const [archivedTopLevelOrder, setArchivedTopLevelOrder] = useState<
-    TopLevelItem[]
-  >([]);
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const { onNotesReloaded, openNoteInPaneRef } = options;
+  const setCurrentNote = useCurrentNoteStore((state) => state.setCurrentNote);
+
   const isNoteModified = useRef(false);
   const previousContent = useRef<string>('');
   const pendingContentRef = useRef<string | null>(null);
   const isClosing = useRef(false);
-  const currentNoteRef = useRef<Note | null>(null);
-  const notesRef = useRef<Note[]>([]);
-  const topLevelOrderRef = useRef<TopLevelItem[]>([]);
-  const archivedTopLevelOrderRef = useRef<TopLevelItem[]>([]);
-  const isSplitModeRef = useRef<boolean>(false);
+  // 初期値は store から読む。以降は subscribe で追従。
+  const currentNoteRef = useRef<Note | null>(
+    useCurrentNoteStore.getState().currentNote,
+  );
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ref同期（レンダー時に直接代入）
-  currentNoteRef.current = currentNote;
-  notesRef.current = notes;
-  topLevelOrderRef.current = topLevelOrder;
-  archivedTopLevelOrderRef.current = archivedTopLevelOrder;
-  isSplitModeRef.current = isSplit ?? false;
+  // Zustand ストアを購読せずに最新の currentNote を ref で保持する。
+  useEffect(() => {
+    currentNoteRef.current = useCurrentNoteStore.getState().currentNote;
+    return useCurrentNoteStore.subscribe((state) => {
+      currentNoteRef.current = state.currentNote;
+    });
+  }, []);
 
   // 現在のノートを保存する（refベースで依存なし） ------------------------------------------------------------
-  const saveCurrentNote = useCallback(async () => {
+  // ★ fire-and-forget: ローカル state の楽観更新とフラグクリアを先にやり、
+  //   バックエンドの SaveNote は await せずに投げる。
+  //   ノート切替/オートセーブの待ち時間が消える。失敗時のログだけ残す。
+  //   beforeClose では別途同期的に await する経路があるのでデータロスは防げる。
+  const saveCurrentNote = useCallback(() => {
     const base = currentNoteRef.current;
     if (!base?.id || !isNoteModified.current) {
       return;
@@ -86,23 +86,24 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         ? { ...base, content: pendingContentRef.current }
         : base;
 
-    try {
-      setNotes((prev) =>
-        prev.map((note) =>
-          note.id === noteToSave.id
-            ? { ...noteToSave, folderId: note.folderId }
-            : note,
-        ),
-      );
-      await SaveNote(backend.Note.createFrom(noteToSave), 'update');
-      isNoteModified.current = false;
-      pendingContentRef.current = null;
-    } catch (_error) {
-      // エラーは無視（ログはバックエンドで出力される）
-    }
+    getStoreActions().setNotes((prev) =>
+      prev.map((note) =>
+        note.id === noteToSave.id
+          ? { ...noteToSave, folderId: note.folderId }
+          : note,
+      ),
+    );
+    // フラグは先にクリアする。saveCurrentNote 完了前にユーザーが
+    // 別ノートに切替えて再編集 → このコールバックでフラグを再クリア…
+    // という競合を避けるため。
+    isNoteModified.current = false;
+    pendingContentRef.current = null;
+    SaveNote(backend.Note.createFrom(noteToSave), 'update').catch((err) =>
+      console.error('SaveNote failed:', err),
+    );
   }, []);
 
-  // デバウンス付き自動保存をスケジュール（ハンドラから呼ぶ） ------------------------------------------------------------
+  // デバウンス付き自動保存をスケジュール ------------------------------------------------------------
   const scheduleAutoSave = useCallback(() => {
     if (autoSaveTimer.current) {
       clearTimeout(autoSaveTimer.current);
@@ -145,12 +146,12 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   useEffect(() => {
     const loadCollapsedFolders = async () => {
       const ids = await GetCollapsedFolderIDs();
-      setCollapsedFolders(new Set(ids ?? []));
+      getStoreActions().setCollapsedFolders(new Set(ids ?? []));
     };
     loadCollapsedFolders();
   }, []);
 
-  // イベントリスナーの設定（一度だけ登録、ref経由でアクセス） ------------------------------------------------------------
+  // イベントリスナーの設定 ------------------------------------------------------------
   useEffect(() => {
     const reloadHandler = async () => {
       const [newNotes, newFolders, rawOrder, rawArchivedOrder, collapsedIDs] =
@@ -203,16 +204,21 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         seenActiveNoteIDs.add(note.id);
       }
 
-      if (isNoteListChanged(notesRef.current, newNotes)) {
-        setNotes(newNotes);
+      const actions = getStoreActions();
+      const currentNotesSnapshot = useNotesStore.getState().notes;
+      if (isNoteListChanged(currentNotesSnapshot, newNotes)) {
+        actions.setNotes(newNotes);
       }
-      setFolders(newFolders);
-      setTopLevelOrder(nextTopLevelOrder);
-      setArchivedTopLevelOrder(nextArchivedTopLevelOrder);
-      setCollapsedFolders(new Set(collapsedIDs ?? []));
+      actions.setFolders(newFolders);
+      actions.setTopLevelOrder(nextTopLevelOrder);
+      actions.setArchivedTopLevelOrder(nextArchivedTopLevelOrder);
+      actions.setCollapsedFolders(new Set(collapsedIDs ?? []));
 
       // Splitモードでは現在ノートの整合はuseSplitEditor側で管理する。
-      if (!isSplitModeRef.current && currentNoteRef.current) {
+      if (
+        !useSplitEditorStore.getState().isSplit &&
+        currentNoteRef.current
+      ) {
         const updatedCurrentNote = activeNoteMap.get(currentNoteRef.current.id);
         if (!updatedCurrentNote) {
           const replacement = orderedActiveNotes.find(
@@ -269,9 +275,9 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       runtime.EventsOff('notes:reload');
       runtime.EventsOff('notes:updated');
     };
-  }, [isNoteListChanged, onNotesReloaded]);
+  }, [isNoteListChanged, onNotesReloaded, setCurrentNote]);
 
-  // 新規ノート作成のロジックを関数として抽出 ------------------------------------------------------------
+  // 新規ノート作成のロジック ------------------------------------------------------------
   const createNewNote = useCallback(async () => {
     const newNote: Note = {
       id: crypto.randomUUID(),
@@ -282,26 +288,35 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       modifiedTime: new Date().toISOString(),
       archived: false,
     };
-    setShowArchived(false);
-    setNotes((prev) => [newNote, ...prev]);
-    setTopLevelOrder((prev) => [{ type: 'note', id: newNote.id }, ...prev]);
+    const actions = getStoreActions();
+    actions.setShowArchived(false);
+    actions.setNotes((prev) => [newNote, ...prev]);
+    actions.setTopLevelOrder((prev) => [
+      { type: 'note', id: newNote.id },
+      ...prev,
+    ]);
 
-    // Splitモード時はフォーカスされたペインに開く
-    if (isSplit && openNoteInSplitPane && focusedPane) {
-      openNoteInSplitPane(newNote, focusedPane);
+    // 分割表示中はフォーカス中のペインに新ノートを開く。
+    // openNoteInPaneRef は useSplitEditor の openNoteInPane を ref 越しに受ける。
+    const splitState = useSplitEditorStore.getState();
+    if (splitState.isSplit && openNoteInPaneRef?.current) {
+      openNoteInPaneRef.current(newNote, splitState.focusedPane);
     } else {
       setCurrentNote(newNote);
       SetLastActiveNote(newNote.id, false);
     }
 
-    await SaveNote(backend.Note.createFrom(newNote), 'create');
+    // バックエンドへの永続化は fire-and-forget。in-memory は同期更新済み。
+    SaveNote(backend.Note.createFrom(newNote), 'create').catch((err) =>
+      console.error('SaveNote (create) failed:', err),
+    );
     return newNote;
-  }, [isSplit, focusedPane, openNoteInSplitPane]);
+  }, [openNoteInPaneRef, setCurrentNote]);
 
   // 新規ノート作成 ------------------------------------------------------------
   const handleNewNote = useCallback(async () => {
     if (currentNoteRef.current && isNoteModified.current) {
-      await saveCurrentNote();
+      saveCurrentNote();
     }
     await createNewNote();
   }, [saveCurrentNote, createNewNote]);
@@ -309,11 +324,10 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   // ノートをアーカイブする ------------------------------------------------------------
   const handleArchiveNote = useCallback(
     async (noteId: string) => {
-      // 状態変更前にスナップショットを取る (await の途中で再レンダーが入って
-      // ref が更新される可能性があるため、後段の位置計算にはスナップショットを使う)
-      const oldNotes = notesRef.current;
-      const oldTopLevelOrder = topLevelOrderRef.current;
-      const oldArchivedTopLevelOrder = archivedTopLevelOrderRef.current;
+      const storeState = useNotesStore.getState();
+      const oldNotes = storeState.notes;
+      const oldTopLevelOrder = storeState.topLevelOrder;
+      const oldArchivedTopLevelOrder = storeState.archivedTopLevelOrder;
       const wasCurrent = currentNoteRef.current?.id === noteId;
 
       const note = oldNotes.find((note) => note.id === noteId);
@@ -336,7 +350,11 @@ export const useNotes = (options: UseNotesOptions = {}) => {
             }
           } else if (item.type === 'folder') {
             for (const n of oldNotes) {
-              if (n.folderId === item.id && !n.archived && !seenFlat.has(n.id)) {
+              if (
+                n.folderId === item.id &&
+                !n.archived &&
+                !seenFlat.has(n.id)
+              ) {
                 oldFlat.push(n);
                 seenFlat.add(n.id);
               }
@@ -372,15 +390,14 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         folderId: undefined,
       };
 
-      setNotes((prev) => prev.map((n) => (n.id === noteId ? archivedNote : n)));
+      const actions = getStoreActions();
+      actions.setNotes((prev) =>
+        prev.map((n) => (n.id === noteId ? archivedNote : n)),
+      );
       const newTopLevelOrder = oldTopLevelOrder.filter(
         (item) => !(item.type === 'note' && item.id === noteId),
       );
-      setTopLevelOrder(newTopLevelOrder);
-      await SaveNote(backend.Note.createFrom(archivedNote), 'update');
-      await UpdateTopLevelOrder(
-        newTopLevelOrder.map((item) => backend.TopLevelItem.createFrom(item)),
-      );
+      actions.setTopLevelOrder(newTopLevelOrder);
 
       const newArchivedOrder = [
         { type: 'note' as const, id: noteId },
@@ -388,9 +405,21 @@ export const useNotes = (options: UseNotesOptions = {}) => {
           (item) => !(item.type === 'note' && item.id === noteId),
         ),
       ];
-      setArchivedTopLevelOrder(newArchivedOrder);
-      await UpdateArchivedTopLevelOrder(
+      actions.setArchivedTopLevelOrder(newArchivedOrder);
+
+      // 永続化はバックエンドに投げっぱなし。in-memory state はすでに更新済み。
+      SaveNote(backend.Note.createFrom(archivedNote), 'update').catch((err) =>
+        console.error('SaveNote (archive) failed:', err),
+      );
+      UpdateTopLevelOrder(
+        newTopLevelOrder.map((item) => backend.TopLevelItem.createFrom(item)),
+      ).catch((err) =>
+        console.error('UpdateTopLevelOrder (archive) failed:', err),
+      );
+      UpdateArchivedTopLevelOrder(
         newArchivedOrder.map((item) => backend.TopLevelItem.createFrom(item)),
+      ).catch((err) =>
+        console.error('UpdateArchivedTopLevelOrder (archive) failed:', err),
       );
 
       if (wasCurrent) {
@@ -401,74 +430,86 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         }
       }
     },
-    [handleNewNote],
+    [handleNewNote, setCurrentNote],
   );
 
   // ノートを選択する ------------------------------------------------------------
   const handleSelectNote = useCallback(
     async (note: Note) => {
       if (currentNoteRef.current?.id && isNoteModified.current) {
-        await saveCurrentNote();
+        // fire-and-forget: 旧ノートの保存はバックエンドに投げて即座に切替を進める
+        saveCurrentNote();
       }
-      setShowArchived(false);
+      getStoreActions().setShowArchived(false);
 
       previousContent.current = note.content || '';
       setCurrentNote(note);
       isNoteModified.current = false;
       pendingContentRef.current = null;
     },
-    [saveCurrentNote],
+    [saveCurrentNote, setCurrentNote],
   );
 
   // ノートをアーカイブ解除する ------------------------------------------------------------
   const handleUnarchiveNote = useCallback(async (noteId: string) => {
-    const note = notesRef.current.find((note) => note.id === noteId);
+    const storeState = useNotesStore.getState();
+    const note = storeState.notes.find((note) => note.id === noteId);
     if (!note) return;
 
     const loadedNote = await LoadArchivedNote(noteId);
     if (loadedNote) {
-      // 単独復元時は常にトップレベルへ戻す（アーカイブ済みフォルダ配下に取り残されると
-      // どこにも表示されなくなるため、folderId をクリアする）
       const previousFolderId = loadedNote.folderId;
       const unarchivedNote = {
         ...loadedNote,
         archived: false,
         folderId: undefined,
       };
-      setNotes((prev) =>
+      const actions = getStoreActions();
+      actions.setNotes((prev) =>
         prev.map((note) => (note.id === noteId ? unarchivedNote : note)),
       );
+      const currentTopLevel = useNotesStore.getState().topLevelOrder;
+      const currentArchivedOrder =
+        useNotesStore.getState().archivedTopLevelOrder;
       const newTopLevelOrder = [
         { type: 'note' as const, id: noteId },
-        ...topLevelOrderRef.current.filter(
+        ...currentTopLevel.filter(
           (item) => !(item.type === 'note' && item.id === noteId),
         ),
       ];
-      const newArchivedOrder = archivedTopLevelOrderRef.current.filter(
+      const newArchivedOrder = currentArchivedOrder.filter(
         (item) => !(item.type === 'note' && item.id === noteId),
       );
-      setTopLevelOrder(newTopLevelOrder);
-      setArchivedTopLevelOrder(newArchivedOrder);
-      // リストア後はノートを開かずアーカイブページのままにする（setCurrentNote / setShowArchived は呼ばない）
-      await SaveNote(backend.Note.createFrom(unarchivedNote), 'update');
+      actions.setTopLevelOrder(newTopLevelOrder);
+      actions.setArchivedTopLevelOrder(newArchivedOrder);
+      // 永続化は fire-and-forget
+      SaveNote(backend.Note.createFrom(unarchivedNote), 'update').catch((err) =>
+        console.error('SaveNote (unarchive) failed:', err),
+      );
       if (previousFolderId) {
-        await MoveNoteToFolder(noteId, '');
+        MoveNoteToFolder(noteId, '').catch((err) =>
+          console.error('MoveNoteToFolder (unarchive) failed:', err),
+        );
       }
-      await Promise.all([
+      Promise.all([
         UpdateTopLevelOrder(
           newTopLevelOrder.map((item) => backend.TopLevelItem.createFrom(item)),
         ),
         UpdateArchivedTopLevelOrder(
           newArchivedOrder.map((item) => backend.TopLevelItem.createFrom(item)),
         ),
-      ]);
+      ]).catch((err) =>
+        console.error('UpdateTopLevelOrder (unarchive) failed:', err),
+      );
     }
   }, []);
 
   // ノートを削除する ------------------------------------------------------------
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
-      const currentNotes = notesRef.current;
+      const storeState = useNotesStore.getState();
+      const currentNotes = storeState.notes;
+      const showArchived = storeState.showArchived;
       const activeNotes = currentNotes.filter((note) => !note.archived);
       const archivedNotes = currentNotes.filter((note) => note.archived);
       const isLastNote =
@@ -477,11 +518,12 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       const hasNoActiveNotes = activeNotes.length === 0;
 
       await DeleteNote(noteId);
-      setNotes((prev) => prev.filter((note) => note.id !== noteId));
-      setTopLevelOrder((prev) =>
+      const actions = getStoreActions();
+      actions.setNotes((prev) => prev.filter((note) => note.id !== noteId));
+      actions.setTopLevelOrder((prev) =>
         prev.filter((item) => !(item.type === 'note' && item.id === noteId)),
       );
-      setArchivedTopLevelOrder((prev) =>
+      actions.setArchivedTopLevelOrder((prev) =>
         prev.filter((item) => !(item.type === 'note' && item.id === noteId)),
       );
 
@@ -490,18 +532,20 @@ export const useNotes = (options: UseNotesOptions = {}) => {
           if (hasNoActiveNotes) {
             await createNewNote();
           } else if (hasOnlyOneActiveNote) {
-            setShowArchived(false);
+            actions.setShowArchived(false);
             setCurrentNote(activeNotes[0]);
           }
         }
       }
     },
-    [createNewNote, showArchived],
+    [createNewNote, setCurrentNote],
   );
 
   // ノートをすべて削除する ------------------------------------------------------------
   const handleDeleteAllArchivedNotes = useCallback(async () => {
-    const currentNotes = notesRef.current;
+    const storeState = useNotesStore.getState();
+    const currentNotes = storeState.notes;
+    const folders = storeState.folders;
     const archivedNotes = currentNotes.filter((note) => note.archived);
     const archivedFolderIds = new Set(
       folders.filter((f) => f.archived).map((f) => f.id),
@@ -514,9 +558,10 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       await DeleteArchivedFolder(folderId);
     }
 
-    setNotes((prev) => prev.filter((note) => !note.archived));
-    setFolders((prev) => prev.filter((f) => !f.archived));
-    setArchivedTopLevelOrder([]);
+    const actions = getStoreActions();
+    actions.setNotes((prev) => prev.filter((note) => !note.archived));
+    actions.setFolders((prev) => prev.filter((f) => !f.archived));
+    actions.setArchivedTopLevelOrder([]);
 
     const activeNotes = currentNotes.filter((note) => !note.archived);
     if (activeNotes.length > 0) {
@@ -524,10 +569,10 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     } else {
       await createNewNote();
     }
-    setShowArchived(false);
-  }, [createNewNote, folders]);
+    actions.setShowArchived(false);
+  }, [createNewNote, setCurrentNote]);
 
-  // ノートのタイトル、言語、内容を変更する（ハンドラ内でdebounce付き保存をスケジュール） ------------------------------------------------------------
+  // ノートのタイトル、言語、内容を変更する ------------------------------------------------------------
   const stateChanger = useCallback(
     (target: 'title' | 'language' | 'content') => {
       return (newState: string) => {
@@ -543,12 +588,8 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         }
 
         const pendingContent = pendingContentRef.current;
-
-        setCurrentNote((prev) => {
-          if (!prev) {
-            return prev;
-          }
-
+        const prev = useCurrentNoteStore.getState().currentNote;
+        if (prev) {
           isNoteModified.current = true;
           const updated = {
             ...prev,
@@ -558,59 +599,62 @@ export const useNotes = (options: UseNotesOptions = {}) => {
           };
 
           if (target === 'title') {
-            setNotes((prevNotes) =>
+            getStoreActions().setNotes((prevNotes) =>
               prevNotes.map((n) =>
                 n.id === prev.id ? { ...n, title: newState } : n,
               ),
             );
           }
 
-          return updated;
-        });
+          setCurrentNote(updated);
+        }
 
         pendingContentRef.current = null;
 
-        // ハンドラ内で直接デバウンス保存をスケジュール
         scheduleAutoSave();
       };
     },
-    [scheduleAutoSave],
+    [scheduleAutoSave, setCurrentNote],
   );
 
-  // ノートのタイトルを変更する ------------------------------------------------------------
   const handleTitleChange = (newTitle: string) => {
     stateChanger('title')(newTitle);
   };
 
-  // ノートの言語を変更する ------------------------------------------------------------
   const handleLanguageChange = (newLanguage: string) => {
     stateChanger('language')(newLanguage);
   };
 
-  // ノートの内容を変更する ------------------------------------------------------------
   const handleNoteContentChange = (newContent: string) => {
     stateChanger('content')(newContent);
   };
 
   const handleCreateFolder = useCallback(async (name: string) => {
     const folder = await CreateFolder(name);
-    setFolders((prev) => [...prev, folder]);
-    setTopLevelOrder((prev) => [{ type: 'folder', id: folder.id }, ...prev]);
+    const actions = getStoreActions();
+    actions.setFolders((prev) => [...prev, folder]);
+    actions.setTopLevelOrder((prev) => [
+      { type: 'folder', id: folder.id },
+      ...prev,
+    ]);
     return folder;
   }, []);
 
   const handleRenameFolder = useCallback(async (id: string, name: string) => {
     await RenameFolder(id, name);
-    setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name } : f)));
+    getStoreActions().setFolders((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, name } : f)),
+    );
   }, []);
 
   const handleDeleteFolder = useCallback(async (id: string) => {
     await DeleteFolder(id);
-    setFolders((prev) => prev.filter((f) => f.id !== id));
-    setTopLevelOrder((prev) =>
+    const actions = getStoreActions();
+    actions.setFolders((prev) => prev.filter((f) => f.id !== id));
+    actions.setTopLevelOrder((prev) =>
       prev.filter((item) => !(item.type === 'folder' && item.id === id)),
     );
-    setCollapsedFolders((prev) => {
+    actions.setCollapsedFolders((prev) => {
       const next = new Set(prev);
       next.delete(id);
       void UpdateCollapsedFolderIDs(Array.from(next));
@@ -620,22 +664,27 @@ export const useNotes = (options: UseNotesOptions = {}) => {
 
   const handleMoveNoteToFolder = useCallback(
     async (noteID: string, folderID: string) => {
-      await MoveNoteToFolder(noteID, folderID);
+      // バックエンドへの永続化は fire-and-forget。UI は in-memory 更新だけで進む。
+      MoveNoteToFolder(noteID, folderID).catch((err) =>
+        console.error('MoveNoteToFolder failed:', err),
+      );
       const newFolderId = folderID || undefined;
-      setNotes((prev) =>
+      const actions = getStoreActions();
+      actions.setNotes((prev) =>
         prev.map((n) =>
           n.id === noteID ? { ...n, folderId: newFolderId } : n,
         ),
       );
-      setCurrentNote((prev) =>
-        prev?.id === noteID ? { ...prev, folderId: newFolderId } : prev,
-      );
+      const prevCurrent = currentNoteRef.current;
+      if (prevCurrent?.id === noteID) {
+        setCurrentNote({ ...prevCurrent, folderId: newFolderId });
+      }
       if (folderID) {
-        setTopLevelOrder((prev) =>
+        actions.setTopLevelOrder((prev) =>
           prev.filter((item) => !(item.type === 'note' && item.id === noteID)),
         );
       } else {
-        setTopLevelOrder((prev) => {
+        actions.setTopLevelOrder((prev) => {
           const exists = prev.some(
             (item) => item.type === 'note' && item.id === noteID,
           );
@@ -644,11 +693,11 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         });
       }
     },
-    [],
+    [setCurrentNote],
   );
 
   const toggleFolderCollapse = useCallback((folderId: string) => {
-    setCollapsedFolders((prev) => {
+    getStoreActions().setCollapsedFolders((prev) => {
       const next = new Set(prev);
       if (next.has(folderId)) {
         next.delete(folderId);
@@ -662,14 +711,13 @@ export const useNotes = (options: UseNotesOptions = {}) => {
 
   const handleUpdateTopLevelOrder = useCallback(
     async (order: TopLevelItem[]) => {
-      setTopLevelOrder(order);
-      try {
-        await UpdateTopLevelOrder(
-          order.map((item) => backend.TopLevelItem.createFrom(item)),
-        );
-      } catch (error) {
+      getStoreActions().setTopLevelOrder(order);
+      // 永続化は fire-and-forget。in-memory 更新は同期で済んでいる。
+      UpdateTopLevelOrder(
+        order.map((item) => backend.TopLevelItem.createFrom(item)),
+      ).catch((error) => {
         console.error('Failed to update top level order:', error);
-      }
+      });
     },
     [],
   );
@@ -683,21 +731,22 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         GetArchivedTopLevelOrder(),
         GetCollapsedFolderIDs(),
       ]);
-    setNotes(newNotes);
-    setFolders(newFolders);
-    setTopLevelOrder(
+    const actions = getStoreActions();
+    actions.setNotes(newNotes);
+    actions.setFolders(newFolders);
+    actions.setTopLevelOrder(
       (rawOrder ?? []).map((item) => ({
         type: item.type as 'note' | 'folder',
         id: item.id,
       })),
     );
-    setArchivedTopLevelOrder(
+    actions.setArchivedTopLevelOrder(
       (rawArchivedOrder ?? []).map((item) => ({
         type: item.type as 'note' | 'folder',
         id: item.id,
       })),
     );
-    setCollapsedFolders(new Set(collapsedIDs ?? []));
+    actions.setCollapsedFolders(new Set(collapsedIDs ?? []));
     return newNotes;
   }, []);
 
@@ -706,7 +755,8 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       await ArchiveFolder(folderId);
       const newNotes = await reloadAllState();
 
-      if (currentNote?.folderId === folderId) {
+      const cur = useCurrentNoteStore.getState().currentNote;
+      if (cur?.folderId === folderId) {
         const activeNotes = newNotes.filter((n) => !n.archived);
         if (activeNotes.length > 0) {
           setCurrentNote(activeNotes[0]);
@@ -715,14 +765,13 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         }
       }
     },
-    [currentNote, handleNewNote, reloadAllState],
+    [handleNewNote, reloadAllState, setCurrentNote],
   );
 
   const handleUnarchiveFolder = useCallback(
     async (folderId: string) => {
       await UnarchiveFolder(folderId);
       await reloadAllState();
-      // リストア後はノートを開かずアーカイブページのままにする
     },
     [reloadAllState],
   );
@@ -740,33 +789,27 @@ export const useNotes = (options: UseNotesOptions = {}) => {
         } else {
           await handleNewNote();
         }
-        setShowArchived(false);
+        getStoreActions().setShowArchived(false);
       }
     },
-    [handleNewNote, reloadAllState],
+    [handleNewNote, reloadAllState, setCurrentNote],
   );
 
   const handleUpdateArchivedTopLevelOrder = useCallback(
     async (order: TopLevelItem[]) => {
-      setArchivedTopLevelOrder(order);
-      try {
-        await UpdateArchivedTopLevelOrder(
-          order.map((item) => backend.TopLevelItem.createFrom(item)),
-        );
-      } catch (error) {
+      getStoreActions().setArchivedTopLevelOrder(order);
+      UpdateArchivedTopLevelOrder(
+        order.map((item) => backend.TopLevelItem.createFrom(item)),
+      ).catch((error) => {
         console.error('Failed to update archived top level order:', error);
-      }
+      });
     },
     [],
   );
 
+  // 戻り値はアクション群のみ。state は store から直接購読してもらう。
+  // pendingContentRef は handler 連携で使うため引き続き露出。
   return {
-    notes,
-    setNotes,
-    currentNote,
-    setCurrentNote,
-    showArchived,
-    setShowArchived,
     saveCurrentNote,
     handleNewNote,
     handleArchiveNote,
@@ -777,13 +820,6 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     handleTitleChange,
     handleLanguageChange,
     handleNoteContentChange,
-    folders,
-    setFolders,
-    collapsedFolders,
-    topLevelOrder,
-    setTopLevelOrder,
-    archivedTopLevelOrder,
-    setArchivedTopLevelOrder,
     handleCreateFolder,
     handleRenameFolder,
     handleDeleteFolder,

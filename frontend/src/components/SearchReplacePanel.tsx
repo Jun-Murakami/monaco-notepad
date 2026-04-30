@@ -22,47 +22,19 @@ import {
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 
+import { useCurrentNoteId } from '../stores/useCurrentNoteStore';
+import {
+  type NoteMatchGroup,
+  type SearchPanelMode,
+  usePatternError,
+  useSearchReplaceStore,
+} from '../stores/useSearchReplaceStore';
 import { extractLineAt } from '../utils/searchUtils';
 
-import type {
-  NoteMatchGroup,
-  ReplaceResult,
-  SearchPanelMode,
-} from '../hooks/useSearchReplace';
-import type { SearchMatch } from '../utils/searchUtils';
-
 interface SearchReplacePanelProps {
-  mode: SearchPanelMode;
-  query: string;
-  replacement: string;
-  caseSensitive: boolean;
-  wholeWord: boolean;
-  useRegex: boolean;
-  patternError: string | null;
-  currentMatches: SearchMatch[];
-  currentMatchIndex: number;
-  crossNoteResults: NoteMatchGroup[];
-  // 現在フォーカスされているノートの ID。カウンタのグローバル位置計算に使う。
-  activeNoteId: string | null;
-  focusToken: number;
-  // 直近の置換実行結果。置換モードを閉じるまで表示を維持。
-  replaceResult: ReplaceResult | null;
-  // 検索クエリが空のとき、サイドバー絞り込み件数をバッジに表示
+  // サイドバー絞り込み件数（検索クエリが空のときバッジに表示）。
+  // useNoteSearch の出力を直接渡す。
   sidebarMatchCount: number;
-  onSetQuery: (v: string) => void;
-  onSetReplacement: (v: string) => void;
-  onToggleCaseSensitive: () => void;
-  onToggleWholeWord: () => void;
-  onToggleUseRegex: () => void;
-  onSetMode: (m: SearchPanelMode) => void;
-  onClear: () => void;
-  onFindNext: () => void;
-  onFindPrevious: () => void;
-  onReplaceCurrent: () => void;
-  onReplaceAllInCurrent: () => void;
-  onReplaceAllInAllNotes: () => void;
-  onJumpToNoteMatch: (noteId: string, indexInNote: number) => void;
-  onSelectNote: (noteId: string) => Promise<void> | void;
 }
 
 const toggleReplaceMode = (mode: SearchPanelMode): SearchPanelMode =>
@@ -76,37 +48,52 @@ const HIT_CURRENT_BG = 'rgba(255, 140, 0, 0.32)';
 const HIT_CURRENT_BORDER = 'rgba(230, 105, 0, 0.55)';
 
 export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
-  mode,
-  query,
-  replacement,
-  caseSensitive,
-  wholeWord,
-  useRegex,
-  patternError,
-  currentMatches,
-  currentMatchIndex,
-  crossNoteResults,
-  activeNoteId,
-  focusToken,
-  replaceResult,
   sidebarMatchCount,
-  onSetQuery,
-  onSetReplacement,
-  onToggleCaseSensitive,
-  onToggleWholeWord,
-  onToggleUseRegex,
-  onSetMode,
-  onClear,
-  onFindNext,
-  onFindPrevious,
-  onReplaceCurrent,
-  onReplaceAllInCurrent,
-  onReplaceAllInAllNotes,
-  onJumpToNoteMatch,
-  onSelectNote,
 }) => {
   const { t } = useTranslation();
   const findInputRef = useRef<HTMLInputElement>(null);
+
+  // 状態はすべてストアから個別購読する（粒度を細かく取り、不要な再描画を抑える）
+  const mode = useSearchReplaceStore((s) => s.mode);
+  const query = useSearchReplaceStore((s) => s.query);
+  const replacement = useSearchReplaceStore((s) => s.replacement);
+  const caseSensitive = useSearchReplaceStore((s) => s.caseSensitive);
+  const wholeWord = useSearchReplaceStore((s) => s.wholeWord);
+  const useRegex = useSearchReplaceStore((s) => s.useRegex);
+  const patternError = usePatternError();
+  const currentMatches = useSearchReplaceStore((s) => s.currentMatches);
+  const currentMatchIndex = useSearchReplaceStore((s) => s.currentMatchIndex);
+  const crossNoteResults = useSearchReplaceStore((s) => s.crossNoteResults);
+  const focusToken = useSearchReplaceStore((s) => s.focusToken);
+  const replaceResult = useSearchReplaceStore((s) => s.replaceResult);
+  // activeNoteId はノート切替時の「現在ノート位置」表示に使う。
+  // 非スプリットの簡易判定として currentNote の id をそのまま使う。
+  const activeNoteId = useCurrentNoteId();
+
+  // アクションも直接ストアから取得（参照は不変）。
+  const onSetQuery = useSearchReplaceStore((s) => s.setQuery);
+  const onSetReplacement = useSearchReplaceStore((s) => s.setReplacement);
+  const onToggleCaseSensitive = () =>
+    useSearchReplaceStore.getState().setCaseSensitive(!caseSensitive);
+  const onToggleWholeWord = () =>
+    useSearchReplaceStore.getState().setWholeWord(!wholeWord);
+  const onToggleUseRegex = () =>
+    useSearchReplaceStore.getState().setUseRegex(!useRegex);
+  const onSetMode = useSearchReplaceStore((s) => s.setMode);
+  const onClear = useSearchReplaceStore((s) => s.clearQuery);
+  const onFindNext = useSearchReplaceStore((s) => s.findNext);
+  const onFindPrevious = useSearchReplaceStore((s) => s.findPrevious);
+  const onReplaceCurrent = useSearchReplaceStore((s) => s.replaceCurrent);
+  const onReplaceAllInCurrent = useSearchReplaceStore(
+    (s) => s.replaceAllInCurrent,
+  );
+  const onReplaceAllInAllNotes = useSearchReplaceStore(
+    (s) => s.replaceAllInAllNotes,
+  );
+  const onJumpToNoteMatch = useSearchReplaceStore((s) => s.jumpToNoteMatch);
+  // クロスノート結果からの選択は、App.tsx 側で setContext({ onSelectNote }) されたものを使う
+  const onSelectNote = (noteId: string) =>
+    useSearchReplaceStore.getState().context.onSelectNote(noteId);
 
   const replaceOn = mode === 'replace';
 

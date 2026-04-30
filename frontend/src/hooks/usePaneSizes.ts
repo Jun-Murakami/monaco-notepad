@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-import type { Settings } from '../types';
+import { useEditorSettingsStore } from '../stores/useEditorSettingsStore';
 
 const DEFAULT_SIDEBAR_WIDTH = 242;
 const DEFAULT_SPLIT_PANE_RATIO = 0.5;
@@ -12,20 +12,24 @@ export interface PaneSizes {
   markdownPreviewPaneSize: number;
 }
 
-export const usePaneSizes = (settings: Settings) => {
+// 初期値は store の現在値から取得（settings が後から非同期ロードされるため、
+// 初期マウント時点ではデフォルト値の場合もある。ロード後の反映はせず初期値のみ参照）
+export const usePaneSizes = () => {
+  const initialSettings = useEditorSettingsStore.getState().settings;
+
   // サイドバーの幅（ピクセル）
   const [sidebarWidth, setSidebarWidth] = useState(
-    settings.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH,
+    initialSettings.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH,
   );
 
   // スプリットモード時の左ペインの割合（0-1）
   const [splitPaneSize, setSplitPaneSize] = useState(
-    settings.splitPaneSize ?? DEFAULT_SPLIT_PANE_RATIO,
+    initialSettings.splitPaneSize ?? DEFAULT_SPLIT_PANE_RATIO,
   );
 
   // マークダウンプレビューのペインサイズ割合（0-1）
   const [markdownPreviewPaneSize, setMarkdownPreviewPaneSize] = useState(
-    settings.markdownPreviewPaneSize ?? DEFAULT_MARKDOWN_PREVIEW_RATIO,
+    initialSettings.markdownPreviewPaneSize ?? DEFAULT_MARKDOWN_PREVIEW_RATIO,
   );
 
   // 変更をデバウンスして保存

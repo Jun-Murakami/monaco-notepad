@@ -51,6 +51,11 @@ import {
 import SimpleBar from 'simplebar-react';
 
 import { UpdateNoteOrder } from '../../wailsjs/go/backend/App';
+import {
+  useAllNotes,
+  useArchivedTopLevelOrder,
+  useFolders,
+} from '../stores/useNotesStore';
 import { formatNoteDate } from '../utils/dateFormat';
 import { ArchivedNoteContentDialog } from './ArchivedNoteContentDialog';
 import { NotePreviewPopper } from './NotePreviewPopper';
@@ -66,9 +71,7 @@ import type { Folder, Note, TopLevelItem } from '../types';
 import 'simplebar-react/dist/simplebar.min.css';
 
 interface ArchivedNoteListProps {
-  notes: Note[];
-  folders: Folder[];
-  archivedTopLevelOrder: TopLevelItem[];
+  // notes / folders / archivedTopLevelOrder は useNotesStore から直接購読する
   onUnarchive: (noteId: string) => void;
   onDelete: (noteId: string) => void;
   onDeleteAll: () => void;
@@ -349,7 +352,7 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
               sx={{
                 fontSize: '0.875rem',
                 fontStyle: titleInfo.isFallback ? 'italic' : 'normal',
-                opacity: titleInfo.isFallback ? 0.7 : 1,
+                opacity: titleInfo.isFallback ? 0.65 : 1,
               }}
             >
               {titleInfo.text}
@@ -639,9 +642,6 @@ const PragmaticRow: React.FC<{
 };
 
 export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
-  notes,
-  folders,
-  archivedTopLevelOrder,
   onUnarchive,
   onDelete,
   onDeleteAll,
@@ -653,6 +653,10 @@ export const ArchivedNoteList: React.FC<ArchivedNoteListProps> = ({
   isDarkMode,
   systemLocale,
 }) => {
+  // notes / folders / archivedTopLevelOrder は store 直購読
+  const notes = useAllNotes();
+  const folders = useFolders();
+  const archivedTopLevelOrder = useArchivedTopLevelOrder();
   const isTestEnv = import.meta.env.MODE === 'test';
   const { t } = useTranslation();
   const listContentRef = useRef<HTMLDivElement>(null);

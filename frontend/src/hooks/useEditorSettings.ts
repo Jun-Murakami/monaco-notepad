@@ -14,9 +14,32 @@ import {
 } from '../stores/useEditorSettingsStore';
 import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../types';
 
+// SettingsDialog などから hook の init 副作用を起こさずに使えるトップレベル save。
+// useEditorSettings の handleSetEditorSettings と同じロジックを export する。
+export const saveAndApplyEditorSettings = async (newSettings: Settings) => {
+  const { settings: oldSettings, isInitialized } =
+    useEditorSettingsStore.getState();
+
+  if (newSettings.uiLanguage !== oldSettings.uiLanguage) {
+    let resolvedLanguage: 'en' | 'ja';
+    if (newSettings.uiLanguage === 'system') {
+      const systemLocale = await GetSystemLocale();
+      resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
+    } else {
+      resolvedLanguage = newSettings.uiLanguage as 'en' | 'ja';
+    }
+    await changeLanguage(resolvedLanguage);
+  }
+
+  useEditorSettingsStore.getState().setSettings(newSettings);
+  if (isInitialized) {
+    SaveSettings(newSettings);
+  }
+  applySettingsToAllEditors(newSettings);
+};
+
 export const useEditorSettings = () => {
   const settings = useEditorSettingsStore((s) => s.settings);
-  const isInitialized = useEditorSettingsStore((s) => s.isInitialized);
   const setSettings = useEditorSettingsStore((s) => s.setSettings);
   const setInitialized = useEditorSettingsStore((s) => s.setInitialized);
 
@@ -106,30 +129,10 @@ export const useEditorSettings = () => {
     loadSettings();
   }, [setSettings, setInitialized]);
 
-  // 設定変更ハンドラ（SettingsDialogのonChange、即時反映・即時保存）
+  // 同 API を維持: useCallback でラップしておく（中身はトップレベル関数に移動）
   const handleSetEditorSettings = useCallback(
-    async (newSettings: Settings) => {
-      // 言語が変更された場合はi18nも更新
-      if (newSettings.uiLanguage !== settings.uiLanguage) {
-        let resolvedLanguage: 'en' | 'ja';
-        if (newSettings.uiLanguage === 'system') {
-          const systemLocale = await GetSystemLocale();
-          resolvedLanguage = systemLocale.startsWith('ja') ? 'ja' : 'en';
-        } else {
-          resolvedLanguage = newSettings.uiLanguage as 'en' | 'ja';
-        }
-        await changeLanguage(resolvedLanguage);
-      }
-
-      setSettings(newSettings);
-      if (isInitialized) {
-        SaveSettings(newSettings);
-      }
-
-      // ハンドラから直接Monacoに適用（useEffect不要）
-      applySettingsToAllEditors(newSettings);
-    },
-    [isInitialized, settings.uiLanguage, setSettings],
+    (newSettings: Settings) => saveAndApplyEditorSettings(newSettings),
+    [],
   );
 
   return {

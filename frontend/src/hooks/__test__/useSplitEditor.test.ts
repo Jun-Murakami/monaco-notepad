@@ -10,6 +10,9 @@ import {
 } from 'vitest';
 
 import { SaveNote } from '../../../wailsjs/go/backend/App';
+import { useCurrentNoteStore } from '../../stores/useCurrentNoteStore';
+import { useNotesStore } from '../../stores/useNotesStore';
+import { useSplitEditorStore } from '../../stores/useSplitEditorStore';
 import { useSplitEditor } from '../useSplitEditor';
 
 import type { Note } from '../../types';
@@ -51,47 +54,54 @@ describe('useSplitEditor', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     localStorage.clear();
+    // テスト前にストアを初期化し、currentNote を leftNote にセット
+    useCurrentNoteStore.getState().resetCurrentNote();
+    useCurrentNoteStore.setState({ currentNote: leftNote });
+    useSplitEditorStore.getState().reset();
   });
 
   afterEach(() => {
     vi.useRealTimers();
     localStorage.clear();
+    useCurrentNoteStore.getState().resetCurrentNote();
+    useSplitEditorStore.getState().reset();
   });
 
-  it('スプリット時に右ペインのタイトル変更が左ペインへ波及しないこと', () => {
-    const setCurrentNote = vi.fn();
-    const setCurrentFileNote = vi.fn();
-    const setNotes = vi.fn();
+  // notes 配列も store 経由で書き換えられるので spy で観測する
+  const observeSetNotes = () => {
+    const calls: Array<(prev: Note[]) => Note[]> = [];
+    const setNotesFn = useNotesStore.getState().setNotes;
+    const spy = vi.fn((updater: any) => {
+      if (typeof updater === 'function') calls.push(updater);
+      setNotesFn(updater);
+    });
+    useNotesStore.setState({ setNotes: spy as never });
+    return { spy, calls };
+  };
 
-    const { result } = renderHook(() =>
-      useSplitEditor({
-        currentNote: leftNote,
-        currentFileNote: null,
-        setCurrentNote,
-        setCurrentFileNote,
-        setNotes,
-      }),
-    );
+  it('スプリット時に右ペインのタイトル変更が左ペインへ波及しないこと', () => {
+    const { spy, calls } = observeSetNotes();
+    const { result } = renderHook(() => useSplitEditor());
 
     act(() => {
       result.current.toggleSplit(rightNote);
     });
 
-    (setNotes as Mock).mockClear();
+    spy.mockClear();
     (SaveNote as Mock).mockClear();
 
     act(() => {
       result.current.handleRightNoteTitleChange('Right updated');
     });
 
-    expect(result.current.rightNote?.title).toBe('Right updated');
-    expect(result.current.leftNote?.title).toBe('Left title');
-    expect(setNotes).toHaveBeenCalled();
+    expect(useSplitEditorStore.getState().rightNote?.title).toBe(
+      'Right updated',
+    );
+    expect(useSplitEditorStore.getState().leftNote?.title).toBe('Left title');
+    expect(spy).toHaveBeenCalled();
 
     // サイドバー反映用の state updater が「右ノートIDのみ」更新していることを検証する。
-    const updater = (setNotes as Mock).mock.calls[0][0] as (
-      prev: Note[],
-    ) => Note[];
+    const updater = calls[calls.length - 1];
     const updated = updater([leftNote, rightNote]);
     expect(updated.find((n) => n.id === leftNote.id)?.title).toBe('Left title');
     expect(updated.find((n) => n.id === rightNote.id)?.title).toBe(
@@ -100,26 +110,13 @@ describe('useSplitEditor', () => {
   });
 
   it('右ペインタイトルの連続入力で最後の値がデバウンス保存されること', async () => {
-    const setCurrentNote = vi.fn();
-    const setCurrentFileNote = vi.fn();
-    const setNotes = vi.fn();
-
-    const { result } = renderHook(() =>
-      useSplitEditor({
-        currentNote: leftNote,
-        currentFileNote: null,
-        setCurrentNote,
-        setCurrentFileNote,
-        setNotes,
-      }),
-    );
+    const { result } = renderHook(() => useSplitEditor());
 
     act(() => {
       result.current.toggleSplit(rightNote);
     });
 
     (SaveNote as Mock).mockClear();
-    (setNotes as Mock).mockClear();
 
     act(() => {
       result.current.handleRightNoteTitleChange('R');
@@ -127,7 +124,7 @@ describe('useSplitEditor', () => {
       result.current.handleRightNoteTitleChange('Right final');
     });
 
-    expect(result.current.rightNote?.title).toBe('Right final');
+    expect(useSplitEditorStore.getState().rightNote?.title).toBe('Right final');
 
     await act(async () => {
       vi.advanceTimersByTime(3000);
@@ -144,19 +141,7 @@ describe('useSplitEditor', () => {
   });
 
   it('右ペインの言語変更でも右ノートのみ更新・保存されること', async () => {
-    const setCurrentNote = vi.fn();
-    const setCurrentFileNote = vi.fn();
-    const setNotes = vi.fn();
-
-    const { result } = renderHook(() =>
-      useSplitEditor({
-        currentNote: leftNote,
-        currentFileNote: null,
-        setCurrentNote,
-        setCurrentFileNote,
-        setNotes,
-      }),
-    );
+    const { result } = renderHook(() => useSplitEditor());
 
     act(() => {
       result.current.toggleSplit(rightNote);
@@ -168,8 +153,8 @@ describe('useSplitEditor', () => {
       result.current.handleRightNoteLanguageChange('markdown');
     });
 
-    expect(result.current.rightNote?.language).toBe('markdown');
-    expect(result.current.leftNote?.language).toBe('plaintext');
+    expect(useSplitEditorStore.getState().rightNote?.language).toBe('markdown');
+    expect(useSplitEditorStore.getState().leftNote?.language).toBe('plaintext');
 
     await act(async () => {
       vi.advanceTimersByTime(3000);
@@ -185,9 +170,6 @@ describe('useSplitEditor', () => {
   });
 
   it('同期で左右の表示ノートが消えた場合、未オープンの上位ノートへ自動差し替えされること', () => {
-    const setCurrentNote = vi.fn();
-    const setCurrentFileNote = vi.fn();
-    const setNotes = vi.fn();
     const replacementLeft: Note = {
       ...leftNote,
       id: 'replacement-left',
@@ -201,22 +183,11 @@ describe('useSplitEditor', () => {
       modifiedTime: '2026-01-02T00:00:00.000Z',
     };
 
-    const { result } = renderHook(() =>
-      useSplitEditor({
-        currentNote: leftNote,
-        currentFileNote: null,
-        setCurrentNote,
-        setCurrentFileNote,
-        setNotes,
-      }),
-    );
+    const { result } = renderHook(() => useSplitEditor());
 
     act(() => {
       result.current.toggleSplit(rightNote);
     });
-
-    (setCurrentNote as Mock).mockClear();
-    (setCurrentFileNote as Mock).mockClear();
 
     act(() => {
       result.current.syncPaneNotes(
@@ -228,11 +199,16 @@ describe('useSplitEditor', () => {
       );
     });
 
-    expect(result.current.leftNote?.id).toBe(replacementLeft.id);
-    expect(result.current.rightNote?.id).toBe(replacementRight.id);
-    expect(setCurrentNote).toHaveBeenCalledWith(
-      expect.objectContaining({ id: replacementLeft.id }),
+    expect(useSplitEditorStore.getState().leftNote?.id).toBe(
+      replacementLeft.id,
     );
-    expect(setCurrentFileNote).toHaveBeenCalledWith(null);
+    expect(useSplitEditorStore.getState().rightNote?.id).toBe(
+      replacementRight.id,
+    );
+    // フォーカスペイン（既定は左）が置換後ノートに更新されていること
+    expect(useCurrentNoteStore.getState().currentNote?.id).toBe(
+      replacementLeft.id,
+    );
+    expect(useCurrentNoteStore.getState().currentFileNote).toBeNull();
   });
 });

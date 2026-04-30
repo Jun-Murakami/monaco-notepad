@@ -26,16 +26,18 @@ import {
   UpdateTopLevelOrder,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
+import { useCurrentNoteStore } from '../../stores/useCurrentNoteStore';
+import { useNotesStore } from '../../stores/useNotesStore';
 import { useNotes } from '../useNotes';
 
 import type { Note } from '../../types';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({
-  SaveNote: vi.fn(),
+  SaveNote: vi.fn().mockResolvedValue(undefined),
   ListNotes: vi.fn(),
   LoadArchivedNote: vi.fn(),
-  DeleteNote: vi.fn(),
+  DeleteNote: vi.fn().mockResolvedValue(undefined),
   DestroyApp: vi.fn(),
   ListFolders: vi.fn().mockResolvedValue([]),
   GetTopLevelOrder: vi.fn().mockResolvedValue([]),
@@ -49,9 +51,9 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
   DeleteArchivedFolder: vi.fn().mockResolvedValue(undefined),
   CreateFolder: vi.fn(),
   RenameFolder: vi.fn(),
-  DeleteFolder: vi.fn(),
-  MoveNoteToFolder: vi.fn(),
-  SetLastActiveNote: vi.fn(),
+  DeleteFolder: vi.fn().mockResolvedValue(undefined),
+  MoveNoteToFolder: vi.fn().mockResolvedValue(undefined),
+  SetLastActiveNote: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../../wailsjs/runtime', () => ({
@@ -107,9 +109,9 @@ describe('useNotes', () => {
         await Promise.resolve();
       });
 
-      expect(result.current.notes).toEqual([]);
-      expect(result.current.currentNote).toBeNull();
-      expect(result.current.showArchived).toBeFalsy();
+      expect(useNotesStore.getState().notes).toEqual([]);
+      expect(useCurrentNoteStore.getState().currentNote).toBeNull();
+      expect(useNotesStore.getState().showArchived).toBeFalsy();
     });
 
     it('新規ノートが正しく作成されること', async () => {
@@ -120,10 +122,12 @@ describe('useNotes', () => {
       });
 
       expect(SaveNote).toHaveBeenCalled();
-      expect(result.current.notes.length).toBe(1);
-      expect(result.current.currentNote).toBeTruthy();
-      expect(result.current.currentNote?.title).toBe('');
-      expect(result.current.currentNote?.language).toBe('plaintext');
+      expect(useNotesStore.getState().notes.length).toBe(1);
+      expect(useCurrentNoteStore.getState().currentNote).toBeTruthy();
+      expect(useCurrentNoteStore.getState().currentNote?.title).toBe('');
+      expect(useCurrentNoteStore.getState().currentNote?.language).toBe(
+        'plaintext',
+      );
     });
 
     it('ノートの選択が正しく機能すること', async () => {
@@ -133,7 +137,7 @@ describe('useNotes', () => {
         await result.current.handleSelectNote(mockNote);
       });
 
-      expect(result.current.currentNote).toEqual(mockNote);
+      expect(useCurrentNoteStore.getState().currentNote).toEqual(mockNote);
     });
   });
 
@@ -149,7 +153,9 @@ describe('useNotes', () => {
         result.current.handleNoteContentChange('Updated Content');
       });
 
-      expect(result.current.currentNote?.content).toBe(mockNote.content);
+      expect(useCurrentNoteStore.getState().currentNote?.content).toBe(
+        mockNote.content,
+      );
 
       await act(async () => {
         vi.advanceTimersByTime(3000);
@@ -209,7 +215,7 @@ describe('useNotes', () => {
         vi.advanceTimersByTime(3000);
       });
 
-      expect(result.current.currentNote?.title).toBe(newTitle);
+      expect(useCurrentNoteStore.getState().currentNote?.title).toBe(newTitle);
       expect(SaveNote).toHaveBeenCalledWith(
         expect.objectContaining({
           title: newTitle,
@@ -232,7 +238,9 @@ describe('useNotes', () => {
         vi.advanceTimersByTime(3000);
       });
 
-      expect(result.current.currentNote?.language).toBe(newLanguage);
+      expect(useCurrentNoteStore.getState().currentNote?.language).toBe(
+        newLanguage,
+      );
       expect(SaveNote).toHaveBeenCalledWith(
         expect.objectContaining({
           language: newLanguage,
@@ -259,7 +267,9 @@ describe('useNotes', () => {
         vi.advanceTimersByTime(3000);
       });
 
-      expect(result.current.currentNote?.content).toBe(mockNote.content);
+      expect(useCurrentNoteStore.getState().currentNote?.content).toBe(
+        mockNote.content,
+      );
       expect(SaveNote).toHaveBeenCalledWith(
         expect.objectContaining({
           content: updatedContent,
@@ -281,9 +291,11 @@ describe('useNotes', () => {
 
       // ノートリストの状態を設定
       await act(async () => {
-        result.current.setNotes([mockNote]);
-        result.current.setTopLevelOrder([{ type: 'note', id: mockNote.id }]);
-        result.current.setArchivedTopLevelOrder([]);
+        useNotesStore.getState().setNotes([mockNote]);
+        useNotesStore
+          .getState()
+          .setTopLevelOrder([{ type: 'note', id: mockNote.id }]);
+        useNotesStore.getState().setArchivedTopLevelOrder([]);
       });
 
       await act(async () => {
@@ -317,9 +329,11 @@ describe('useNotes', () => {
 
       // ノートリストの状態を設定
       await act(async () => {
-        result.current.setNotes([mockArchivedNote]);
-        result.current.setTopLevelOrder([{ type: 'note', id: 'active-note' }]);
-        result.current.setArchivedTopLevelOrder([
+        useNotesStore.getState().setNotes([mockArchivedNote]);
+        useNotesStore
+          .getState()
+          .setTopLevelOrder([{ type: 'note', id: 'active-note' }]);
+        useNotesStore.getState().setArchivedTopLevelOrder([
           { type: 'note', id: mockArchivedNote.id },
           { type: 'note', id: 'other-archived' },
         ]);
@@ -359,7 +373,7 @@ describe('useNotes', () => {
         (ListNotes as unknown as Mock).mockResolvedValue([
           noteWithMultilineContent,
         ]);
-        result.current.setNotes([noteWithMultilineContent]);
+        useNotesStore.getState().setNotes([noteWithMultilineContent]);
       });
 
       await act(async () => {
@@ -384,8 +398,8 @@ describe('useNotes', () => {
           activeNote1,
           activeNote2,
         ]);
-        result.current.setNotes([activeNote1, activeNote2]);
-        result.current.setTopLevelOrder([
+        useNotesStore.getState().setNotes([activeNote1, activeNote2]);
+        useNotesStore.getState().setTopLevelOrder([
           { type: 'note', id: '1' },
           { type: 'note', id: '2' },
         ]);
@@ -396,7 +410,9 @@ describe('useNotes', () => {
         await result.current.handleArchiveNote(activeNote1.id);
       });
 
-      expect(result.current.currentNote?.id).toBe(activeNote2.id);
+      expect(useCurrentNoteStore.getState().currentNote?.id).toBe(
+        activeNote2.id,
+      );
     });
   });
 
@@ -438,7 +454,7 @@ describe('useNotes', () => {
       };
 
       await act(async () => {
-        result.current.setNotes([current, replacement]);
+        useNotesStore.getState().setNotes([current, replacement]);
         await result.current.handleSelectNote(current);
       });
 
@@ -458,7 +474,9 @@ describe('useNotes', () => {
         await reloadCallback();
       });
 
-      expect(result.current.currentNote?.id).toBe(replacement.id);
+      expect(useCurrentNoteStore.getState().currentNote?.id).toBe(
+        replacement.id,
+      );
     });
 
     it('notes:reloadで現在ノートがアーカイブされた場合、トップのアクティブノートへ自動切り替えされること', async () => {
@@ -471,7 +489,7 @@ describe('useNotes', () => {
       };
 
       await act(async () => {
-        result.current.setNotes([current, replacement]);
+        useNotesStore.getState().setNotes([current, replacement]);
         await result.current.handleSelectNote(current);
       });
 
@@ -495,7 +513,9 @@ describe('useNotes', () => {
         await reloadCallback();
       });
 
-      expect(result.current.currentNote?.id).toBe(replacement.id);
+      expect(useCurrentNoteStore.getState().currentNote?.id).toBe(
+        replacement.id,
+      );
     });
 
     it('notes:updatedイベントで正しく個別のノートが更新されること', async () => {
@@ -549,9 +569,9 @@ describe('useNotes', () => {
 
       await act(async () => {
         // アーカイブページを表示
-        result.current.setShowArchived(true);
+        useNotesStore.getState().setShowArchived(true);
         // ノートリストの状態を設定
-        result.current.setNotes([mockArchivedNote]);
+        useNotesStore.getState().setNotes([mockArchivedNote]);
       });
 
       await act(async () => {
@@ -567,7 +587,7 @@ describe('useNotes', () => {
         }),
         'create',
       );
-      expect(result.current.showArchived).toBeFalsy();
+      expect(useNotesStore.getState().showArchived).toBeFalsy();
     });
   });
 
@@ -579,7 +599,7 @@ describe('useNotes', () => {
       // 空のノートリストを設定
       await act(async () => {
         (ListNotes as unknown as Mock).mockResolvedValue([]);
-        result.current.setNotes([]);
+        useNotesStore.getState().setNotes([]);
       });
 
       await act(async () => {
@@ -590,7 +610,7 @@ describe('useNotes', () => {
 
       expect(SaveNote).not.toHaveBeenCalled();
       // DeleteNoteは呼ばれるが、状態は変更されない
-      expect(result.current.notes).toEqual([]);
+      expect(useNotesStore.getState().notes).toEqual([]);
     });
 
     it('アーカイブノートのロードに失敗した場合、状態は変更されないこと', async () => {
@@ -599,7 +619,7 @@ describe('useNotes', () => {
       // アーカイブノートの初期状態を設定
       await act(async () => {
         (ListNotes as unknown as Mock).mockResolvedValue([mockArchivedNote]);
-        result.current.setNotes([mockArchivedNote]);
+        useNotesStore.getState().setNotes([mockArchivedNote]);
       });
 
       // LoadArchivedNoteをエラーを投げるようにモック
@@ -617,7 +637,7 @@ describe('useNotes', () => {
       });
 
       // 状態が変更されていないことを確認
-      expect(result.current.notes[0].archived).toBe(true);
+      expect(useNotesStore.getState().notes[0].archived).toBe(true);
       expect(SaveNote).not.toHaveBeenCalled();
     });
   });
@@ -635,7 +655,7 @@ describe('useNotes', () => {
       };
 
       await act(async () => {
-        result.current.setNotes([oldNote]);
+        useNotesStore.getState().setNotes([oldNote]);
         await result.current.handleSelectNote(oldNote);
       });
 
@@ -666,7 +686,7 @@ describe('useNotes', () => {
       const noteWithContent = { ...mockNote, content: mockNote.content || '' };
 
       await act(async () => {
-        result.current.setNotes([noteWithContent]);
+        useNotesStore.getState().setNotes([noteWithContent]);
         await result.current.handleSelectNote(noteWithContent);
       });
 
@@ -689,7 +709,7 @@ describe('useNotes', () => {
       const { result } = renderHook(() => useNotes());
 
       await act(async () => {
-        result.current.setNotes([mockNote]);
+        useNotesStore.getState().setNotes([mockNote]);
         await result.current.handleSelectNote(mockNote);
         result.current.handleNoteContentChange('Updated content before close');
       });
@@ -720,7 +740,7 @@ describe('useNotes', () => {
       const { result } = renderHook(() => useNotes());
 
       await act(async () => {
-        result.current.setNotes([mockNote]);
+        useNotesStore.getState().setNotes([mockNote]);
         await result.current.handleSelectNote(mockNote);
       });
 
@@ -750,8 +770,10 @@ describe('useNotes', () => {
       const activeNote = { ...mockNote, id: '3', archived: false };
 
       await act(async () => {
-        result.current.setNotes([archivedNote1, archivedNote2, activeNote]);
-        result.current.setShowArchived(true);
+        useNotesStore
+          .getState()
+          .setNotes([archivedNote1, archivedNote2, activeNote]);
+        useNotesStore.getState().setShowArchived(true);
       });
 
       await act(async () => {
@@ -760,8 +782,8 @@ describe('useNotes', () => {
 
       expect(DeleteNote).toHaveBeenCalledWith(archivedNote1.id);
       expect(DeleteNote).toHaveBeenCalledWith(archivedNote2.id);
-      expect(result.current.notes).toEqual([activeNote]);
-      expect(result.current.showArchived).toBeFalsy();
+      expect(useNotesStore.getState().notes).toEqual([activeNote]);
+      expect(useNotesStore.getState().showArchived).toBeFalsy();
     });
 
     it('アーカイブノートをすべて削除後、アクティブなノートがない場合は新規ノートが作成されること', async () => {
@@ -769,8 +791,8 @@ describe('useNotes', () => {
       const archivedNote = { ...mockNote, archived: true };
 
       await act(async () => {
-        result.current.setNotes([archivedNote]);
-        result.current.setShowArchived(true);
+        useNotesStore.getState().setNotes([archivedNote]);
+        useNotesStore.getState().setShowArchived(true);
       });
 
       await act(async () => {
@@ -786,7 +808,7 @@ describe('useNotes', () => {
         }),
         'create',
       );
-      expect(result.current.showArchived).toBeFalsy();
+      expect(useNotesStore.getState().showArchived).toBeFalsy();
     });
   });
 
@@ -803,7 +825,7 @@ describe('useNotes', () => {
       });
 
       expect(CreateFolder).toHaveBeenCalledWith('Test Folder');
-      expect(result.current.folders).toEqual([mockFolder]);
+      expect(useNotesStore.getState().folders).toEqual([mockFolder]);
     });
 
     it('handleRenameFolderが正しくフォルダ名を変更すること', async () => {
@@ -822,7 +844,7 @@ describe('useNotes', () => {
       });
 
       expect(RenameFolder).toHaveBeenCalledWith('folder-1', 'Renamed');
-      expect(result.current.folders[0].name).toBe('Renamed');
+      expect(useNotesStore.getState().folders[0].name).toBe('Renamed');
     });
 
     it('handleDeleteFolderが正しくフォルダを削除すること', async () => {
@@ -841,7 +863,7 @@ describe('useNotes', () => {
       });
 
       expect(DeleteFolder).toHaveBeenCalledWith('folder-1');
-      expect(result.current.folders).toEqual([]);
+      expect(useNotesStore.getState().folders).toEqual([]);
     });
 
     it('handleMoveNoteToFolderが正しくノートをフォルダに移動すること', async () => {
@@ -850,7 +872,7 @@ describe('useNotes', () => {
       const { result } = renderHook(() => useNotes());
 
       await act(async () => {
-        result.current.setNotes([mockNote]);
+        useNotesStore.getState().setNotes([mockNote]);
       });
 
       await act(async () => {
@@ -858,7 +880,7 @@ describe('useNotes', () => {
       });
 
       expect(MoveNoteToFolder).toHaveBeenCalledWith(mockNote.id, 'folder-1');
-      expect(result.current.notes[0].folderId).toBe('folder-1');
+      expect(useNotesStore.getState().notes[0].folderId).toBe('folder-1');
     });
 
     it('handleMoveNoteToFolderで空文字を指定すると未分類に戻ること', async () => {
@@ -868,7 +890,7 @@ describe('useNotes', () => {
       const noteWithFolder = { ...mockNote, folderId: 'folder-1' };
 
       await act(async () => {
-        result.current.setNotes([noteWithFolder]);
+        useNotesStore.getState().setNotes([noteWithFolder]);
       });
 
       await act(async () => {
@@ -876,7 +898,7 @@ describe('useNotes', () => {
       });
 
       expect(MoveNoteToFolder).toHaveBeenCalledWith(mockNote.id, '');
-      expect(result.current.notes[0].folderId).toBeUndefined();
+      expect(useNotesStore.getState().notes[0].folderId).toBeUndefined();
     });
 
     it('toggleFolderCollapseがフォルダの折りたたみ状態を切り替えること', async () => {
@@ -890,7 +912,9 @@ describe('useNotes', () => {
         result.current.toggleFolderCollapse('folder-1');
       });
 
-      expect(result.current.collapsedFolders.has('folder-1')).toBe(true);
+      expect(useNotesStore.getState().collapsedFolders.has('folder-1')).toBe(
+        true,
+      );
       expect(UpdateCollapsedFolderIDs).toHaveBeenCalledWith(['folder-1']);
 
       act(() => {
@@ -905,7 +929,9 @@ describe('useNotes', () => {
         result.current.toggleFolderCollapse('folder-1');
       });
 
-      expect(result.current.collapsedFolders.has('folder-1')).toBe(false);
+      expect(useNotesStore.getState().collapsedFolders.has('folder-1')).toBe(
+        false,
+      );
       expect(UpdateCollapsedFolderIDs).toHaveBeenLastCalledWith(['folder-2']);
     });
 
@@ -921,9 +947,9 @@ describe('useNotes', () => {
       });
 
       expect(GetCollapsedFolderIDs).toHaveBeenCalled();
-      expect(result.current.collapsedFolders.has('folder-from-backend')).toBe(
-        true,
-      );
+      expect(
+        useNotesStore.getState().collapsedFolders.has('folder-from-backend'),
+      ).toBe(true);
     });
   });
 });

@@ -8,6 +8,9 @@ import {
   OpenFile,
   SaveFileNotes,
 } from '../../../wailsjs/go/backend/App';
+import { useCurrentNoteStore } from '../../stores/useCurrentNoteStore';
+import { useFileNotesStore } from '../../stores/useFileNotesStore';
+import { useNotesStore } from '../../stores/useNotesStore';
 import { useFileNotes } from '../useFileNotes';
 
 import type { MockInstance } from 'vitest';
@@ -15,7 +18,7 @@ import type { FileNote, Note } from '../../types';
 
 // モックの設定
 vi.mock('../../../wailsjs/go/backend/App', () => ({
-  SaveFileNotes: vi.fn(),
+  SaveFileNotes: vi.fn().mockResolvedValue(undefined),
   CheckFileModified: vi.fn(),
   OpenFile: vi.fn(),
   GetModifiedTime: vi.fn(),
@@ -75,7 +78,6 @@ describe('useFileNotes', () => {
   };
 
   const mockProps = {
-    notes: [mockNote],
     setCurrentNote: vi.fn(),
     handleNewNote: vi.fn(),
     handleSelectNote: vi.fn(),
@@ -91,6 +93,8 @@ describe('useFileNotes', () => {
     // デフォルトではファイルが存在するものとする
     mockCheckFileExists.mockResolvedValue(true);
     mockCheckFileModified.mockResolvedValue(false);
+    // notes は store 経由で読まれるので、デフォルトで [mockNote] を入れておく
+    useNotesStore.getState().setNotes([mockNote]);
   });
 
   afterEach(() => {
@@ -102,8 +106,8 @@ describe('useFileNotes', () => {
     it('初期状態が正しく設定されていること', () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
 
-      expect(result.current.fileNotes).toEqual([]);
-      expect(result.current.currentFileNote).toBeNull();
+      expect(useFileNotesStore.getState().fileNotes).toEqual([]);
+      expect(useCurrentNoteStore.getState().currentFileNote).toBeNull();
     });
 
     it('ファイルノートの選択が正しく機能すること', async () => {
@@ -119,7 +123,7 @@ describe('useFileNotes', () => {
         });
       });
 
-      expect(result.current.currentFileNote).toEqual({
+      expect(useCurrentNoteStore.getState().currentFileNote).toEqual({
         ...mockFileNote,
         filePath: '/path/to/file.txt',
         originalContent: 'File Content',
@@ -139,7 +143,9 @@ describe('useFileNotes', () => {
         result.current.handleFileNoteContentChange(newContent);
       });
 
-      expect(result.current.currentFileNote?.content).toBe(newContent);
+      expect(useCurrentNoteStore.getState().currentFileNote?.content).toBe(
+        newContent,
+      );
     });
 
     it('ファイルノートが自動保存されること', async () => {
@@ -152,7 +158,9 @@ describe('useFileNotes', () => {
 
       act(() => {
         result.current.handleFileNoteContentChange(newContent);
-        result.current.setFileNotes([{ ...mockFileNote, content: newContent }]);
+        useFileNotesStore
+          .getState()
+          .setFileNotes([{ ...mockFileNote, content: newContent }]);
       });
 
       await act(async () => {
@@ -178,7 +186,7 @@ describe('useFileNotes', () => {
       // ファイルノートを選択
       await act(async () => {
         await result.current.handleSelectFileNote(mockFileNote);
-        result.current.setFileNotes([mockFileNote]);
+        useFileNotesStore.getState().setFileNotes([mockFileNote]);
       });
 
       // 変更検知の設定
@@ -200,7 +208,7 @@ describe('useFileNotes', () => {
       );
       expect(mockProps.showMessage).toHaveBeenCalled();
       expect(mockOpenFile).not.toHaveBeenCalled();
-      expect(result.current.currentFileNote?.content).toBe(
+      expect(useCurrentNoteStore.getState().currentFileNote?.content).toBe(
         mockFileNote.content,
       );
     });
@@ -234,7 +242,9 @@ describe('useFileNotes', () => {
       );
       expect(mockProps.showMessage).toHaveBeenCalled();
       expect(mockOpenFile).toHaveBeenCalledWith(mockFileNote.filePath);
-      expect(result.current.currentFileNote?.content).toBe(updatedContent);
+      expect(useCurrentNoteStore.getState().currentFileNote?.content).toBe(
+        updatedContent,
+      );
     });
 
     it('リロードをキャンセルした場合、現在の内容が保持されること', async () => {
@@ -247,7 +257,7 @@ describe('useFileNotes', () => {
       // ファイルノートを選択
       await act(async () => {
         await result.current.handleSelectFileNote(mockFileNote);
-        result.current.setFileNotes([mockFileNote]);
+        useFileNotesStore.getState().setFileNotes([mockFileNote]);
       });
 
       // 変更検知の設定
@@ -269,7 +279,7 @@ describe('useFileNotes', () => {
       );
       expect(mockProps.showMessage).toHaveBeenCalled();
       expect(mockOpenFile).not.toHaveBeenCalled();
-      expect(result.current.currentFileNote?.content).toBe(
+      expect(useCurrentNoteStore.getState().currentFileNote?.content).toBe(
         mockFileNote.content,
       );
     });
@@ -290,8 +300,8 @@ describe('useFileNotes', () => {
       });
 
       expect(mockProps.showMessage).not.toHaveBeenCalled();
-      expect(result.current.fileNotes).toEqual([]);
-      expect(result.current.currentFileNote).toBeNull();
+      expect(useFileNotesStore.getState().fileNotes).toEqual([]);
+      expect(useCurrentNoteStore.getState().currentFileNote).toBeNull();
     });
 
     it('変更がある場合、確認ダイアログを表示すること', async () => {
@@ -324,11 +334,9 @@ describe('useFileNotes', () => {
     });
 
     it('最後のファイルを閉じ、通常のノートがない場合、新規ノートが作成されること', async () => {
-      const propsWithoutNotes = {
-        ...mockProps,
-        notes: [],
-      };
-      const { result } = renderHook(() => useFileNotes(propsWithoutNotes));
+      // notes が空のときの挙動を検証
+      useNotesStore.getState().setNotes([]);
+      const { result } = renderHook(() => useFileNotes(mockProps));
 
       await act(async () => {
         await result.current.handleSelectFileNote(mockFileNote);
@@ -354,7 +362,9 @@ describe('useFileNotes', () => {
 
       act(() => {
         result.current.handleFileNoteContentChange(newContent);
-        result.current.setFileNotes([{ ...mockFileNote, content: newContent }]);
+        useFileNotesStore
+          .getState()
+          .setFileNotes([{ ...mockFileNote, content: newContent }]);
       });
 
       await act(async () => {
@@ -362,7 +372,9 @@ describe('useFileNotes', () => {
         await vi.runAllTimersAsync();
       });
 
-      expect(result.current.currentFileNote?.content).toBe(newContent);
+      expect(useCurrentNoteStore.getState().currentFileNote?.content).toBe(
+        newContent,
+      );
     });
 
     it('ファイルの変更チェックに失敗した場合、エラーを適切に処理すること', async () => {
@@ -391,7 +403,7 @@ describe('useFileNotes', () => {
         'Failed to check file modification:',
         error,
       );
-      expect(result.current.currentFileNote).toBeTruthy();
+      expect(useCurrentNoteStore.getState().currentFileNote).toBeTruthy();
 
       consoleSpy.mockRestore();
     });
@@ -412,7 +424,9 @@ describe('useFileNotes', () => {
       });
 
       await act(async () => {
-        result.current.setFileNotes([mockFileNote, anotherFileNote]);
+        useFileNotesStore
+          .getState()
+          .setFileNotes([mockFileNote, anotherFileNote]);
       });
 
       await act(async () => {
@@ -476,7 +490,9 @@ describe('useFileNotes', () => {
 
       // 3つのファイルノートをセット
       await act(async () => {
-        result.current.setFileNotes([fileNoteA, fileNoteB, fileNoteC]);
+        useFileNotesStore
+          .getState()
+          .setFileNotes([fileNoteA, fileNoteB, fileNoteC]);
       });
 
       // fileNoteBが見つからない → 「破棄」を選択
@@ -488,8 +504,11 @@ describe('useFileNotes', () => {
       });
 
       // fileNoteBだけが削除され、A・Cが残る
-      expect(result.current.fileNotes).toHaveLength(2);
-      expect(result.current.fileNotes.map((f) => f.id)).toEqual(['a', 'c']);
+      expect(useFileNotesStore.getState().fileNotes).toHaveLength(2);
+      expect(useFileNotesStore.getState().fileNotes.map((f) => f.id)).toEqual([
+        'a',
+        'c',
+      ]);
 
       // SaveFileNotesにも2件が渡される
       expect(mockSaveFileNotes).toHaveBeenCalledWith(
@@ -506,7 +525,7 @@ describe('useFileNotes', () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
 
       await act(async () => {
-        result.current.setFileNotes([fileNoteA, fileNoteB]);
+        useFileNotesStore.getState().setFileNotes([fileNoteA, fileNoteB]);
       });
 
       mockCheckFileExists.mockResolvedValue(false);
@@ -516,14 +535,14 @@ describe('useFileNotes', () => {
         await result.current.handleSelectFileNote(fileNoteA);
       });
 
-      expect(result.current.currentFileNote?.id).toBe('b');
+      expect(useCurrentNoteStore.getState().currentFileNote?.id).toBe('b');
     });
 
     it('「破棄」で全ファイルがなくなった場合、通常ノートに切り替わること', async () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
 
       await act(async () => {
-        result.current.setFileNotes([fileNoteA]);
+        useFileNotesStore.getState().setFileNotes([fileNoteA]);
       });
 
       mockCheckFileExists.mockResolvedValue(false);
@@ -533,8 +552,8 @@ describe('useFileNotes', () => {
         await result.current.handleSelectFileNote(fileNoteA);
       });
 
-      expect(result.current.fileNotes).toHaveLength(0);
-      expect(result.current.currentFileNote).toBeNull();
+      expect(useFileNotesStore.getState().fileNotes).toHaveLength(0);
+      expect(useCurrentNoteStore.getState().currentFileNote).toBeNull();
       expect(mockProps.handleSelectNote).toHaveBeenCalledWith(mockNote);
     });
 
@@ -542,7 +561,9 @@ describe('useFileNotes', () => {
       const { result } = renderHook(() => useFileNotes(mockProps));
 
       await act(async () => {
-        result.current.setFileNotes([fileNoteA, fileNoteB, fileNoteC]);
+        useFileNotesStore
+          .getState()
+          .setFileNotes([fileNoteA, fileNoteB, fileNoteC]);
       });
 
       // fileNoteBが見つからない → 「保持」を選択
@@ -554,10 +575,12 @@ describe('useFileNotes', () => {
       });
 
       // 3件すべてが残っている
-      expect(result.current.fileNotes).toHaveLength(3);
+      expect(useFileNotesStore.getState().fileNotes).toHaveLength(3);
 
       // 保持されたファイルのfilePathが空になる
-      const kept = result.current.fileNotes.find((f) => f.id === 'b');
+      const kept = useFileNotesStore
+        .getState()
+        .fileNotes.find((f) => f.id === 'b');
       expect(kept?.filePath).toBe('');
       expect(kept?.originalContent).toBe('');
 
@@ -584,8 +607,8 @@ describe('useFileNotes', () => {
         await result.current.handleSelectFileNote(regularNote);
       });
 
-      expect(result.current.currentFileNote).toBeNull();
-      expect(result.current.fileNotes).toEqual([]);
+      expect(useCurrentNoteStore.getState().currentFileNote).toBeNull();
+      expect(useFileNotesStore.getState().fileNotes).toEqual([]);
     });
 
     it('存在しないファイルIDの変更状態をチェックした場合、falseを返すこと', () => {
@@ -604,15 +627,19 @@ describe('useFileNotes', () => {
 
       await act(async () => {
         await result.current.handleSelectFileNote(modifiedFileNote);
-        result.current.setFileNotes([modifiedFileNote]);
+        useFileNotesStore.getState().setFileNotes([modifiedFileNote]);
       });
 
       await act(async () => {
         await result.current.handleCloseFile(modifiedFileNote);
       });
 
-      expect(result.current.currentFileNote).toEqual(modifiedFileNote);
-      expect(result.current.fileNotes).toEqual([modifiedFileNote]);
+      expect(useCurrentNoteStore.getState().currentFileNote).toEqual(
+        modifiedFileNote,
+      );
+      expect(useFileNotesStore.getState().fileNotes).toEqual([
+        modifiedFileNote,
+      ]);
     });
   });
 });

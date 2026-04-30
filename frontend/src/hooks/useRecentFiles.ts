@@ -6,13 +6,11 @@ import {
   SaveRecentFiles,
 } from '../../wailsjs/go/backend/App';
 import i18n from '../i18n';
-
-import type { FileNote } from '../types';
+import { useFileNotesStore } from '../stores/useFileNotesStore';
 
 const MAX_RECENT_FILES = 20;
 
 interface UseRecentFilesProps {
-  fileNotes: FileNote[];
   handleOpenFileByPath: (filePath: string) => Promise<void>;
   showMessage: (
     title: string,
@@ -23,8 +21,11 @@ interface UseRecentFilesProps {
   ) => Promise<boolean>;
 }
 
+// fileNotes は購読せず、フィルタ計算時にストアから getState() で取得する。
+// これにより useRecentFiles を呼び出す App.tsx は fileNotes 変化で再レンダーしない。
+// （recentFiles の追加/削除タイミングと fileNotes の追加/削除タイミングはほぼ一致するため、
+//  filter のステイルは実用上問題にならない）
 export const useRecentFiles = ({
-  fileNotes,
   handleOpenFileByPath,
   showMessage,
 }: UseRecentFilesProps) => {
@@ -90,8 +91,9 @@ export const useRecentFiles = ({
   );
 
   // 現在開いているファイルを除外したリスト
+  const fileNotesNow = useFileNotesStore.getState().fileNotes;
   const availableRecentFiles = recentFiles.filter(
-    (path) => !fileNotes.some((f) => f.filePath === path),
+    (path) => !fileNotesNow.some((f) => f.filePath === path),
   );
 
   return {

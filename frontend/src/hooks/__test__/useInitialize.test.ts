@@ -10,6 +10,7 @@ import {
   NotifyFrontendReady,
 } from '../../../wailsjs/go/backend/App';
 import * as runtime from '../../../wailsjs/runtime';
+import { useFileNotesStore } from '../../stores/useFileNotesStore';
 import { useInitialize } from '../useInitialize';
 
 import type { FileNote, Note } from '../../types';
@@ -94,6 +95,8 @@ describe('useInitialize', () => {
   // モック関数の準備
   const mockSetNotes = vi.fn();
   const mockSetFileNotes = vi.fn();
+  // 素の setFileNotes をキャプチャ（beforeEach で都度ラップして無限ラッピングを防ぐ）
+  const originalSetFileNotes = useFileNotesStore.getState().setFileNotes;
   const mockSetFolders = vi.fn();
   const mockSetTopLevelOrder = vi.fn();
   const mockSetArchivedTopLevelOrder = vi.fn();
@@ -124,6 +127,14 @@ describe('useInitialize', () => {
     (runtime.EventsOn as unknown as MockFunction).mockImplementation(
       (_event: string, _callback: () => void) => () => {},
     );
+    // useInitialize は内部で useFileNotesStore.setFileNotes を呼ぶ。
+    // mockSetFileNotes でも呼び出しを記録するためラップを差し込む。
+    useFileNotesStore.setState({
+      setFileNotes: ((updater) => {
+        mockSetFileNotes(updater);
+        originalSetFileNotes(updater);
+      }) as typeof originalSetFileNotes,
+    });
   });
 
   afterEach(() => {
@@ -135,7 +146,6 @@ describe('useInitialize', () => {
     const rendered = renderHook(() =>
       useInitialize(
         mockSetNotes,
-        mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
         mockSetArchivedTopLevelOrder,
@@ -183,7 +193,6 @@ describe('useInitialize', () => {
     const _hook = renderHook(() =>
       useInitialize(
         mockSetNotes,
-        mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
         mockSetArchivedTopLevelOrder,
@@ -210,7 +219,6 @@ describe('useInitialize', () => {
     const _hook = renderHook(() =>
       useInitialize(
         mockSetNotes,
-        mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
         mockSetArchivedTopLevelOrder,
@@ -241,7 +249,6 @@ describe('useInitialize', () => {
     const _hook = renderHook(() =>
       useInitialize(
         mockSetNotes,
-        mockSetFileNotes,
         mockSetFolders,
         mockSetTopLevelOrder,
         mockSetArchivedTopLevelOrder,

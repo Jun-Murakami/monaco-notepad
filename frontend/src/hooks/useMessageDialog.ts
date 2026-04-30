@@ -1,69 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { showMessage } from '../stores/useMessageDialogStore';
 
-import * as wailsRuntime from '../../wailsjs/runtime';
-import i18n from '../i18n';
-
+// 旧 useMessageDialog API の互換シム。
+// 実体は useMessageDialogStore (Zustand) に移っているので、ここでは hook が
+// 「showMessage を返す」だけのラッパに縮退している。
+// hook 内で useState を持たないため、呼び出し元コンポーネントは
+// メッセージダイアログ表示で再レンダーされなくなる（ダイアログ自身だけが再描画）。
+//
+// 既存の `useFileNotes({ showMessage })` のような prop 渡しの形は維持する。
+// 段階的移行用：将来的には呼び出し元から `import { showMessage } from '...'`
+// 直接呼べるので、props 渡しは順次撤去可能。
 export const useMessageDialog = () => {
-  const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
-  const [messageTitle, setMessageTitle] = useState('');
-  const [messageContent, setMessageContent] = useState('');
-  const [isTwoButton, setIsTwoButton] = useState(false);
-  const [primaryButtonText, setPrimaryButtonText] = useState(() =>
-    i18n.t('dialog.ok'),
-  );
-  const [secondaryButtonText, setSecondaryButtonText] = useState(() =>
-    i18n.t('dialog.cancel'),
-  );
-  const [onResult, setOnResult] = useState<
-    ((result: boolean) => Promise<void>) | null
-  >(null);
-
-  const showMessage = useCallback(
-    (
-      title: string,
-      message: string,
-      isTwoButton?: boolean,
-      primaryButtonText?: string,
-      secondaryButtonText?: string,
-    ): Promise<boolean> => {
-      return new Promise((resolve) => {
-        setIsMessageDialogOpen(true);
-        setMessageTitle(title);
-        setMessageContent(message);
-        setIsTwoButton(isTwoButton || false);
-        setPrimaryButtonText(primaryButtonText || i18n.t('dialog.ok'));
-        setSecondaryButtonText(secondaryButtonText || i18n.t('dialog.cancel'));
-        setOnResult(() => async (result: boolean) => {
-          setIsMessageDialogOpen(false);
-          resolve(result);
-        });
-      });
-    },
-    [],
-  );
-
-  useEffect(() => {
-    wailsRuntime.EventsOn(
-      'show-message',
-      (title: string, message: string, isTwoButton: boolean) => {
-        showMessage(title, message, isTwoButton);
-      },
-    );
-
-    return () => {
-      wailsRuntime.EventsOff('show-message');
-    };
-  }, [showMessage]);
-
-  return {
-    isMessageDialogOpen,
-    messageTitle,
-    messageContent,
-    isTwoButton,
-    primaryButtonText,
-    secondaryButtonText,
-    showMessage,
-    onResult,
-    setOnResult,
-  };
+  return { showMessage };
 };
