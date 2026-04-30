@@ -69,7 +69,11 @@
       "Bash(python -c \"import json,sys; pkg=json.load\\(sys.stdin\\); print\\(json.dumps\\(pkg.get\\('exports', {}\\), indent=2\\)\\)\")",
       "Bash(gh api *)",
       "Bash(echo \"exit=$?\")",
-      "Bash(echo \"tsc-exit=$?\")"
+      "Bash(echo \"tsc-exit=$?\")",
+      "WebFetch(domain:support.google.com)",
+      "WebFetch(domain:appscreenmagic.com)",
+      "WebFetch(domain:framd.app)",
+      "WebFetch(domain:www.apptamin.com)"
     ]
   }
 }
