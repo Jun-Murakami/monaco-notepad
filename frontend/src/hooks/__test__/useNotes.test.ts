@@ -103,7 +103,7 @@ describe('useNotes', () => {
 
   describe('基本機能', () => {
     it('初期状態が正しく設定されていること', async () => {
-      const { result } = renderHook(() => useNotes());
+      renderHook(() => useNotes());
 
       await act(async () => {
         await Promise.resolve();
@@ -978,7 +978,7 @@ describe('useNotes', () => {
         'folder-from-backend',
       ]);
 
-      const { result } = renderHook(() => useNotes());
+      renderHook(() => useNotes());
 
       await act(async () => {
         await Promise.resolve();

@@ -28,10 +28,7 @@ describe('formatNoteDate', () => {
   });
 
   it('不正なロケール文字列でもクラッシュせず文字列を返す', () => {
-    const out = formatNoteDate(
-      '2026-05-01T12:34:56Z',
-      '!!!invalid-locale!!!',
-    );
+    const out = formatNoteDate('2026-05-01T12:34:56Z', '!!!invalid-locale!!!');
     expect(typeof out).toBe('string');
     expect(out.length).toBeGreaterThan(0);
   });

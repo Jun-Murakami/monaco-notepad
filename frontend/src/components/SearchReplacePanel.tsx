@@ -8,8 +8,8 @@ import {
   Search,
 } from '@mui/icons-material';
 import {
-  alpha,
   Autocomplete,
+  alpha,
   Box,
   Button,
   FormControl,
@@ -131,7 +131,14 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
         onClear();
       }
     },
-    [onFindNext, onFindPrevious, onClear, query, patternError, addSearchHistory],
+    [
+      onFindNext,
+      onFindPrevious,
+      onClear,
+      query,
+      patternError,
+      addSearchHistory,
+    ],
   );
 
   const totalAllMatches = crossNoteResults.reduce(
@@ -325,9 +332,10 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           )}
           renderOption={(props, option) => {
             // React 19+: key は spread から外して明示的に渡す必要がある
-            const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & {
-              key?: React.Key;
-            };
+            const { key, ...rest } =
+              props as React.HTMLAttributes<HTMLLIElement> & {
+                key?: React.Key;
+              };
             // ListItemButton はコンテキスト要件なしで hover / focus / selected の
             // 背景色やカーソルがテーマから自動適用される (MenuItem は MenuList 内必須)。
             // Autocomplete が要求する `<li role="option">` のセマンティクスを保つため

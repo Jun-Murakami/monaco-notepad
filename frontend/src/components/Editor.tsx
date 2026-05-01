@@ -22,8 +22,6 @@ interface EditorProps {
   onChange?: (value: string) => void;
   platform: string;
   currentNote: Note | FileNote | null;
-  searchKeyword?: string;
-  searchMatchIndexInNote?: number;
   onFocus?: () => void;
   onNew?: () => void;
   onOpen?: () => void;
@@ -44,8 +42,6 @@ export const Editor: React.FC<EditorProps> = ({
   onChange,
   platform,
   currentNote,
-  searchKeyword,
-  searchMatchIndexInNote = 0,
   onFocus,
   onNew,
   onOpen,

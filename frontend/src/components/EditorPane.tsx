@@ -24,8 +24,6 @@ interface EditorPaneProps {
   onLanguageChange: (language: string) => void;
   // Editor
   onChange: (value: string) => void;
-  searchKeyword?: string;
-  searchMatchIndexInNote?: number;
   onFocus: () => void;
   onNew: () => void;
   onOpen: () => void;
@@ -54,8 +52,6 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   onTitleChange,
   onLanguageChange,
   onChange,
-  searchKeyword,
-  searchMatchIndexInNote,
   onFocus,
   onNew,
   onOpen,
@@ -118,8 +114,6 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
           onChange={onChange}
           platform={platform}
           currentNote={note || fileNote}
-          searchKeyword={searchKeyword}
-          searchMatchIndexInNote={searchMatchIndexInNote}
           onFocus={onFocus}
           onNew={onNew}
           onOpen={onOpen}

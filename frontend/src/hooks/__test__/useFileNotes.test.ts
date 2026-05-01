@@ -104,7 +104,7 @@ describe('useFileNotes', () => {
 
   describe('基本機能', () => {
     it('初期状態が正しく設定されていること', () => {
-      const { result } = renderHook(() => useFileNotes(mockProps));
+      renderHook(() => useFileNotes(mockProps));
 
       expect(useFileNotesStore.getState().fileNotes).toEqual([]);
       expect(useCurrentNoteStore.getState().currentFileNote).toBeNull();

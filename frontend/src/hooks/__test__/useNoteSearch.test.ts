@@ -21,7 +21,11 @@ const mkNote = (id: string, title: string, content: string): Note => ({
   archived: false,
 });
 
-const mkFileNote = (id: string, fileName: string, content: string): FileNote => ({
+const mkFileNote = (
+  id: string,
+  fileName: string,
+  content: string,
+): FileNote => ({
   id,
   fileName,
   filePath: `/tmp/${fileName}`,
@@ -104,13 +108,11 @@ describe('useNoteSearch', () => {
     });
 
     it('archived ノートはフィルタ結果に含めない', () => {
-      const archived: Note = { ...mkNote('a1', 'hello', 'hello'), archived: true };
-      setStores(
-        [archived, mkNote('n1', 'hello', 'hello')],
-        [],
-        'hello',
-        'all',
-      );
+      const archived: Note = {
+        ...mkNote('a1', 'hello', 'hello'),
+        archived: true,
+      };
+      setStores([archived, mkNote('n1', 'hello', 'hello')], [], 'hello', 'all');
       const { result } = renderHook(() => useNoteSearch());
       expect(result.current.filteredNotes.map((n) => n.id)).toEqual(['n1']);
     });

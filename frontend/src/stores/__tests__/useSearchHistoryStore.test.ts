@@ -35,11 +35,7 @@ describe('useSearchHistoryStore', () => {
       add('b');
       add('c');
       add('a'); // 既存の "a" を先頭に持ってくる
-      expect(useSearchHistoryStore.getState().history).toEqual([
-        'a',
-        'c',
-        'b',
-      ]);
+      expect(useSearchHistoryStore.getState().history).toEqual(['a', 'c', 'b']);
     });
 
     it('前後の空白は trim され、空文字 / 空白のみは無視される', () => {

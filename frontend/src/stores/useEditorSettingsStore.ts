@@ -5,11 +5,39 @@ import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '../types';
 
 import type { editor } from 'monaco-editor';
 
+const THEME_STORAGE_KEY = 'monaco-notepad.theme';
+
+const readCachedDarkMode = (): boolean => {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) === 'dark';
+  } catch {
+    // localStorage が使えない環境ではアプリ既定のライトテーマに戻す。
+    return false;
+  }
+};
+
+export const cacheThemePreference = (isDarkMode: boolean) => {
+  const theme = isDarkMode ? 'dark' : 'light';
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // キャッシュ失敗時も設定本体の保存・反映は継続する。
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.theme = theme;
+  }
+};
+
 // デフォルト設定
 const DEFAULT_SETTINGS: Settings = {
   fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
   fontSize: 14,
-  isDarkMode: false,
+  isDarkMode: readCachedDarkMode(),
   editorTheme: 'default',
   wordWrap: 'off',
   minimap: true,
@@ -45,7 +73,10 @@ export const useEditorSettingsStore = create<
 >((set) => ({
   settings: DEFAULT_SETTINGS,
   isInitialized: false,
-  setSettings: (settings) => set({ settings }),
+  setSettings: (settings) => {
+    cacheThemePreference(settings.isDarkMode);
+    set({ settings });
+  },
   setInitialized: (isInitialized) => set({ isInitialized }),
 }));
 

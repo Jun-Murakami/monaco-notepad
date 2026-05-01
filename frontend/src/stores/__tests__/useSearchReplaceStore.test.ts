@@ -113,8 +113,11 @@ vi.mock('../../lib/monaco', () => {
       editor: {
         getModel: (uri: { toString: () => string }) =>
           modelStore.get(uri.toString()) ?? null,
-        createModel: (content: string, _lang: string, uri: { toString: () => string }) =>
-          createFakeModel(uri.toString(), content),
+        createModel: (
+          content: string,
+          _lang: string,
+          uri: { toString: () => string },
+        ) => createFakeModel(uri.toString(), content),
         TrackedRangeStickiness: {
           NeverGrowsWhenTypingAtEdges: 0,
         },
@@ -197,12 +200,14 @@ const makeFakeEditor = (model: FakeModel | null) => {
   return ed as typeof ed & editor.IStandaloneCodeEditor;
 };
 
-const setupContext = (overrides: Partial<{
-  notes: Note[];
-  fileNotes: FileNote[];
-  activeNoteId: string | null;
-  ed: ReturnType<typeof makeFakeEditor> | null;
-}> = {}) => {
+const setupContext = (
+  overrides: Partial<{
+    notes: Note[];
+    fileNotes: FileNote[];
+    activeNoteId: string | null;
+    ed: ReturnType<typeof makeFakeEditor> | null;
+  }> = {},
+) => {
   const notesRef: { notes: Note[] } = { notes: overrides.notes ?? [] };
   const fileNotesRef: { fileNotes: FileNote[] } = {
     fileNotes: overrides.fileNotes ?? [],
@@ -210,11 +215,9 @@ const setupContext = (overrides: Partial<{
   const setNotesSpy = vi.fn((updater: (prev: Note[]) => Note[]) => {
     notesRef.notes = updater(notesRef.notes);
   });
-  const setFileNotesSpy = vi.fn(
-    (updater: (prev: FileNote[]) => FileNote[]) => {
-      fileNotesRef.fileNotes = updater(fileNotesRef.fileNotes);
-    },
-  );
+  const setFileNotesSpy = vi.fn((updater: (prev: FileNote[]) => FileNote[]) => {
+    fileNotesRef.fileNotes = updater(fileNotesRef.fileNotes);
+  });
   const onSelectNoteSpy = vi.fn();
   useSearchReplaceStore.setState({
     context: {
@@ -228,7 +231,13 @@ const setupContext = (overrides: Partial<{
       onSelectNote: onSelectNoteSpy,
     },
   });
-  return { notesRef, fileNotesRef, setNotesSpy, setFileNotesSpy, onSelectNoteSpy };
+  return {
+    notesRef,
+    fileNotesRef,
+    setNotesSpy,
+    setFileNotesSpy,
+    onSelectNoteSpy,
+  };
 };
 
 const resetStore = () => {
@@ -268,9 +277,14 @@ describe('useSearchReplaceStore', () => {
   describe('searchNavigated のリセット', () => {
     it.each([
       ['setQuery', () => useSearchReplaceStore.getState().setQuery('x')],
-      ['setCaseSensitive', () =>
-        useSearchReplaceStore.getState().setCaseSensitive(true)],
-      ['setWholeWord', () => useSearchReplaceStore.getState().setWholeWord(true)],
+      [
+        'setCaseSensitive',
+        () => useSearchReplaceStore.getState().setCaseSensitive(true),
+      ],
+      [
+        'setWholeWord',
+        () => useSearchReplaceStore.getState().setWholeWord(true),
+      ],
       ['setUseRegex', () => useSearchReplaceStore.getState().setUseRegex(true)],
       ['setScope', () => useSearchReplaceStore.getState().setScope('notes')],
       ['clearQuery', () => useSearchReplaceStore.getState().clearQuery()],
@@ -364,9 +378,7 @@ describe('useSearchReplaceStore', () => {
       const ctx = setupContext({ ed, activeNoteId: 'n1' });
       useSearchReplaceStore.setState({
         searchNavigated: true,
-        currentMatches: [
-          { start: 0, end: 1, matchText: 'a', groups: ['a'] },
-        ],
+        currentMatches: [{ start: 0, end: 1, matchText: 'a', groups: ['a'] }],
         currentMatchIndex: 0,
         crossNoteResults: [
           {

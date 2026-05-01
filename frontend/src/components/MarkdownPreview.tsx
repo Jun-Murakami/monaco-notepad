@@ -61,10 +61,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   const components = useMemo(
     () => ({
       a: MarkdownLink,
-      pre: ({
-        children,
-        ...props
-      }: React.HTMLAttributes<HTMLPreElement>) => {
+      pre: ({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) => {
         // mermaid コードブロックの場合は <pre> を挟まず直接 MermaidDiagram を表示
         const child = Array.isArray(children) ? children[0] : children;
         if (
@@ -73,7 +70,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
           'props' in child &&
           typeof (child as { props?: { className?: unknown } }).props
             ?.className === 'string' &&
-          ((child as { props: { className: string } }).props.className).includes(
+          (child as { props: { className: string } }).props.className.includes(
             'language-mermaid',
           )
         ) {

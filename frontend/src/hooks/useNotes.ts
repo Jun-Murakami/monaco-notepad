@@ -26,7 +26,6 @@ import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
 import { useCurrentNoteStore } from '../stores/useCurrentNoteStore';
 import { useNotesStore } from '../stores/useNotesStore';
-
 import { useSplitEditorStore } from '../stores/useSplitEditorStore';
 
 import type { EditorPane, FileNote, Note, TopLevelItem } from '../types';
@@ -221,10 +220,7 @@ export const useNotes = (options: UseNotesOptions = {}) => {
       actions.setCollapsedFolders(new Set(collapsedIDs ?? []));
 
       // Splitモードでは現在ノートの整合はuseSplitEditor側で管理する。
-      if (
-        !useSplitEditorStore.getState().isSplit &&
-        currentNoteRef.current
-      ) {
+      if (!useSplitEditorStore.getState().isSplit && currentNoteRef.current) {
         const updatedCurrentNote = activeNoteMap.get(currentNoteRef.current.id);
         if (!updatedCurrentNote) {
           const replacement = orderedActiveNotes.find(
@@ -323,7 +319,12 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     // タイトル欄にフォーカスを送る（PaneHeader が token 変化で focus + select する）
     requestTitleFocus();
     return newNote;
-  }, [openNoteInPaneRef, setCurrentNote, setCurrentFileNote, requestTitleFocus]);
+  }, [
+    openNoteInPaneRef,
+    setCurrentNote,
+    setCurrentFileNote,
+    requestTitleFocus,
+  ]);
 
   // 新規ノート作成 ------------------------------------------------------------
   const handleNewNote = useCallback(async () => {

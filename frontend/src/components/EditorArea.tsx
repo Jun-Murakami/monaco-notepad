@@ -14,7 +14,6 @@ import {
   useShowArchived,
   useTopLevelOrder,
 } from '../stores/useNotesStore';
-import { useSearchReplaceStore } from '../stores/useSearchReplaceStore';
 import {
   useFocusedPane,
   useIsMarkdownPreview,
@@ -150,9 +149,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
   const currentFileNote = useCurrentFileNote();
   // showArchived も store 直購読（archived ビューの表示切替）
   const showArchived = useShowArchived();
-  // Editor が検索ハイライトに使うクエリは、ストアから直接購読する。
-  // App.tsx を介さないので、note 切替や入力時に App ツリーを揺らさない。
-  const noteSearch = useSearchReplaceStore((s) => s.query);
   // canSplit / canSelectAdjacent* の派生計算用
   const activeNotesCount = useActiveNotesCount();
   const allNotes = useAllNotes();
@@ -297,9 +293,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
               onTitleChange={leftOnTitleChange}
               onLanguageChange={leftOnLanguageChange}
               onChange={leftOnChange}
-              searchKeyword={
-                !isSplit || focusedPane === 'left' ? noteSearch : undefined
-              }
               onFocus={() => onFocusPane('left')}
               onNew={onNew}
               onOpen={onOpen}
@@ -331,7 +324,6 @@ export const EditorArea: React.FC<EditorAreaProps> = ({
                 onTitleChange={rightOnTitleChange}
                 onLanguageChange={rightOnLanguageChange}
                 onChange={rightOnChange}
-                searchKeyword={focusedPane === 'right' ? noteSearch : undefined}
                 onFocus={() => onFocusPane('right')}
                 onNew={onNew}
                 onOpen={onOpen}

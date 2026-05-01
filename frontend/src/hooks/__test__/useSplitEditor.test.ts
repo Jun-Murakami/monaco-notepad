@@ -71,7 +71,8 @@ describe('useSplitEditor', () => {
   const observeSetNotes = () => {
     const calls: Array<(prev: Note[]) => Note[]> = [];
     const setNotesFn = useNotesStore.getState().setNotes;
-    const spy = vi.fn((updater: any) => {
+    type SetNotesUpdater = Note[] | ((prev: Note[]) => Note[]);
+    const spy = vi.fn((updater: SetNotesUpdater) => {
       if (typeof updater === 'function') calls.push(updater);
       setNotesFn(updater);
     });

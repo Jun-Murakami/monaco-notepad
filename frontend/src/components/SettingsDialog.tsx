@@ -465,11 +465,7 @@ export const SettingsDialog: React.FC = () => {
         <Button onClick={onOpenAbout} color="primary">
           {t('settings.aboutLicense')}
         </Button>
-        <Button
-          onClick={onOpenMobileApp}
-          variant="outlined"
-          color="primary"
-        >
+        <Button onClick={onOpenMobileApp} variant="outlined" color="primary">
           {t('settings.installMobileApp')}
         </Button>
         <Box sx={{ flex: '1 0 0' }} />
