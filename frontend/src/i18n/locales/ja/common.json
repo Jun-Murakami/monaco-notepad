@@ -35,7 +35,7 @@
     "deleteLocalDataConfirmMessage": "この端末に保存されたMonaco Notepadのデータをすべて削除します。Google Drive上のデータは削除されません。この操作は取り消せません。",
     "deleteLocalDataSuccess": "この端末のデータを削除しました。",
     "deleteLocalDataError": "端末データの削除に失敗しました: {{error}}",
-    "installMobileApp": "スマートフォンアプリをインストール",
+    "installMobileApp": "スマートフォンアプリ",
     "resetToDefault": "デフォルトにリセット",
     "close": "閉じる",
     "aboutLicense": "このアプリについて / ライセンス"

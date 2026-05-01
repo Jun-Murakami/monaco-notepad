@@ -35,7 +35,7 @@
     "deleteLocalDataConfirmMessage": "This will delete all Monaco Notepad data saved on this device. Google Drive data will not be deleted. This cannot be undone.",
     "deleteLocalDataSuccess": "Deleted data on this device.",
     "deleteLocalDataError": "Failed to delete local data: {{error}}",
-    "installMobileApp": "Install the mobile app",
+    "installMobileApp": "Manage app",
     "resetToDefault": "Reset to Default",
     "close": "Close",
     "aboutLicense": "About / License"
