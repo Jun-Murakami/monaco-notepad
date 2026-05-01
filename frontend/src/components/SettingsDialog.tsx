@@ -94,10 +94,7 @@ export const SettingsDialog: React.FC = () => {
     if (!confirmed) return;
     try {
       await DeleteAllDriveData();
-      await showMessage(
-        t('settings.deleteDriveDataConfirmTitle'),
-        t('settings.deleteDriveDataSuccess'),
-      );
+      await showMessage(t('settings.deleteDriveDataConfirmTitle'), t('settings.deleteDriveDataSuccess'));
       onClose();
     } catch (e) {
       await showMessage(
@@ -118,10 +115,7 @@ export const SettingsDialog: React.FC = () => {
     if (!confirmed) return;
     try {
       await DeleteLocalAppData();
-      await showMessage(
-        t('settings.deleteLocalDataConfirmTitle'),
-        t('settings.deleteLocalDataSuccess'),
-      );
+      await showMessage(t('settings.deleteLocalDataConfirmTitle'), t('settings.deleteLocalDataSuccess'));
       onClose();
     } catch (e) {
       await showMessage(
@@ -157,7 +151,7 @@ export const SettingsDialog: React.FC = () => {
       fullWidth
       slotProps={{
         paper: {
-          sx: { width: 720, maxWidth: '100%' },
+          sx: { width: 680, maxWidth: '100%' },
         },
         backdrop: {
           onExited: () => {
@@ -172,7 +166,7 @@ export const SettingsDialog: React.FC = () => {
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
           {/* 言語設定 */}
-          <FormControl fullWidth size="small">
+          <FormControl fullWidth size='small'>
             <InputLabel>{t('settings.language')}</InputLabel>
             <Select
               value={localSettings.uiLanguage || 'system'}
@@ -183,20 +177,18 @@ export const SettingsDialog: React.FC = () => {
                 })
               }
             >
-              <MenuItem value="system">
-                {t('settings.language_system')}
-              </MenuItem>
-              <MenuItem value="ja">{t('settings.language_ja')}</MenuItem>
-              <MenuItem value="en">{t('settings.language_en')}</MenuItem>
+              <MenuItem value='system'>{t('settings.language_system')}</MenuItem>
+              <MenuItem value='ja'>{t('settings.language_ja')}</MenuItem>
+              <MenuItem value='en'>{t('settings.language_en')}</MenuItem>
             </Select>
           </FormControl>
 
-          <Divider orientation="horizontal" sx={{ width: '100%' }} />
+          <Divider orientation='horizontal' sx={{ width: '100%' }} />
 
           <Box sx={{ display: 'flex', flexDirection: 'row', gap: 2 }}>
             <TextField
               label={t('settings.fontFamily')}
-              size="small"
+              size='small'
               fullWidth
               value={localSettings.fontFamily}
               onChange={(e) => handleChange({ fontFamily: e.target.value })}
@@ -205,17 +197,12 @@ export const SettingsDialog: React.FC = () => {
             <FormControl sx={{ width: 150 }}>
               <InputLabel>{t('settings.fontSize')}</InputLabel>
               <Select
-                size="small"
+                size='small'
                 value={localSettings.fontSize}
                 label={t('settings.fontSize')}
-                onChange={(e) =>
-                  handleChange({ fontSize: e.target.value as number })
-                }
+                onChange={(e) => handleChange({ fontSize: e.target.value as number })}
               >
-                {[
-                  8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-                  24,
-                ].map((size) => (
+                {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].map((size) => (
                   <MenuItem key={size} value={size}>
                     {size}px
                   </MenuItem>
@@ -224,14 +211,12 @@ export const SettingsDialog: React.FC = () => {
             </FormControl>
           </Box>
 
-          <FormControl fullWidth size="small">
+          <FormControl fullWidth size='small'>
             <InputLabel>{t('settings.theme')}</InputLabel>
             <Select
               value={localSettings.editorTheme}
               label={t('settings.theme')}
-              onChange={(e) =>
-                handleChange({ editorTheme: e.target.value as string })
-              }
+              onChange={(e) => handleChange({ editorTheme: e.target.value as string })}
             >
               {THEME_PAIRS.map((pair) => (
                 <MenuItem key={pair.id} value={pair.id}>
@@ -266,11 +251,7 @@ export const SettingsDialog: React.FC = () => {
                     }}
                   />
                 }
-                label={
-                  localSettings.isDarkMode
-                    ? t('settings.darkMode')
-                    : t('settings.lightMode')
-                }
+                label={localSettings.isDarkMode ? t('settings.darkMode') : t('settings.lightMode')}
               />
             </Grid>
 
@@ -279,7 +260,7 @@ export const SettingsDialog: React.FC = () => {
                 control={
                   <Switch
                     checked={localSettings.wordWrap === 'on'}
-                    size="small"
+                    size='small'
                     onChange={(e) =>
                       handleChange({
                         wordWrap: e.target.checked ? 'on' : 'off',
@@ -295,11 +276,9 @@ export const SettingsDialog: React.FC = () => {
               <FormControlLabel
                 control={
                   <Switch
-                    size="small"
+                    size='small'
                     checked={localSettings.minimap}
-                    onChange={(e) =>
-                      handleChange({ minimap: e.target.checked })
-                    }
+                    onChange={(e) => handleChange({ minimap: e.target.checked })}
                   />
                 }
                 label={t('settings.minimap')}
@@ -310,18 +289,16 @@ export const SettingsDialog: React.FC = () => {
               <FormControlLabel
                 control={
                   <Switch
-                    size="small"
+                    size='small'
                     checked={localSettings.markdownPreviewOnLeft}
-                    onChange={(e) =>
-                      handleChange({ markdownPreviewOnLeft: e.target.checked })
-                    }
+                    onChange={(e) => handleChange({ markdownPreviewOnLeft: e.target.checked })}
                   />
                 }
                 label={t('settings.markdownPreviewOnLeft')}
               />
             </Grid>
 
-            <Divider orientation="horizontal" sx={{ width: '100%' }} />
+            <Divider orientation='horizontal' sx={{ width: '100%' }} />
 
             <Box
               sx={{
@@ -335,19 +312,17 @@ export const SettingsDialog: React.FC = () => {
               <FormControlLabel
                 control={
                   <Switch
-                    size="small"
+                    size='small'
                     checked={localSettings.isDebug}
-                    onChange={(e) =>
-                      handleChange({ isDebug: e.target.checked })
-                    }
+                    onChange={(e) => handleChange({ isDebug: e.target.checked })}
                   />
                 }
                 label={t('settings.debugMode')}
               />
-              <Typography variant="caption" color="textSecondary">
+              <Typography variant='caption' color='textSecondary'>
                 {t('settings.debugModeDescriptionBeforeLink')}
                 <Box
-                  component="span"
+                  component='span'
                   onClick={() => OpenAppFolder()}
                   sx={{
                     textDecoration: 'underline',
@@ -373,7 +348,7 @@ export const SettingsDialog: React.FC = () => {
               <FormControlLabel
                 control={
                   <Switch
-                    size="small"
+                    size='small'
                     checked={localSettings.enableConflictBackup}
                     onChange={(e) =>
                       handleChange({
@@ -384,10 +359,10 @@ export const SettingsDialog: React.FC = () => {
                 }
                 label={t('settings.conflictBackup')}
               />
-              <Typography variant="caption" color="textSecondary">
+              <Typography variant='caption' color='textSecondary'>
                 {t('settings.conflictBackupDescriptionBeforeLink')}
                 <Box
-                  component="span"
+                  component='span'
                   onClick={() => OpenConflictBackupFolder()}
                   sx={{
                     textDecoration: 'underline',
@@ -399,17 +374,12 @@ export const SettingsDialog: React.FC = () => {
                 </Box>
                 {t('settings.conflictBackupDescriptionAfterLink')}
               </Typography>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={onOpenConflictBackups}
-                sx={{ ml: 'auto' }}
-              >
+              <Button size='small' variant='outlined' onClick={onOpenConflictBackups} sx={{ ml: 'auto' }}>
                 {t('settings.manageConflictBackups')}
               </Button>
             </Box>
 
-            <Divider orientation="horizontal" sx={{ width: '100%' }} />
+            <Divider orientation='horizontal' sx={{ width: '100%' }} />
 
             <Box
               sx={{
@@ -420,16 +390,10 @@ export const SettingsDialog: React.FC = () => {
                 width: '100%',
               }}
             >
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                disabled={!isDriveConnected}
-                onClick={handleDeleteDriveData}
-              >
+              <Button variant='outlined' color='error' size='small' disabled={!isDriveConnected} onClick={handleDeleteDriveData}>
                 {t('settings.deleteDriveData')}
               </Button>
-              <Typography variant="caption" color="textSecondary">
+              <Typography variant='caption' color='textSecondary'>
                 {t('settings.deleteDriveDataDescription')}
               </Typography>
             </Box>
@@ -443,15 +407,10 @@ export const SettingsDialog: React.FC = () => {
                 width: '100%',
               }}
             >
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                onClick={handleDeleteLocalData}
-              >
+              <Button variant='outlined' color='error' size='small' onClick={handleDeleteLocalData}>
                 {t('settings.deleteLocalData')}
               </Button>
-              <Typography variant="caption" color="textSecondary">
+              <Typography variant='caption' color='textSecondary'>
                 {t('settings.deleteLocalDataDescription')}
               </Typography>
             </Box>
@@ -459,17 +418,17 @@ export const SettingsDialog: React.FC = () => {
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleReset} color="primary">
+        <Button onClick={handleReset} color='primary'>
           {t('settings.resetToDefault')}
         </Button>
-        <Button onClick={onOpenAbout} color="primary">
+        <Button onClick={onOpenAbout} color='primary'>
           {t('settings.aboutLicense')}
         </Button>
-        <Button onClick={onOpenMobileApp} variant="outlined" color="primary">
+        <Button onClick={onOpenMobileApp} variant='outlined' color='primary'>
           {t('settings.installMobileApp')}
         </Button>
         <Box sx={{ flex: '1 0 0' }} />
-        <Button onClick={handleClose} variant="contained">
+        <Button onClick={handleClose} variant='contained'>
           {t('settings.close')}
         </Button>
       </DialogActions>
