@@ -57,7 +57,10 @@ A companion mobile app is **available on the App Store and Google Play**. It use
 - **Read-mode highlighting** — Syntax highlighting in view mode powered by Shiki (TextMate grammar = same as VS Code / Monaco). Edit mode uses a plain monospace text input.
 - **Bundle ID** — `dev.junmurakami.monaconotepad`
 
-📱 **Install** — Open **Settings → Mobile App** in the desktop app to scan install QR codes for iOS / Android, or search for "Monaco Notepad" in your store. The Google Play package name is [`dev.junmurakami.monaconotepad`](https://play.google.com/store/apps/details?id=dev.junmurakami.monaconotepad).
+📱 **Install:**
+- iOS — [App Store](https://apps.apple.com/us/app/monaco-notepad/id6764434901)
+- Android — [Google Play](https://play.google.com/store/apps/details?id=dev.junmurakami.monaconotepad)
+- Or open **Settings → Mobile App** in the desktop app to scan install QR codes.
 
 ## Keyboard Shortcuts (Desktop)
 
