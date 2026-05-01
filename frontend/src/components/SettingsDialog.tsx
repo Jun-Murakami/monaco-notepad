@@ -157,7 +157,7 @@ export const SettingsDialog: React.FC = () => {
       fullWidth
       slotProps={{
         paper: {
-          sx: { width: 680, maxWidth: '100%' },
+          sx: { width: 720, maxWidth: '100%' },
         },
         backdrop: {
           onExited: () => {
