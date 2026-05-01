@@ -20,6 +20,12 @@ import type { FileNote, Note } from '../types';
 // ノート横断検索は常に有効。find / replace は置換欄の表示切替のみ。
 export type SearchPanelMode = 'find' | 'replace';
 
+// 検索対象スコープ。
+// - all: ノート + ローカルファイルの両方を検索
+// - local: ローカルファイルのみを検索（ノートのフィルタ・横断検索は無効）
+// - notes: ノートのみを検索（ローカルのフィルタ・横断検索は無効）
+export type SearchScope = 'all' | 'local' | 'notes';
+
 export type ReplaceResultKind =
   | 'replaceOne'
   | 'replaceAllInCurrent'
@@ -42,7 +48,9 @@ export interface NoteMatchGroup {
 // ストアに「依存性注入」している形。
 interface SearchReplaceContext {
   getNotes: () => Note[];
+  getFileNotes: () => FileNote[];
   setNotes: (updater: (prev: Note[]) => Note[]) => void;
+  setFileNotes: (updater: (prev: FileNote[]) => FileNote[]) => void;
   getActiveEditor: () => editor.IStandaloneCodeEditor | null;
   getActiveNoteId: () => string | null;
   t: (key: string, args?: Record<string, string | number>) => string;
@@ -52,7 +60,9 @@ interface SearchReplaceContext {
 
 const NOOP_CONTEXT: SearchReplaceContext = {
   getNotes: () => [],
+  getFileNotes: () => [],
   setNotes: () => {},
+  setFileNotes: () => {},
   getActiveEditor: () => null,
   getActiveNoteId: () => null,
   t: (key) => key,
@@ -67,7 +77,13 @@ interface SearchReplaceState {
   caseSensitive: boolean;
   wholeWord: boolean;
   useRegex: boolean;
+  scope: SearchScope;
   focusToken: number;
+  // ロケート（前/次）を一度でも押したかどうか。
+  // false 状態での findNext は先頭マッチへ、findPrevious は末尾マッチへ
+  // ジャンプし、エディタ既存のキャレット位置を考慮しない。
+  // 以降の押下は selection 末端／始点を基準にした caret ベースで進む。
+  searchNavigated: boolean;
   replaceResult: ReplaceResult | null;
   replaceResultToken: number;
   currentMatches: SearchMatch[];
@@ -85,6 +101,7 @@ interface SearchReplaceActions {
   setCaseSensitive: (v: boolean) => void;
   setWholeWord: (v: boolean) => void;
   setUseRegex: (v: boolean) => void;
+  setScope: (v: SearchScope) => void;
   focusFind: (mode?: SearchPanelMode) => void;
   clearQuery: () => void;
   findNext: () => void;
@@ -111,6 +128,7 @@ let recomputeTimer: ReturnType<typeof setTimeout> | null = null;
 let crossNoteTimer: ReturnType<typeof setTimeout> | null = null;
 let typingTimer: ReturnType<typeof setTimeout> | null = null;
 let monacoListenersCleanup: (() => void) | null = null;
+let attachedEditor: editor.IStandaloneCodeEditor | null = null;
 let initialized = false;
 
 const buildOptions = (): SearchOptions => {
@@ -190,6 +208,8 @@ const matchesEqual = (a: SearchMatch[], b: SearchMatch[]): boolean => {
 
 // 現在ノートのマッチを再計算。終了時に装飾更新と pendingJump 消化まで一気に行う。
 const recomputeCurrentMatches = () => {
+  // エディタインスタンスが切り替わっていた場合に備えて毎回チェック
+  ensureMonacoListeners();
   const s = useSearchReplaceStore.getState();
   const ed = s.context.getActiveEditor();
   const model = ed?.getModel();
@@ -281,27 +301,56 @@ const recomputeCrossNoteMatches = () => {
   }
   const results: NoteMatchGroup[] = [];
   const activeId = s.context.getActiveNoteId();
-  for (const note of s.context.getNotes()) {
-    if (note.archived) continue;
-    let content = note.content ?? '';
-    if (note.id === activeId) {
-      const ed = s.context.getActiveEditor();
-      const model = ed?.getModel();
-      if (model) content = model.getValue();
-    } else {
-      const monaco = getMonaco();
-      const uri = monaco.Uri.parse(`inmemory://${note.id}`);
-      const m = monaco.editor.getModel(uri);
-      if (m && !m.isDisposed()) content = m.getValue();
+  // ローカルファイルを先に積む（サイドバーの並び＝上にローカル / 下にノート、と一致させる）。
+  // scope='notes' のときはローカルファイルを検索対象から外す。
+  if (s.scope !== 'notes') {
+    for (const fn of s.context.getFileNotes()) {
+      let content = fn.content ?? '';
+      if (fn.id === activeId) {
+        const ed = s.context.getActiveEditor();
+        const model = ed?.getModel();
+        if (model) content = model.getValue();
+      } else {
+        const monaco = getMonaco();
+        const uri = monaco.Uri.parse(`inmemory://${fn.id}`);
+        const m = monaco.editor.getModel(uri);
+        if (m && !m.isDisposed()) content = m.getValue();
+      }
+      const matches = findAllMatches(content, options);
+      if (matches.length > 0) {
+        results.push({
+          noteId: fn.id,
+          noteTitle: fn.fileName,
+          content,
+          matches,
+        });
+      }
     }
-    const matches = findAllMatches(content, options);
-    if (matches.length > 0) {
-      results.push({
-        noteId: note.id,
-        noteTitle: note.title,
-        content,
-        matches,
-      });
+  }
+  // scope='local' のときはノートを検索対象から外す
+  if (s.scope !== 'local') {
+    for (const note of s.context.getNotes()) {
+      if (note.archived) continue;
+      let content = note.content ?? '';
+      if (note.id === activeId) {
+        const ed = s.context.getActiveEditor();
+        const model = ed?.getModel();
+        if (model) content = model.getValue();
+      } else {
+        const monaco = getMonaco();
+        const uri = monaco.Uri.parse(`inmemory://${note.id}`);
+        const m = monaco.editor.getModel(uri);
+        if (m && !m.isDisposed()) content = m.getValue();
+      }
+      const matches = findAllMatches(content, options);
+      if (matches.length > 0) {
+        results.push({
+          noteId: note.id,
+          noteTitle: note.title,
+          content,
+          matches,
+        });
+      }
     }
   }
   if (!crossNoteResultsEqual(s.crossNoteResults, results)) {
@@ -324,13 +373,17 @@ const scheduleRecompute = () => {
   }, 250);
 };
 
-// アクティブエディタ変化に応じて Monaco リスナを attach し直す
+// アクティブエディタ変化に応じて Monaco リスナを attach し直す。
+// `attachedEditor` がアタッチ済みのエディタを指している間は再 attach をスキップする。
+// 複数の入口（subscribe / ensureMonacoListeners）から呼んでも冪等になる。
 const reattachMonacoListeners = () => {
+  const ed = useSearchReplaceStore.getState().context.getActiveEditor();
+  if (ed === attachedEditor) return;
   monacoListenersCleanup?.();
   monacoListenersCleanup = null;
+  attachedEditor = null;
   decorationIds = [];
 
-  const ed = useSearchReplaceStore.getState().context.getActiveEditor();
   if (!ed) return;
 
   let contentDisposable: { dispose: () => void } | null = null;
@@ -359,9 +412,20 @@ const reattachMonacoListeners = () => {
     contentDisposable?.dispose();
     modelDisposable.dispose();
   };
+  attachedEditor = ed;
 
   // 新しいエディタで現状のクエリに対する装飾を即時反映する
   recomputeCurrentMatches();
+};
+
+// 現在のアクティブエディタにリスナが付いていなければ付け直す。
+// `recomputeCurrentMatches` の入口でも呼んで「最初の編集タイミングで listener が無くて
+// 以後ノート切替を取りこぼす」事故を防ぐ。
+const ensureMonacoListeners = () => {
+  const ed = useSearchReplaceStore.getState().context.getActiveEditor();
+  if (ed !== attachedEditor) {
+    reattachMonacoListeners();
+  }
 };
 
 // =========================================================================
@@ -372,10 +436,12 @@ const reattachMonacoListeners = () => {
 export const initSearchReplace = () => {
   if (initialized) return;
   initialized = true;
-  // context.getActiveEditor の参照変化のみを検知する。setContext 全体ではなく
-  // 関数 reference 比較で済ませることで、無関係な context 更新では再 attach しない。
+  // context 自体（=getActiveEditor を含むオブジェクト）が差し変わるたびに再評価する。
+  // 実際の attach/detach は `attachedEditor` との一致比較で短絡されるので冪等。
+  // この経路だけだとマウント直後にエディタ未生成のケースを取りこぼすので、
+  // recomputeCurrentMatches 入口の ensureMonacoListeners が遅延リカバリを担う。
   useSearchReplaceStore.subscribe((state, prevState) => {
-    if (state.context.getActiveEditor !== prevState.context.getActiveEditor) {
+    if (state.context !== prevState.context) {
       reattachMonacoListeners();
     }
   });
@@ -455,7 +521,9 @@ export const useSearchReplaceStore = create<
   caseSensitive: false,
   wholeWord: false,
   useRegex: false,
+  scope: 'all',
   focusToken: 0,
+  searchNavigated: false,
   replaceResult: null,
   replaceResultToken: 0,
   currentMatches: [],
@@ -476,62 +544,211 @@ export const useSearchReplaceStore = create<
   // 入力系 setter は debounce 付き再計算をその場でスケジュールする。
   // 旧 useEffect で query などを監視していた挙動を、値を変えている張本人の
   // アクション側に取り込んだ形（useEffect-guard 推奨パターン）。
+  // クエリやオプション変更時は searchNavigated をリセット。
+  // 次の find* 押下が新しいセッション扱いになり、キャレット無視で先頭/末尾から始まる。
   setQuery: (query) => {
-    set({ query });
+    set({ query, searchNavigated: false });
     scheduleRecompute();
   },
   setReplacement: (replacement) => set({ replacement }),
   setCaseSensitive: (caseSensitive) => {
-    set({ caseSensitive });
+    set({ caseSensitive, searchNavigated: false });
     scheduleRecompute();
   },
   setWholeWord: (wholeWord) => {
-    set({ wholeWord });
+    set({ wholeWord, searchNavigated: false });
     scheduleRecompute();
   },
   setUseRegex: (useRegex) => {
-    set({ useRegex });
+    set({ useRegex, searchNavigated: false });
+    scheduleRecompute();
+  },
+  setScope: (scope) => {
+    set({ scope, searchNavigated: false });
+    // スコープ変更でクロスノート検索結果に含まれる対象が変わるので再計算
     scheduleRecompute();
   },
 
   focusFind: (nextMode = 'find') =>
     set((s) => ({ mode: nextMode, focusToken: s.focusToken + 1 })),
   clearQuery: () => {
-    set({ query: '', replacement: '' });
+    set({ query: '', replacement: '', searchNavigated: false });
     scheduleRecompute();
   },
 
   findNext: () => {
-    set((s) => ({
-      currentMatchIndex:
-        s.currentMatches.length === 0
-          ? 0
-          : (s.currentMatchIndex + 1) % s.currentMatches.length,
-    }));
-    updateDecorationsAndScroll();
+    const s = get();
+    // 現ノート内にマッチがある場合の処理。
+    if (s.currentMatches.length > 0) {
+      // 検索ロケート開始（searchNavigated=false）はキャレット位置を無視して先頭マッチへ。
+      if (!s.searchNavigated) {
+        set({ currentMatchIndex: 0, searchNavigated: true });
+        updateDecorationsAndScroll();
+        return;
+      }
+      // 2 回目以降は selection 末端を基準に次マッチへ。
+      // updateDecorationsAndScroll が setSelection でマッチを選択するので
+      // 自然と「現マッチ末端より後ろの最初のヒット = 次マッチ」になる。
+      const ed = s.context.getActiveEditor();
+      const model = ed?.getModel();
+      const sel = ed?.getSelection();
+      if (ed && model && sel) {
+        const refOffset = model.getOffsetAt(sel.getEndPosition());
+        const nextIdx = s.currentMatches.findIndex((m) => m.start >= refOffset);
+        if (nextIdx >= 0) {
+          set({ currentMatchIndex: nextIdx, searchNavigated: true });
+          updateDecorationsAndScroll();
+          return;
+        }
+        // 選択末端が最終マッチ以降 → クロスノート / 先頭ラップへフォールスルー
+      } else if (s.currentMatchIndex < s.currentMatches.length - 1) {
+        // エディタが取得できない場合のフォールバック（インデックスベース）
+        set({
+          currentMatchIndex: s.currentMatchIndex + 1,
+          searchNavigated: true,
+        });
+        updateDecorationsAndScroll();
+        return;
+      }
+    }
+    // 現ノートの最終マッチ（または現ノートにマッチが無い）→ 次ノートへ
+    const groups = s.crossNoteResults;
+    if (groups.length === 0) {
+      // クロスノート結果が無いときは現ノート内ループを維持
+      if (s.currentMatches.length > 0) {
+        set({ currentMatchIndex: 0, searchNavigated: true });
+        updateDecorationsAndScroll();
+      }
+      return;
+    }
+    const activeId = s.context.getActiveNoteId();
+    const curIdx = groups.findIndex((g) => g.noteId === activeId);
+    // 単一グループ＝現ノートのみのときは先頭にループ
+    if (groups.length === 1 && curIdx === 0) {
+      set({ currentMatchIndex: 0, searchNavigated: true });
+      updateDecorationsAndScroll();
+      return;
+    }
+    // 現ノートが結果に含まれていない場合は先頭グループへ、そうでなければ次のグループへ
+    const nextIdx = curIdx < 0 ? 0 : (curIdx + 1) % groups.length;
+    const target = groups[nextIdx];
+    if (!target) return;
+    set({
+      pendingJump: { noteId: target.noteId, matchIndexInNote: 0 },
+      searchNavigated: true,
+    });
+    void s.context.onSelectNote(target.noteId);
   },
   findPrevious: () => {
-    set((s) => ({
-      currentMatchIndex:
-        s.currentMatches.length === 0
-          ? 0
-          : (s.currentMatchIndex - 1 + s.currentMatches.length) %
-            s.currentMatches.length,
-    }));
-    updateDecorationsAndScroll();
+    const s = get();
+    if (s.currentMatches.length > 0) {
+      // 検索ロケート開始（searchNavigated=false）はキャレット位置を無視して末尾マッチへ。
+      if (!s.searchNavigated) {
+        set({
+          currentMatchIndex: s.currentMatches.length - 1,
+          searchNavigated: true,
+        });
+        updateDecorationsAndScroll();
+        return;
+      }
+      // 2 回目以降は selection 始点を基準に前マッチへ。
+      const ed = s.context.getActiveEditor();
+      const model = ed?.getModel();
+      const sel = ed?.getSelection();
+      if (ed && model && sel) {
+        const refOffset = model.getOffsetAt(sel.getStartPosition());
+        let prevIdx = -1;
+        for (let i = s.currentMatches.length - 1; i >= 0; i--) {
+          if (s.currentMatches[i].start < refOffset) {
+            prevIdx = i;
+            break;
+          }
+        }
+        if (prevIdx >= 0) {
+          set({ currentMatchIndex: prevIdx, searchNavigated: true });
+          updateDecorationsAndScroll();
+          return;
+        }
+        // 選択始点が先頭マッチ以前 → クロスノート / 末尾ラップへフォールスルー
+      } else if (s.currentMatchIndex > 0) {
+        // エディタが取得できない場合のフォールバック
+        set({
+          currentMatchIndex: s.currentMatchIndex - 1,
+          searchNavigated: true,
+        });
+        updateDecorationsAndScroll();
+        return;
+      }
+    }
+    // 先頭マッチ → 前ノートの末尾マッチへ
+    const groups = s.crossNoteResults;
+    if (groups.length === 0) {
+      if (s.currentMatches.length > 0) {
+        set({
+          currentMatchIndex: s.currentMatches.length - 1,
+          searchNavigated: true,
+        });
+        updateDecorationsAndScroll();
+      }
+      return;
+    }
+    const activeId = s.context.getActiveNoteId();
+    const curIdx = groups.findIndex((g) => g.noteId === activeId);
+    if (groups.length === 1 && curIdx === 0) {
+      set({
+        currentMatchIndex: s.currentMatches.length - 1,
+        searchNavigated: true,
+      });
+      updateDecorationsAndScroll();
+      return;
+    }
+    const prevIdx =
+      curIdx < 0
+        ? groups.length - 1
+        : (curIdx - 1 + groups.length) % groups.length;
+    const target = groups[prevIdx];
+    if (!target) return;
+    // 末尾マッチへジャンプするため matchIndexInNote = matches.length - 1
+    set({
+      pendingJump: {
+        noteId: target.noteId,
+        matchIndexInNote: Math.max(0, target.matches.length - 1),
+      },
+      searchNavigated: true,
+    });
+    void s.context.onSelectNote(target.noteId);
   },
 
   jumpToNoteMatch: (noteId, matchIndexInNote) => {
     const { context } = get();
-    const activeId = context.getActiveNoteId();
-    if (activeId === noteId) {
-      set({ pendingJump: null, currentMatchIndex: matchIndexInNote });
+    // store の currentNote が先に更新されてもエディタのモデル swap は React の
+    // useEffect 待ちなので、判定は **エディタの実モデル参照** で行う。
+    // これを怠ると、クリック直後 onJumpToNoteMatch が活発な現マッチ
+    // (currentMatches = 旧ノート) に対して即時インデックスを書き換えてしまい、
+    // 装飾が旧ノートに対して貼られた挙動になる。
+    // monaco は URI 単位でモデルをキャッシュするので、対象 URI の model が存在する場合は
+    // 同一インスタンスが返る。参照比較で安全に判定できる。
+    const ed = context.getActiveEditor();
+    const editorModel = ed?.getModel();
+    const monaco = getMonaco();
+    const targetModel = monaco.editor.getModel(
+      monaco.Uri.parse(`inmemory://${noteId}`),
+    );
+    if (editorModel && targetModel && editorModel === targetModel) {
+      set({
+        pendingJump: null,
+        currentMatchIndex: matchIndexInNote,
+        searchNavigated: true,
+      });
       updateDecorationsAndScroll();
       return;
     }
-    // 対象ノートが別ノートのときは pendingJump を立て、ノート切替後の
-    // recomputeCurrentMatches がここで消化する（onDidChangeModel 経由で発火）。
-    set({ pendingJump: { noteId, matchIndexInNote } });
+    // モデルがまだ目標ノートになっていない（あるいは未生成）→ pendingJump を立てて
+    // onDidChangeModel 経由の recomputeCurrentMatches で消化させる。
+    set({
+      pendingJump: { noteId, matchIndexInNote },
+      searchNavigated: true,
+    });
   },
 
   replaceCurrent: () => {
@@ -560,8 +777,10 @@ export const useSearchReplaceStore = create<
       ).catch(() => {});
     }
     announce(set, 'replaceOne', 1);
-    // 編集は onDidChangeContent 経由で recompute がスケジュールされるが、
-    // ここで即時に再計算しても問題ない（idempotent）
+    // 現在マッチは onDidChangeContent 経由で recompute がスケジュールされるが、
+    // 横断検索結果は触られないため明示再計算する（パネルのプレビュー更新のため）。
+    recomputeCurrentMatches();
+    recomputeCrossNoteMatches();
   },
 
   replaceAllInCurrent: () => {
@@ -592,6 +811,9 @@ export const useSearchReplaceStore = create<
       ).catch(() => {});
     }
     announce(set, 'replaceAllInCurrent', edits.length);
+    // 横断検索結果は onDidChangeContent では更新されないので明示再計算する。
+    recomputeCurrentMatches();
+    recomputeCrossNoteMatches();
   },
 
   replaceAllInAllNotes: async () => {
@@ -614,42 +836,72 @@ export const useSearchReplaceStore = create<
     );
     if (!confirmed) return;
 
-    type PerNote = { noteId: string; edits: PlannedEdit[] };
-    const perNote: PerNote[] = [];
+    type PerEntry = {
+      noteId: string;
+      edits: PlannedEdit[];
+      isFile: boolean;
+    };
+    const notes = context.getNotes();
+    const fileNotes = context.getFileNotes();
+    const perEntry: PerEntry[] = [];
     for (const group of s.crossNoteResults) {
       const edits = buildReplacementEdits(
         group.matches,
         s.replacement,
         s.useRegex,
       );
-      if (edits.length > 0) {
-        perNote.push({ noteId: group.noteId, edits });
-      }
+      if (edits.length === 0) continue;
+      const isFile = !notes.some((n) => n.id === group.noteId);
+      perEntry.push({ noteId: group.noteId, edits, isFile });
     }
-    if (perNote.length === 0) return;
+    if (perEntry.length === 0) return;
 
-    const updated: Note[] = [];
-    for (const p of perNote) {
-      const note = context.getNotes().find((n) => n.id === p.noteId);
-      if (!note) continue;
-      const newContent = applyEditsToNote(
-        p.noteId,
-        note.content ?? '',
-        p.edits,
-      );
-      updated.push({ ...note, content: newContent });
-    }
-    context.setNotes((prev) =>
-      prev.map((n) => updated.find((u) => u.id === n.id) ?? n),
-    );
-    for (const n of updated) {
-      try {
-        await SaveNote(backend.Note.createFrom(n), 'update');
-      } catch {
-        // ignore
+    const updatedNotes: Note[] = [];
+    const updatedFileNotes: FileNote[] = [];
+    for (const p of perEntry) {
+      if (p.isFile) {
+        const fn = fileNotes.find((f) => f.id === p.noteId);
+        if (!fn) continue;
+        const newContent = applyEditsToNote(
+          p.noteId,
+          fn.content ?? '',
+          p.edits,
+        );
+        // ファイルノートは content だけ更新。originalContent はそのままにして
+        // dirty 判定 (content !== originalContent) を成立させ、ディスク保存はしない。
+        updatedFileNotes.push({ ...fn, content: newContent });
+      } else {
+        const note = notes.find((n) => n.id === p.noteId);
+        if (!note) continue;
+        const newContent = applyEditsToNote(
+          p.noteId,
+          note.content ?? '',
+          p.edits,
+        );
+        updatedNotes.push({ ...note, content: newContent });
       }
     }
-    const totalReplaced = perNote.reduce((sum, p) => sum + p.edits.length, 0);
+
+    if (updatedNotes.length > 0) {
+      context.setNotes((prev) =>
+        prev.map((n) => updatedNotes.find((u) => u.id === n.id) ?? n),
+      );
+      for (const n of updatedNotes) {
+        try {
+          await SaveNote(backend.Note.createFrom(n), 'update');
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (updatedFileNotes.length > 0) {
+      context.setFileNotes((prev) =>
+        prev.map((f) => updatedFileNotes.find((u) => u.id === f.id) ?? f),
+      );
+      // ディスク保存は行わない。ユーザーが手動で Ctrl+S 保存する想定。
+    }
+
+    const totalReplaced = perEntry.reduce((sum, p) => sum + p.edits.length, 0);
     announce(set, 'replaceAllInAll', totalReplaced);
 
     // 全ノート置換後は、現在ノート/横断結果ともに再評価しておく

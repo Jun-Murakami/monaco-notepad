@@ -47,7 +47,8 @@ export const formatNoteDate = (
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return getDateFormatter(locale).format(date);
+  // ロケール既定の "/" 区切りを "." に置き換える（リスト表示専用の見た目）
+  return getDateFormatter(locale).format(date).replace(/\//g, '.');
 };
 
 export const formatNoteDateTime = (

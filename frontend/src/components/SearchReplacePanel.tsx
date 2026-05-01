@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { forwardRef, memo, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Close,
@@ -9,12 +9,17 @@ import {
 } from '@mui/icons-material';
 import {
   alpha,
+  Autocomplete,
   Box,
   Button,
+  FormControl,
   GlobalStyles,
   IconButton,
   InputAdornment,
   InputBase,
+  ListItemButton,
+  MenuItem,
+  Select,
   ToggleButton,
   Tooltip,
   Typography,
@@ -23,9 +28,11 @@ import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 
 import { useCurrentNoteId } from '../stores/useCurrentNoteStore';
+import { useSearchHistoryStore } from '../stores/useSearchHistoryStore';
 import {
   type NoteMatchGroup,
   type SearchPanelMode,
+  type SearchScope,
   usePatternError,
   useSearchReplaceStore,
 } from '../stores/useSearchReplaceStore';
@@ -41,11 +48,9 @@ const toggleReplaceMode = (mode: SearchPanelMode): SearchPanelMode =>
   mode === 'replace' ? 'find' : 'replace';
 
 // 検索ヒットの配色。Monaco 内のデコレーションとサイドバー結果ツリーで共通。
-// ライト/ダーク両方で視認しやすい濃さの黄色（＋枠線）を採用。
-const HIT_BG = 'rgba(255, 213, 0, 0.28)';
-const HIT_BORDER = 'rgba(214, 166, 0, 0.50)';
-const HIT_CURRENT_BG = 'rgba(255, 140, 0, 0.32)';
-const HIT_CURRENT_BORDER = 'rgba(230, 105, 0, 0.55)';
+// 通常マッチは控えめな黄色、現在マッチは濃い黄色。いずれも境界線なし。
+const HIT_BG = 'rgba(255, 213, 0, 0.3)';
+const HIT_CURRENT_BG = 'rgba(255, 213, 0, 0.45)';
 
 export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   sidebarMatchCount,
@@ -60,6 +65,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   const caseSensitive = useSearchReplaceStore((s) => s.caseSensitive);
   const wholeWord = useSearchReplaceStore((s) => s.wholeWord);
   const useRegex = useSearchReplaceStore((s) => s.useRegex);
+  const scope = useSearchReplaceStore((s) => s.scope);
   const patternError = usePatternError();
   const currentMatches = useSearchReplaceStore((s) => s.currentMatches);
   const currentMatchIndex = useSearchReplaceStore((s) => s.currentMatchIndex);
@@ -79,6 +85,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
     useSearchReplaceStore.getState().setWholeWord(!wholeWord);
   const onToggleUseRegex = () =>
     useSearchReplaceStore.getState().setUseRegex(!useRegex);
+  const onSetScope = useSearchReplaceStore((s) => s.setScope);
   const onSetMode = useSearchReplaceStore((s) => s.setMode);
   const onClear = useSearchReplaceStore((s) => s.clearQuery);
   const onFindNext = useSearchReplaceStore((s) => s.findNext);
@@ -95,6 +102,11 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
   const onSelectNote = (noteId: string) =>
     useSearchReplaceStore.getState().context.onSelectNote(noteId);
 
+  // 検索履歴（最大50件、新しい順、ホバーで X を出して個別削除）
+  const searchHistory = useSearchHistoryStore((s) => s.history);
+  const addSearchHistory = useSearchHistoryStore((s) => s.add);
+  const removeSearchHistory = useSearchHistoryStore((s) => s.remove);
+
   const replaceOn = mode === 'replace';
 
   // 外部フォーカス要求に反応
@@ -110,6 +122,8 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
         e.preventDefault();
+        // 検索を実行したクエリのみ履歴に積む（無効パターンは積まない）
+        if (query.trim() && !patternError) addSearchHistory(query);
         if (e.shiftKey) onFindPrevious();
         else onFindNext();
       } else if (e.key === 'Escape') {
@@ -117,7 +131,7 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
         onClear();
       }
     },
-    [onFindNext, onFindPrevious, onClear],
+    [onFindNext, onFindPrevious, onClear, query, patternError, addSearchHistory],
   );
 
   const totalAllMatches = crossNoteResults.reduce(
@@ -137,14 +151,22 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
       before += group.matches.length;
     }
   }
+  // インデックス表示のフォールバック順:
+  // 1) クロスノート結果に現ノートが含まれる → グローバル位置
+  // 2) 現ノートに matches がある（クロスノートに未反映 or スコープ外） → ローカル位置
+  // 3) クロスノート結果あり / 現ノート 0 件 → 0/全件
+  // 4) クエリあり、結果なし → 0
+  // 5) クエリ無し → サイドバー件数
   const matchBadge =
     globalIndex >= 0
       ? `${globalIndex + 1}/${totalAllMatches}`
-      : totalAllMatches > 0
-        ? `0/${totalAllMatches}`
-        : query
-          ? '0'
-          : `${sidebarMatchCount}`;
+      : currentMatches.length > 0
+        ? `${currentMatchIndex + 1}/${currentMatches.length}`
+        : totalAllMatches > 0
+          ? `0/${totalAllMatches}`
+          : query
+            ? '0'
+            : `${sidebarMatchCount}`;
 
   const toggleReplace = useCallback(() => {
     onSetMode(toggleReplaceMode(mode));
@@ -162,18 +184,17 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
         flexDirection: 'column',
       }}
     >
-      {/* Monaco デコレーションはエディタ DOM 内に描画されるため、GlobalStyles で当てる */}
+      {/* Monaco デコレーションはエディタ DOM 内に描画されるため、GlobalStyles で当てる。
+       * 現在マッチの境界線はテーマの primary カラーを動的に参照する。 */}
       <GlobalStyles
         styles={{
           '.app-search-match': {
             backgroundColor: HIT_BG,
-            border: `1px solid ${HIT_BORDER}`,
             borderRadius: '2px',
             boxSizing: 'border-box',
           },
           '.app-search-match-current': {
             backgroundColor: HIT_CURRENT_BG,
-            border: `1px solid ${HIT_CURRENT_BORDER}`,
             borderRadius: '2px',
             boxSizing: 'border-box',
           },
@@ -193,43 +214,174 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           gap: 0.75,
         }}
       >
-        {/* 検索 input (close ボタンのみ end adornment) */}
-        <InputBase
-          inputRef={findInputRef}
-          value={query}
-          onChange={(e) => onSetQuery(e.target.value)}
-          onKeyDown={handleFindKeyDown}
-          placeholder={t('search.placeholder')}
+        {/* 検索 input + 履歴オートコンプリート。
+         * - freeSolo: 候補にない文字列も自由に入力可
+         * - openOnFocus: フォーカス時に履歴を表示
+         * - 候補ホバーで X が出現し個別削除可能（履歴はストアで永続管理） */}
+        <Autocomplete
+          freeSolo
+          disableClearable
+          openOnFocus
+          autoHighlight={false}
+          options={searchHistory}
+          inputValue={query}
+          onInputChange={(_e, value) => {
+            // 入力・履歴選択ともに query を反映
+            if (value !== query) onSetQuery(value);
+          }}
+          onChange={(_e, value, reason) => {
+            // 履歴をクリックして選択 → 先頭に詰め直し + 検索実行
+            // Enter での確定 (createOption) は handleFindKeyDown 側で処理
+            if (reason === 'selectOption' && typeof value === 'string') {
+              addSearchHistory(value);
+              onFindNext();
+            }
+          }}
+          filterOptions={(opts, state) => {
+            const q = state.inputValue.trim().toLowerCase();
+            if (!q) return opts;
+            return opts.filter((o) => o.toLowerCase().includes(q));
+          }}
           size="small"
-          sx={{
-            fontSize: '0.85rem',
-            border: 1,
-            borderColor: patternError ? 'error.main' : 'divider',
-            borderRadius: 1,
-            '& .MuiInputBase-input': {
-              py: 0.6,
-              px: 0.5,
-              fontFamily: useRegex ? 'monospace' : undefined,
-              // プレースホルダは UI フォントに固定し、regex モード切替によるサイズ揺れを回避
-              '&::placeholder': {
-                fontFamily: (theme) => theme.typography.fontFamily,
-              },
+          fullWidth
+          sx={{ width: '100%' }}
+          slots={{
+            // 履歴は SimpleBar でラップしてアプリ全体と同じスクロールバー意匠に揃える
+            listbox: HistoryListbox,
+          }}
+          slotProps={{
+            paper: {
+              sx: { fontSize: '0.85rem' },
+            },
+            listbox: {
+              sx: { py: 0 },
             },
           }}
-          startAdornment={
-            <InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
-              <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
-            </InputAdornment>
-          }
-          endAdornment={
-            hasQuery ? (
-              <InputAdornment position="end" sx={{ mr: 0.25 }}>
-                <IconButton size="small" onClick={onClear} sx={{ p: 0.5 }}>
-                  <Close sx={{ fontSize: 16 }} />
+          renderInput={(params) => (
+            <InputBase
+              ref={params.slotProps.input.ref}
+              inputRef={findInputRef}
+              inputProps={params.slotProps.htmlInput}
+              onKeyDown={handleFindKeyDown}
+              placeholder={t('search.placeholder')}
+              fullWidth
+              sx={{
+                fontSize: '0.85rem',
+                border: 1,
+                borderColor: patternError ? 'error.main' : 'divider',
+                borderRadius: 1,
+                '& .MuiInputBase-input': {
+                  py: 0.6,
+                  px: 0.5,
+                  fontFamily: useRegex ? 'monospace' : undefined,
+                  // プレースホルダは UI フォントに固定し、regex モード切替によるサイズ揺れを回避
+                  '&::placeholder': {
+                    fontFamily: (theme) => theme.typography.fontFamily,
+                  },
+                },
+              }}
+              startAdornment={
+                <InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
+                  <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
+                </InputAdornment>
+              }
+              endAdornment={
+                // VSCode 風に Aa / ab / .* のトグルを input 内右側に配置。
+                // クエリがあるときのみ X (clear) も並ぶ。
+                <InputAdornment
+                  position="end"
+                  sx={{ mr: 0.25, gap: 0.25, height: 'auto' }}
+                >
+                  <InlineOptionToggle
+                    selected={caseSensitive}
+                    onChange={onToggleCaseSensitive}
+                    title={t('searchReplace.caseMatch')}
+                    label="Aa"
+                  />
+                  <InlineOptionToggle
+                    selected={wholeWord}
+                    onChange={onToggleWholeWord}
+                    title={t('searchReplace.wholeWord')}
+                    label="ab"
+                  />
+                  <InlineOptionToggle
+                    selected={useRegex}
+                    onChange={onToggleUseRegex}
+                    title={t('searchReplace.regex')}
+                    label=".*"
+                  />
+                  {hasQuery && (
+                    <IconButton
+                      size="small"
+                      onClick={onClear}
+                      sx={{ p: 0.25, ml: 0.25 }}
+                    >
+                      <Close sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  )}
+                </InputAdornment>
+              }
+            />
+          )}
+          renderOption={(props, option) => {
+            // React 19+: key は spread から外して明示的に渡す必要がある
+            const { key, ...rest } = props as React.HTMLAttributes<HTMLLIElement> & {
+              key?: React.Key;
+            };
+            // ListItemButton はコンテキスト要件なしで hover / focus / selected の
+            // 背景色やカーソルがテーマから自動適用される (MenuItem は MenuList 内必須)。
+            // Autocomplete が要求する `<li role="option">` のセマンティクスを保つため
+            // component="li" で li にレンダリングする。
+            return (
+              <ListItemButton
+                component="li"
+                key={key ?? option}
+                {...rest}
+                disableRipple
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  fontSize: '0.85rem',
+                  py: 0.5,
+                  // ホバー時に削除ボタンをフェードイン
+                  '&:hover .search-history-delete': { opacity: 1 },
+                }}
+              >
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontFamily: useRegex ? 'monospace' : undefined,
+                  }}
+                >
+                  {option}
+                </Box>
+                <IconButton
+                  className="search-history-delete"
+                  size="small"
+                  // mousedown を抑止することで input が blur せず popper が閉じない
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeSearchHistory(option);
+                  }}
+                  sx={{
+                    opacity: 0,
+                    transition: 'opacity 100ms ease',
+                    p: 0.25,
+                    flexShrink: 0,
+                    ml: 'auto',
+                  }}
+                >
+                  <Close sx={{ fontSize: 14 }} />
                 </IconButton>
-              </InputAdornment>
-            ) : null
-          }
+              </ListItemButton>
+            );
+          }}
         />
 
         {/* マッチカウンタ + 前/次 ナビゲーション (検索クエリがある時のみ) */}
@@ -259,7 +411,9 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                 <IconButton
                   size="small"
                   onClick={onFindPrevious}
-                  disabled={currentMatches.length === 0}
+                  disabled={
+                    currentMatches.length === 0 && totalAllMatches === 0
+                  }
                   sx={{ p: 0.5 }}
                 >
                   <KeyboardArrowUp sx={{ fontSize: 18 }} />
@@ -271,7 +425,9 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
                 <IconButton
                   size="small"
                   onClick={onFindNext}
-                  disabled={currentMatches.length === 0}
+                  disabled={
+                    currentMatches.length === 0 && totalAllMatches === 0
+                  }
                   sx={{ p: 0.5 }}
                 >
                   <KeyboardArrowDown sx={{ fontSize: 18 }} />
@@ -281,34 +437,39 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
           </Box>
         )}
 
-        {/* オプショントグル + 置換モード切替 */}
+        {/* 検索対象スコープ Select + 置換モード切替。
+         * トグル群 (Aa/ab/.*) は入力欄内の endAdornment に移動済み。 */}
         <Box
           sx={{
             display: 'flex',
             alignItems: 'center',
             gap: 0.5,
-            flexWrap: 'wrap',
           }}
         >
-          <OptionToggle
-            selected={caseSensitive}
-            onChange={onToggleCaseSensitive}
-            title={t('searchReplace.caseMatch')}
-            label="Aa"
-          />
-          <OptionToggle
-            selected={wholeWord}
-            onChange={onToggleWholeWord}
-            title={t('searchReplace.wholeWord')}
-            label="ab"
-          />
-          <OptionToggle
-            selected={useRegex}
-            onChange={onToggleUseRegex}
-            title={t('searchReplace.regex')}
-            label=".*"
-          />
-          <Box sx={{ flexGrow: 1 }} />
+          <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+            <Select
+              value={scope}
+              onChange={(e) => onSetScope(e.target.value as SearchScope)}
+              displayEmpty
+              sx={{
+                fontSize: '0.75rem',
+                '& .MuiSelect-select': {
+                  py: 0.5,
+                  pl: 1,
+                },
+              }}
+            >
+              <MenuItem value="all" sx={{ fontSize: '0.8rem' }}>
+                {t('searchReplace.scope.all')}
+              </MenuItem>
+              <MenuItem value="local" sx={{ fontSize: '0.8rem' }}>
+                {t('searchReplace.scope.local')}
+              </MenuItem>
+              <MenuItem value="notes" sx={{ fontSize: '0.8rem' }}>
+                {t('searchReplace.scope.notes')}
+              </MenuItem>
+            </Select>
+          </FormControl>
           <OptionToggle
             selected={replaceOn}
             onChange={toggleReplace}
@@ -462,11 +623,10 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
 
       {/* ============================================================
        * RESULTS セクション: 集計ヘッダ + ノート横断結果ツリー
-       * ヒット 1 件以上のときのみ表示
-       * 全体の背景はアイテム選択色 (薄プライマリー) で塗り、
-       * 検索結果エリアであることを視覚的に区別する。
+       * クエリありかつパターンエラー無しの時に表示する。
+       * ヒット 0 件のときは「検索結果はありません」メッセージを出す。
        * ============================================================ */}
-      {crossNoteResults.length > 0 && (
+      {hasQuery && !patternError && (
         <Box
           sx={{
             borderTop: 1,
@@ -474,50 +634,163 @@ export const SearchReplacePanel: React.FC<SearchReplacePanelProps> = ({
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
-            backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.1),
+            pb: 1,
+            backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.05),
           }}
         >
-          {/* ヘッダ: 集計表示のみ
-           * 全ノート一括置換ボタンは Replace セクション内に移動 */}
-          <Box
-            sx={{
-              px: 1.25,
-              py: 0.75,
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <Typography
-              component="span"
+          {crossNoteResults.length > 0 ? (
+            <>
+              {/* ヘッダ: 集計表示 */}
+              <Box
+                sx={{
+                  px: 1.25,
+                  py: 0.75,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <Typography
+                  component="span"
+                  sx={{
+                    fontSize: '0.75rem',
+                    fontWeight: 500,
+                    color: 'text.secondary',
+                  }}
+                >
+                  {t('searchReplace.crossNoteSummary', {
+                    matchCount: totalAllMatches,
+                    noteCount: crossNoteResults.length,
+                  })}
+                </Typography>
+              </Box>
+              <SimpleBar style={{ maxHeight: '50vh' }}>
+                {crossNoteResults.map((group) => (
+                  <CrossNoteGroup
+                    key={group.noteId}
+                    group={group}
+                    onJump={async (idx) => {
+                      await onSelectNote(group.noteId);
+                      onJumpToNoteMatch(group.noteId, idx);
+                    }}
+                  />
+                ))}
+              </SimpleBar>
+            </>
+          ) : (
+            <Box
               sx={{
-                fontSize: '0.75rem',
-                fontWeight: 500,
-                color: 'text.secondary',
+                px: 1.25,
+                py: 1.25,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              {t('searchReplace.crossNoteSummary', {
-                matchCount: totalAllMatches,
-                noteCount: crossNoteResults.length,
-              })}
-            </Typography>
-          </Box>
-          <SimpleBar style={{ maxHeight: '50vh' }}>
-            {crossNoteResults.map((group) => (
-              <CrossNoteGroup
-                key={group.noteId}
-                group={group}
-                onJump={async (idx) => {
-                  await onSelectNote(group.noteId);
-                  onJumpToNoteMatch(group.noteId, idx);
+              <Typography
+                component="span"
+                sx={{
+                  fontSize: '0.8rem',
+                  color: 'text.secondary',
                 }}
-              />
-            ))}
-          </SimpleBar>
+              >
+                {t('searchReplace.noResults')}
+              </Typography>
+            </Box>
+          )}
         </Box>
       )}
     </Box>
   );
 };
+
+// 検索履歴ドロップダウン用 listbox。
+// SimpleBar 経由でスクロールバーをアプリ全体（サイドバー等）と同じ意匠に揃える。
+// MUI Autocomplete のデフォルト listbox は `<ul>` で overflow:auto なので、
+// 中の `<ul>` は overflow:visible にして外側 SimpleBar に高さ制限とスクロールを任せる。
+// スクロールバーが各行の削除ボタン (X) と被らないよう右側 padding も付ける。
+const HistoryListbox = forwardRef<
+  HTMLUListElement,
+  React.HTMLAttributes<HTMLElement>
+>(function HistoryListbox({ children, style, ...other }, ref) {
+  return (
+    <Box
+      sx={{
+        // サイドバーと統一: スクロールバーつまみを text.secondary 色に
+        '& .simplebar-track.simplebar-vertical .simplebar-scrollbar:before': {
+          backgroundColor: 'text.secondary',
+        },
+      }}
+    >
+      <SimpleBar style={{ maxHeight: 160 }}>
+        <ul
+          ref={ref}
+          {...other}
+          style={{
+            ...style,
+            margin: 0,
+            // 上下 8px はデフォルト相当、左右 12px は項目を左右両端から離して
+            // 削除 X ボタンとスクロールバーが被るのを防ぐ
+            padding: '8px 12px',
+            listStyle: 'none',
+            maxHeight: 'none',
+            overflow: 'visible',
+          }}
+        >
+          {children}
+        </ul>
+      </SimpleBar>
+    </Box>
+  );
+});
+
+// VSCode 風の検索入力欄内インライントグル (Aa / ab / .*)。
+// onMouseDown を抑止することで input から focus を奪わない。
+const InlineOptionToggle: React.FC<{
+  selected: boolean;
+  onChange: () => void;
+  title: string;
+  label: string;
+}> = ({ selected, onChange, title, label }) => (
+  <Tooltip arrow title={title}>
+    <Box
+      component="button"
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.preventDefault();
+        onChange();
+      }}
+      sx={{
+        appearance: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        width: 22,
+        height: 22,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'inherit',
+        fontSize: '0.7rem',
+        fontWeight: 'bold',
+        borderRadius: 1,
+        color: selected ? 'primary.contrastText' : 'text.secondary',
+        backgroundColor: selected ? 'primary.main' : 'transparent',
+        transition: 'background-color 100ms ease, color 100ms ease',
+        '&:hover': {
+          backgroundColor: selected
+            ? 'primary.dark'
+            : (theme) =>
+                alpha(
+                  theme.palette.action.active,
+                  theme.palette.action.hoverOpacity,
+                ),
+        },
+      }}
+    >
+      {label}
+    </Box>
+  </Tooltip>
+);
 
 // 汎用トグルボタン (オプション切替用)
 const OptionToggle: React.FC<{
@@ -639,12 +912,19 @@ const CrossNoteGroupImpl: React.FC<CrossNoteGroupProps> = ({
           group.content,
           m.start,
         );
-        const before = lineText.slice(0, matchOffsetInLine);
-        const hit = lineText.slice(
-          matchOffsetInLine,
-          matchOffsetInLine + m.matchText.length,
-        );
-        const after = lineText.slice(matchOffsetInLine + m.matchText.length);
+        // 長い行（SVG パス等）でも hit が確実に見えるよう、hit を中心にウィンドウ抽出する。
+        // hit より前は最大 PREVIEW_BEFORE 文字、後ろは最大 PREVIEW_AFTER 文字を表示し、
+        // 切り詰めた側に '…' を付ける。
+        const PREVIEW_BEFORE = 10;
+        const PREVIEW_AFTER = 200;
+        const hitEnd = matchOffsetInLine + m.matchText.length;
+        const displayStart = Math.max(0, matchOffsetInLine - PREVIEW_BEFORE);
+        const displayEnd = Math.min(lineText.length, hitEnd + PREVIEW_AFTER);
+        const prefixEllipsis = displayStart > 0 ? '…' : '';
+        const suffixEllipsis = displayEnd < lineText.length ? '…' : '';
+        const before = lineText.slice(displayStart, matchOffsetInLine);
+        const hit = lineText.slice(matchOffsetInLine, hitEnd);
+        const after = lineText.slice(hitEnd, displayEnd);
         return (
           <Box
             key={`${group.noteId}-${m.start}-${m.end}-${m.matchText}`}
@@ -675,6 +955,7 @@ const CrossNoteGroupImpl: React.FC<CrossNoteGroupProps> = ({
               component="span"
               sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
             >
+              {prefixEllipsis}
               {before}
             </Typography>
             <Typography
@@ -683,7 +964,6 @@ const CrossNoteGroupImpl: React.FC<CrossNoteGroupProps> = ({
                 fontSize: '0.75rem',
                 fontFamily: 'monospace',
                 backgroundColor: HIT_BG,
-                border: `1px solid ${HIT_BORDER}`,
                 borderRadius: '2px',
                 fontWeight: 'bold',
               }}
@@ -695,6 +975,7 @@ const CrossNoteGroupImpl: React.FC<CrossNoteGroupProps> = ({
               sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}
             >
               {after}
+              {suffixEllipsis}
             </Typography>
           </Box>
         );

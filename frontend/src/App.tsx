@@ -244,30 +244,53 @@ function App() {
     );
   }, []);
   const getActiveNoteId = useCallback((): string | null => {
-    const { isSplit, focusedPane, leftNote, rightNote } =
-      useSplitEditorStore.getState();
+    const {
+      isSplit,
+      focusedPane,
+      leftNote,
+      leftFileNote,
+      rightNote,
+      rightFileNote,
+    } = useSplitEditorStore.getState();
     if (isSplit) {
-      if (focusedPane === 'left') return leftNote?.id ?? null;
-      return rightNote?.id ?? null;
+      if (focusedPane === 'left')
+        return leftNote?.id ?? leftFileNote?.id ?? null;
+      return rightNote?.id ?? rightFileNote?.id ?? null;
     }
-    return useCurrentNoteStore.getState().currentNote?.id ?? null;
+    // 単一ペイン時は currentNote 優先、なければ currentFileNote を見る
+    const currentNoteId = useCurrentNoteStore.getState().currentNote?.id;
+    if (currentNoteId) return currentNoteId;
+    return useCurrentNoteStore.getState().currentFileNote?.id ?? null;
   }, []);
   const handleSelectNoteByIdForSearch = useCallback(
     async (noteId: string) => {
+      // ノートとファイルノートの両方から探す（クロスノート検索結果は両方を含むため）
       const n = useNotesStore
         .getState()
         .notes.find((note) => note.id === noteId);
-      if (!n) return;
+      if (n) {
+        if (useSplitEditorStore.getState().isSplit)
+          await handleSelectNoteForPane(n);
+        else await handleSelecAnyNote(n);
+        return;
+      }
+      const fn = useFileNotesStore
+        .getState()
+        .fileNotes.find((file) => file.id === noteId);
+      if (!fn) return;
       if (useSplitEditorStore.getState().isSplit)
-        await handleSelectNoteForPane(n);
-      else await handleSelecAnyNote(n);
+        await handleSelectNoteForPane(fn);
+      else await handleSelecAnyNote(fn);
     },
     [handleSelectNoteForPane, handleSelecAnyNote],
   );
   useEffect(() => {
     useSearchReplaceStore.getState().setContext({
       getNotes: () => useNotesStore.getState().notes,
+      getFileNotes: () => useFileNotesStore.getState().fileNotes,
       setNotes: (updater) => useNotesStore.getState().setNotes(updater),
+      setFileNotes: (updater) =>
+        useFileNotesStore.getState().setFileNotes(updater),
       getActiveEditor,
       getActiveNoteId,
       t,

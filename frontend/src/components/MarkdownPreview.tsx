@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Box, Link, useTheme } from '@mui/material';
 import rehypeHighlight from 'rehype-highlight';
@@ -54,6 +54,39 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
     () => editorInstanceRef.current?.getValue() ?? '',
   );
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ReactMarkdown の `components` 引数。インラインで毎回新規オブジェクト/関数を
+  // 渡すと、ReactMarkdown 内部のツリー比較で MermaidDiagram 含む配下が
+  // 再描画扱いになってちらつき・ズームリセットが起きる。isDark 依存で memo 化。
+  const components = useMemo(
+    () => ({
+      a: MarkdownLink,
+      pre: ({
+        children,
+        ...props
+      }: React.HTMLAttributes<HTMLPreElement>) => {
+        // mermaid コードブロックの場合は <pre> を挟まず直接 MermaidDiagram を表示
+        const child = Array.isArray(children) ? children[0] : children;
+        if (
+          child &&
+          typeof child === 'object' &&
+          'props' in child &&
+          typeof (child as { props?: { className?: unknown } }).props
+            ?.className === 'string' &&
+          ((child as { props: { className: string } }).props.className).includes(
+            'language-mermaid',
+          )
+        ) {
+          const code = String(
+            (child as { props: { children: unknown } }).props.children,
+          ).replace(/\n$/, '');
+          return <MermaidDiagram code={code} isDark={isDark} />;
+        }
+        return <pre {...props}>{children}</pre>;
+      },
+    }),
+    [isDark],
+  );
 
   useEffect(() => {
     const editor = editorInstanceRef.current;
@@ -196,24 +229,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[[rehypeHighlight, { plainText: ['mermaid'] }]]}
-        components={{
-          a: MarkdownLink,
-          pre: ({ children, ...props }) => {
-            // mermaid コードブロックの場合は <pre> を挟まず直接 MermaidDiagram を表示
-            const child = Array.isArray(children) ? children[0] : children;
-            if (
-              child &&
-              typeof child === 'object' &&
-              'props' in child &&
-              typeof child.props?.className === 'string' &&
-              child.props.className.includes('language-mermaid')
-            ) {
-              const code = String(child.props.children).replace(/\n$/, '');
-              return <MermaidDiagram code={code} isDark={isDark} />;
-            }
-            return <pre {...props}>{children}</pre>;
-          },
-        }}
+        components={components}
       >
         {content}
       </ReactMarkdown>

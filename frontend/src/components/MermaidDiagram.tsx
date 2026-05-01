@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -24,7 +25,13 @@ interface MermaidDiagramProps {
 
 let renderCounter = 0;
 
-export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
+// React.memo で props が同一値のときに完全に再レンダーをスキップする。
+// ReactCompiler 環境でも、上位 (ReactMarkdown 経由) の memo 解析が
+// 効かないケースに備えて explicit に memo 化しておく。
+// 内部の useEffect は [code, isDark] の値変化でしか再実行されないので、
+// memo がうまく機能していれば「タイピング中でも mermaid.render が無駄に走らず
+// ズーム/位置がリセットされない」という挙動になる。
+const MermaidDiagramImpl: React.FC<MermaidDiagramProps> = ({
   code,
   isDark,
 }) => {
@@ -265,3 +272,9 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({
     </Box>
   );
 };
+
+// code と isDark が同一値ならレンダーをスキップ。
+export const MermaidDiagram = memo(
+  MermaidDiagramImpl,
+  (prev, next) => prev.code === next.code && prev.isDark === next.isDark,
+);

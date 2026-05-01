@@ -51,6 +51,12 @@ const getStoreActions = () => useNotesStore.getState();
 export const useNotes = (options: UseNotesOptions = {}) => {
   const { onNotesReloaded, openNoteInPaneRef } = options;
   const setCurrentNote = useCurrentNoteStore((state) => state.setCurrentNote);
+  const setCurrentFileNote = useCurrentNoteStore(
+    (state) => state.setCurrentFileNote,
+  );
+  const requestTitleFocus = useCurrentNoteStore(
+    (state) => state.requestTitleFocus,
+  );
 
   const isNoteModified = useRef(false);
   const previousContent = useRef<string>('');
@@ -302,7 +308,11 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     if (splitState.isSplit && openNoteInPaneRef?.current) {
       openNoteInPaneRef.current(newNote, splitState.focusedPane);
     } else {
+      // 直前にローカルファイルが開かれていた場合、currentFileNote をクリアしないと
+      // currentNote と currentFileNote が両方セットされた「分裂状態」になる
+      // （PaneHeader は fileNote 優先で描画し、Editor 本文は note を表示する不整合）。
       setCurrentNote(newNote);
+      setCurrentFileNote(null);
       SetLastActiveNote(newNote.id, false);
     }
 
@@ -310,8 +320,10 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     SaveNote(backend.Note.createFrom(newNote), 'create').catch((err) =>
       console.error('SaveNote (create) failed:', err),
     );
+    // タイトル欄にフォーカスを送る（PaneHeader が token 変化で focus + select する）
+    requestTitleFocus();
     return newNote;
-  }, [openNoteInPaneRef, setCurrentNote]);
+  }, [openNoteInPaneRef, setCurrentNote, setCurrentFileNote, requestTitleFocus]);
 
   // 新規ノート作成 ------------------------------------------------------------
   const handleNewNote = useCallback(async () => {

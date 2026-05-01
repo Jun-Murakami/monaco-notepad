@@ -156,7 +156,11 @@ export const ArchivedNoteContentDialog: React.FC<
           >
             {titleInfo.text}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ fontSize: '0.95rem' }}
+          >
             {formatNoteDateTime(note.modifiedTime, systemLocale)}
           </Typography>
         </Box>

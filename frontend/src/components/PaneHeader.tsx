@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Archive,
@@ -16,6 +17,8 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+
+import { useTitleFocusToken } from '../stores/useCurrentNoteStore';
 
 import type { SelectProps, Theme } from '@mui/material';
 import type { LanguageInfo } from '../lib/monaco';
@@ -97,6 +100,21 @@ export const PaneHeader = ({
     ? t('notes.closeShortcut', { shortcut: commandKey })
     : t('notes.archiveShortcut', { shortcut: commandKey });
 
+  // 新規ノート作成等で外部からタイトル欄にフォーカスを要求されたとき、
+  // フォーカスされている (dimmed=false) ペインの本ヘッダーがそれを受け取って
+  // input にフォーカス + 全選択する。FileNote のときは disabled なのでスキップ。
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleFocusToken = useTitleFocusToken();
+  useEffect(() => {
+    if (titleFocusToken === 0) return; // 初期値は無視
+    if (dimmed) return;
+    if (isFile) return;
+    requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [titleFocusToken, dimmed, isFile]);
+
   return (
     <Box
       sx={{
@@ -153,6 +171,7 @@ export const PaneHeader = ({
           </Typography>
         ))}
       <TextField
+        inputRef={titleInputRef}
         sx={{
           width: '100%',
           '& .MuiOutlinedInput-root': {

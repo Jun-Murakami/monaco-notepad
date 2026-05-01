@@ -363,7 +363,7 @@ const ArchivedNoteItem: React.FC<ArchivedNoteItemProps> = memo(
                 sx={{
                   display: 'block',
                   color: 'text.disabled',
-                  fontSize: '0.7rem',
+                  fontSize: '0.8rem',
                   lineHeight: 1.2,
                   mt: 0.25,
                 }}

@@ -35,9 +35,18 @@
     "deleteLocalDataConfirmMessage": "This will delete all Monaco Notepad data saved on this device. Google Drive data will not be deleted. This cannot be undone.",
     "deleteLocalDataSuccess": "Deleted data on this device.",
     "deleteLocalDataError": "Failed to delete local data: {{error}}",
+    "installMobileApp": "Install the mobile app",
     "resetToDefault": "Reset to Default",
     "close": "Close",
     "aboutLicense": "About / License"
+  },
+  "mobileApp": {
+    "title": "Install the mobile app",
+    "description": "Scan a QR code below with your phone camera to open the store page.",
+    "iosCaption": "iOS",
+    "androidCaption": "Android",
+    "logoAlt": "Monaco Notepad",
+    "close": "Close"
   },
   "app": {
     "titleBar": "Monaco Notepad",
@@ -82,6 +91,7 @@
       "replaceAllInAll": "Replace in All Notes: {{count}} replaced"
     },
     "crossNoteSummary": "{{matchCount}} hits in {{noteCount}} notes",
+    "noResults": "No results",
     "toggleReplace": "Toggle replace",
     "all": "All",
     "matchCount": "{{count}} matches",
@@ -91,6 +101,11 @@
     "mode": {
       "find": "Find",
       "replace": "Replace"
+    },
+    "scope": {
+      "all": "Search all",
+      "local": "Local files only",
+      "notes": "Notes only"
     }
   },
   "notes": {

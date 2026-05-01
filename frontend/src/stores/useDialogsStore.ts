@@ -11,6 +11,7 @@ interface DialogsState {
   settingsKey: number; // 開くたびに増やすことで SettingsDialog の内部 state を初期化する
   isAboutOpen: boolean;
   isConflictBackupsOpen: boolean;
+  isMobileAppOpen: boolean;
   // ConflictBackupsDialog から復元を要求されたときに呼ぶハンドラ。
   // 復元処理は notes / topLevelOrder / currentNote 等 App 配下の state を触るため、
   // App 側が register/unregister する形でここに格納する。
@@ -24,6 +25,8 @@ interface DialogsActions {
   closeAbout: () => void;
   openConflictBackups: () => void;
   closeConflictBackups: () => void;
+  openMobileApp: () => void;
+  closeMobileApp: () => void;
   setRestoreHandler: (
     handler: ((sourceNote: Note) => Promise<void>) | null,
   ) => void;
@@ -34,6 +37,7 @@ const INITIAL_STATE: DialogsState = {
   settingsKey: 0,
   isAboutOpen: false,
   isConflictBackupsOpen: false,
+  isMobileAppOpen: false,
   onRestoreFromBackup: null,
 };
 
@@ -50,5 +54,8 @@ export const useDialogsStore = create<DialogsState & DialogsActions>((set) => ({
   openConflictBackups: () =>
     set({ isSettingsOpen: false, isConflictBackupsOpen: true }),
   closeConflictBackups: () => set({ isConflictBackupsOpen: false }),
+  // 設定ダイアログの上に重ねて開くため isSettingsOpen は変更しない
+  openMobileApp: () => set({ isMobileAppOpen: true }),
+  closeMobileApp: () => set({ isMobileAppOpen: false }),
   setRestoreHandler: (handler) => set({ onRestoreFromBackup: handler }),
 }));

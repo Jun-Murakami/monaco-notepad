@@ -44,6 +44,7 @@ export const SettingsDialog: React.FC = () => {
   const onClose = useDialogsStore((s) => s.closeSettings);
   const onOpenAbout = useDialogsStore((s) => s.openAbout);
   const onOpenConflictBackups = useDialogsStore((s) => s.openConflictBackups);
+  const onOpenMobileApp = useDialogsStore((s) => s.openMobileApp);
   const settings = useEditorSettingsStore((s) => s.settings);
   const onChange = saveAndApplyEditorSettings;
   const [localSettings, setLocalSettings] = useState<Settings>({ ...settings });
@@ -152,9 +153,12 @@ export const SettingsDialog: React.FC = () => {
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth="sm"
+      maxWidth={false}
       fullWidth
       slotProps={{
+        paper: {
+          sx: { width: 680, maxWidth: '100%' },
+        },
         backdrop: {
           onExited: () => {
             if (document.activeElement instanceof HTMLElement) {
@@ -460,6 +464,13 @@ export const SettingsDialog: React.FC = () => {
         </Button>
         <Button onClick={onOpenAbout} color="primary">
           {t('settings.aboutLicense')}
+        </Button>
+        <Button
+          onClick={onOpenMobileApp}
+          variant="outlined"
+          color="primary"
+        >
+          {t('settings.installMobileApp')}
         </Button>
         <Box sx={{ flex: '1 0 0' }} />
         <Button onClick={handleClose} variant="contained">

@@ -130,6 +130,44 @@ describe('useNotes', () => {
       );
     });
 
+    it('FileNote が開かれている状態で新規ノートを作成すると currentFileNote がクリアされる (回帰テスト: ローカルファイル + 新規ノート分裂状態)', async () => {
+      // 既存の active な FileNote を模擬
+      useCurrentNoteStore.getState().setCurrentFileNote({
+        id: 'file-1',
+        fileName: 'Icons.tsx',
+        filePath: '/abs/Icons.tsx',
+        content: 'export const Icons = ...',
+        originalContent: 'export const Icons = ...',
+        language: 'typescript',
+        modifiedTime: new Date().toISOString(),
+      });
+      // 念のため currentNote は null
+      useCurrentNoteStore.getState().setCurrentNote(null);
+
+      const { result } = renderHook(() => useNotes());
+      await act(async () => {
+        await result.current.handleNewNote();
+      });
+
+      // 新規ノートが currentNote にセットされる
+      const cur = useCurrentNoteStore.getState().currentNote;
+      expect(cur).toBeTruthy();
+      expect(cur?.title).toBe('');
+      // 重要: currentFileNote は null にクリアされる（PaneHeader の fileNote 優先描画
+      // と Editor 側の note 表示が分裂してタイトル編集不能になる事故を防ぐ）
+      expect(useCurrentNoteStore.getState().currentFileNote).toBeNull();
+    });
+
+    it('新規ノート作成で titleFocusToken が増加する (PaneHeader がタイトル欄をフォーカスする合図)', async () => {
+      const before = useCurrentNoteStore.getState().titleFocusToken;
+      const { result } = renderHook(() => useNotes());
+      await act(async () => {
+        await result.current.handleNewNote();
+      });
+      const after = useCurrentNoteStore.getState().titleFocusToken;
+      expect(after).toBeGreaterThan(before);
+    });
+
     it('ノートの選択が正しく機能すること', async () => {
       const { result } = renderHook(() => useNotes());
 

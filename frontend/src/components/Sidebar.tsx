@@ -214,7 +214,10 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                 position: 'relative',
               }}
             >
-              <Typography variant="body2" color="text.secondary">
+              <Typography
+                variant="body2"
+                color={noteSearch ? 'primary' : 'text.secondary'}
+              >
                 {t('app.localFiles')}{' '}
                 <Typography
                   component="span"
@@ -225,7 +228,9 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                     ml: 1,
                   }}
                 >
-                  {noteSearch ? filteredFileNotes.length : fileNotes.length}
+                  {noteSearch
+                    ? `(${filteredFileNotes.length}/${fileNotes.length})`
+                    : fileNotes.length}
                 </Typography>
               </Typography>
               {recentFiles.length > 0 && (
@@ -379,7 +384,10 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                 mb: 0,
               }}
             >
-              <Typography variant="body2" color="text.secondary">
+              <Typography
+                variant="body2"
+                color={noteSearch ? 'primary' : 'text.secondary'}
+              >
                 {t('app.notes')}{' '}
                 <Typography
                   component="span"
@@ -391,7 +399,7 @@ export const Sidebar: React.FC<SidebarProps> = memo(
                   }}
                 >
                   {noteSearch
-                    ? filteredNotes.length
+                    ? `(${filteredNotes.length}/${notes.filter((note) => !note.archived).length})`
                     : notes.filter((note) => !note.archived).length}
                 </Typography>
               </Typography>

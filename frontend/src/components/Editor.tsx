@@ -182,29 +182,10 @@ export const Editor: React.FC<EditorProps> = ({
     }
   }, [currentNoteContent, currentNoteId, editorInstanceRef]);
 
-  useEffect(() => {
-    if (!currentNoteId) return;
-    const editor = editorInstanceRef.current;
-    if (!editor) return;
-
-    const model = editor.getModel();
-    if (!model || !searchKeyword) return;
-
-    const matches = model.findMatches(
-      searchKeyword,
-      true,
-      false,
-      false,
-      null,
-      true,
-    );
-    if (matches.length > 0) {
-      const idx =
-        searchMatchIndexInNote < matches.length ? searchMatchIndexInNote : 0;
-      editor.setSelection(matches[idx].range);
-      editor.revealRangeInCenter(matches[idx].range);
-    }
-  }, [searchKeyword, searchMatchIndexInNote, currentNoteId, editorInstanceRef]);
+  // 旧 search useEffect は SearchReplaceStore の更新と二重に setSelection を呼び、
+  // ノート切替時にキャレットが Monaco の findMatches 結果（caseSensitive/regex 等の設定を
+  // 反映しない別検索）に置き換わってしまっていたため削除。検索選択は SearchReplaceStore の
+  // updateDecorationsAndScroll に一本化する。
 
   // 【削除済み】settings → Monaco sync useEffect: applySettingsToAllEditors() がハンドラから直接呼ばれるため不要
   // 【削除済み】language → Monaco sync useEffect: applyLanguageToEditor() がハンドラから直接呼ばれるため不要

@@ -8,17 +8,23 @@ import type { FileNote, Note } from '../types';
 interface CurrentNoteState {
   currentNote: Note | null;
   currentFileNote: FileNote | null;
+  // 新規ノート作成時にタイトル欄へフォーカスを向けるトークン。
+  // PaneHeader が値の変化を監視して focus + select を行う。
+  // （特定ペインに送る必要はなく、フォーカスされているペインの title が拾えば良い）
+  titleFocusToken: number;
 }
 
 interface CurrentNoteActions {
   setCurrentNote: (note: Note | null) => void;
   setCurrentFileNote: (note: FileNote | null) => void;
   resetCurrentNote: () => void;
+  requestTitleFocus: () => void;
 }
 
 const INITIAL_STATE: CurrentNoteState = {
   currentNote: null,
   currentFileNote: null,
+  titleFocusToken: 0,
 };
 
 export const useCurrentNoteStore = create<
@@ -28,6 +34,8 @@ export const useCurrentNoteStore = create<
   setCurrentNote: (currentNote) => set({ currentNote }),
   setCurrentFileNote: (currentFileNote) => set({ currentFileNote }),
   resetCurrentNote: () => set(INITIAL_STATE),
+  requestTitleFocus: () =>
+    set((s) => ({ titleFocusToken: s.titleFocusToken + 1 })),
 }));
 
 // 末端コンポーネント向け薄い購読 hook。selector を一箇所に集約することで
@@ -40,3 +48,5 @@ export const useCurrentNoteId = () =>
   useCurrentNoteStore((state) => state.currentNote?.id ?? null);
 export const useCurrentFileNoteId = () =>
   useCurrentNoteStore((state) => state.currentFileNote?.id ?? null);
+export const useTitleFocusToken = () =>
+  useCurrentNoteStore((state) => state.titleFocusToken);

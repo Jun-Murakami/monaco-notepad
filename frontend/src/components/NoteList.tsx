@@ -308,7 +308,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
                 sx={{
                   width: '100%',
                   color: 'text.disabled',
-                  fontSize: '0.7rem',
+                  fontSize: '0.8rem',
                   lineHeight: 1.2,
                   mt: 0.25,
                 }}

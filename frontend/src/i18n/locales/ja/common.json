@@ -35,9 +35,18 @@
     "deleteLocalDataConfirmMessage": "この端末に保存されたMonaco Notepadのデータをすべて削除します。Google Drive上のデータは削除されません。この操作は取り消せません。",
     "deleteLocalDataSuccess": "この端末のデータを削除しました。",
     "deleteLocalDataError": "端末データの削除に失敗しました: {{error}}",
+    "installMobileApp": "スマートフォンアプリをインストール",
     "resetToDefault": "デフォルトにリセット",
     "close": "閉じる",
     "aboutLicense": "このアプリについて / ライセンス"
+  },
+  "mobileApp": {
+    "title": "スマートフォンアプリをインストール",
+    "description": "下のQRコードをスマートフォンのカメラで読み取ると、ストアに移動します。",
+    "iosCaption": "iOS",
+    "androidCaption": "Android",
+    "logoAlt": "Monaco Notepad",
+    "close": "閉じる"
   },
   "app": {
     "titleBar": "Monaco Notepad",
@@ -82,6 +91,7 @@
       "replaceAllInAll": "すべてのノートで置換: {{count}} 件を置換しました"
     },
     "crossNoteSummary": "{{noteCount}} 件のノートで {{matchCount}} 件ヒット",
+    "noResults": "検索結果はありません",
     "toggleReplace": "置換欄を表示/非表示",
     "all": "全て",
     "matchCount": "{{count}} 件",
@@ -91,6 +101,11 @@
     "mode": {
       "find": "検索",
       "replace": "置換"
+    },
+    "scope": {
+      "all": "全て検索",
+      "local": "ローカルのみ検索",
+      "notes": "ノートのみ検索"
     }
   },
   "notes": {

@@ -13,6 +13,9 @@ const ConflictBackupsDialog = React.lazy(() =>
     default: m.ConflictBackupsDialog,
   })),
 );
+const MobileAppDialog = React.lazy(() =>
+  import('./MobileAppDialog').then((m) => ({ default: m.MobileAppDialog })),
+);
 
 // アプリ全体のセカンダリダイアログをまとめてホストする。
 // App.tsx から切り出すことで、ダイアログ開閉や中身のロジックが App の
@@ -32,6 +35,9 @@ export const DialogHost: React.FC = () => {
       </Suspense>
       <Suspense fallback={null}>
         <ConflictBackupsDialog />
+      </Suspense>
+      <Suspense fallback={null}>
+        <MobileAppDialog />
       </Suspense>
     </>
   );
