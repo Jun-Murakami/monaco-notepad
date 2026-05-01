@@ -8,7 +8,7 @@ A programmer's notepad powered by Monaco Editor (the same engine as VS Code). Ed
 
 [Download for Desktop](https://github.com/jun-murakami/monaco-notepad/releases/latest)
 
-<img width="2700" height="1684" alt="Monaco Notepad Screenshot" src="https://github.com/user-attachments/assets/7609b7c5-2037-4801-bf5d-c70cb2d61e79" />
+<img width="3024" height="1964" alt="image" src="https://github.com/user-attachments/assets/8c976163-f6fd-44a5-a93f-d26bbf3c6e0b" />
 
 ## Features
 
