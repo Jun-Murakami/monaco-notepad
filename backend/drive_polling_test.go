@@ -325,6 +325,45 @@ func TestPolling_StopPolling_Safe(t *testing.T) {
 	}, "StopPollingは安全に呼べて再開もできるべき")
 }
 
+// TestPolling_ConcurrentStopRestartRefresh は polling goroutine と sync goroutine が
+// stopPollingChan / changePageToken に並行アクセスする状況を再現する。
+// 修正前: `-race` で `WARNING: DATA RACE` が発生。
+//   - stopPollingChan の close + 再代入が StartPolling の select-read と race
+//   - changePageToken の read/write が RefreshChangeToken と race
+// 修正後: mu sync.Mutex で全フィールドを保護、race ゼロ。
+func TestPolling_ConcurrentStopRestartRefresh(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+
+	seedCloudNoteListFile(t, ds, rawOps)
+	polling := NewDrivePollingService(context.Background(), ds)
+
+	// 30 サイクル、各サイクルで「Start → 少し動かす → Stop → RefreshChangeToken」を並行実行
+	const cycles = 30
+	done := make(chan struct{})
+
+	go func() {
+		// goroutine A: Stop / Start を繰り返す
+		for i := 0; i < cycles; i++ {
+			go polling.StartPolling()
+			time.Sleep(2 * time.Millisecond)
+			polling.StopPolling()
+		}
+		close(done)
+	}()
+
+	// goroutine B: RefreshChangeToken を別 goroutine から連打 (sync 経路の模擬)
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			polling.RefreshChangeToken()
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
 func TestPolling_NoChanges_IntervalIncreases(t *testing.T) {
 	const (
 		initialInterval = 5 * time.Second

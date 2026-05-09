@@ -5,18 +5,28 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/api/drive/v3"
 )
 
+// DrivePollingService は Drive 同期のポーリングを管理する。
+//
+// ★ 並行性ルール:
+//   StartPolling は専用の goroutine から呼ばれる長時間ループ。
+//   StopPolling と RefreshChangeToken はメインスレッドや別の sync goroutine から
+//   並行に呼ばれる。stopPollingChan の close+再代入と changePageToken の
+//   読み書きが race するため、mu sync.Mutex で保護する。
 type DrivePollingService struct {
 	ctx              context.Context
 	driveService     *driveService
 	resetPollingChan chan struct{}
-	stopPollingChan  chan struct{}
 	logger           AppLogger
-	changePageToken  string
+
+	mu              sync.Mutex // 以下のフィールドを保護
+	stopPollingChan chan struct{}
+	changePageToken string
 }
 
 func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePollingService {
@@ -27,6 +37,29 @@ func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePolling
 		stopPollingChan:  make(chan struct{}),
 		logger:           ds.logger,
 	}
+}
+
+// currentStopChannel は StartPolling が select で監視する stop channel を返す。
+// StopPolling が close+再代入した瞬間に StartPolling 側の select-read と race
+// しないよう、必ずこの helper 経由で取得し local 変数に保持して使う。
+func (p *DrivePollingService) currentStopChannel() chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stopPollingChan
+}
+
+// getChangePageToken は Changes API のページトークンを返す。RefreshChangeToken
+// など別 goroutine からの書き換えと race しないよう lock 経由で読む。
+func (p *DrivePollingService) getChangePageToken() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.changePageToken
+}
+
+func (p *DrivePollingService) setChangePageToken(token string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.changePageToken = token
 }
 
 func (p *DrivePollingService) WaitForFrontendAndStartSync() {
@@ -59,6 +92,12 @@ func (p *DrivePollingService) StartPolling() {
 		reconnectMaxDelay  = 3 * time.Minute
 	)
 
+	// stopPollingChan は StopPolling が close+再代入する。select 文で
+	// p.stopPollingChan を直接参照するとフィールド書換と race するため、
+	// 開始時に local に capture したものを使う。次回 StartPolling 時には
+	// StopPolling が新しい channel を作っているのでそちらが拾われる。
+	stopChan := p.currentStopChannel()
+
 	interval := initialInterval
 	reconnectDelay := reconnectBaseDelay
 	ticker := time.NewTicker(interval)
@@ -90,7 +129,7 @@ func (p *DrivePollingService) StartPolling() {
 		select {
 		case <-p.ctx.Done():
 			return
-		case <-p.stopPollingChan:
+		case <-stopChan:
 			return
 		case <-p.resetPollingChan:
 			interval = initialInterval
@@ -112,7 +151,7 @@ func (p *DrivePollingService) StartPolling() {
 				p.logger.NotifyDriveStatus(p.ctx, "synced")
 				reconnectDelay = reconnectBaseDelay
 				interval = initialInterval
-				p.changePageToken = ""
+				p.setChangePageToken("")
 				ticker.Reset(interval)
 				continue
 			}
@@ -163,7 +202,7 @@ func (p *DrivePollingService) initChangeToken() {
 		p.logger.ErrorCode(err, MsgDriveErrorGetChangeToken, nil)
 		return
 	}
-	p.changePageToken = token
+	p.setChangePageToken(token)
 	p.logger.Console("Changes API initialized with token: %s", token)
 }
 
@@ -175,11 +214,12 @@ func (p *DrivePollingService) RefreshChangeToken() {
 	if err != nil {
 		return
 	}
-	p.changePageToken = token
+	p.setChangePageToken(token)
 }
 
 func (p *DrivePollingService) checkForChanges() (bool, error) {
-	if p.changePageToken == "" {
+	currentToken := p.getChangePageToken()
+	if currentToken == "" {
 		p.logger.Console("No change token available, performing full sync")
 		if err := p.driveService.SyncNotes(); err != nil {
 			return false, err
@@ -188,15 +228,15 @@ func (p *DrivePollingService) checkForChanges() (bool, error) {
 		return false, nil
 	}
 
-	result, err := p.driveService.driveOps.ListChanges(p.changePageToken)
+	result, err := p.driveService.driveOps.ListChanges(currentToken)
 	if err != nil {
 		p.logger.ErrorCode(err, MsgDriveErrorChangesAPI, nil)
-		p.changePageToken = ""
+		p.setChangePageToken("")
 		return true, nil
 	}
 
 	if result.NewStartToken != "" {
-		p.changePageToken = result.NewStartToken
+		p.setChangePageToken(result.NewStartToken)
 	}
 
 	if len(result.Changes) == 0 {
@@ -229,7 +269,13 @@ func hasRelevantChanges(changes []*drive.Change, rootID, notesID string) bool {
 	return false
 }
 
+// StopPolling は実行中の StartPolling ループを終了させる。多重呼び出し可能。
+// 停止後に再度 StartPolling を呼べるよう、close した直後に新しい channel に
+// 差し替える (旧 channel は capture 済みの StartPolling goroutine が close を
+// 受信して exit するために使う)。
 func (p *DrivePollingService) StopPolling() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.stopPollingChan != nil {
 		close(p.stopPollingChan)
 		p.stopPollingChan = make(chan struct{})

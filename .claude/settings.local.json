@@ -79,7 +79,9 @@
       "Bash(git *)",
       "Bash(awk 'NR==141 || NR==142 {for\\(i=1;i<=length\\($0\\);i++\\) printf \"%d \", ord = substr\\($0,i,1\\) ? sprintf\\(\"%c\",substr\\($0,i,1\\)\\) : \"\"; print \"\"}' src/components/SearchReplaceEngine.tsx)",
       "Bash(xxd)",
-      "Bash(echo \"Exit code: $?\")"
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(tee /tmp/race_output.txt)",
+      "Bash(tee /tmp/race_full.txt)"
     ]
   }
 }
