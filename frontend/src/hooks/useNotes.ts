@@ -24,11 +24,37 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { backend } from '../../wailsjs/go/models';
 import * as runtime from '../../wailsjs/runtime';
+import i18n from '../i18n';
 import { useCurrentNoteStore } from '../stores/useCurrentNoteStore';
 import { useNotesStore } from '../stores/useNotesStore';
 import { useSplitEditorStore } from '../stores/useSplitEditorStore';
 
 import type { EditorPane, FileNote, Note, TopLevelItem } from '../types';
+
+// SaveNote 失敗時に「未保存版」を unsaved 側で重ね合わせるためのキー集合。
+// reloadHandler は notes:reload で受け取った新しい notes 配列にこれらを上書きで適用し、
+// 「サーバ側の古い content で in-memory が上書きされて、ユーザーの編集が失われる」
+// (Bug 2) を防ぐ。
+const UNSAVED_PROTECTED_FIELDS = [
+  'title',
+  'content',
+  'language',
+  'archived',
+  'contentHeader',
+] as const;
+type UnsavedProtectedField = (typeof UNSAVED_PROTECTED_FIELDS)[number];
+
+const mergeUnsavedIntoServer = (server: Note, unsaved: Note): Note => {
+  const merged: Note = { ...server };
+  for (const field of UNSAVED_PROTECTED_FIELDS) {
+    (merged as Record<UnsavedProtectedField, Note[UnsavedProtectedField]>)[
+      field
+    ] = unsaved[field];
+  }
+  // 編集された内容のほうが新しいので modifiedTime もユーザー編集側を優先
+  merged.modifiedTime = unsaved.modifiedTime;
+  return merged;
+};
 
 interface UseNotesOptions {
   onNotesReloaded?: React.RefObject<
@@ -66,6 +92,11 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     useCurrentNoteStore.getState().currentNote,
   );
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // SaveNote が失敗したノートを id -> 未保存版で保持する。
+  // (1) reloadHandler が notes:reload で notes[] を上書きする時にこれらを保護
+  // (2) app:beforeclose で残っていれば最後に再試行
+  // 成功するか、ユーザーが意図的に同じノートを再保存したら delete する。
+  const unsavedNotesRef = useRef<Map<string, Note>>(new Map());
 
   // Zustand ストアを購読せずに最新の currentNote を ref で保持する。
   useEffect(() => {
@@ -78,8 +109,14 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   // 現在のノートを保存する（refベースで依存なし） ------------------------------------------------------------
   // ★ fire-and-forget: ローカル state の楽観更新とフラグクリアを先にやり、
   //   バックエンドの SaveNote は await せずに投げる。
-  //   ノート切替/オートセーブの待ち時間が消える。失敗時のログだけ残す。
+  //   ノート切替/オートセーブの待ち時間が消える。
   //   beforeClose では別途同期的に await する経路があるのでデータロスは防げる。
+  // ★ 失敗時の救済 (Bug 2):
+  //   SaveNote が reject した場合は unsavedNotesRef に未保存版を登録し、
+  //     - notes:reload で notes[] が「保存に失敗した古い content」で上書きされても
+  //       reloadHandler 側で未保存版を重ね合わせて保護する。
+  //     - 同じノートを開いたままなら isNoteModified を立て直し、自動保存で再試行。
+  //     - logMessage でユーザーに通知 (silent failure を防ぐ)。
   const saveCurrentNote = useCallback(() => {
     const base = currentNoteRef.current;
     if (!base?.id || !isNoteModified.current) {
@@ -103,9 +140,31 @@ export const useNotes = (options: UseNotesOptions = {}) => {
     // という競合を避けるため。
     isNoteModified.current = false;
     pendingContentRef.current = null;
-    SaveNote(backend.Note.createFrom(noteToSave), 'update').catch((err) =>
-      console.error('SaveNote failed:', err),
-    );
+    SaveNote(backend.Note.createFrom(noteToSave), 'update')
+      .then(() => {
+        // 永続化に成功したら未保存マークは外してよい。
+        unsavedNotesRef.current.delete(noteToSave.id);
+      })
+      .catch((err) => {
+        console.error('SaveNote failed:', err);
+        // 未保存版を保持して reload 上書きから保護する。
+        unsavedNotesRef.current.set(noteToSave.id, noteToSave);
+        // 同じノートを開いたままなら、フラグを復元して次の自動保存で再試行できる
+        // ようにする。別ノートに移っていたらそちらの編集を壊さないために触らない
+        // (unsavedNotesRef だけが守る)。
+        if (currentNoteRef.current?.id === noteToSave.id) {
+          isNoteModified.current = true;
+          if (pendingContentRef.current === null) {
+            pendingContentRef.current = noteToSave.content;
+          }
+        }
+        runtime.EventsEmit(
+          'logMessage',
+          i18n.t('notes.saveFailedKeepChanges', {
+            title: noteToSave.title || i18n.t('notes.emptyNote'),
+          }),
+        );
+      });
   }, []);
 
   // デバウンス付き自動保存をスケジュール ------------------------------------------------------------
@@ -159,14 +218,30 @@ export const useNotes = (options: UseNotesOptions = {}) => {
   // イベントリスナーの設定 ------------------------------------------------------------
   useEffect(() => {
     const reloadHandler = async () => {
-      const [newNotes, newFolders, rawOrder, rawArchivedOrder, collapsedIDs] =
-        await Promise.all([
-          ListNotes(),
-          ListFolders(),
-          GetTopLevelOrder(),
-          GetArchivedTopLevelOrder(),
-          GetCollapsedFolderIDs(),
-        ]);
+      const [
+        rawNewNotes,
+        newFolders,
+        rawOrder,
+        rawArchivedOrder,
+        collapsedIDs,
+      ] = await Promise.all([
+        ListNotes(),
+        ListFolders(),
+        GetTopLevelOrder(),
+        GetArchivedTopLevelOrder(),
+        GetCollapsedFolderIDs(),
+      ]);
+
+      // ★ Bug 2 対策: 直前の SaveNote が失敗してまだ永続化されていないノートは、
+      //   サーバ側 (ListNotes) が古い content のまま返してくる。これを素直に in-memory
+      //   に書き戻すと、ユーザーが別ノートを経由して戻ってきたときに編集内容が消える。
+      //   unsavedNotesRef にあるノートは未保存版で重ね合わせて、reload からの上書きを
+      //   無効化する。folderId / Syncing / FolderID 等の「サーバ側でのみ更新される」
+      //   フィールドはそのまま反映するため、protected fields だけを上書き。
+      const newNotes = rawNewNotes.map((n) => {
+        const unsaved = unsavedNotesRef.current.get(n.id);
+        return unsaved ? mergeUnsavedIntoServer(n, unsaved) : n;
+      });
 
       const nextTopLevelOrder = (rawOrder ?? []).map((item) => ({
         type: item.type as 'note' | 'folder',
@@ -265,6 +340,19 @@ export const useNotes = (options: UseNotesOptions = {}) => {
               ? { ...base, content: pendingContentRef.current }
               : base;
           await SaveNote(backend.Note.createFrom(noteToSave), 'update');
+          // 終了経路で確定保存できたので未保存マップから外す
+          unsavedNotesRef.current.delete(noteToSave.id);
+        }
+        // ★ Bug 2 対策: 過去に SaveNote が失敗していた未保存版を、終了直前の
+        //   最後のチャンスでもう一度同期保存する。ここで成功すればデータロスゼロ。
+        const pendingUnsaved = Array.from(unsavedNotesRef.current.values());
+        for (const unsaved of pendingUnsaved) {
+          try {
+            await SaveNote(backend.Note.createFrom(unsaved), 'update');
+            unsavedNotesRef.current.delete(unsaved.id);
+          } catch (_error) {
+            // ここでも失敗したら諦めて閉じる (DestroyApp は外で呼ぶ)
+          }
         }
       } catch (_error) {}
       DestroyApp();

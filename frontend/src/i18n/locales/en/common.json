@@ -112,6 +112,7 @@
     "loading": "Loading...",
     "newNote": "New Note",
     "emptyNote": "Untitled Note",
+    "saveFailedKeepChanges": "Failed to save \"{{title}}\" — changes kept in editor and will be retried",
     "saveShortcut": "Save ({{shortcut}} + S)",
     "convertToNote": "Convert to Note",
     "closeShortcut": "Close ({{shortcut}} + W)",

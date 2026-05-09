@@ -1,10 +1,136 @@
 package backend
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"golang.org/x/text/encoding/japanese"
 )
+
+// fileServiceTest は context への依存を持たないテスト用ヘルパ。
+// SelectFile / SelectSaveFileUri はダイアログを呼ぶため触らない。
+func newFileServiceForTest() *fileService {
+	return &fileService{ctx: nil}
+}
+
+// 「保存直後に外部編集ダイアログが誤表示される」バグの再現テスト群。
+//
+// バグの根本原因:
+//   - フロントエンド (useFileOperations.handleSaveFile) は SaveFile 完了後に
+//     `new Date().toISOString()` (= JS の wall clock) を modifiedTime として保存する。
+//   - ディスク上の mtime は kernel が write 中に記録するナノ秒精度値。
+//   - NTFS 等で「ディスク mtime > JS now」になるケースが起こり、
+//     CheckFileModified が true を返してしまう (= 誤検知)。
+//
+// 修正後の SaveFile は (string, error) で実際のディスク mtime を RFC3339Nano で
+// 返し、フロントエンドはそれをそのまま modifiedTime として使う。
+
+func TestSaveFile_ReturnsDiskModifiedTime(t *testing.T) {
+	fs := newFileServiceForTest()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "save-roundtrip.txt")
+
+	mtime, err := fs.SaveFile(path, "hello world")
+	if err != nil {
+		t.Fatalf("SaveFile returned error: %v", err)
+	}
+	if mtime == "" {
+		t.Fatalf("SaveFile returned empty mtime; expected RFC3339Nano formatted disk mtime")
+	}
+
+	// パースできて、ディスクの実 mtime と完全一致すること。
+	parsed, err := time.Parse(time.RFC3339Nano, mtime)
+	if err != nil {
+		t.Fatalf("SaveFile mtime is not valid RFC3339Nano: %q (%v)", mtime, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("os.Stat failed: %v", err)
+	}
+	if !parsed.Equal(info.ModTime()) {
+		t.Fatalf("SaveFile mtime mismatches disk mtime\n  returned: %s\n  disk:     %s",
+			parsed.Format(time.RFC3339Nano), info.ModTime().Format(time.RFC3339Nano))
+	}
+}
+
+func TestCheckFileModified_NoFalsePositiveAfterSave(t *testing.T) {
+	fs := newFileServiceForTest()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "no-false-positive.txt")
+
+	mtime, err := fs.SaveFile(path, "initial")
+	if err != nil {
+		t.Fatalf("SaveFile returned error: %v", err)
+	}
+
+	// 「保存直後 → ウィンドウフォーカスが戻る」シナリオ。
+	// 保存後の mtime をそのまま CheckFileModified に渡すと、ファイル変更は無いので
+	// false が返るはず。ナノ秒精度のずれが原因で誤検知してはならない。
+	modified, err := fs.CheckFileModified(path, mtime)
+	if err != nil {
+		t.Fatalf("CheckFileModified returned error: %v", err)
+	}
+	if modified {
+		t.Fatalf("CheckFileModified returned true immediately after SaveFile (false positive)")
+	}
+}
+
+// 旧フロントエンドが渡していた「ミリ秒精度の JS 時刻」相当の値で誤検知する
+// パターンを再現する回帰テスト。`time.Now()` を「保存直後にフロントが取った時刻」と
+// 見立てて切り捨てた文字列を渡したとき、ナノ秒精度のディスク mtime > 切り捨て値
+// になることがあり、CheckFileModified が true を返す可能性がある。
+//
+// このテストはバグそのものを直接観察するというより、「SaveFile が返す mtime を
+// 信頼するように直したフローでは絶対に誤検知が起きないこと」を保証する。
+func TestCheckFileModified_FrontendSavedMtimeNeverFalsePositive(t *testing.T) {
+	fs := newFileServiceForTest()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frontend-mtime.txt")
+
+	// 100 回保存して、毎回 SaveFile が返した mtime で CheckFileModified を呼ぶ。
+	// SaveFile が disk mtime をそのまま返している限り、ナノ秒のドリフトは
+	// 起きないはずなので 100 回中 0 件の false positive を期待する。
+	for i := 0; i < 100; i++ {
+		mtime, err := fs.SaveFile(path, "content")
+		if err != nil {
+			t.Fatalf("SaveFile returned error: %v", err)
+		}
+		modified, err := fs.CheckFileModified(path, mtime)
+		if err != nil {
+			t.Fatalf("CheckFileModified returned error: %v", err)
+		}
+		if modified {
+			t.Fatalf("iter %d: CheckFileModified returned true after SaveFile (false positive)", i)
+		}
+	}
+}
+
+func TestCheckFileModified_DetectsRealExternalEdit(t *testing.T) {
+	fs := newFileServiceForTest()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "real-edit.txt")
+
+	mtime, err := fs.SaveFile(path, "v1")
+	if err != nil {
+		t.Fatalf("SaveFile returned error: %v", err)
+	}
+
+	// 1 秒後に「外部から」上書き。HFS+ の 1 秒精度を超えるので確実に差が出る。
+	time.Sleep(1100 * time.Millisecond)
+	if err := os.WriteFile(path, []byte("v2"), 0644); err != nil {
+		t.Fatalf("external write failed: %v", err)
+	}
+
+	modified, err := fs.CheckFileModified(path, mtime)
+	if err != nil {
+		t.Fatalf("CheckFileModified returned error: %v", err)
+	}
+	if !modified {
+		t.Fatalf("CheckFileModified should detect a real external edit")
+	}
+}
 
 func TestDetectAndConvertEncoding(t *testing.T) {
 	tests := []struct {

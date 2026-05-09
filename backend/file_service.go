@@ -28,7 +28,11 @@ type FileService interface {
 	SelectFile() (string, error)
 	OpenFile(filePath string) (*OpenFileResult, error)
 	SelectSaveFileUri(fileName string, extension string) (string, error)
-	SaveFile(filePath string, content string) error
+	// SaveFile は保存後の実ディスク mtime を RFC3339Nano で返す。
+	// フロントエンドが JS の wall clock を mtime として保存すると、ディスク mtime と
+	// ナノ秒オーダーでずれて CheckFileModified が誤検知するため、ここで返した値を
+	// そのまま FileNote.modifiedTime に格納させる。
+	SaveFile(filePath string, content string) (string, error)
 	GetModifiedTime(filePath string) (string, error)
 	CheckFileExists(path string) bool
 }
@@ -142,9 +146,19 @@ func buildSaveDialogDefaults(fileName string, extension string) (string, string)
 	return fmt.Sprintf("%s.%s", trimmedName, trimmedExt), "*." + trimmedExt
 }
 
-// SaveFile は指定されたパスにコンテンツを保存します
-func (s *fileService) SaveFile(filePath string, content string) error {
-	return os.WriteFile(filePath, []byte(content), 0644)
+// SaveFile は指定されたパスにコンテンツを保存し、保存後のディスク mtime を
+// RFC3339Nano 文字列で返す。返した mtime はフロントエンドが FileNote に保存し、
+// 次のフォーカス時 CheckFileModified に渡す。原子的な mtime 取得が
+// 「保存直後フォーカスで外部編集ダイアログが誤表示される」バグの根本対策。
+func (s *fileService) SaveFile(filePath string, content string) (string, error) {
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return "", err
+	}
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return "", err
+	}
+	return info.ModTime().Format(time.RFC3339Nano), nil
 }
 
 // GetModifiedTime は指定されたパスのファイルの変更時間を取得します

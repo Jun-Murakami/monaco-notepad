@@ -383,10 +383,13 @@ func (s *driveService) DeleteAllDriveData() error {
 	// ローカルのノートを次回ログイン時にすべて再アップロードする状態に遷移
 	// Drive noteList が存在しない状態を利用して pushLocalChanges 経路に乗せる
 	if s.syncState != nil && s.noteService != nil {
-		allIDs := make([]string, 0, len(s.noteService.noteList.Notes))
-		for _, meta := range s.noteService.noteList.Notes {
-			allIDs = append(allIDs, meta.ID)
-		}
+		var allIDs []string
+		s.noteService.WithLock(func() {
+			allIDs = make([]string, 0, len(s.noteService.noteList.Notes))
+			for _, meta := range s.noteService.noteList.Notes {
+				allIDs = append(allIDs, meta.ID)
+			}
+		})
 		s.syncState.MarkForFullReupload(allIDs)
 		s.logger.Console("DeleteAllDriveData: marked %d notes for full reupload on next login", len(allIDs))
 	}
@@ -534,7 +537,7 @@ func (s *driveService) SaveNoteAndUpdateList(note *Note, isCreate bool) error {
 		}
 	}
 
-	if err := s.noteService.saveNoteList(); err != nil {
+	if err := s.noteService.SaveNoteList(); err != nil {
 		return err
 	}
 	if err := s.updateNoteListInternal(); err != nil {
@@ -550,9 +553,13 @@ func (s *driveService) updateNoteListInternal() error {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
 	}
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	s.logger.Console("Modifying note list, Notes count: %d", len(s.noteService.noteList.Notes))
+	// noteList は UI 編集と共有なので、アップロード前に snapshot を取って渡す
+	// (UpdateNoteList 内部で MarshalIndent + Notes 上書きするため、
+	// 直接ポインタを渡すと UI の SaveNote と race する)。
+	noteListSnapshot := s.noteService.SnapshotNoteList()
+	s.logger.Console("Modifying note list, Notes count: %d", len(noteListSnapshot.Notes))
 
-	err := s.driveSync.UpdateNoteList(s.ctx, s.noteService.noteList, s.auth.GetDriveSync().NoteListID())
+	err := s.driveSync.UpdateNoteList(s.ctx, noteListSnapshot, s.auth.GetDriveSync().NoteListID())
 	if err != nil {
 		if strings.Contains(err.Error(), "operation cancelled") {
 			s.logger.Console("Note list update was cancelled: %v", err)
@@ -716,13 +723,16 @@ func (s *driveService) pushLocalChanges() error {
 		s.logger.Console("Drive: only note-list changes arrived during push; continuing note list upload")
 	}
 
-	if err := s.noteService.saveNoteList(); err != nil {
+	if err := s.noteService.SaveNoteList(); err != nil {
 		return fmt.Errorf("failed to save note list: %w", err)
 	}
 
+	// アップロード前に snapshot 取得 (UI と共有しているスライスをそのまま渡さない)
+	noteListSnapshotForUpload := s.noteService.SnapshotNoteList()
+
 	noteListID := s.auth.GetDriveSync().NoteListID()
 	if noteListID == "" {
-		if err := s.driveSync.CreateNoteList(s.ctx, s.noteService.noteList); err != nil {
+		if err := s.driveSync.CreateNoteList(s.ctx, noteListSnapshotForUpload); err != nil {
 			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note list: %w", err))
 		}
 		rootID, notesID := s.auth.GetDriveSync().FolderIDs()
@@ -733,7 +743,7 @@ func (s *driveService) pushLocalChanges() error {
 		s.auth.GetDriveSync().SetNoteListID(newNoteListID)
 		noteListID = newNoteListID
 	} else {
-		if err := s.driveSync.UpdateNoteList(s.ctx, s.noteService.noteList, noteListID); err != nil {
+		if err := s.driveSync.UpdateNoteList(s.ctx, noteListSnapshotForUpload, noteListID); err != nil {
 			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note list: %w", err))
 		}
 	}
@@ -747,10 +757,13 @@ func (s *driveService) pushLocalChanges() error {
 	if meta != nil {
 		driveTs = meta.ModifiedTime
 	}
-	noteHashes := make(map[string]string, len(s.noteService.noteList.Notes))
-	for _, n := range s.noteService.noteList.Notes {
-		noteHashes[n.ID] = n.ContentHash
-	}
+	var noteHashes map[string]string
+	s.noteService.WithLock(func() {
+		noteHashes = make(map[string]string, len(s.noteService.noteList.Notes))
+		for _, n := range s.noteService.noteList.Notes {
+			noteHashes[n.ID] = n.ContentHash
+		}
+	})
 	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
 		s.logger.Console("Sync state changed during push; retaining dirty flags for next sync")
 		s.syncState.UpdateSyncedState(driveTs, noteHashes)
@@ -778,10 +791,13 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 		return nil
 	}
 
-	localMap := make(map[string]NoteMetadata, len(s.noteService.noteList.Notes))
-	for _, n := range s.noteService.noteList.Notes {
-		localMap[n.ID] = n
-	}
+	var localMap map[string]NoteMetadata
+	s.noteService.WithLock(func() {
+		localMap = make(map[string]NoteMetadata, len(s.noteService.noteList.Notes))
+		for _, n := range s.noteService.noteList.Notes {
+			localMap[n.ID] = n
+		}
+	})
 	cloudMap := make(map[string]NoteMetadata, len(cloudNoteList.Notes))
 	for _, n := range cloudNoteList.Notes {
 		cloudMap[n.ID] = n
@@ -846,7 +862,12 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 		}
 	}
 
-	for _, localNote := range s.noteService.noteList.Notes {
+	// snapshot を取って iterate (UI 編集中の slice をそのまま走査しない)
+	var localNotesSnapshot []NoteMetadata
+	s.noteService.WithLock(func() {
+		localNotesSnapshot = append([]NoteMetadata(nil), s.noteService.noteList.Notes...)
+	})
+	for _, localNote := range localNotesSnapshot {
 		if _, exists := cloudMap[localNote.ID]; !exists {
 			s.logger.InfoCode(MsgDriveSyncRemoveLocalDeleted, map[string]interface{}{"noteId": localNote.ID})
 			if backupEnabled {
@@ -863,15 +884,21 @@ func (s *driveService) pullCloudChanges(noteListID string) error {
 		}
 	}
 
-	s.noteService.noteList.Version = cloudNoteList.Version
-	s.noteService.noteList.Notes = cloudNoteList.Notes
-	s.noteService.noteList.Folders = cloudNoteList.Folders
-	s.noteService.noteList.TopLevelOrder = cloudNoteList.TopLevelOrder
-	s.noteService.noteList.ArchivedTopLevelOrder = cloudNoteList.ArchivedTopLevelOrder
-	s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
-
-	if err := s.noteService.saveNoteList(); err != nil {
-		return fmt.Errorf("failed to save note list after pull: %w", err)
+	// クラウドからの pull 結果を一括で適用し、そのまま saveNoteList まで同じ
+	// クリティカルセクション内で実行する。UI 側 SaveNote と排他にしないと
+	// MarshalIndent 中に slice が変更されて panic する。
+	var pullSaveErr error
+	s.noteService.WithLock(func() {
+		s.noteService.noteList.Version = cloudNoteList.Version
+		s.noteService.noteList.Notes = cloudNoteList.Notes
+		s.noteService.noteList.Folders = cloudNoteList.Folders
+		s.noteService.noteList.TopLevelOrder = cloudNoteList.TopLevelOrder
+		s.noteService.noteList.ArchivedTopLevelOrder = cloudNoteList.ArchivedTopLevelOrder
+		s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
+		pullSaveErr = s.noteService.saveNoteList()
+	})
+	if pullSaveErr != nil {
+		return fmt.Errorf("failed to save note list after pull: %w", pullSaveErr)
 	}
 
 	meta, err := s.driveOps.GetFileMetadata(noteListID)
@@ -1026,14 +1053,21 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 	}
 
-	localMap := make(map[string]NoteMetadata, len(s.noteService.noteList.Notes))
-	for _, n := range s.noteService.noteList.Notes {
-		localMap[n.ID] = n
-	}
-	localFoldersSnapshot := append([]Folder(nil), s.noteService.noteList.Folders...)
-	localTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.TopLevelOrder...)
-	localArchivedTopLevelSnapshot := append([]TopLevelItem(nil), s.noteService.noteList.ArchivedTopLevelOrder...)
-	localCollapsedFolderSnapshot := append([]string(nil), s.noteService.noteList.CollapsedFolderIDs...)
+	var localMap map[string]NoteMetadata
+	var localFoldersSnapshot []Folder
+	var localTopLevelSnapshot []TopLevelItem
+	var localArchivedTopLevelSnapshot []TopLevelItem
+	var localCollapsedFolderSnapshot []string
+	s.noteService.WithLock(func() {
+		localMap = make(map[string]NoteMetadata, len(s.noteService.noteList.Notes))
+		for _, n := range s.noteService.noteList.Notes {
+			localMap[n.ID] = n
+		}
+		localFoldersSnapshot = append([]Folder(nil), s.noteService.noteList.Folders...)
+		localTopLevelSnapshot = append([]TopLevelItem(nil), s.noteService.noteList.TopLevelOrder...)
+		localArchivedTopLevelSnapshot = append([]TopLevelItem(nil), s.noteService.noteList.ArchivedTopLevelOrder...)
+		localCollapsedFolderSnapshot = append([]string(nil), s.noteService.noteList.CollapsedFolderIDs...)
+	})
 	for _, cloudNote := range cloudNoteList.Notes {
 		if dirtyIDs[cloudNote.ID] || deletedIDs[cloudNote.ID] {
 			continue
@@ -1063,10 +1097,13 @@ func (s *driveService) resolveConflict(noteListID string) error {
 
 	latestDirtyIDs, latestDeletedIDs, latestDeletedFolderIDs, _, latestRevision := s.syncState.GetDirtySnapshotWithRevision()
 	if latestRevision != snapshotRevision {
-		currentHashes := make(map[string]string, len(s.noteService.noteList.Notes))
-		for _, n := range s.noteService.noteList.Notes {
-			currentHashes[n.ID] = n.ContentHash
-		}
+		var currentHashes map[string]string
+		s.noteService.WithLock(func() {
+			currentHashes = make(map[string]string, len(s.noteService.noteList.Notes))
+			for _, n := range s.noteService.noteList.Notes {
+				currentHashes[n.ID] = n.ContentHash
+			}
+		})
 
 		if hasPendingPayloadChanges(
 			dirtyIDs,
@@ -1126,7 +1163,11 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 	}
 
-	for _, localNote := range s.noteService.noteList.Notes {
+	var localNotesSnapshot2 []NoteMetadata
+	s.noteService.WithLock(func() {
+		localNotesSnapshot2 = append([]NoteMetadata(nil), s.noteService.noteList.Notes...)
+	})
+	for _, localNote := range localNotesSnapshot2 {
 		if _, inCloud := cloudMap[localNote.ID]; !inCloud && !dirtyIDs[localNote.ID] && !deletedIDs[localNote.ID] {
 			s.logger.InfoCode(MsgDriveSyncRemoveLocalDeleted, map[string]interface{}{"noteId": localNote.ID})
 			if backupEnabled {
@@ -1150,7 +1191,6 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 		filteredFolders = append(filteredFolders, folder)
 	}
-	s.noteService.noteList.Folders = filteredFolders
 
 	filteredTopLevelOrder := make([]TopLevelItem, 0, len(cloudNoteList.TopLevelOrder))
 	for _, item := range cloudNoteList.TopLevelOrder {
@@ -1162,7 +1202,6 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 		filteredTopLevelOrder = append(filteredTopLevelOrder, item)
 	}
-	s.noteService.noteList.TopLevelOrder = filteredTopLevelOrder
 
 	filteredArchivedTopLevelOrder := make([]TopLevelItem, 0, len(cloudNoteList.ArchivedTopLevelOrder))
 	for _, item := range cloudNoteList.ArchivedTopLevelOrder {
@@ -1174,39 +1213,63 @@ func (s *driveService) resolveConflict(noteListID string) error {
 		}
 		filteredArchivedTopLevelOrder = append(filteredArchivedTopLevelOrder, item)
 	}
-	s.noteService.noteList.ArchivedTopLevelOrder = filteredArchivedTopLevelOrder
-	s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
 
-	mergedNotes := make([]NoteMetadata, 0, len(cloudNoteList.Notes))
-	cloudNoteSet := make(map[string]bool, len(cloudNoteList.Notes))
-	for _, cn := range cloudNoteList.Notes {
-		cloudNoteSet[cn.ID] = true
-		if deletedIDs[cn.ID] {
-			continue
-		}
-		if dirtyIDs[cn.ID] {
-			if !dirtySynced[cn.ID] {
-				if localMeta, ok := localMap[cn.ID]; ok {
-					mergedNotes = append(mergedNotes, localMeta)
+	// ★ ここからが noteList を直接書き換える大きなクリティカルセクション。
+	// pull/conflict 結果をマージして noteList の主要フィールド全てを更新し、
+	// そのまま saveNoteList まで同じロック内で行う。
+	// LoadNote / buildNoteMetadata は loadNoteLocked / buildNoteMetadata で代替。
+	var conflictSaveErr error
+	s.noteService.WithLock(func() {
+		s.noteService.noteList.Folders = filteredFolders
+		s.noteService.noteList.TopLevelOrder = filteredTopLevelOrder
+		s.noteService.noteList.ArchivedTopLevelOrder = filteredArchivedTopLevelOrder
+		s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
+
+		mergedNotes := make([]NoteMetadata, 0, len(cloudNoteList.Notes))
+		cloudNoteSet := make(map[string]bool, len(cloudNoteList.Notes))
+		for _, cn := range cloudNoteList.Notes {
+			cloudNoteSet[cn.ID] = true
+			if deletedIDs[cn.ID] {
+				continue
+			}
+			if dirtyIDs[cn.ID] {
+				if !dirtySynced[cn.ID] {
+					if localMeta, ok := localMap[cn.ID]; ok {
+						mergedNotes = append(mergedNotes, localMeta)
+					} else {
+						mergedNotes = append(mergedNotes, cn)
+					}
+					continue
+				}
+				if note, err := s.noteService.loadNoteLocked(cn.ID); err == nil {
+					mergedNotes = append(mergedNotes, s.noteService.buildNoteMetadata(note))
 				} else {
 					mergedNotes = append(mergedNotes, cn)
 				}
-				continue
-			}
-			if note, err := s.noteService.LoadNote(cn.ID); err == nil {
-				mergedNotes = append(mergedNotes, s.noteService.buildNoteMetadata(note))
 			} else {
 				mergedNotes = append(mergedNotes, cn)
 			}
-		} else {
-			mergedNotes = append(mergedNotes, cn)
 		}
-	}
 
-	for id := range dirtyIDs {
-		if !cloudNoteSet[id] && !deletedIDs[id] {
-			if !dirtySynced[id] {
-				if localMeta, ok := localMap[id]; ok {
+		for id := range dirtyIDs {
+			if !cloudNoteSet[id] && !deletedIDs[id] {
+				if !dirtySynced[id] {
+					if localMeta, ok := localMap[id]; ok {
+						mergedNotes = append(mergedNotes, localMeta)
+						if localMeta.FolderID == "" {
+							placeTopLevelItemUsingLocalSnapshot(
+								localTopLevelSnapshot,
+								localArchivedTopLevelSnapshot,
+								&s.noteService.noteList.TopLevelOrder,
+								&s.noteService.noteList.ArchivedTopLevelOrder,
+								localMeta,
+							)
+						}
+					}
+					continue
+				}
+				if note, err := s.noteService.loadNoteLocked(id); err == nil {
+					localMeta := s.noteService.buildNoteMetadata(note)
 					mergedNotes = append(mergedNotes, localMeta)
 					if localMeta.FolderID == "" {
 						placeTopLevelItemUsingLocalSnapshot(
@@ -1218,61 +1281,48 @@ func (s *driveService) resolveConflict(noteListID string) error {
 						)
 					}
 				}
-				continue
-			}
-			if note, err := s.noteService.LoadNote(id); err == nil {
-				localMeta := s.noteService.buildNoteMetadata(note)
-				mergedNotes = append(mergedNotes, localMeta)
-				if localMeta.FolderID == "" {
-					placeTopLevelItemUsingLocalSnapshot(
-						localTopLevelSnapshot,
-						localArchivedTopLevelSnapshot,
-						&s.noteService.noteList.TopLevelOrder,
-						&s.noteService.noteList.ArchivedTopLevelOrder,
-						localMeta,
-					)
-				}
 			}
 		}
+		s.noteService.noteList.Notes = mergedNotes
+		s.noteService.noteList.Notes = applyLocalStructureForUnchangedNotes(s.noteService.noteList.Notes, localMap)
+		s.noteService.noteList.Folders = mergeFoldersPreferLocal(localFoldersSnapshot, filteredFolders, deletedFolderIDs)
+		s.noteService.noteList.TopLevelOrder = mergeTopLevelOrderPreferLocal(
+			localTopLevelSnapshot,
+			s.noteService.noteList.TopLevelOrder,
+			s.noteService.noteList.Notes,
+			s.noteService.noteList.Folders,
+			false,
+		)
+		s.noteService.noteList.ArchivedTopLevelOrder = mergeTopLevelOrderPreferLocal(
+			localArchivedTopLevelSnapshot,
+			s.noteService.noteList.ArchivedTopLevelOrder,
+			s.noteService.noteList.Notes,
+			s.noteService.noteList.Folders,
+			true,
+		)
+		s.noteService.noteList.CollapsedFolderIDs = mergeCollapsedFolderIDsPreferLocal(
+			localCollapsedFolderSnapshot,
+			cloudNoteList.CollapsedFolderIDs,
+			s.noteService.noteList.Folders,
+		)
+
+		conflictSaveErr = s.noteService.saveNoteList()
+	})
+	if conflictSaveErr != nil {
+		return fmt.Errorf("failed to save merged note list: %w", conflictSaveErr)
 	}
-	s.noteService.noteList.Notes = mergedNotes
-	s.noteService.noteList.Notes = applyLocalStructureForUnchangedNotes(s.noteService.noteList.Notes, localMap)
-	s.noteService.noteList.Folders = mergeFoldersPreferLocal(localFoldersSnapshot, filteredFolders, deletedFolderIDs)
-	s.noteService.noteList.TopLevelOrder = mergeTopLevelOrderPreferLocal(
-		localTopLevelSnapshot,
-		s.noteService.noteList.TopLevelOrder,
-		s.noteService.noteList.Notes,
-		s.noteService.noteList.Folders,
-		false,
-	)
-	s.noteService.noteList.ArchivedTopLevelOrder = mergeTopLevelOrderPreferLocal(
-		localArchivedTopLevelSnapshot,
-		s.noteService.noteList.ArchivedTopLevelOrder,
-		s.noteService.noteList.Notes,
-		s.noteService.noteList.Folders,
-		true,
-	)
-	s.noteService.noteList.CollapsedFolderIDs = mergeCollapsedFolderIDsPreferLocal(
-		localCollapsedFolderSnapshot,
-		cloudNoteList.CollapsedFolderIDs,
-		s.noteService.noteList.Folders,
-	)
 
 	if uploadFailures > 0 || deleteFailures > 0 {
 		s.logger.InfoCode(MsgDrivePartialConflictDeferred, map[string]interface{}{"uploadFailures": uploadFailures, "deleteFailures": deleteFailures})
-		if err := s.noteService.saveNoteList(); err != nil {
-			return fmt.Errorf("failed to save merged note list: %w", err)
-		}
 		s.pollingService.RefreshChangeToken()
 		s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 		return nil
 	}
 
-	if err := s.noteService.saveNoteList(); err != nil {
-		return fmt.Errorf("failed to save merged note list: %w", err)
-	}
+	// (saveNoteList は既に上の WithLock 内で実行済みなので不要)
 	noteListID2 := s.auth.GetDriveSync().NoteListID()
-	if err := s.driveSync.UpdateNoteList(s.ctx, s.noteService.noteList, noteListID2); err != nil {
+	noteListSnapshotForUpload := s.noteService.SnapshotNoteList()
+	if err := s.driveSync.UpdateNoteList(s.ctx, noteListSnapshotForUpload, noteListID2); err != nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to upload note list: %w", err))
 	}
 
@@ -1281,10 +1331,13 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	if meta2 != nil {
 		driveTs = meta2.ModifiedTime
 	}
-	noteHashes := make(map[string]string, len(s.noteService.noteList.Notes))
-	for _, n := range s.noteService.noteList.Notes {
-		noteHashes[n.ID] = n.ContentHash
-	}
+	var noteHashes map[string]string
+	s.noteService.WithLock(func() {
+		noteHashes = make(map[string]string, len(s.noteService.noteList.Notes))
+		for _, n := range s.noteService.noteList.Notes {
+			noteHashes[n.ID] = n.ContentHash
+		}
+	})
 	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
 		s.logger.Console("Sync state changed during conflict resolution; retaining dirty flags for next sync")
 		s.syncState.UpdateSyncedState(driveTs, noteHashes)
@@ -2054,10 +2107,21 @@ func (ds *driveService) recoverOrphanCloudNotes(files []*drive.File, ops DriveOp
 		}
 	}
 
+	// noteIDSet と existingHashes は noteList をスキャンするため WithLock 内で構築。
+	// existingHashes は LoadNote (内部 lock 取得) を呼ぶと再帰デッドロックするので
+	// loadNoteLocked を使う。
 	noteIDSet := make(map[string]bool)
-	for _, metadata := range ds.noteService.noteList.Notes {
-		noteIDSet[metadata.ID] = true
-	}
+	existingHashes := make(map[string]bool)
+	ds.noteService.WithLock(func() {
+		for _, metadata := range ds.noteService.noteList.Notes {
+			noteIDSet[metadata.ID] = true
+			note, err := ds.noteService.loadNoteLocked(metadata.ID)
+			if err != nil {
+				continue
+			}
+			existingHashes[computeConflictCopyDedupHash(note)] = true
+		}
+	})
 
 	type orphanEntry struct {
 		noteID string
@@ -2068,16 +2132,6 @@ func (ds *driveService) recoverOrphanCloudNotes(files []*drive.File, ops DriveOp
 		if !noteIDSet[noteID] {
 			orphans = append(orphans, orphanEntry{noteID, file})
 		}
-	}
-
-	// 既存ノートの重複判定用ハッシュセットを構築
-	existingHashes := make(map[string]bool)
-	for _, metadata := range ds.noteService.noteList.Notes {
-		note, err := ds.noteService.LoadNote(metadata.ID)
-		if err != nil {
-			continue
-		}
-		existingHashes[computeConflictCopyDedupHash(note)] = true
 	}
 
 	var orphanCount int

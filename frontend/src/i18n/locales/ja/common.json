@@ -112,6 +112,7 @@
     "loading": "読み込み中...",
     "newNote": "新規ノート",
     "emptyNote": "無題のノート",
+    "saveFailedKeepChanges": "「{{title}}」の保存に失敗しました — 編集内容は保持され、自動的に再試行されます",
     "saveShortcut": "保存 ({{shortcut}} + S)",
     "convertToNote": "ノートに変換",
     "closeShortcut": "閉じる ({{shortcut}} + W)",

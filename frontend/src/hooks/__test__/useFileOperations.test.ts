@@ -239,6 +239,44 @@ describe('useFileOperations', () => {
       expect(mockHandleSaveFileNotes).toHaveBeenCalled();
     });
 
+    // 「保存直後にフォーカスが戻ると外部編集ダイアログが誤表示される」バグの回帰テスト。
+    //
+    // 旧実装は SaveFile 完了後に new Date().toISOString() を modifiedTime として保存
+    // していたが、JS の wall clock とディスク mtime はナノ秒オーダーでずれるため、
+    // 直後の CheckFileModified が true を返してダイアログが出ていた。
+    // 修正後の SaveFile は実際のディスク mtime (RFC3339Nano) を string で返し、
+    // フロントエンドはそれをそのまま FileNote.modifiedTime に格納する。
+    it('SaveFile が返したディスク mtime を modifiedTime として保存すること (回帰: 外部編集ダイアログ誤表示)', async () => {
+      useFileNotesStore.setState({ fileNotes: [mockFileNote] });
+      const diskMtime = '2026-05-09T12:00:00.123456789Z';
+      // SaveFile を「ディスク mtime を返す」新 API として mock。
+      (SaveFile as unknown as Mock).mockResolvedValueOnce(diskMtime);
+
+      const { result } = renderHook(() =>
+        useFileOperations(
+          mockHandleSelecAnyNote,
+          mockShowMessage,
+          mockHandleSaveFileNotes,
+          mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
+          mockPendingContentRef,
+        ),
+      );
+
+      await act(async () => {
+        await result.current.handleSaveFile(mockFileNote);
+      });
+
+      const stored = useFileNotesStore
+        .getState()
+        .fileNotes.find((n) => n.id === mockFileNote.id);
+      expect(stored).toBeTruthy();
+      // SaveFile が返した値をそのまま使うこと。new Date().toISOString() を使ってはいけない。
+      expect(stored?.modifiedTime).toBe(diskMtime);
+      // GetModifiedTime を別途呼ぶことなく一往復で完結すること。
+      expect(GetModifiedTime).not.toHaveBeenCalledWith(mockFileNote.filePath);
+    });
+
     it('保存に失敗した場合、エラーメッセージを表示すること', async () => {
       useFileNotesStore.setState({ fileNotes: [mockFileNote] });
       const { result } = renderHook(() =>

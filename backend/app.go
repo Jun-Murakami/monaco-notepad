@@ -788,8 +788,10 @@ func (a *App) SelectSaveFileUri(fileName string, extension string) (string, erro
 	return a.fileService.SelectSaveFileUri(fileName, extension)
 }
 
-// 指定されたパスにコンテンツを保存する
-func (a *App) SaveFile(filePath string, content string) error {
+// 指定されたパスにコンテンツを保存する。
+// 戻り値は保存後の実ディスク mtime (RFC3339Nano)。フロントエンドはこれを
+// FileNote.modifiedTime として保持し、次回フォーカス時の外部編集チェックに使う。
+func (a *App) SaveFile(filePath string, content string) (string, error) {
 	return a.fileService.SaveFile(filePath, content)
 }
 

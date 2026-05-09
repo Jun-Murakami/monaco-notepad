@@ -252,9 +252,12 @@ export function useFileOperations(
   const handleSaveFile = async (fileNote: FileNote) => {
     try {
       if (!fileNote.content) return;
-      await SaveFile(fileNote.filePath, fileNote.content);
+      // SaveFile はバックエンド側で os.Stat した実ディスク mtime (RFC3339Nano) を返す。
+      // 旧実装は JS の new Date().toISOString() を mtime として保存していたが、
+      // kernel が write 中に記録するナノ秒精度の mtime とずれて、直後のフォーカス時
+      // CheckFileModified が「外部編集された」と誤検知していた (Bug 1 の根本原因)。
+      const savedTime = await SaveFile(fileNote.filePath, fileNote.content);
       const savedContent = fileNote.content;
-      const savedTime = new Date().toISOString();
       // refから最新のfileNotesを取得して更新する（await中にユーザーが編集した場合、
       // クロージャの古いfileNotesで上書きしてしまうのを防ぐ）
       const updatedFileNotes = getFileNotes().map((note) =>

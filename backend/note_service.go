@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,6 +58,19 @@ type NoteService interface {
 }
 
 // NoteServiceの実装
+//
+// ★ 並行性ルール (Bug 2 root cause 対策):
+//   noteList / noteCache / pending* はフロントエンド (UI 経路の SaveNote 等) と
+//   Drive 同期 goroutine の双方から触られる。すべての書き込みアクセスを mu で
+//   保護する。
+//
+//   - 公開メソッド (PascalCase) は冒頭で `s.mu.Lock(); defer s.mu.Unlock()` を取る
+//     (現状は単純化のため RWMutex ではなく Mutex を使用)。
+//   - 内部メソッド (lowercase) はロックを取らない。caller が握っている前提。
+//   - 内部から呼び出される必要がある公開メソッド (ListNotes が LoadNote を呼ぶ等) は
+//     `XxxLocked` という no-lock バリアントを別途用意し、内部からはこちらを使う。
+//   - drive_service.go のように noteList を直接触る外部コードは WithLock(fn) で
+//     クリティカルセクションを宣言する。
 type noteService struct {
 	notesDir                string
 	noteList                *NoteList
@@ -66,6 +80,48 @@ type noteService struct {
 	pendingIntegrityRepairs []string
 	pendingOrphanRecoveries []OrphanRecoveryInfo
 	recoveryApplied         string // 復旧方法: "", "backup", "rebuild"
+	mu                      sync.Mutex
+}
+
+// WithLock は noteList / noteCache を直接触る外部コード (主に drive_service) が
+// クリティカルセクションを宣言するためのヘルパー。fn の中では Locked サフィックスの
+// メソッド (saveNoteList / loadNoteLocked / saveNoteFromSyncLocked など) を使うか、
+// 直接 s.noteList.* にアクセスしてよい。ネットワーク I/O はこの中で実行しない
+// (UI を長時間ブロックするため、snapshot を取って外で実行する)。
+func (s *noteService) WithLock(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fn()
+}
+
+// SaveNoteList は noteList をディスクへ atomic に永続化する。drive_service が
+// 同期完了後などに呼ぶ用途。フロントエンドの SaveNote 等と排他で動くため、
+// json.MarshalIndent 中に slice が変更される race や、tmp file の rename 衝突を防ぐ。
+func (s *noteService) SaveNoteList() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveNoteList()
+}
+
+// SnapshotNoteList はロック保護下で noteList の deep copy を返す。
+// ネットワーク I/O (UpdateNoteList のアップロード等) で UI と共有するスライスを
+// そのまま渡すと race するため、コピーを渡せるようにするヘルパー。
+// content フィールドは含まれないので軽量 (NoteMetadata の deep copy のみ)。
+func (s *noteService) SnapshotNoteList() *NoteList {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.noteList == nil {
+		return nil
+	}
+	cp := &NoteList{
+		Version:               s.noteList.Version,
+		Notes:                 append([]NoteMetadata(nil), s.noteList.Notes...),
+		Folders:               append([]Folder(nil), s.noteList.Folders...),
+		TopLevelOrder:         append([]TopLevelItem(nil), s.noteList.TopLevelOrder...),
+		ArchivedTopLevelOrder: append([]TopLevelItem(nil), s.noteList.ArchivedTopLevelOrder...),
+		CollapsedFolderIDs:    append([]string(nil), s.noteList.CollapsedFolderIDs...),
+	}
+	return cp
 }
 
 type conflictCopyResolution struct {
@@ -114,6 +170,13 @@ func NewNoteService(notesDir string, logger AppLogger) (*noteService, error) {
 
 // 全てのノートのリストを返す ------------------------------------------------------------
 func (s *noteService) ListNotes() ([]Note, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listNotesLocked()
+}
+
+// listNotesLocked はロックを取らない。caller が s.mu を握っている前提。
+func (s *noteService) listNotesLocked() ([]Note, error) {
 	var notes []Note
 	for _, metadata := range s.noteList.Notes {
 		if metadata.Archived {
@@ -130,7 +193,7 @@ func (s *noteService) ListNotes() ([]Note, error) {
 			})
 		} else {
 			// アクティブなノートはコンテンツを読み込む
-			note, err := s.LoadNote(metadata.ID)
+			note, err := s.loadNoteLocked(metadata.ID)
 			if err != nil {
 				// ファイルが未ダウンロードの場合はSyncing状態として返す
 				notes = append(notes, Note{
@@ -156,6 +219,14 @@ func (s *noteService) ListNotes() ([]Note, error) {
 
 // 指定されたIDのノートを読み込む ------------------------------------------------------------
 func (s *noteService) LoadNote(id string) (*Note, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.loadNoteLocked(id)
+}
+
+// loadNoteLocked はロックを取らない (caller が s.mu を握っている前提)。
+// listNotesLocked / LoadArchivedNote / drive_service の WithLock 内などから使う。
+func (s *noteService) loadNoteLocked(id string) (*Note, error) {
 	// キャッシュにあればディスク読み込みをスキップ
 	if cached, ok := s.noteCache[id]; ok {
 		return cached, nil
@@ -178,6 +249,8 @@ func (s *noteService) LoadNote(id string) (*Note, error) {
 
 // ノートを保存する ------------------------------------------------------------
 func (s *noteService) SaveNote(note *Note) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	note.ModifiedTime = time.Now().Format(time.RFC3339)
 
 	// contentHeader が未設定かつ content が存在する場合、自動生成する。
@@ -318,6 +391,8 @@ func (s *noteService) SaveNote(note *Note) error {
 
 // 指定されたIDのノートを削除する ------------------------------------------------------------
 func (s *noteService) DeleteNote(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	notePath := filepath.Join(s.notesDir, id+".json")
 	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
 		return err
@@ -341,7 +416,16 @@ func (s *noteService) DeleteNote(id string) error {
 }
 
 // 同期パスから呼ばれるノート保存（LastSync/ModifiedTime を更新しない、noteList.json も書かない）
+//
+// drive_service が WithLock 内から呼ぶ場合は saveNoteFromSyncLocked を使う。
 func (s *noteService) SaveNoteFromSync(note *Note) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveNoteFromSyncLocked(note)
+}
+
+// saveNoteFromSyncLocked はロックを取らない (caller が s.mu を握っている前提)。
+func (s *noteService) saveNoteFromSyncLocked(note *Note) error {
 	// contentHeader が未設定なら生成（古いクライアントが作ったノートへの救済）
 	if strings.TrimSpace(note.ContentHeader) == "" {
 		note.ContentHeader = generateContentHeader(note.Content)
@@ -359,7 +443,16 @@ func (s *noteService) SaveNoteFromSync(note *Note) error {
 }
 
 // 同期パスから呼ばれるノート削除（LastSync を更新しない、noteList.json も書かない）
+//
+// drive_service が WithLock 内から呼ぶ場合は deleteNoteFromSyncLocked を使う。
 func (s *noteService) DeleteNoteFromSync(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deleteNoteFromSyncLocked(id)
+}
+
+// deleteNoteFromSyncLocked はロックを取らない (caller が s.mu を握っている前提)。
+func (s *noteService) deleteNoteFromSyncLocked(id string) error {
 	notePath := filepath.Join(s.notesDir, id+".json")
 	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
 		return err
@@ -383,11 +476,14 @@ func (s *noteService) buildNoteMetadata(note *Note) NoteMetadata {
 
 // アーカイブされたノートの完全なデータを読み込む ------------------------------------------------------------
 func (s *noteService) LoadArchivedNote(id string) (*Note, error) {
+	// LoadNote は内部でロックを取るのでここでは取らない (再帰回避)
 	return s.LoadNote(id)
 }
 
 // ノートの順序を更新 ------------------------------------------------------------
 func (s *noteService) UpdateNoteOrder(noteID string, newIndex int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// アクティブなノートのみを対象とする
 	activeNotes := make([]NoteMetadata, 0)
 	archivedNotes := make([]NoteMetadata, 0)
@@ -433,6 +529,8 @@ func (s *noteService) CreateFolder(name string) (*Folder, error) {
 	if name == "" {
 		return nil, fmt.Errorf("folder name is empty")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	folder := &Folder{
 		ID:   uuid.New().String(),
@@ -457,6 +555,8 @@ func (s *noteService) RenameFolder(id string, name string) error {
 	if name == "" {
 		return fmt.Errorf("folder name is empty")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	for i, folder := range s.noteList.Folders {
 		if folder.ID == id {
@@ -469,6 +569,8 @@ func (s *noteService) RenameFolder(id string, name string) error {
 
 // フォルダを削除する（空の場合のみ） ------------------------------------------------------------
 func (s *noteService) DeleteFolder(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, note := range s.noteList.Notes {
 		if note.FolderID == id {
 			return fmt.Errorf("folder is not empty")
@@ -497,6 +599,8 @@ func (s *noteService) DeleteFolder(id string) error {
 
 // ノートをフォルダに移動する（folderIDが空文字の場合は未分類に戻す） ------------------------------------------------------------
 func (s *noteService) MoveNoteToFolder(noteID string, folderID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if folderID != "" {
 		folderFound := false
 		for _, folder := range s.noteList.Folders {
@@ -530,6 +634,8 @@ func (s *noteService) MoveNoteToFolder(noteID string, folderID string) error {
 
 // フォルダのリストを返す ------------------------------------------------------------
 func (s *noteService) ListFolders() []Folder {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.noteList.Folders == nil {
 		return []Folder{}
 	}
@@ -538,6 +644,8 @@ func (s *noteService) ListFolders() []Folder {
 
 // トップレベルの表示順序を返す（後方互換: nilの場合は自動生成） ------------------------------------------------------------
 func (s *noteService) GetTopLevelOrder() []TopLevelItem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.noteList.TopLevelOrder != nil {
 		return s.noteList.TopLevelOrder
 	}
@@ -546,6 +654,8 @@ func (s *noteService) GetTopLevelOrder() []TopLevelItem {
 
 // トップレベルの表示順序を更新する ------------------------------------------------------------
 func (s *noteService) UpdateTopLevelOrder(order []TopLevelItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.noteList.TopLevelOrder = order
 	return s.saveNoteList()
 }
@@ -601,6 +711,8 @@ func (s *noteService) buildTopLevelOrder() []TopLevelItem {
 
 // フォルダをアーカイブする（中のノートも全てアーカイブ） ------------------------------------------------------------
 func (s *noteService) ArchiveFolder(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	folderIdx := -1
 	for i, folder := range s.noteList.Folders {
 		if folder.ID == id {
@@ -619,7 +731,7 @@ func (s *noteService) ArchiveFolder(id string) error {
 		if metadata.FolderID != id {
 			continue
 		}
-		note, err := s.LoadNote(metadata.ID)
+		note, err := s.loadNoteLocked(metadata.ID)
 		if err != nil {
 			s.logConsole("Skipped archiving note %s due to load failure: %v", metadata.ID, err)
 			continue
@@ -631,7 +743,7 @@ func (s *noteService) ArchiveFolder(id string) error {
 		s.noteList.Notes[i].ModifiedTime = now
 		s.noteList.Notes[i].ContentHash = computeContentHash(note)
 		s.noteList.Notes[i].ContentHeader = note.ContentHeader
-		if err := s.SaveNoteFromSync(note); err != nil {
+		if err := s.saveNoteFromSyncLocked(note); err != nil {
 			return fmt.Errorf("failed to save note %s: %v", note.ID, err)
 		}
 	}
@@ -650,6 +762,8 @@ func (s *noteService) ArchiveFolder(id string) error {
 
 // アーカイブされたフォルダを復元する（中のノートも全て復元） ------------------------------------------------------------
 func (s *noteService) UnarchiveFolder(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	folderIdx := -1
 	for i, folder := range s.noteList.Folders {
 		if folder.ID == id {
@@ -671,7 +785,7 @@ func (s *noteService) UnarchiveFolder(id string) error {
 		if metadata.FolderID != id || !metadata.Archived {
 			continue
 		}
-		note, err := s.LoadNote(metadata.ID)
+		note, err := s.loadNoteLocked(metadata.ID)
 		if err != nil {
 			s.logConsole("Skipped restoring note %s due to load failure: %v", metadata.ID, err)
 			continue
@@ -681,7 +795,7 @@ func (s *noteService) UnarchiveFolder(id string) error {
 		s.noteList.Notes[i].Archived = false
 		s.noteList.Notes[i].ModifiedTime = now
 		s.noteList.Notes[i].ContentHash = computeContentHash(note)
-		if err := s.SaveNoteFromSync(note); err != nil {
+		if err := s.saveNoteFromSyncLocked(note); err != nil {
 			return fmt.Errorf("failed to save note %s: %v", note.ID, err)
 		}
 	}
@@ -699,6 +813,8 @@ func (s *noteService) UnarchiveFolder(id string) error {
 
 // アーカイブされたフォルダを削除する（中のノートファイルも全て削除） ------------------------------------------------------------
 func (s *noteService) DeleteArchivedFolder(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	found := false
 	for _, folder := range s.noteList.Folders {
 		if folder.ID == id {
@@ -755,6 +871,8 @@ func (s *noteService) DeleteArchivedFolder(id string) error {
 
 // アーカイブされたアイテムの表示順序を返す ------------------------------------------------------------
 func (s *noteService) GetArchivedTopLevelOrder() []TopLevelItem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.noteList.ArchivedTopLevelOrder != nil {
 		return s.noteList.ArchivedTopLevelOrder
 	}
@@ -763,6 +881,8 @@ func (s *noteService) GetArchivedTopLevelOrder() []TopLevelItem {
 
 // アーカイブされたアイテムの表示順序を更新する ------------------------------------------------------------
 func (s *noteService) UpdateArchivedTopLevelOrder(order []TopLevelItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.noteList.ArchivedTopLevelOrder = order
 	return s.saveNoteList()
 }
@@ -929,7 +1049,9 @@ func (s *noteService) loadNoteList() error {
 		return fmt.Errorf("failed to resolve metadata conflicts: %v", err)
 	}
 
-	if _, err := s.ValidateIntegrity(); err != nil {
+	// loadNoteList は NewNoteService 構築時のみ呼ばれ、まだロック保護下に入って
+	// いないが、外部参照もない (= 競合相手なし) ので Locked バリアントを使う。
+	if _, err := s.validateIntegrityLocked(); err != nil {
 		return err
 	}
 
@@ -1001,7 +1123,7 @@ func (s *noteService) rebuildFromPhysicalFiles() error {
 			continue
 		}
 		noteID := file.Name()[:len(file.Name())-5]
-		note, loadErr := s.LoadNote(noteID)
+		note, loadErr := s.loadNoteLocked(noteID)
 		if loadErr != nil {
 			s.logConsole("Skipping unreadable note file: %s", file.Name())
 			continue
@@ -1029,6 +1151,8 @@ func (s *noteService) rebuildFromPhysicalFiles() error {
 
 // 復旧が適用されたかどうかと方法を返し、フラグをリセットする ------------------------------------------------------------
 func (s *noteService) DrainRecoveryApplied() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	r := s.recoveryApplied
 	s.recoveryApplied = ""
 	return r
@@ -1071,6 +1195,8 @@ func (s *noteService) isNoteListEqual(a, b []NoteMetadata) bool {
 }
 
 // メタデータの競合を解決する ------------------------------------------------------------
+// loadNoteList (init) から呼ばれる内部メソッド。caller がロックを握っている前提
+// (init はそもそも競合相手なし)。
 func (s *noteService) resolveMetadataConflicts() error {
 	resolvedNotes := make([]NoteMetadata, 0)
 	resolvedCount := 0
@@ -1079,7 +1205,7 @@ func (s *noteService) resolveMetadataConflicts() error {
 	// ノートリストの各メタデータについて処理
 	for _, listMetadata := range s.noteList.Notes {
 		// ノートファイルを読み込む
-		note, err := s.LoadNote(listMetadata.ID)
+		note, err := s.loadNoteLocked(listMetadata.ID)
 		if err != nil {
 			if os.IsNotExist(err) {
 				skippedCount++
@@ -1116,7 +1242,7 @@ func (s *noteService) resolveMetadataConflicts() error {
 			note.Language = resolvedMetadata.Language
 			note.Archived = resolvedMetadata.Archived
 
-			if err := s.SaveNoteFromSync(note); err != nil {
+			if err := s.saveNoteFromSyncLocked(note); err != nil {
 				return fmt.Errorf("failed to save resolved note %s: %v", note.ID, err)
 			}
 			resolvedCount++
@@ -1203,6 +1329,14 @@ func (s *noteService) logConsole(format string, args ...interface{}) {
 // 2. 物理ファイルが無いリストエントリ → noteListから除去
 // 3. TopLevelOrder / ArchivedTopLevelOrder の無効参照を除去
 func (s *noteService) ValidateIntegrity() (changed bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.validateIntegrityLocked()
+}
+
+// validateIntegrityLocked はロックを取らない。
+// loadNoteList (init) と ValidateIntegrity のラッパから呼ばれる。
+func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 	files, err := os.ReadDir(s.notesDir)
 	if err != nil {
 		return false, err
@@ -1241,7 +1375,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 	var recoveryFolderID string
 	totalOrphans := len(orphanNoteIDs)
 	for i, noteID := range orphanNoteIDs {
-		note, loadErr := s.LoadNote(noteID)
+		note, loadErr := s.loadNoteLocked(noteID)
 		if loadErr != nil {
 			logRepair(fmt.Sprintf("Skipped corrupted orphan file: %s (%v)", noteID, loadErr))
 			continue
@@ -1253,7 +1387,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 
 		note.Archived = false
 		note.FolderID = recoveryFolderID
-		if saveErr := s.SaveNoteFromSync(note); saveErr != nil {
+		if saveErr := s.saveNoteFromSyncLocked(note); saveErr != nil {
 			logRepair(fmt.Sprintf("Failed to update orphan note file: %s (%v)", noteID, saveErr))
 		}
 
@@ -1530,7 +1664,7 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 		if metadata.ContentHash != "" {
 			continue
 		}
-		note, loadErr := s.LoadNote(metadata.ID)
+		note, loadErr := s.loadNoteLocked(metadata.ID)
 		if loadErr != nil {
 			s.logConsole("Integrity check: skipping hash rebuild for %s (file missing)", metadata.ID)
 			continue
@@ -1576,6 +1710,8 @@ func (s *noteService) ValidateIntegrity() (changed bool, err error) {
 
 // pendingの整合性問題を取り出す（1回限り）
 func (s *noteService) DrainPendingIntegrityIssues() []IntegrityIssue {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.pendingIntegrityIssues) == 0 {
 		return nil
 	}
@@ -1586,6 +1722,8 @@ func (s *noteService) DrainPendingIntegrityIssues() []IntegrityIssue {
 
 // 起動時に発生した自動修復ログを取り出す（1回限り）
 func (s *noteService) DrainPendingIntegrityRepairs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.pendingIntegrityRepairs) == 0 {
 		return nil
 	}
@@ -1595,6 +1733,8 @@ func (s *noteService) DrainPendingIntegrityRepairs() []string {
 }
 
 func (s *noteService) DrainPendingOrphanRecoveries() []OrphanRecoveryInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.pendingOrphanRecoveries) == 0 {
 		return nil
 	}
@@ -1623,6 +1763,8 @@ func (s *noteService) findOrCreateRecoveryFolder(name string) string {
 
 // RecoverOrphanNote は孤立ノートを指定の復元フォルダに追加する（クラウド孤立復元からも呼ばれる）
 func (s *noteService) RecoverOrphanNote(note *Note, recoveryFolderName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, m := range s.noteList.Notes {
 		if m.ID == note.ID {
 			return nil
@@ -1633,7 +1775,7 @@ func (s *noteService) RecoverOrphanNote(note *Note, recoveryFolderName string) e
 
 	note.Archived = false
 	note.FolderID = folderID
-	if saveErr := s.SaveNoteFromSync(note); saveErr != nil {
+	if saveErr := s.saveNoteFromSyncLocked(note); saveErr != nil {
 		s.logConsole("Failed to update orphan note file: %s (%v)", note.ID, saveErr)
 	}
 
@@ -1669,7 +1811,9 @@ func (s *noteService) autoResolveConflictCopies() conflictCopyResolution {
 	noteInfos := make([]noteInfo, 0, len(s.noteList.Notes))
 	for _, metadata := range s.noteList.Notes {
 		hash := ""
-		note, err := s.LoadNote(metadata.ID)
+		// autoResolveConflictCopies は ApplyIntegrityFixes (lock 取得済) から
+		// 呼ばれる内部メソッド。LoadNote だと再帰デッドロックするので Locked 版。
+		note, err := s.loadNoteLocked(metadata.ID)
 		if err == nil {
 			hash = computeConflictCopyDedupHash(note)
 		}
@@ -1809,6 +1953,8 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 	if len(selections) == 0 {
 		return summary, nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	noteIDSet := make(map[string]bool)
 	for _, metadata := range s.noteList.Notes {
@@ -1841,7 +1987,7 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 					summary.Skipped++
 					continue
 				}
-				note, loadErr := s.LoadNote(noteID)
+				note, loadErr := s.loadNoteLocked(noteID)
 				if loadErr != nil {
 					summary.Errors++
 					s.logConsole("Integrity repair: failed to load orphan file %s: %v", noteID, loadErr)
@@ -1893,14 +2039,14 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 				summary.Skipped++
 				continue
 			}
-			note, loadErr := s.LoadNote(noteID)
+			note, loadErr := s.loadNoteLocked(noteID)
 			if loadErr != nil {
 				summary.Errors++
 				s.logConsole("Integrity repair: failed to load note %s for time normalization: %v", noteID, loadErr)
 				continue
 			}
 			note.ModifiedTime = now
-			if err := s.SaveNoteFromSync(note); err != nil {
+			if err := s.saveNoteFromSyncLocked(note); err != nil {
 				summary.Errors++
 				s.logConsole("Integrity repair: failed to save note %s after time normalization: %v", noteID, err)
 				continue

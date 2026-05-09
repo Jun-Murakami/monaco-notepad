@@ -59,6 +59,7 @@ vi.mock('../../../wailsjs/go/backend/App', () => ({
 vi.mock('../../../wailsjs/runtime', () => ({
   EventsOn: vi.fn(),
   EventsOff: vi.fn(),
+  EventsEmit: vi.fn(),
 }));
 
 // backend.Note.createFromのモック
@@ -314,6 +315,133 @@ describe('useNotes', () => {
         }),
         'update',
       );
+    });
+
+    // 「ノート保存失敗 → 別ノート選択 → 戻ると内容が失われている」バグの再現テスト。
+    //
+    // 再現手順:
+    //   1. ノート A 編集 (content -> 'new content')
+    //   2. ノート B 選択 → saveCurrentNote() が fire-and-forget で SaveNote 投げる
+    //   3. SaveNote が失敗 (例: ディスク I/O エラー) → .catch(console.error) で握り潰される
+    //   4. その後何かのトリガで notes:reload 発火 (Drive 同期で 90 秒に 1 度発火し得る)
+    //   5. ListNotes が「保存に失敗したので古い内容のままの A」を返す
+    //   6. reloadHandler が notes[] を上書き → A の in-memory 内容が古い状態に戻る
+    //   7. ユーザーが A に戻る → 古い内容が表示されている
+    //
+    // 修正後は失敗した保存対象を unsavedNotesRef でマークし、reloadHandler 側で
+    // それらをサーバ値で上書きせずに「未保存の新内容」を維持する。
+    it('SaveNote 失敗 + notes:reload 後でも、未保存の新内容が失われないこと', async () => {
+      const noteA: Note = { ...mockNote, id: 'A', content: 'old A' };
+      const noteB: Note = { ...mockNote, id: 'B', content: 'B content' };
+
+      // 初期状態の準備: notes に A と B、currentNote は A
+      useNotesStore.getState().setNotes([noteA, noteB]);
+      useNotesStore.getState().setTopLevelOrder([
+        { type: 'note', id: 'A' },
+        { type: 'note', id: 'B' },
+      ]);
+      (ListNotes as unknown as Mock).mockResolvedValue([noteA, noteB]);
+      (GetTopLevelOrder as unknown as Mock).mockResolvedValue([
+        { type: 'note', id: 'A' },
+        { type: 'note', id: 'B' },
+      ]);
+
+      const { result } = renderHook(() => useNotes());
+
+      await act(async () => {
+        await result.current.handleSelectNote(noteA);
+      });
+
+      // SaveNote を以後ずっと reject (バックエンドで I/O エラー等)。
+      (SaveNote as unknown as Mock).mockRejectedValue(new Error('save error'));
+
+      // ノート A を編集 (content だけは pendingContentRef に入り、currentNote には反映されない)
+      await act(async () => {
+        result.current.handleNoteContentChange('new content for A');
+      });
+
+      // 別ノート B を選択 → 切替時に saveCurrentNote() が走り SaveNote 投げて即失敗
+      await act(async () => {
+        await result.current.handleSelectNote(noteB);
+        // .catch ハンドラを走らせるため microtask を回す
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'A', content: 'new content for A' }),
+        'update',
+      );
+      expect(useCurrentNoteStore.getState().currentNote?.id).toBe('B');
+
+      // ここでバックエンドから notes:reload が来る (Drive 同期完了などのタイミング)。
+      // ListNotes は保存に失敗した「古い A」をそのまま返してくる。
+      const mockCalls = (runtime.EventsOn as unknown as Mock).mock.calls;
+      const foundReloadCall = mockCalls.find(
+        (call) => call[0] === 'notes:reload',
+      );
+      if (!foundReloadCall) throw new Error('notes:reload callback not found');
+      const reloadCallback = foundReloadCall[1];
+
+      (ListNotes as unknown as Mock).mockResolvedValue([
+        { ...noteA, content: 'old A' }, // ★ 保存に失敗したので古いまま
+        noteB,
+      ]);
+
+      await act(async () => {
+        await reloadCallback();
+      });
+
+      // ノート A に戻る。NoteList から渡される note は「ストア上の最新 A」。
+      // 修正前: notes[] が reload で上書きされ A.content === 'old A' になっており、
+      //         戻ったときに古い内容が表示される。
+      // 修正後: 未保存マークがあるため reload で notes[] の A は上書きされず、
+      //         currentNote.content === 'new content for A' が維持される。
+      const aFromStore = useNotesStore
+        .getState()
+        .notes.find((n) => n.id === 'A');
+      if (!aFromStore)
+        throw new Error('Note A missing from store after reload');
+
+      await act(async () => {
+        await result.current.handleSelectNote(aFromStore);
+      });
+
+      expect(useCurrentNoteStore.getState().currentNote?.id).toBe('A');
+      expect(useCurrentNoteStore.getState().currentNote?.content).toBe(
+        'new content for A',
+      );
+    });
+
+    // 「保存に失敗したまま放置されない」ことの保証。
+    // 失敗時はユーザーに気づいてもらえるようログメッセージを emit する。
+    it('SaveNote 失敗時にユーザーへ通知ログが発行されること', async () => {
+      const noteA: Note = { ...mockNote, id: 'A', content: 'old A' };
+      useNotesStore.getState().setNotes([noteA]);
+
+      const { result } = renderHook(() => useNotes());
+      await act(async () => {
+        await result.current.handleSelectNote(noteA);
+      });
+
+      (SaveNote as unknown as Mock).mockRejectedValueOnce(
+        new Error('disk full'),
+      );
+
+      await act(async () => {
+        result.current.handleNoteContentChange('new');
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const emittedMessages = (
+        runtime.EventsEmit as unknown as Mock
+      ).mock.calls.filter((call) => call[0] === 'logMessage');
+      expect(emittedMessages.length).toBeGreaterThan(0);
     });
   });
 
