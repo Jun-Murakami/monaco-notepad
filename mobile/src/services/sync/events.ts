@@ -44,11 +44,27 @@ export class EventEmitter<Events extends object> {
 
 import type { MessageCodeValue, SyncPhase, SyncStatus } from './types';
 
+/**
+ * 「Drive 接続が切れたまま気付かない」事故を防ぐための再ログイン要求イベント。
+ * デスクトップ版の `drive:reauth-required` (Wails event) と完全に同じセマンティクス。
+ *
+ * - "invalid_grant"   : refresh_token 失効/取り消し → 再ログイン必須
+ * - "startup_failed"  : 起動時の保存トークン再接続失敗 (ネットワーク等の場合も含む)
+ * - "polling_failed"  : ポーリング中の再接続が連続失敗 (AuthService 側の閾値)
+ *
+ * 同じオフラインセッション中の重複発火は authService 内部のフラグで抑止する。
+ */
+export type DriveReauthReason =
+	| 'invalid_grant'
+	| 'startup_failed'
+	| 'polling_failed';
+
 export interface SyncEvents {
 	'drive:status': { status: SyncStatus };
 	'drive:connected': undefined;
 	'drive:disconnected': undefined;
 	'drive:reconnected': undefined;
+	'drive:reauth-required': { reason: DriveReauthReason; detail?: string };
 	'notes:reload': undefined;
 	'notes:updated': { noteId: string };
 	'integrity:issues': { count: number };

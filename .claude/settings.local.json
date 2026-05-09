@@ -81,7 +81,9 @@
       "Bash(xxd)",
       "Bash(echo \"Exit code: $?\")",
       "Bash(tee /tmp/race_output.txt)",
-      "Bash(tee /tmp/race_full.txt)"
+      "Bash(tee /tmp/race_full.txt)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Synching\\\\code\\\\Wails\\\\monaco-notepad\" -Directory)",
+      "Bash(Select-Object Name)"
     ]
   }
 }

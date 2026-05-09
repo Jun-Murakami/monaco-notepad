@@ -8,7 +8,15 @@
 		"signedInAs": "接続中",
 		"notSignedIn": "未接続",
 		"signInPrompt": "ノートをGoogle Driveと同期するには、Google Driveへのアクセスを許可してください。",
-		"cancel": "キャンセル"
+		"cancel": "キャンセル",
+		"reauthRequired": {
+			"title": "Google Drive への再接続",
+			"messageInvalidGrant": "Google サインインの有効期限が切れたか、アクセスが取り消されています。同期を続けるには再度サインインしてください。",
+			"messageStartupFailed": "保存されているサインイン情報での自動接続に失敗しました。再度サインインして同期を復旧してください。オフライン中の場合はノートはローカルに保たれているため、いったん閉じても構いません。",
+			"messagePollingFailed": "Google Drive との同期がしばらく失敗しています。再度サインインして接続を復旧してください。",
+			"reLogin": "サインイン",
+			"later": "後で"
+		}
 	},
 	"noteList": {
 		"empty": "ノートがありません",

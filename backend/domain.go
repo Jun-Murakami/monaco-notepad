@@ -168,6 +168,10 @@ type DriveSync struct {
 	noteListID    string         // ノートリストのファイルID
 	mutex         sync.RWMutex   // 同期処理用のミューテックス
 	isConnected   bool           // Google Driveへの接続状態
+	// reauthNotified は drive:reauth-required イベントを発火済みかを記録する。
+	// 同じオフラインセッション中に何度もダイアログが表示されないよう、
+	// SetConnected(true) で false にリセットする。
+	reauthNotified bool
 }
 
 func (ds *DriveSync) FolderIDs() (rootFolderID, notesFolderID string) {
@@ -205,6 +209,24 @@ func (ds *DriveSync) SetConnected(connected bool) {
 	ds.mutex.Lock()
 	defer ds.mutex.Unlock()
 	ds.isConnected = connected
+	if connected {
+		// 接続復帰時に reauth ダイアログ通知済フラグを解放、
+		// 次のオフラインセッションで再度通知できるようにする。
+		ds.reauthNotified = false
+	}
+}
+
+// MarkReauthNotified は drive:reauth-required を 1 度だけ発火するためのフラグを
+// セットし、初回呼び出しなら true を返す。同じオフラインセッション中の重複通知を
+// 防ぐ。SetConnected(true) でフラグはリセットされる。
+func (ds *DriveSync) MarkReauthNotified() bool {
+	ds.mutex.Lock()
+	defer ds.mutex.Unlock()
+	if ds.reauthNotified {
+		return false
+	}
+	ds.reauthNotified = true
+	return true
 }
 
 func isModifiedTimeAfter(a, b string) bool {

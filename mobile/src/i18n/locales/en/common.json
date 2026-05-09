@@ -8,7 +8,15 @@
 		"signedInAs": "Connected",
 		"notSignedIn": "Not connected",
 		"signInPrompt": "Allow access to Google Drive to sync your notes.",
-		"cancel": "Cancel"
+		"cancel": "Cancel",
+		"reauthRequired": {
+			"title": "Reconnect to Google Drive",
+			"messageInvalidGrant": "Your Google sign-in has expired or was revoked. Sign in again to keep syncing.",
+			"messageStartupFailed": "Could not reconnect to Google Drive with the saved sign-in. Sign in again to restore syncing. If you are offline, your notes are safe locally and you can dismiss this for now.",
+			"messagePollingFailed": "Sync with Google Drive has been failing for a while. Sign in again to restore the connection.",
+			"reLogin": "Sign in",
+			"later": "Later"
+		}
 	},
 	"noteList": {
 		"empty": "No notes yet",

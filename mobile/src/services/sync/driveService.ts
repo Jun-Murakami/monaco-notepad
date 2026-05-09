@@ -83,9 +83,7 @@ export class DriveService {
 				// 起動時の Drive 接続が失敗しても、アプリ全体をクラッシュさせない。
 				// (401 / ネットワーク不通 / Drive 障害 等)
 				// 部分的に作られた接続オブジェクトをクリアして「未接続」状態に戻す。
-				// ユーザーは設定 → サインインで明示的に再接続できる。401 で
-				// authService 内の refresh が失敗した場合は signOut まで走るので、
-				// `signedIn` 状態も自動で false に切り替わる。
+				// ユーザーは設定 → サインインで明示的に再接続できる。
 				console.warn('[Drive] connect failed during initialize:', e);
 				this.client = null;
 				this.driveSync = null;
@@ -93,6 +91,16 @@ export class DriveService {
 				this.polling = null;
 				syncEvents.emit('drive:disconnected', undefined);
 				syncEvents.emit('drive:status', { status: 'offline' });
+				// 「Drive と同期していない」ことに気付かないままアプリを使い続けるのを
+				// 防ぐため、起動時の自動再接続失敗もダイアログで通知する。
+				// 401 由来 (authService.refresh が invalid_grant 検知) なら既に
+				// notifyReauthRequired('invalid_grant') が呼ばれて signOut 済みのはず。
+				// それ以外 (ネットワーク不通) は startup_failed で通知。
+				// notifyReauthRequired は内部で重複抑止するので二重表示にはならない。
+				authService.notifyReauthRequired(
+					'startup_failed',
+					e instanceof Error ? e.message : String(e),
+				);
 			}
 		}
 		this.initialized = true;

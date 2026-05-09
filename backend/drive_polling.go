@@ -27,7 +27,17 @@ type DrivePollingService struct {
 	mu              sync.Mutex // 以下のフィールドを保護
 	stopPollingChan chan struct{}
 	changePageToken string
+	// consecutiveReconnectFailures は reconnect 連続失敗回数。
+	// reauthFailureThreshold 回連続で失敗したら drive:reauth-required を発火し、
+	// ユーザーに「Drive との接続が切れたまま復旧しません」と知らせる。
+	// 接続成功でリセットする。
+	consecutiveReconnectFailures int
 }
+
+// reauthFailureThreshold は連続 reconnect 失敗がこの回数以上になったら
+// 再ログイン誘導ダイアログを発火する閾値。一時的な Wi-Fi 断 / スリープ復帰直後を
+// やり過ごしつつ、本物の "永続的なオフライン" を検知できる値。
+const reauthFailureThreshold = 3
 
 func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePollingService {
 	return &DrivePollingService{
@@ -46,6 +56,22 @@ func (p *DrivePollingService) currentStopChannel() chan struct{} {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.stopPollingChan
+}
+
+// recordReconnectFailure は reconnect 失敗回数を 1 加算した値を返す。
+// 閾値を超えたら caller 側で再ログインダイアログを発火する。
+func (p *DrivePollingService) recordReconnectFailure() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.consecutiveReconnectFailures++
+	return p.consecutiveReconnectFailures
+}
+
+// resetReconnectFailures は接続復帰時に呼ばれ、連続失敗カウンタをリセットする。
+func (p *DrivePollingService) resetReconnectFailures() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.consecutiveReconnectFailures = 0
 }
 
 // getChangePageToken は Changes API のページトークンを返す。RefreshChangeToken
@@ -140,6 +166,13 @@ func (p *DrivePollingService) StartPolling() {
 				p.logger.Console("Connection lost, attempting reconnect (next retry in %s)...", reconnectDelay)
 				if err := p.driveService.reconnect(); err != nil {
 					p.logger.Console("Reconnect failed: %v", err)
+					// 連続失敗が閾値を超えたら再ログインダイアログを発火する。
+					// (reauthNotified の重複抑止フラグが立っているので 1 度だけ通知される)
+					if p.recordReconnectFailure() >= reauthFailureThreshold {
+						p.driveService.auth.notifyReauthRequired(
+							"polling_failed", err.Error(),
+						)
+					}
 					reconnectDelay = time.Duration(float64(reconnectDelay) * factor)
 					if reconnectDelay > reconnectMaxDelay {
 						reconnectDelay = reconnectMaxDelay
@@ -149,6 +182,7 @@ func (p *DrivePollingService) StartPolling() {
 				}
 				p.logger.InfoCode(MsgDriveReconnected, nil)
 				p.logger.NotifyDriveStatus(p.ctx, "synced")
+				p.resetReconnectFailures()
 				reconnectDelay = reconnectBaseDelay
 				interval = initialInterval
 				p.setChangePageToken("")

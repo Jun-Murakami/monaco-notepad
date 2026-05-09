@@ -16,6 +16,10 @@ import {
 } from '../../wailsjs/go/backend/App';
 import { EventsOff, EventsOn } from '../../wailsjs/runtime';
 import i18n from '../i18n';
+import {
+  type DriveReauthReason,
+  useDialogsStore,
+} from '../stores/useDialogsStore';
 import { isMessageCode, translateMessageCode } from '../utils/messageCode';
 
 import type { MessageCode } from '../utils/messageCode';
@@ -127,10 +131,21 @@ export const useDriveSync = (
     console.error('Drive error:', error);
   });
 
+  // バックエンドが「Drive 接続が切れて自動復旧できない」と判断したときに発火する。
+  // payload.reason に応じてダイアログ文言が変わる (useDialogsStore で出し分け)。
+  // 重複通知はバックエンド側 (DriveSync.MarkReauthNotified) で抑止済み。
+  const onDriveReauthRequired = useEffectEvent(
+    (payload: { reason?: string; detail?: string } | undefined) => {
+      const reason = (payload?.reason ?? 'startup_failed') as DriveReauthReason;
+      useDialogsStore.getState().openReauthRequired(reason, payload?.detail);
+    },
+  );
+
   useEffect(() => {
     EventsOn('notes:updated', handleSync);
     EventsOn('drive:status', onDriveStatus);
     EventsOn('drive:error', onDriveError);
+    EventsOn('drive:reauth-required', onDriveReauthRequired);
     EventsOn('drive:migration-needed', () => {
       setIsMigrationDialogOpen(true);
     });
@@ -141,6 +156,7 @@ export const useDriveSync = (
       EventsOff('notes:updated');
       EventsOff('drive:status');
       EventsOff('drive:error');
+      EventsOff('drive:reauth-required');
       EventsOff('drive:migration-needed');
       stopSyncMonitoring();
     };

@@ -190,7 +190,15 @@
     "disconnectTitle": "Google Driveとの接続を解除しますか？",
     "disconnectMessage": "同期は停止します。ノートはローカルに保存されたままです。",
     "syncFailedTitle": "同期に失敗しました",
-    "syncFailedMessage": "Google Driveと同期できませんでした。ノートはローカルに安全に保存されています。\n\n詳細: {{error}}"
+    "syncFailedMessage": "Google Driveと同期できませんでした。ノートはローカルに安全に保存されています。\n\n詳細: {{error}}",
+    "reauthRequired": {
+      "title": "Google Driveへの再接続",
+      "messageInvalidGrant": "Googleサインインの有効期限が切れたか、アクセスが取り消されています。同期を続けるには再度サインインしてください。",
+      "messageStartupFailed": "保存されているサインイン情報での自動接続に失敗しました。再度サインインしてください。\n\nオフライン中の場合はノートはローカルに保たれているため、いったん閉じても構いません。",
+      "messagePollingFailed": "Google Driveとの同期がしばらく失敗しています。再度サインインして接続を復旧してください。",
+      "reLogin": "サインイン",
+      "later": "後で"
+    }
   },
   "migration": {
     "title": "クラウドストレージの更新",

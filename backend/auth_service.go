@@ -77,6 +77,30 @@ func NewAuthService(
 	}
 }
 
+// notifyReauthRequired はフロントエンドへ「再ログインが必要」ダイアログを促す
+// イベントを発火する。原因 (reason) と詳細 (detail) を payload に載せ、フロント側で
+// ダイアログ文言を出し分けられるようにする。
+//
+// reason:
+//   - "invalid_grant"   : refresh_token 失効/取り消し → 再ログインが必須
+//   - "startup_failed"  : 起動時の保存トークン再接続失敗 (auth/network 由来含む)
+//   - "polling_failed"  : ポーリング中の再接続が連続失敗 (例: 3 回)
+//
+// 同じオフラインセッション中の重複通知は DriveSync.MarkReauthNotified で抑止する。
+// 接続復帰時 (SetConnected(true)) にフラグはリセットされ、次回オフライン時に再度通知できる。
+func (a *authService) notifyReauthRequired(reason string, detail string) {
+	if a.isTestMode || a.driveSync == nil {
+		return
+	}
+	if !a.driveSync.MarkReauthNotified() {
+		return // 既に通知済み
+	}
+	wailsRuntime.EventsEmit(a.ctx, "drive:reauth-required", map[string]interface{}{
+		"reason": reason,
+		"detail": redactLogMessage(detail),
+	})
+}
+
 // initializeGoogleDrive は Google Drive の初期化と同期開始を行う共通処理
 func (a *authService) initializeGoogleDrive(token *oauth2.Token) error {
 	// Drive サービスの初期化
@@ -127,24 +151,35 @@ func (a *authService) InitializeWithSavedToken() (bool, error) {
 	_, err = srv.Files.List().Fields("files(id, name)").PageSize(1).Do()
 	if err != nil {
 		a.logger.Console("Failed to connect to Drive: %v", err)
-		// 認証エラーの場合のみトークンファイルを削除し、ユーザーが原因を追えるように
-		// ステータスバー通知にも失効理由を残す。
 		errStr := err.Error()
-		if strings.Contains(errStr, "invalid_grant") ||
+		isAuthError := strings.Contains(errStr, "invalid_grant") ||
 			strings.Contains(errStr, "unauthorized") ||
-			strings.Contains(errStr, "revoked") {
+			strings.Contains(errStr, "revoked")
+
+		if isAuthError {
+			// refresh_token 失効など → トークン削除して再ログインが必須な状態へ
 			tokenFile := filepath.Join(a.appDataDir, "token.json")
 			if removeErr := os.Remove(tokenFile); removeErr != nil && !os.IsNotExist(removeErr) {
 				a.logger.Console("Failed to remove invalid token file: %v", removeErr)
 			}
 			a.logger.Console("Removed invalid token file due to auth error")
-			a.driveSync.SetConnected(false)
 			a.logger.ErrorCode(err, MsgDriveErrorAuthConnection, map[string]interface{}{
 				"reason": redactLogMessage(err.Error()),
 			})
 			a.logger.InfoCode(MsgDriveDisconnected, nil)
-			a.logger.NotifyDriveStatus(a.ctx, "offline")
 		}
+
+		// 起動時 / reconnect 経路の両方で「サイレントに切れて気付かない」事態を
+		// 防ぐため、原因を問わず一度だけダイアログ通知を発火する。
+		// (drive:reauth-required は同じオフラインセッション中は 1 度しか飛ばないので
+		//  ポーリング中の毎回 reconnect で連発されることはない)
+		a.driveSync.SetConnected(false)
+		a.logger.NotifyDriveStatus(a.ctx, "offline")
+		reason := "startup_failed"
+		if isAuthError {
+			reason = "invalid_grant"
+		}
+		a.notifyReauthRequired(reason, errStr)
 		return false, nil
 	}
 
@@ -388,6 +423,9 @@ func (a *authService) handleFullOfflineTransition(err error) {
 		a.logger.ErrorCode(err, MsgDriveErrorAuthConnection, map[string]interface{}{
 			"reason": redactLogMessage(err.Error()),
 		})
+		// refresh_token 失効など、再ログインが必要な状態でユーザーに能動的に通知する。
+		// 同じセッション中の重複通知は MarkReauthNotified で抑止される。
+		a.notifyReauthRequired("invalid_grant", err.Error())
 	}
 	a.logger.InfoCode(MsgDriveDisconnected, nil)
 	a.logger.NotifyDriveStatus(a.ctx, "offline")

@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ActivityIndicator, PaperProvider, Text } from 'react-native-paper';
 import { configureReanimatedLogger } from 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ReauthRequiredDialog } from '@/components/ReauthRequiredDialog';
 import { useAppTheme } from '@/hooks/useAppTheme';
 import { useInitialize } from '@/hooks/useInitialize';
 import i18n from '@/i18n';
@@ -72,6 +73,7 @@ export default function RootLayout() {
 								/>
 								<Stack.Screen name="oauth2redirect" />
 							</Stack>
+							<ReauthRequiredDialog />
 						</BottomSheetModalProvider>
 					</PaperProvider>
 				</I18nextProvider>

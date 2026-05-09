@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -362,6 +363,61 @@ func TestPolling_ConcurrentStopRestartRefresh(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
+}
+
+// recordReconnectFailure / resetReconnectFailures の挙動。
+// reauthFailureThreshold (= 3) を超えた回数で再ログインダイアログが発火する設計の
+// 単体テスト。実際のイベント発火は notifyReauthRequired 側 (重複抑止フラグ) が
+// 受け持つので、ここではカウンタ動作だけを確認する。
+
+func TestPolling_RecordReconnectFailure_IncrementsCounter(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+	seedCloudNoteListFile(t, ds, rawOps)
+	polling := NewDrivePollingService(context.Background(), ds)
+
+	assert.Equal(t, 1, polling.recordReconnectFailure())
+	assert.Equal(t, 2, polling.recordReconnectFailure())
+	assert.Equal(t, 3, polling.recordReconnectFailure())
+	assert.GreaterOrEqual(t, 3, reauthFailureThreshold,
+		"閾値 (reauthFailureThreshold) は 3 回目で到達するはず")
+}
+
+func TestPolling_ResetReconnectFailures_ResetsCounter(t *testing.T) {
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+	seedCloudNoteListFile(t, ds, rawOps)
+	polling := NewDrivePollingService(context.Background(), ds)
+
+	polling.recordReconnectFailure()
+	polling.recordReconnectFailure()
+	polling.resetReconnectFailures()
+	assert.Equal(t, 1, polling.recordReconnectFailure(),
+		"resetReconnectFailures 後は再び 1 から")
+}
+
+func TestPolling_RecordReconnectFailure_ConcurrentSafe(t *testing.T) {
+	// 複数 goroutine からの並行加算でも race 検出が出ないこと。
+	// `-race` 必須。
+	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
+	defer cleanup()
+	seedCloudNoteListFile(t, ds, rawOps)
+	polling := NewDrivePollingService(context.Background(), ds)
+
+	const goroutines = 16
+	const iterations = 25
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				polling.recordReconnectFailure()
+			}
+		}()
+	}
+	wg.Wait()
+	assert.Equal(t, goroutines*iterations+1, polling.recordReconnectFailure())
 }
 
 func TestPolling_NoChanges_IntervalIncreases(t *testing.T) {

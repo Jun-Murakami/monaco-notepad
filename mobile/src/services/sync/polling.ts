@@ -1,5 +1,6 @@
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { AppState, type AppStateStatus } from 'react-native';
+import { authService } from '../auth/authService';
 import { appSettings } from '../settings/appSettings';
 import { readString, writeAtomic } from '../storage/atomicFile';
 import { CHANGE_PAGE_TOKEN_PATH } from '../storage/paths';
@@ -26,6 +27,10 @@ const MAX_INTERVAL_MS = 60000;
 const BACKOFF_FACTOR = 1.5;
 const RECONNECT_MIN_MS = 10000;
 const RECONNECT_MAX_MS = 3 * 60 * 1000;
+// handleAuthError 内の reconnect 試行が連続で失敗したら再ログインダイアログを発火する。
+// 一時的な Wi-Fi 切替 / スリープ復帰直後は backoff でやり過ごし、永続的なオフライン
+// (refresh_token 失効など) はユーザーに通知する。
+const REAUTH_FAILURE_THRESHOLD = 3;
 
 export type ConnectivityState = 'online' | 'offline';
 
@@ -229,7 +234,11 @@ export class PollingService {
 		syncEvents.emit('drive:status', { status: 'offline' });
 		// 再接続は上位の AuthService 側で token refresh されることを期待。
 		// ここでは backoff 付きで 401 解消を待つ。
+		// 連続失敗回数を数え、閾値超過で「再ログインしてください」ダイアログを発火する。
+		// (authService.notifyReauthRequired は内部で重複抑止しており、refresh で
+		//  invalid_grant が検知されたときも同じ仕組みで一度だけ通知される)
 		let delay = RECONNECT_MIN_MS;
+		let consecutiveFailures = 0;
 		while (!this.stopFlag && this.isActive()) {
 			await sleep(Math.min(delay, RECONNECT_MAX_MS));
 			delay = Math.min(delay * BACKOFF_FACTOR, RECONNECT_MAX_MS);
@@ -238,8 +247,17 @@ export class PollingService {
 				this.driveSync.clearCache();
 				syncEvents.emit('drive:reconnected', undefined);
 				this.intervalMs = MIN_INTERVAL_MS;
+				// 接続復帰: 次回オフライン時にも改めて通知できるようリセット
+				authService.resetReauthNotified();
 				return;
 			} catch (e) {
+				consecutiveFailures++;
+				if (consecutiveFailures >= REAUTH_FAILURE_THRESHOLD) {
+					authService.notifyReauthRequired(
+						'polling_failed',
+						e instanceof Error ? e.message : String(e),
+					);
+				}
 				if (e instanceof AuthError) continue;
 				// それ以外のエラーも backoff
 			}
