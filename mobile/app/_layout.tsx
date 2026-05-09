@@ -1,6 +1,7 @@
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect, useState } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -16,9 +17,23 @@ import i18n from '@/i18n';
 // 開発中の gesture animation で過剰に出る場合があるため strict だけ off にする。
 configureReanimatedLogger({ strict: false });
 
+// 起動高速化後、ready=false の時間が一瞬しかなく ActivityIndicator が
+// チラッと出てすぐ消える挙動 (= 固まって見えると誤解される) を防ぐ。
+// この時間以上待ってもまだ初期化が終わらない場合だけスピナーを表示する。
+const SPINNER_DELAY_MS = 1000;
+
 export default function RootLayout() {
 	const { theme, isDark } = useAppTheme();
 	const { ready, error } = useInitialize();
+	// ready=false が SPINNER_DELAY_MS を超えたら true になる。
+	// ready が早く true になればこの state は false のまま、何も表示されない。
+	const [showSpinner, setShowSpinner] = useState(false);
+
+	useEffect(() => {
+		if (ready) return;
+		const timer = setTimeout(() => setShowSpinner(true), SPINNER_DELAY_MS);
+		return () => clearTimeout(timer);
+	}, [ready]);
 
 	if (!ready) {
 		return (
@@ -32,12 +47,13 @@ export default function RootLayout() {
 					}}
 				>
 					{error ? (
+						// エラーは「固まって見える」問題と無関係なので即座に表示する。
 						<Text variant="bodyMedium" style={{ color: theme.colors.error }}>
 							{error.message}
 						</Text>
-					) : (
+					) : showSpinner ? (
 						<ActivityIndicator />
-					)}
+					) : null}
 				</View>
 			</PaperProvider>
 		);
