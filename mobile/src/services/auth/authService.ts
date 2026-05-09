@@ -60,15 +60,23 @@ export class AuthService {
 	private listeners = new Set<Listener>();
 	// drive:reauth-required の重複抑止フラグ。サインイン成功時にリセットされる。
 	private reauthNotified = false;
+	// load() の冪等化フラグ。SecureStore (iOS Keychain / Android Keystore) は
+	// ネイティブ往復が重く ~300ms かかるため、起動シーケンスで複数経路から呼ばれても
+	// 1 回しか読まないようにする。signOut/persistTokenResult は in-memory token も
+	// 即時更新しているので、再読み込みする必要はない。
+	private loaded = false;
 
 	async load(): Promise<void> {
+		if (this.loaded) return;
 		const raw = await SecureStore.getItemAsync(TOKEN_KEY);
-		if (!raw) return;
-		try {
-			this.token = JSON.parse(raw) as StoredToken;
-		} catch {
-			this.token = null;
+		if (raw) {
+			try {
+				this.token = JSON.parse(raw) as StoredToken;
+			} catch {
+				this.token = null;
+			}
 		}
+		this.loaded = true;
 	}
 
 	isSignedIn(): boolean {

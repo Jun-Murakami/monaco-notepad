@@ -43,6 +43,17 @@ export class DriveService {
 	// 並行 reconnect の dedup。手動タップと自動トリガが重なっても 1 回だけ走らせる。
 	private reconnectPromise: Promise<void> | null = null;
 
+	/**
+	 * 起動 critical path で同期的に必要な初期化のみを行う。
+	 *
+	 * ★ ready=true を最速で出すため、以下を**含めない**:
+	 *   - Drive API 呼び出し (connect) — ネットワーク往復で 1〜数秒かかる
+	 *   - ローカル孤立復元 (recoverLocalOrphans) — 全ファイル走査
+	 * これらは setReady(true) のあとに startBackgroundWork() で fire-and-forget する。
+	 *
+	 * load() 系は useInitialize 側で並列に呼ばれているのが期待される (各 service の
+	 * `loaded` フラグで no-op になるが、安全のため重ねて呼ぶ)。
+	 */
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
 		await syncStateManager.load();
@@ -65,45 +76,56 @@ export class DriveService {
 		operationQueue.pause();
 		await operationQueue.start();
 
-		// ローカル孤立復元は接続前でも実行可能
-		await recoverLocalOrphans(noteService);
-
 		// バックグラウンド復帰 / ネット復帰での自動 reconnect 用にリスナを張る。
 		// `connect` 成否によらず常時張り、`tryAutoReconnect` 側で「signedIn かつ
 		// 未接続」のときだけ動くよう判定する。
 		this.installResumeListeners();
 
-		if (authService.isSignedIn()) {
-			try {
-				// 起動時はネット状況不明 (オフライン起動などもありうる) なので
-				// 楽観的に "pulling" を出さず、第一段階の Drive 呼び出しが成功した
-				// 時点で初めて接続済みを emit する。
-				await this.connect({ optimisticEmit: false });
-			} catch (e) {
-				// 起動時の Drive 接続が失敗しても、アプリ全体をクラッシュさせない。
-				// (401 / ネットワーク不通 / Drive 障害 等)
-				// 部分的に作られた接続オブジェクトをクリアして「未接続」状態に戻す。
-				// ユーザーは設定 → サインインで明示的に再接続できる。
-				console.warn('[Drive] connect failed during initialize:', e);
-				this.client = null;
-				this.driveSync = null;
-				this.orchestrator = null;
-				this.polling = null;
-				syncEvents.emit('drive:disconnected', undefined);
-				syncEvents.emit('drive:status', { status: 'offline' });
-				// 「Drive と同期していない」ことに気付かないままアプリを使い続けるのを
-				// 防ぐため、起動時の自動再接続失敗もダイアログで通知する。
-				// 401 由来 (authService.refresh が invalid_grant 検知) なら既に
-				// notifyReauthRequired('invalid_grant') が呼ばれて signOut 済みのはず。
-				// それ以外 (ネットワーク不通) は startup_failed で通知。
-				// notifyReauthRequired は内部で重複抑止するので二重表示にはならない。
-				authService.notifyReauthRequired(
-					'startup_failed',
-					e instanceof Error ? e.message : String(e),
-				);
-			}
-		}
 		this.initialized = true;
+	}
+
+	/**
+	 * setReady(true) のあとに UI ブロッキングなしで走らせる重い後処理。
+	 *   - Drive 接続 (signed in なら) — ネットワーク I/O
+	 *   - ローカル孤立ノート復元 — ファイル走査
+	 *
+	 * すべて fire-and-forget で起動し、進捗は drive:status / drive:disconnected /
+	 * drive:reauth-required イベントで UI に伝わる (syncStore 経由)。
+	 */
+	startBackgroundWork(): void {
+		// ローカル孤立復元 (起動経路から外し、ready 後に非同期で実行)
+		recoverLocalOrphans(noteService).catch((e) => {
+			console.warn('[Drive] recoverLocalOrphans failed:', e);
+		});
+
+		if (!authService.isSignedIn()) return;
+
+		// Drive 接続を fire-and-forget。
+		// 起動時はネット状況不明 (オフライン起動などもありうる) なので
+		// 楽観的に "pulling" を出さず、第一段階の Drive 呼び出しが成功した
+		// 時点で初めて接続済みを emit する。
+		this.connect({ optimisticEmit: false }).catch((e) => {
+			// 起動時の Drive 接続が失敗しても、アプリ全体をクラッシュさせない。
+			// (401 / ネットワーク不通 / Drive 障害 等)
+			// 部分的に作られた接続オブジェクトをクリアして「未接続」状態に戻す。
+			console.warn('[Drive] connect failed during startup:', e);
+			this.client = null;
+			this.driveSync = null;
+			this.orchestrator = null;
+			this.polling = null;
+			syncEvents.emit('drive:disconnected', undefined);
+			syncEvents.emit('drive:status', { status: 'offline' });
+			// 「Drive と同期していない」ことに気付かないままアプリを使い続けるのを
+			// 防ぐため、起動時の自動再接続失敗もダイアログで通知する。
+			// 401 由来 (authService.refresh が invalid_grant 検知) なら既に
+			// notifyReauthRequired('invalid_grant') が呼ばれて signOut 済みのはず。
+			// それ以外 (ネットワーク不通) は startup_failed で通知。
+			// notifyReauthRequired は内部で重複抑止するので二重表示にはならない。
+			authService.notifyReauthRequired(
+				'startup_failed',
+				e instanceof Error ? e.message : String(e),
+			);
+		});
 	}
 
 	async signIn(): Promise<void> {

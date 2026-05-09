@@ -128,6 +128,89 @@ describe('DriveService auto reconnect listeners', () => {
 	});
 });
 
+/**
+ * 起動高速化のための回帰テスト群。
+ *
+ * 「起動 5 秒問題」の修正で driveService.initialize() から Drive 接続を分離し、
+ * ready=true 後に startBackgroundWork() が fire-and-forget で接続を試みる構造に
+ * したことを保証する。これらが回帰すると、ready がネットワーク I/O に支配されて
+ * またユーザー体感の起動時間が悪化する。
+ */
+describe('DriveService startup separation (initialize vs startBackgroundWork)', () => {
+	let svc: DriveService;
+
+	beforeEach(() => {
+		__setAppState('active');
+		__setNetState({ isConnected: true, type: 'wifi' });
+		vi.spyOn(authService, 'isSignedIn').mockReturnValue(true);
+		svc = new DriveService();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('initialize() は Drive 接続 (connect) を await しない (起動 critical path に I/O を含めない)', async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: private method spy
+		const connectSpy = vi.spyOn(svc as any, 'connect').mockImplementation(
+			() =>
+				// 永遠に解決しないプロミス。本当に await されていたら initialize() は
+				// 完了せずテストがタイムアウトする。
+				new Promise<void>(() => {}),
+		);
+
+		// signed in 状態でも initialize は connect を待たずに完了する
+		await svc.initialize();
+		expect(connectSpy).not.toHaveBeenCalled();
+	});
+
+	it('startBackgroundWork() は signedIn のとき connect を fire-and-forget で呼ぶ', async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: private method spy
+		const connectSpy = vi
+			// biome-ignore lint/suspicious/noExplicitAny: private method spy
+			.spyOn(svc as any, 'connect')
+			.mockImplementation(() => new Promise<void>(() => {})); // 永遠に解決しない
+
+		// 戻り値が void であること (Promise を返さない = await できない設計)
+		const result = svc.startBackgroundWork();
+		expect(result).toBeUndefined();
+		// connect は呼ばれている
+		expect(connectSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('startBackgroundWork() は未サインイン時 connect を呼ばない', () => {
+		vi.spyOn(authService, 'isSignedIn').mockReturnValue(false);
+		// biome-ignore lint/suspicious/noExplicitAny: private method spy
+		const connectSpy = vi
+			.spyOn(svc as any, 'connect')
+			.mockResolvedValue(undefined);
+
+		svc.startBackgroundWork();
+		expect(connectSpy).not.toHaveBeenCalled();
+	});
+
+	it('startBackgroundWork() の connect 失敗時にもエラー伝播せず offline 状態を emit する', async () => {
+		// biome-ignore lint/suspicious/noExplicitAny: private method spy
+		vi.spyOn(svc as any, 'connect').mockRejectedValueOnce(
+			new Error('Network unavailable'),
+		);
+		const notifyReauth = vi
+			.spyOn(authService, 'notifyReauthRequired')
+			.mockImplementation(() => {});
+
+		// throw されないこと (fire-and-forget で .catch されている)
+		expect(() => svc.startBackgroundWork()).not.toThrow();
+		// 非同期 catch が実行されるまで microtask を回す
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(notifyReauth).toHaveBeenCalledWith(
+			'startup_failed',
+			expect.stringContaining('Network unavailable'),
+		);
+	});
+});
+
 describe('DriveService.reconnect dedup', () => {
 	let svc: DriveService;
 

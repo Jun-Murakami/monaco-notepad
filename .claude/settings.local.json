@@ -83,7 +83,8 @@
       "Bash(tee /tmp/race_output.txt)",
       "Bash(tee /tmp/race_full.txt)",
       "Bash(Get-ChildItem -Path \"D:\\\\Synching\\\\code\\\\Wails\\\\monaco-notepad\" -Directory)",
-      "Bash(Select-Object Name)"
+      "Bash(Select-Object Name)",
+      "Bash(findstr *)"
     ]
   }
 }
