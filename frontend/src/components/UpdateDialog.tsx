@@ -67,6 +67,11 @@ export const UpdateDialog = ({ open, version, onClose }: UpdateDialogProps) => {
   const [releaseBody, setReleaseBody] = useState<string>('');
   const [downloadUrl, setDownloadUrl] = useState<string>('');
   const [assetName, setAssetName] = useState<string>('');
+  // Linux ビルドのようにアプリ内自動更新ができない環境では、バックエンドが
+  // manual=true / manualUrl=<配布ページ> を返す。その場合は PerformUpdate を
+  // 呼ばず、外部ブラウザでダウンロードページを開くボタンだけを出す。
+  const [manualMode, setManualMode] = useState(false);
+  const [manualUrl, setManualUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -87,6 +92,8 @@ export const UpdateDialog = ({ open, version, onClose }: UpdateDialogProps) => {
         setReleaseBody(info.body);
         setDownloadUrl(info.downloadUrl);
         setAssetName(info.assetName);
+        setManualMode(info.manual);
+        setManualUrl(info.manualUrl);
         setLoading(false);
       })
       .catch((err) => {
@@ -136,6 +143,13 @@ export const UpdateDialog = ({ open, version, onClose }: UpdateDialogProps) => {
       setUpdating(false);
     }
   };
+
+  // manual モード (Linux 等) はアプリ内更新せずに配布ページを開いてダイアログを閉じる。
+  const handleOpenDownloadPage = useCallback(() => {
+    if (!manualUrl) return;
+    OpenURL(manualUrl);
+    onClose();
+  }, [manualUrl, onClose]);
 
   const renderContent = () => {
     if (loading) {
@@ -271,13 +285,23 @@ export const UpdateDialog = ({ open, version, onClose }: UpdateDialogProps) => {
       {!updating && (
         <DialogActions>
           <Button onClick={onClose}>{t('dialog.cancel')}</Button>
-          <Button
-            onClick={handleUpdate}
-            variant="contained"
-            disabled={loading || !!error || !downloadUrl}
-          >
-            {t('update.startUpdate')}
-          </Button>
+          {manualMode ? (
+            <Button
+              onClick={handleOpenDownloadPage}
+              variant="contained"
+              disabled={loading || !!error || !manualUrl}
+            >
+              {t('update.openDownloadPage')}
+            </Button>
+          ) : (
+            <Button
+              onClick={handleUpdate}
+              variant="contained"
+              disabled={loading || !!error || !downloadUrl}
+            >
+              {t('update.startUpdate')}
+            </Button>
+          )}
         </DialogActions>
       )}
     </Dialog>

@@ -218,7 +218,8 @@
     "title": "Update Available — v{{version}}",
     "downloading": "Downloading update...",
     "installing": "Installing update... The app will restart automatically.",
-    "startUpdate": "Update"
+    "startUpdate": "Update",
+    "openDownloadPage": "Open Download Page"
   },
   "drive": {
     "connected": "Connected to Google Drive",

@@ -84,7 +84,21 @@
       "Bash(tee /tmp/race_full.txt)",
       "Bash(Get-ChildItem -Path \"D:\\\\Synching\\\\code\\\\Wails\\\\monaco-notepad\" -Directory)",
       "Bash(Select-Object Name)",
-      "Bash(findstr *)"
+      "Bash(findstr *)",
+      "Bash(chmod +x \"D:\\\\Synching\\\\code\\\\Wails\\\\monaco-notepad\\\\build_linux.sh\")",
+      "Bash(wsl *)",
+      "Bash(iconv -f UTF-16LE -t UTF-8)",
+      "PowerShell(Tee-Object *)",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l /mnt/d/Synching/code/Wails/monaco-notepad/scripts/wsl-check.sh)",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l -c 'set -e; echo \"=== installing wails CLI v2.11.0 ===\"; go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0; echo \"=== downloading appimagetool ===\"; mkdir -p ~/go/bin; curl -L -o ~/go/bin/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage; chmod +x ~/go/bin/appimagetool; echo \"=== installed ===\"; ls -la ~/go/bin/')",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l -c 'gpg --list-secret-keys --keyid-format=long 2>&1 | head -30 || echo \"no secret keys\"')",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l -c 'cd /mnt/d/Synching/code/Wails/monaco-notepad && PATH=$HOME/go/bin:$PATH ./build_linux.sh 2>&1 | tee build-linux.log')",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l /mnt/d/Synching/code/Wails/monaco-notepad/scripts/wsl-run-build.sh)",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l /mnt/d/Synching/code/Wails/monaco-notepad/scripts/wsl-wails-only.sh)",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l /mnt/d/Synching/code/Wails/monaco-notepad/scripts/wsl-package-only.sh)",
+      "PowerShell(wsl -d Ubuntu-24.04 -- bash -l -c 'cd /mnt/d/Synching/code/Wails/monaco-notepad && echo \"=== AppImage check ===\" && file build/bin/MonacoNotepad-linux-amd64-1.5.1.AppImage && echo \"\" && echo \"=== .deb check ===\" && dpkg-deb --info build/bin/monaco-notepad_1.5.1_amd64.deb && echo \"\" && echo \"=== .deb contents ===\" && dpkg-deb --contents build/bin/monaco-notepad_1.5.1_amd64.deb && echo \"\" && echo \"=== SHA256 verify ===\" && cd build/bin && sha256sum -c SHA256SUMS')",
+      "PowerShell(npm *)"
     ]
   }
 }

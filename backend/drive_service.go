@@ -729,6 +729,13 @@ func (s *driveService) pushLocalChanges() error {
 
 	// アップロード前に snapshot 取得 (UI と共有しているスライスをそのまま渡さない)
 	noteListSnapshotForUpload := s.noteService.SnapshotNoteList()
+	// dirty ノートに関しては「Pass 1/2 で Drive に実際に上げた内容」と整合性を取る。
+	// SnapshotNoteList 時点で in-memory noteList[id].ContentHash が
+	// 「push 中に走ったユーザー編集」で先行している可能性があり、その値で
+	// Drive 側 noteList を上書きすると「個別ノートファイル (Pass 2 で上げた古い内容)」
+	// と「noteList の hash (新しい内容)」が乖離する。
+	// (続く noteHashes の上書きも同じ趣旨)
+	alignNoteListHashesWithUploaded(noteListSnapshotForUpload, dirtyIDs, uploadedHashes)
 
 	noteListID := s.auth.GetDriveSync().NoteListID()
 	if noteListID == "" {
@@ -764,6 +771,17 @@ func (s *driveService) pushLocalChanges() error {
 			noteHashes[n.ID] = n.ContentHash
 		}
 	})
+	// dirty ノートは Pass 1/2 で Drive に上げた hash で固定する。
+	// in-memory noteList は push 進行中に走ったユーザー編集で先行していることがあり、
+	// その「未送信の hash」を LastSyncedNoteHash に書くと、次回 push の resume 最適化
+	// (lastSyncedHashes[id] == currentHash なら skip) が「もう同期済み」と誤判定して
+	// 新しい本文をアップロードしない。これがユーザー報告の
+	// 「新規ノート直後の編集がもう片方の端末に永久に届かない」バグの根因。
+	for id := range dirtyIDs {
+		if h, ok := uploadedHashes[id]; ok {
+			noteHashes[id] = h
+		}
+	}
 	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
 		s.logger.Console("Sync state changed during push; retaining dirty flags for next sync")
 		s.syncState.UpdateSyncedState(driveTs, noteHashes)
@@ -1322,6 +1340,10 @@ func (s *driveService) resolveConflict(noteListID string) error {
 	// (saveNoteList は既に上の WithLock 内で実行済みなので不要)
 	noteListID2 := s.auth.GetDriveSync().NoteListID()
 	noteListSnapshotForUpload := s.noteService.SnapshotNoteList()
+	// 競合解決で確定した「Drive 側の hash」と noteList metadata を揃える。
+	// pushLocalChanges と同じく、in-memory が後続編集で進んでいると Drive 上の
+	// 個別ノートと noteList で hash が食い違う原因になる。
+	alignNoteListHashesWithMap(noteListSnapshotForUpload, processedDirtyHashes)
 	if err := s.driveSync.UpdateNoteList(s.ctx, noteListSnapshotForUpload, noteListID2); err != nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to upload note list: %w", err))
 	}
@@ -1338,6 +1360,13 @@ func (s *driveService) resolveConflict(noteListID string) error {
 			noteHashes[n.ID] = n.ContentHash
 		}
 	})
+	// dirty ノートは「resolveConflict 内で実際に Drive に確定させた hash」で固定する。
+	// (local wins なら upload した hash、cloud wins なら download した hash)
+	// pushLocalChanges と同じ理由で、in-memory noteList の進んだ hash を
+	// LastSyncedNoteHash に書くと次回 push が skip して同期が止まる。
+	for id, h := range processedDirtyHashes {
+		noteHashes[id] = h
+	}
 	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
 		s.logger.Console("Sync state changed during conflict resolution; retaining dirty flags for next sync")
 		s.syncState.UpdateSyncedState(driveTs, noteHashes)
@@ -1919,6 +1948,38 @@ func hasPendingPayloadChanges(
 		}
 	}
 	return false
+}
+
+// alignNoteListHashesWithUploaded は noteList.Notes 内 dirty ノートの ContentHash を
+// 「Pass 1/2 で実際に Drive へ送った hash」に巻き戻す。push 進行中に走った
+// ユーザー編集で in-memory noteList の hash が先行しているケースで、
+// Drive 上の noteList と個別ノートファイルの hash 整合性を保つために使う。
+func alignNoteListHashesWithUploaded(noteList *NoteList, dirtyIDs map[string]bool, uploadedHashes map[string]string) {
+	if noteList == nil || len(dirtyIDs) == 0 || len(uploadedHashes) == 0 {
+		return
+	}
+	for i, n := range noteList.Notes {
+		if !dirtyIDs[n.ID] {
+			continue
+		}
+		if h, ok := uploadedHashes[n.ID]; ok {
+			noteList.Notes[i].ContentHash = h
+		}
+	}
+}
+
+// alignNoteListHashesWithMap は resolveConflict の processedDirtyHashes のように
+// 「id → 確定後の Drive 上 hash」マップ全体を当てる版。dirtyIDs を引数で取らない
+// 代わりに、マップに乗っている id だけを書き換える。
+func alignNoteListHashesWithMap(noteList *NoteList, processedHashes map[string]string) {
+	if noteList == nil || len(processedHashes) == 0 {
+		return
+	}
+	for i, n := range noteList.Notes {
+		if h, ok := processedHashes[n.ID]; ok {
+			noteList.Notes[i].ContentHash = h
+		}
+	}
 }
 
 func filterNoteListByMissingNotes(noteList *NoteList, missingNoteIDs map[string]bool) int {

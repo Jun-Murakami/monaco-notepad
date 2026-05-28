@@ -413,6 +413,57 @@ describe('useNotes', () => {
       );
     });
 
+    // 「新規ノート → 直後に編集 → autoSave が走っても SaveNote('update') が呼ばれない」
+    // バグの再現テスト。ユーザー報告:
+    //   "新しいノートを作って編集をはじめると、もう片方の端末では無題で中身が空のノートが
+    //    同期されたまま、本文が反映されない。しばらく経って 2 回目に編集すると、その時の編集
+    //    がようやく相手に届く"
+    //
+    // つまり「新規作成直後の最初の編集が SaveNote('update') として backend に飛ばない」
+    // 状態が起きていると見立てる。
+    it('新規ノート作成直後に編集すると、autoSave で SaveNote(update) が new content とともに呼ばれること (回帰: 新規ノート直後の編集がDriveに反映されない)', async () => {
+      const { result } = renderHook(() => useNotes());
+
+      // 1) 新規ノートを作成
+      await act(async () => {
+        await result.current.handleNewNote();
+      });
+
+      // create 通知が SaveNote('create') として届いていること (前提確認)
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '' }),
+        'create',
+      );
+
+      const created = useCurrentNoteStore.getState().currentNote;
+      expect(created).toBeTruthy();
+      const createdId = created?.id;
+
+      // 直後の create 呼び出しの記録だけ拾えるよう、ここでクリアする
+      (SaveNote as unknown as Mock).mockClear();
+
+      // 2) ユーザーが本文をタイプ
+      await act(async () => {
+        result.current.handleNoteContentChange('Hello, world');
+      });
+
+      // 3) 3 秒経過 → autoSave 発火
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // 4) SaveNote('update') が新しい本文付きで呼ばれているはず
+      expect(SaveNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: createdId,
+          content: 'Hello, world',
+        }),
+        'update',
+      );
+    });
+
     // 「保存に失敗したまま放置されない」ことの保証。
     // 失敗時はユーザーに気づいてもらえるようログメッセージを emit する。
     it('SaveNote 失敗時にユーザーへ通知ログが発行されること', async () => {

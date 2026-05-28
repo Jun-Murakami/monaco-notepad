@@ -266,6 +266,44 @@ export function useFileOperations(
           : note,
       );
       setFileNotes(updatedFileNotes);
+
+      // 同じ id を持つ FileNote は 3 つの store (useFileNotesStore /
+      // useCurrentNoteStore / useSplitEditorStore) が独立に保持しているので、
+      // ここで originalContent / modifiedTime を全部同期する。
+      //
+      // 同期し忘れると…
+      //  - handleCloseFile が currentFileNote から content/originalContent を読み
+      //    比較するため、保存直後の Mod+W で「未保存の編集があります」が誤発火する
+      //  - 直後のキー入力が handleFileNoteContentChange 内で currentFileNoteRef
+      //    (古い originalContent) を spread し、setFileNotes でその古い値を
+      //    useFileNotesStore に書き戻すため、保存しても dirty が解消しない状態が
+      //    続き、最悪 isFileModified の結果がブレて Mod+S が無反応に見える
+      // content / language / fileName は触らず originalContent / modifiedTime
+      // だけを上書きすることで、保存中に走ったユーザー編集を保持する。
+      const currentNoteState = useCurrentNoteStore.getState();
+      if (currentNoteState.currentFileNote?.id === fileNote.id) {
+        currentNoteState.setCurrentFileNote({
+          ...currentNoteState.currentFileNote,
+          originalContent: savedContent,
+          modifiedTime: savedTime,
+        });
+      }
+      const splitState = useSplitEditorStore.getState();
+      if (splitState.leftFileNote?.id === fileNote.id) {
+        splitState.setLeftFileNote({
+          ...splitState.leftFileNote,
+          originalContent: savedContent,
+          modifiedTime: savedTime,
+        });
+      }
+      if (splitState.rightFileNote?.id === fileNote.id) {
+        splitState.setRightFileNote({
+          ...splitState.rightFileNote,
+          originalContent: savedContent,
+          modifiedTime: savedTime,
+        });
+      }
+
       await handleSaveFileNotes(updatedFileNotes);
     } catch (error) {
       console.error('Failed to save file:', error);

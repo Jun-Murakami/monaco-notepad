@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Monaco Notepad
+GenericName=Text Editor
+Comment=A note-taking app with Monaco Editor and Google Drive sync
+Exec=monaco-notepad %F
+Icon=monaco-notepad
+Terminal=false
+Categories=Utility;TextEditor;Development;
+MimeType=text/plain;
+StartupWMClass=Monaco Notepad
+Keywords=editor;notepad;monaco;markdown;

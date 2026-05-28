@@ -14,15 +14,27 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// ReleaseInfo はGitHubリリースの情報を保持する
+// ReleaseInfo はGitHubリリースの情報を保持する。
+//
+// Manual=true のときは「アプリ内自動アップデートは行わず、ユーザーをダウンロード
+// ページに飛ばして手動更新してもらう」モード。Linux ビルド (.deb / AppImage) は
+// パッケージ更新に root 権限や AppImage の zsync が必要で、アプリ単独でのバイナリ
+// 差し替えが安全に行えないためこの経路を使う。
+// このとき DownloadURL / AssetName は空、ManualURL に配布ページの URL が入る。
 type ReleaseInfo struct {
 	Version     string `json:"version"`
 	Body        string `json:"body"`
 	DownloadURL string `json:"downloadUrl"`
 	AssetName   string `json:"assetName"`
+	Manual      bool   `json:"manual"`
+	ManualURL   string `json:"manualUrl"`
 }
 
 const githubRepo = "Jun-Murakami/monaco-notepad"
+
+// manualUpdateURL は Linux 等で「アプリ内では更新できないので外部のダウンロード
+// ページを開く」場合の遷移先。
+const manualUpdateURL = "https://jun-murakami.web.app/apps/monaco-notepad"
 
 // GetReleaseInfo はGitHub APIから最新リリース情報を取得する
 func (a *App) GetReleaseInfo() (*ReleaseInfo, error) {
@@ -52,6 +64,17 @@ func (a *App) GetReleaseInfo() (*ReleaseInfo, error) {
 	}
 
 	version := strings.TrimPrefix(release.TagName, "v")
+
+	// Linux はパッケージング (.deb / AppImage) の都合上アプリ内自動更新を行わず、
+	// 配布ページに誘導する。リリースノート (Body) は表示したいので、ここで早期 return。
+	if runtime.GOOS == "linux" {
+		return &ReleaseInfo{
+			Version:   version,
+			Body:      release.Body,
+			Manual:    true,
+			ManualURL: manualUpdateURL,
+		}, nil
+	}
 
 	// 現在のプラットフォームに対応するアセットを検索
 	var assetName, downloadURL string

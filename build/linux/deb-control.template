@@ -1,0 +1,12 @@
+Package: monaco-notepad
+Version: __VERSION__
+Section: utils
+Priority: optional
+Architecture: __ARCH__
+Maintainer: Jun-Murakami <app@bucketrelay.com>
+Homepage: https://github.com/Jun-Murakami/monaco-notepad
+Depends: libgtk-3-0, libwebkit2gtk-4.0-37 | libwebkit2gtk-4.1-0
+Description: Note-taking app with Monaco Editor and Google Drive sync
+ Monaco Notepad is a desktop note-taking application built with Wails,
+ featuring the Monaco editor (the engine behind VS Code) and seamless
+ synchronization with Google Drive's appDataFolder.

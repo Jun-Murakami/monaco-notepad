@@ -170,17 +170,21 @@ export namespace backend {
 	    body: string;
 	    downloadUrl: string;
 	    assetName: string;
-	
+	    manual: boolean;
+	    manualUrl: string;
+
 	    static createFrom(source: any = {}) {
 	        return new ReleaseInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.version = source["version"];
 	        this.body = source["body"];
 	        this.downloadUrl = source["downloadUrl"];
 	        this.assetName = source["assetName"];
+	        this.manual = source["manual"];
+	        this.manualUrl = source["manualUrl"];
 	    }
 	}
 	export class Settings {

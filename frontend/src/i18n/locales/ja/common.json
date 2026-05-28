@@ -218,7 +218,8 @@
     "title": "アップデート — v{{version}}",
     "downloading": "アップデートをダウンロード中...",
     "installing": "インストール中... アプリは自動的に再起動します。",
-    "startUpdate": "アップデート"
+    "startUpdate": "アップデート",
+    "openDownloadPage": "ダウンロードページを開く"
   },
   "drive": {
     "connected": "Google Driveに接続しました",

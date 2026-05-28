@@ -57,6 +57,7 @@ import * as runtime from '../../../wailsjs/runtime';
 import { useCurrentNoteStore } from '../../stores/useCurrentNoteStore';
 import { useFileNotesStore } from '../../stores/useFileNotesStore';
 import { useNotesStore } from '../../stores/useNotesStore';
+import { useSplitEditorStore } from '../../stores/useSplitEditorStore';
 import { isBinaryFile } from '../../utils/fileUtils';
 import { useFileOperations } from '../useFileOperations';
 
@@ -275,6 +276,109 @@ describe('useFileOperations', () => {
       expect(stored?.modifiedTime).toBe(diskMtime);
       // GetModifiedTime を別途呼ぶことなく一往復で完結すること。
       expect(GetModifiedTime).not.toHaveBeenCalledWith(mockFileNote.filePath);
+    });
+
+    // 「保存直後の Mod+W で未保存警告が誤発火する」「保存後に Mod+S が無反応になる」
+    // バグの回帰テスト。handleSaveFile は useFileNotesStore だけでなく
+    // useCurrentNoteStore.currentFileNote / useSplitEditorStore.leftFileNote /
+    // rightFileNote も同期させる必要がある。
+    it('保存時に currentFileNote と split store も同期すること (回帰: 保存後の未保存警告 / Mod+S 不発)', async () => {
+      const dirtyFile: FileNote = {
+        ...mockFileNote,
+        content: 'EDITED',
+        originalContent: 'File Content',
+      };
+      const diskMtime = '2026-05-28T10:00:00.123456789Z';
+      (SaveFile as unknown as Mock).mockResolvedValueOnce(diskMtime);
+
+      useFileNotesStore.setState({ fileNotes: [dirtyFile] });
+      useCurrentNoteStore.setState({
+        currentNote: null,
+        currentFileNote: dirtyFile,
+      });
+      useSplitEditorStore.setState({
+        isSplit: true,
+        leftFileNote: dirtyFile,
+        rightFileNote: dirtyFile,
+      });
+
+      const { result } = renderHook(() =>
+        useFileOperations(
+          mockHandleSelecAnyNote,
+          mockShowMessage,
+          mockHandleSaveFileNotes,
+          mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
+          mockPendingContentRef,
+        ),
+      );
+
+      await act(async () => {
+        await result.current.handleSaveFile(dirtyFile);
+      });
+
+      const fromFileNotes = useFileNotesStore
+        .getState()
+        .fileNotes.find((n) => n.id === dirtyFile.id);
+      const fromCurrent = useCurrentNoteStore.getState().currentFileNote;
+      const fromLeft = useSplitEditorStore.getState().leftFileNote;
+      const fromRight = useSplitEditorStore.getState().rightFileNote;
+
+      expect(fromFileNotes?.originalContent).toBe('EDITED');
+      expect(fromFileNotes?.modifiedTime).toBe(diskMtime);
+      expect(fromCurrent?.originalContent).toBe('EDITED');
+      expect(fromCurrent?.modifiedTime).toBe(diskMtime);
+      expect(fromLeft?.originalContent).toBe('EDITED');
+      expect(fromLeft?.modifiedTime).toBe(diskMtime);
+      expect(fromRight?.originalContent).toBe('EDITED');
+      expect(fromRight?.modifiedTime).toBe(diskMtime);
+    });
+
+    // 別 id の FileNote には触らないこと（id が一致した時だけ同期する）。
+    it('id が一致しない currentFileNote / split store は更新しないこと', async () => {
+      const otherFile: FileNote = {
+        ...mockFileNote,
+        id: 'other-id',
+        originalContent: 'unrelated original',
+        modifiedTime: '2020-01-01T00:00:00.000Z',
+      };
+      const dirtyFile: FileNote = {
+        ...mockFileNote,
+        content: 'EDITED',
+        originalContent: 'File Content',
+      };
+      const diskMtime = '2026-05-28T10:00:00.123456789Z';
+      (SaveFile as unknown as Mock).mockResolvedValueOnce(diskMtime);
+
+      useFileNotesStore.setState({ fileNotes: [dirtyFile, otherFile] });
+      useCurrentNoteStore.setState({
+        currentNote: null,
+        currentFileNote: otherFile,
+      });
+      useSplitEditorStore.setState({
+        isSplit: true,
+        leftFileNote: otherFile,
+        rightFileNote: otherFile,
+      });
+
+      const { result } = renderHook(() =>
+        useFileOperations(
+          mockHandleSelecAnyNote,
+          mockShowMessage,
+          mockHandleSaveFileNotes,
+          mockOpenNoteInPaneRef,
+          mockAddRecentFileRef,
+          mockPendingContentRef,
+        ),
+      );
+
+      await act(async () => {
+        await result.current.handleSaveFile(dirtyFile);
+      });
+
+      expect(useCurrentNoteStore.getState().currentFileNote).toBe(otherFile);
+      expect(useSplitEditorStore.getState().leftFileNote).toBe(otherFile);
+      expect(useSplitEditorStore.getState().rightFileNote).toBe(otherFile);
     });
 
     it('保存に失敗した場合、エラーメッセージを表示すること', async () => {

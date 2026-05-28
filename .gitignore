@@ -19,7 +19,9 @@ backend/*.out
 # Sisyphus
 .sisyphus/
 
-/build/
-/build/**
+# Linux build の中間ステージング (本体生成物は build/bin で別ignore済)
+build/bin/*.AppDir/
+build/bin/monaco-notepad_*_amd64/
+
 mobile/modules/caret-position/android/*/**
 mobile/modules/caret-position/ios/*/**
