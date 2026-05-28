@@ -1,6 +1,6 @@
 {
   "name": "monaco-notepad-mobile",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "main": "expo-router/entry",
   "expo": {
