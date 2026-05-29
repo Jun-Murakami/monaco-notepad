@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.5.1",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -29,7 +29,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "dayjs": "^1.11.21",
     "i18next": "^26.3.0",
-    "mermaid": "^11.15.0",
+    "mermaid": "11.15.0",
     "monaco-editor": "^0.55.1",
     "monaco-themes": "^0.4.8",
     "react": "^19.2.6",

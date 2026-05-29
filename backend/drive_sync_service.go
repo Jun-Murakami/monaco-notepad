@@ -366,6 +366,15 @@ func (d *driveSyncServiceImpl) DownloadNote(
 		return nil, fmt.Errorf("failed to decode note %s: %w", noteID, err)
 	}
 
+	// 同期データ由来の ID はパストラバーサルに悪用されうるため取り込み境界で検証する。
+	// また、要求した noteID とダウンロード結果の ID が食い違う場合も改竄として弾く。
+	if !isSafeNoteID(note.ID) {
+		return nil, fmt.Errorf("rejected downloaded note with unsafe id: %q", note.ID)
+	}
+	if isSafeNoteID(noteID) && note.ID != noteID {
+		return nil, fmt.Errorf("downloaded note id %q does not match requested %q", note.ID, noteID)
+	}
+
 	return &note, nil
 }
 

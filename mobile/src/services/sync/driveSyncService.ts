@@ -1,3 +1,4 @@
+import { isSafeNoteId } from '../storage/paths';
 import type { DriveClient, DriveFile } from './driveClient';
 import type { DriveLayout } from './driveLayout';
 import {
@@ -181,6 +182,8 @@ function parseNote(text: string): Note | null {
 	try {
 		const parsed = JSON.parse(text) as Partial<Note>;
 		if (!parsed.id || typeof parsed.id !== 'string') return null;
+		// 同期データ由来の ID はパストラバーサルに悪用されうるため取り込み境界で弾く。
+		if (!isSafeNoteId(parsed.id)) return null;
 		return {
 			id: parsed.id,
 			title: parsed.title ?? '',
@@ -233,16 +236,19 @@ function normalizeNoteList(raw: unknown): NoteList {
 
 	return {
 		version: 'v2',
-		notes: notes.map((n) => ({
-			id: String(n.id ?? ''),
-			title: String(n.title ?? ''),
-			contentHeader: String(n.contentHeader ?? ''),
-			language: String(n.language ?? 'plaintext'),
-			modifiedTime: String(n.modifiedTime ?? ''),
-			archived: Boolean(n.archived ?? false),
-			contentHash: String(n.contentHash ?? ''),
-			folderId: String(n.folderId ?? ''),
-		})),
+		// 改竄された noteList の不正な ID（パストラバーサル）は取り込み時に除外する。
+		notes: notes
+			.filter((n) => isSafeNoteId(String(n.id ?? '')))
+			.map((n) => ({
+				id: String(n.id ?? ''),
+				title: String(n.title ?? ''),
+				contentHeader: String(n.contentHeader ?? ''),
+				language: String(n.language ?? 'plaintext'),
+				modifiedTime: String(n.modifiedTime ?? ''),
+				archived: Boolean(n.archived ?? false),
+				contentHash: String(n.contentHash ?? ''),
+				folderId: String(n.folderId ?? ''),
+			})),
 		folders: folders.map((f) => ({
 			id: String(f.id ?? ''),
 			name: String(f.name ?? ''),

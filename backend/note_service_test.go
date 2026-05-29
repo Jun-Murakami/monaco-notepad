@@ -1523,6 +1523,30 @@ func TestLoadNoteList_EmptyFile_Recover(t *testing.T) {
 	assert.Equal(t, 1, len(service.noteList.Notes))
 }
 
+// TestLoadNoteList_FirstLaunch_NoRecoveryFlag は、noteList も物理ノートも存在しない
+// 真っさらな初回起動で recoveryApplied が立たない (＝「破損して再構築した」ダイアログを
+// 出さない) ことを保証する回帰テスト。
+// 以前は recoverNoteList → rebuildFromPhysicalFiles が 0 件でも無条件に "rebuild" を
+// セットしていたため、初回起動で誤って破損通知が出ていた。
+func TestLoadNoteList_FirstLaunch_NoRecoveryFlag(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "note_service_firstlaunch")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	notesDir := filepath.Join(tempDir, "notes")
+	require.NoError(t, os.MkdirAll(notesDir, 0755))
+
+	logger := NewAppLogger(context.Background(), true, tempDir)
+	service, err := NewNoteService(notesDir, logger)
+	require.NoError(t, err)
+	require.NotNil(t, service)
+
+	// 何も壊れていないので復旧フラグは立たない
+	assert.Empty(t, service.recoveryApplied)
+	assert.Empty(t, service.DrainRecoveryApplied())
+	assert.Empty(t, service.noteList.Notes)
+}
+
 func TestSaveNoteList_AtomicWrite(t *testing.T) {
 	helper := setupNoteTest(t)
 	defer helper.cleanup()

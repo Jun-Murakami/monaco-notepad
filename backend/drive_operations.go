@@ -10,6 +10,17 @@ import (
 	"google.golang.org/api/drive/v3"
 )
 
+// escapeDriveQueryValue は Drive API の検索クエリ（q=）でシングルクォートに
+// 囲まれた文字列リテラルに値を埋め込む際のエスケープを行う。
+// Drive クエリ仕様に従い、バックスラッシュとシングルクォートをエスケープする。
+// ファイル名（= 同期由来のノートID）が改竄され "x' or name!='" のような値を
+// 含む場合のクエリインジェクションを防ぐ。
+func escapeDriveQueryValue(v string) string {
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, `'`, `\'`)
+	return v
+}
+
 // ChangesResult は changes.list の結果をまとめた構造体
 type ChangesResult struct {
 	Changes       []*drive.Change // 変更リスト
@@ -205,7 +216,7 @@ func (d *driveOperationsImpl) GetFileID(fileName string, noteFolderID string, ro
 		}
 		fixedFileId = files[0].Id
 	} else if strings.Contains(fileName, ".json") {
-		query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false", fileName, noteFolderID)
+		query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false", escapeDriveQueryValue(fileName), noteFolderID)
 		files, err := d.ListFiles(query)
 		if err != nil {
 			return "", fmt.Errorf("failed to list files in notes folder %s: %w", noteFolderID, err)
@@ -215,7 +226,7 @@ func (d *driveOperationsImpl) GetFileID(fileName string, noteFolderID string, ro
 		}
 		fixedFileId = files[0].Id
 	} else {
-		query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false", fileName, rootFolderID)
+		query := fmt.Sprintf("name='%s' and '%s' in parents and trashed=false", escapeDriveQueryValue(fileName), rootFolderID)
 		files, err := d.ListFiles(query)
 		if err != nil {
 			return "", fmt.Errorf("failed to list files in root folder %s: %w", rootFolderID, err)

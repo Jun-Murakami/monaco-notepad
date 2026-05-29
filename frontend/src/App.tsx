@@ -174,6 +174,7 @@ function App() {
   // ノート分割管理（state は useSplitEditorStore に集約済み）
   const {
     toggleSplit,
+    exitSplitKeepingPane,
     toggleMarkdownPreview,
     handleFocusPane,
     handleSelectNoteForPane,
@@ -492,25 +493,6 @@ function App() {
     [],
   );
 
-  // 指定 ID 直後のノート(orderedAvailableNotes 上)を返す。最後だった場合は直前。
-  // skipIds は除外。アーカイブ等で「次のノート」を開きたいとき向け。
-  const findNoteAfterPosition = useCallback(
-    (afterId: string, ...skipIds: string[]): Note | FileNote | undefined => {
-      const list = buildOrderedAvailableNotes();
-      const idx = list.findIndex((n) => n.id === afterId);
-      if (idx < 0) return undefined;
-      const skip = new Set([afterId, ...skipIds.filter(Boolean)]);
-      for (let i = idx + 1; i < list.length; i++) {
-        if (!skip.has(list[i].id)) return list[i];
-      }
-      for (let i = idx - 1; i >= 0; i--) {
-        if (!skip.has(list[i].id)) return list[i];
-      }
-      return undefined;
-    },
-    [buildOrderedAvailableNotes],
-  );
-
   const handleOpenNoteInPane = useCallback(
     (note: Note | FileNote, pane: 'left' | 'right') => {
       // canSplit はストアから即時計算
@@ -527,16 +509,14 @@ function App() {
     [openNoteInPane, findFirstOtherNote],
   );
 
+  // 2 ペイン中に片方の中身を閉じた／アーカイブしたら、もう一方のペインだけ残して
+  // 分割表示を解除する。両ペインに同じノートが入っていた特殊ケースは、左を残す形で
+  // 解除しておく（その左ノートは閉じた当人なので、後段の archive/close 処理側で
+  // 選び直された currentNote が表示される）。
   const replacePaneAfterClose = useCallback(
-    (closedId: string, explicitReplacement?: Note | FileNote) => {
-      const {
-        isSplit,
-        leftNote,
-        leftFileNote,
-        rightNote,
-        rightFileNote,
-        focusedPane,
-      } = useSplitEditorStore.getState();
+    (closedId: string) => {
+      const { isSplit, leftNote, leftFileNote, rightNote, rightFileNote } =
+        useSplitEditorStore.getState();
       if (!isSplit) return;
       const leftId = leftNote?.id ?? leftFileNote?.id;
       const rightId = rightNote?.id ?? rightFileNote?.id;
@@ -544,73 +524,20 @@ function App() {
       const inRight = rightId === closedId;
 
       if (!inLeft && !inRight) return;
-      if (inLeft && inRight) return;
 
-      const setPaneNote = (pane: 'left' | 'right', note: Note | FileNote) => {
-        const isFile = 'filePath' in note;
-        if (pane === 'left') {
-          setLeftNote(isFile ? null : (note as Note));
-          setLeftFileNote(isFile ? (note as FileNote) : null);
-        } else {
-          setRightNote(isFile ? null : (note as Note));
-          setRightFileNote(isFile ? (note as FileNote) : null);
-        }
-        if (focusedPane === pane) {
-          setCurrentNote(isFile ? null : (note as Note));
-          setCurrentFileNote(isFile ? (note as FileNote) : null);
-        }
-      };
-
-      if (inLeft) {
-        const replacement =
-          explicitReplacement ?? findFirstOtherNote(closedId, rightId ?? '');
-        if (replacement) {
-          setPaneNote('left', replacement);
-        } else {
-          toggleSplit();
-        }
-      } else if (inRight) {
-        const replacement =
-          explicitReplacement ?? findFirstOtherNote(closedId, leftId ?? '');
-        if (replacement) {
-          setPaneNote('right', replacement);
-        } else {
-          toggleSplit();
-        }
-      }
-      saveSplitState();
+      // 残す側 = 閉じた側の反対。両側に同じものが入っていた場合は left を残す。
+      const keepPane: 'left' | 'right' = inLeft && !inRight ? 'right' : 'left';
+      exitSplitKeepingPane(keepPane);
     },
-    [
-      findFirstOtherNote,
-      setLeftNote,
-      setLeftFileNote,
-      setRightNote,
-      setRightFileNote,
-      setCurrentNote,
-      setCurrentFileNote,
-      toggleSplit,
-      saveSplitState,
-    ],
+    [exitSplitKeepingPane],
   );
 
   const handleArchiveNoteWithSplit = useCallback(
     async (noteId: string) => {
-      // 分割表示中はアーカイブ前に「次のノート」を確定する。
-      // (アーカイブ後は orderedAvailableNotes から対象が消えて位置が取れなくなるため)
-      let replacement: Note | FileNote | undefined;
-      const { isSplit, leftNote, leftFileNote, rightNote, rightFileNote } =
-        useSplitEditorStore.getState();
-      if (isSplit) {
-        const otherPaneId =
-          (leftNote?.id ?? leftFileNote?.id) === noteId
-            ? (rightNote?.id ?? rightFileNote?.id ?? '')
-            : (leftNote?.id ?? leftFileNote?.id ?? '');
-        replacement = findNoteAfterPosition(noteId, otherPaneId);
-      }
       await handleArchiveNote(noteId);
-      replacePaneAfterClose(noteId, replacement);
+      replacePaneAfterClose(noteId);
     },
-    [handleArchiveNote, replacePaneAfterClose, findNoteAfterPosition],
+    [handleArchiveNote, replacePaneAfterClose],
   );
 
   const handleCloseFileWithSplit = useCallback(
@@ -1056,8 +983,11 @@ function App() {
       }}
       component="main"
     >
-      {/* macOS タイトルバー */}
-      {platform !== 'windows' && (
+      {/* macOS 専用カスタムタイトルバー。
+          main.go の mac.TitleBar で macOS のみネイティブタイトルを透明化/非表示に
+          しているため、その分を自前で描画する。Windows / Linux はネイティブ装飾を
+          そのまま使うので描画しない (TITLE_BAR_HEIGHT も darwin 判定と揃える)。 */}
+      {platform === 'darwin' && (
         <Box
           sx={{
             height: 26,

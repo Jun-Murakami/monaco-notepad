@@ -36,6 +36,20 @@ export interface AuthStateChange {
 	signedIn: boolean;
 }
 
+/**
+ * 認証エラーをログ出力用に無害化する。error オブジェクトをそのまま console に
+ * 流すと、リクエスト/レスポンスのコンテキストにトークンや PII が含まれる可能性が
+ * あるため、メッセージ/コードのみを取り出す。
+ */
+function safeAuthErr(e: unknown): string {
+	if (e instanceof Error) return e.message;
+	if (typeof e === 'object' && e !== null) {
+		const o = e as { code?: string; message?: string };
+		return o.code ?? o.message ?? 'unknown auth error';
+	}
+	return String(e);
+}
+
 type Listener = (state: AuthStateChange) => void;
 
 /**
@@ -143,7 +157,7 @@ export class AuthService {
 					DISCOVERY,
 				);
 			} catch (e) {
-				console.warn('[Auth] revoke failed:', e);
+				console.warn('[Auth] revoke failed:', safeAuthErr(e));
 			}
 		}
 		this.token = null;
@@ -188,7 +202,7 @@ export class AuthService {
 					// refresh_token 失効/取り消し → 再ログイン必須
 					console.warn(
 						'[Auth] refresh failed (invalid_grant); signing out:',
-						e,
+						safeAuthErr(e),
 					);
 					this.notifyReauthRequired(
 						'invalid_grant',
@@ -199,7 +213,10 @@ export class AuthService {
 					// ネットワーク不通など一時的失敗 → token は残し、polling のリトライに委ねる。
 					// signOut しないので signedIn 状態は維持され、UI は「サインイン中だが
 					// 一時的にオフライン」と表示される。
-					console.warn('[Auth] refresh failed (transient); keeping token:', e);
+					console.warn(
+						'[Auth] refresh failed (transient); keeping token:',
+						safeAuthErr(e),
+					);
 				}
 				throw e;
 			} finally {

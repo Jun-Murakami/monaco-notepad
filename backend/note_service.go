@@ -60,17 +60,18 @@ type NoteService interface {
 // NoteServiceの実装
 //
 // ★ 並行性ルール (Bug 2 root cause 対策):
-//   noteList / noteCache / pending* はフロントエンド (UI 経路の SaveNote 等) と
-//   Drive 同期 goroutine の双方から触られる。すべての書き込みアクセスを mu で
-//   保護する。
 //
-//   - 公開メソッド (PascalCase) は冒頭で `s.mu.Lock(); defer s.mu.Unlock()` を取る
-//     (現状は単純化のため RWMutex ではなく Mutex を使用)。
-//   - 内部メソッド (lowercase) はロックを取らない。caller が握っている前提。
-//   - 内部から呼び出される必要がある公開メソッド (ListNotes が LoadNote を呼ぶ等) は
-//     `XxxLocked` という no-lock バリアントを別途用意し、内部からはこちらを使う。
-//   - drive_service.go のように noteList を直接触る外部コードは WithLock(fn) で
-//     クリティカルセクションを宣言する。
+//	noteList / noteCache / pending* はフロントエンド (UI 経路の SaveNote 等) と
+//	Drive 同期 goroutine の双方から触られる。すべての書き込みアクセスを mu で
+//	保護する。
+//
+//	- 公開メソッド (PascalCase) は冒頭で `s.mu.Lock(); defer s.mu.Unlock()` を取る
+//	  (現状は単純化のため RWMutex ではなく Mutex を使用)。
+//	- 内部メソッド (lowercase) はロックを取らない。caller が握っている前提。
+//	- 内部から呼び出される必要がある公開メソッド (ListNotes が LoadNote を呼ぶ等) は
+//	  `XxxLocked` という no-lock バリアントを別途用意し、内部からはこちらを使う。
+//	- drive_service.go のように noteList を直接触る外部コードは WithLock(fn) で
+//	  クリティカルセクションを宣言する。
 type noteService struct {
 	notesDir                string
 	noteList                *NoteList
@@ -232,6 +233,11 @@ func (s *noteService) loadNoteLocked(id string) (*Note, error) {
 		return cached, nil
 	}
 
+	// 同期データ由来の ID で任意ファイルを読み出さないよう検証する。
+	if !isSafeNoteID(id) {
+		return nil, fmt.Errorf("rejected load with unsafe id: %q", id)
+	}
+
 	notePath := filepath.Join(s.notesDir, id+".json")
 	data, err := os.ReadFile(notePath)
 	if err != nil {
@@ -270,6 +276,9 @@ func (s *noteService) SaveNote(note *Note) error {
 
 	contentHash := computeContentHash(note)
 
+	if !isSafeNoteID(note.ID) {
+		return fmt.Errorf("rejected note with unsafe id: %q", note.ID)
+	}
 	notePath := filepath.Join(s.notesDir, note.ID+".json")
 	if err := os.WriteFile(notePath, data, 0644); err != nil {
 		return err
@@ -393,6 +402,9 @@ func (s *noteService) SaveNote(note *Note) error {
 func (s *noteService) DeleteNote(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !isSafeNoteID(id) {
+		return fmt.Errorf("rejected delete with unsafe id: %q", id)
+	}
 	notePath := filepath.Join(s.notesDir, id+".json")
 	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
 		return err
@@ -424,8 +436,30 @@ func (s *noteService) SaveNoteFromSync(note *Note) error {
 	return s.saveNoteFromSyncLocked(note)
 }
 
+// isSafeNoteID は同期データ由来のノートIDがファイルパス生成に安全か検証する。
+// パストラバーサル（"/", "\\", "..", 絶対パス, 区切り文字, NUL）を含むIDを拒否する。
+// ローカル生成IDは UUID v4 (crypto.randomUUID / uuid.New) なので、正当なIDがこの
+// 検証で弾かれることはない。Drive 経由で同期されるノートの ID は別デバイスや侵害
+// された Drive アカウントから改竄されうるため、ファイルパス生成前に必ず通すこと。
+func isSafeNoteID(id string) bool {
+	if id == "" || id == "." || id == ".." {
+		return false
+	}
+	if strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return false
+	}
+	if strings.ContainsRune(id, 0) {
+		return false
+	}
+	return filepath.Base(id) == id
+}
+
 // saveNoteFromSyncLocked はロックを取らない (caller が s.mu を握っている前提)。
 func (s *noteService) saveNoteFromSyncLocked(note *Note) error {
+	// 同期データ由来の ID はパストラバーサルの恐れがあるため検証する。
+	if !isSafeNoteID(note.ID) {
+		return fmt.Errorf("rejected note with unsafe id from sync: %q", note.ID)
+	}
 	// contentHeader が未設定なら生成（古いクライアントが作ったノートへの救済）
 	if strings.TrimSpace(note.ContentHeader) == "" {
 		note.ContentHeader = generateContentHeader(note.Content)
@@ -453,6 +487,10 @@ func (s *noteService) DeleteNoteFromSync(id string) error {
 
 // deleteNoteFromSyncLocked はロックを取らない (caller が s.mu を握っている前提)。
 func (s *noteService) deleteNoteFromSyncLocked(id string) error {
+	// 同期データ由来の ID はパストラバーサルの恐れがあるため検証する。
+	if !isSafeNoteID(id) {
+		return fmt.Errorf("rejected delete with unsafe id from sync: %q", id)
+	}
 	notePath := filepath.Join(s.notesDir, id+".json")
 	if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
 		return err
@@ -830,6 +868,10 @@ func (s *noteService) DeleteArchivedFolder(id string) error {
 	deletedCount := 0
 	for _, metadata := range s.noteList.Notes {
 		if metadata.FolderID == id {
+			if !isSafeNoteID(metadata.ID) {
+				s.logConsole("Skipped deleting note with unsafe id: %q", metadata.ID)
+				continue
+			}
 			notePath := filepath.Join(s.notesDir, metadata.ID+".json")
 			if err := os.Remove(notePath); err == nil {
 				deletedCount++
@@ -1143,7 +1185,12 @@ func (s *noteService) rebuildFromPhysicalFiles() error {
 
 	s.noteList.TopLevelOrder = s.buildTopLevelOrder()
 	s.noteList.ArchivedTopLevelOrder = s.buildArchivedTopLevelOrder()
-	s.recoveryApplied = "rebuild"
+	// 実際に 1 件以上を物理ファイルから復元したときだけ "rebuild" を記録する。
+	// 初回起動 (noteList も物理ノートも無い) では .bak/.tmp も無く本関数に到達するが、
+	// 0 件なら失われたものは無いので、誤って「破損して再構築した」ダイアログを出さない。
+	if recoveredCount > 0 {
+		s.recoveryApplied = "rebuild"
+	}
 
 	s.logConsole("Rebuilt note list from %d physical files (folder structure lost)", recoveredCount)
 	return s.saveNoteList()
@@ -1919,6 +1966,10 @@ func (s *noteService) autoResolveConflictCopies() conflictCopyResolution {
 
 	// ファイル削除 + noteListから除去
 	for id := range deleteIDs {
+		if !isSafeNoteID(id) {
+			s.logConsole("Auto-resolve conflict copy: skipped unsafe id %q", id)
+			continue
+		}
 		notePath := filepath.Join(s.notesDir, id+".json")
 		if err := os.Remove(notePath); err != nil && !os.IsNotExist(err) {
 			s.logConsole("Auto-resolve conflict copy: failed to delete file %s: %v", id, err)
@@ -2021,6 +2072,11 @@ func (s *noteService) ApplyIntegrityFixes(selections []IntegrityFixSelection) (I
 				summary.Applied++
 
 			case "delete":
+				if !isSafeNoteID(noteID) {
+					summary.Skipped++
+					s.logConsole("Integrity repair: skipped unsafe id %q", noteID)
+					continue
+				}
 				notePath := filepath.Join(s.notesDir, noteID+".json")
 				if rmErr := os.Remove(notePath); rmErr != nil {
 					summary.Errors++

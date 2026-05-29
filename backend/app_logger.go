@@ -12,10 +12,15 @@ import (
 )
 
 var (
-	logTokenValuePattern  = regexp.MustCompile(`(?i)\b(access_token|refresh_token|id_token|pageToken|page token|token)(["'=:\s]+)[^,"\s]+`)
+	logTokenValuePattern = regexp.MustCompile(`(?i)\b(access_token|refresh_token|id_token|client_secret|authorization_code|auth_code|authorization|pageToken|page token|token)(["'=:\s]+)[^,"\s]+`)
+	// OAuth 認可コードは URL のクエリパラメータ (?code=... / &code=...) として現れる。
+	// "status code: 404" のような無関係な "code" を巻き込まないよう、クエリ形式のみを狙う。
+	logOAuthCodePattern   = regexp.MustCompile(`(?i)([?&](code|state)=)[^&\s"']+`)
 	logLongIDPattern      = regexp.MustCompile(`\b[A-Za-z0-9_-]{25,}\b`)
 	logWindowsPathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\s]+`)
-	logUnixPathPattern    = regexp.MustCompile(`/(Users|home|var|tmp)/[^\s]+`)
+	// macOS/Linux のユーザーデータやシステムパスの開示を防ぐ。/private (macOS),
+	// /Applications, /opt, /etc, /root, /mnt, /srv なども含める。
+	logUnixPathPattern = regexp.MustCompile(`/(Users|home|var|tmp|private|Applications|opt|etc|root|mnt|srv)/[^\s]+`)
 )
 
 // AppLogger はログ出力とフロントエンド通知を担当するインターフェース
@@ -191,6 +196,7 @@ func (l *appLoggerImpl) sendLogMessage(message string) {
 
 func redactLogMessage(message string) string {
 	message = logTokenValuePattern.ReplaceAllString(message, `${1}${2}[redacted]`)
+	message = logOAuthCodePattern.ReplaceAllString(message, `${1}[redacted]`)
 	message = logWindowsPathPattern.ReplaceAllString(message, `[path redacted]`)
 	message = logUnixPathPattern.ReplaceAllString(message, `/[path redacted]`)
 	message = logLongIDPattern.ReplaceAllString(message, `[id redacted]`)

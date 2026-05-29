@@ -7,10 +7,32 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// verifyUpdateSignature はダウンロードしたインストーラの Authenticode 署名を
+// 実行前に検証する。署名ステータスが "Valid" でない場合（未署名・改竄・失効・
+// 信頼されない発行元）は fail-closed で更新を中止する。
+// PowerShell の Get-AuthenticodeSignature を使い、信頼された CA チェーンと
+// ファイル未改竄の両方を OS に検証させる。
+func (a *App) verifyUpdateSignature(installerPath string) error {
+	// -LiteralPath でワイルドカード展開を無効化し、パスを安全に渡す。
+	psScript := "$ErrorActionPreference='Stop'; (Get-AuthenticodeSignature -LiteralPath $args[0]).Status.ToString()"
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript, installerPath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to verify Authenticode signature: %w", err)
+	}
+	status := strings.TrimSpace(string(out))
+	if status != "Valid" {
+		return fmt.Errorf("Authenticode signature status is %q (expected Valid)", status)
+	}
+	return nil
+}
 
 // applyUpdate はWindows用のアップデート処理を実行する
 // NSISインストーラーをサイレント実行し、完了を待ってからアプリを再起動する

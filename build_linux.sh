@@ -4,8 +4,9 @@
 #
 # 生成物:
 #   build/bin/MonacoNotepad-linux-amd64-<ver>.AppImage
-#   build/bin/monaco-notepad_<ver>_amd64.deb
-#   build/bin/SHA256SUMS               (両方の SHA-256)
+#   build/bin/MonacoNotepad-linux-amd64-<ver>.deb
+#   build/bin/<artifact>.sha256        (成果物ごとの SHA-256 / Win・Mac と同形式)
+#   build/bin/SHA256SUMS               (両方の SHA-256 をまとめたマニフェスト)
 #   build/bin/SHA256SUMS.asc           (上記の GPG 署名 / 鍵がある時のみ)
 #
 # 前提パッケージ (Ubuntu 22.04 例):
@@ -158,7 +159,11 @@ fi
 # .deb 作成
 # ============================================================================
 DEB_ARCH="amd64"
-DEB_NAME="${BIN_NAME}_${VERSION}_${DEB_ARCH}.deb"
+# ファイル名は AppImage (MonacoNotepad-linux-amd64-<ver>.AppImage) と完全に揃える。
+# Debian の慣習名 (monaco-notepad_<ver>_amd64.deb) からは外れるが、Linux は手動
+# 配布 (dpkg -i / apt install ./<file>.deb) のみで apt リポジトリには載せないため、
+# 配布ページ上での見た目の一貫性を優先する。control の Package= は monaco-notepad のまま。
+DEB_NAME="MonacoNotepad-linux-${DEB_ARCH}-${VERSION}.deb"
 DEB_OUT="$BIN_DIR/$DEB_NAME"
 
 # ステージングは /tmp (ext4) を使う。WSL2 の /mnt/* (NTFS DrvFs) は metadata

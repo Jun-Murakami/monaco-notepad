@@ -209,7 +209,8 @@
   },
   "integrity": {
     "noticeTitle": "お知らせ",
-    "unknownFileTitle": "不明なファイル"
+    "unknownFileTitle": "不明なファイル",
+    "noteListRebuilt": "ノートリストが破損していたため、ノートファイルから再構築しました。フォルダ構造と表示順はリセットされました。"
   },
   "version": {
     "updateAvailable": "更新があります v{{version}}"

@@ -209,7 +209,8 @@
   },
   "integrity": {
     "noticeTitle": "Notice",
-    "unknownFileTitle": "Unknown file"
+    "unknownFileTitle": "Unknown file",
+    "noteListRebuilt": "Note list was corrupted and rebuilt from note files. Folder structure and display order have been reset."
   },
   "version": {
     "updateAvailable": "Update? v{{version}}"

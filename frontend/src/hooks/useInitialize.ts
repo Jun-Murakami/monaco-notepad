@@ -172,9 +172,15 @@ export const useInitialize = (
         }
 
         if (!issue.fixOptions || issue.fixOptions.length < 2) {
+          // バックエンドは Summary に MessageCode を入れてくる (英語ハードコード排除)。
+          // 既知の kind は i18n キーで翻訳し、未知の kind は summary をそのまま表示する。
+          const body =
+            issue.kind === 'noteList_recovered'
+              ? i18n.t('integrity.noteListRebuilt')
+              : issue.summary;
           await showMessage(
             i18n.t('integrity.noticeTitle'),
-            issue.summary,
+            body,
             false,
             i18n.t('dialog.ok'),
           );

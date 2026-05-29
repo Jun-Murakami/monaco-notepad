@@ -1,6 +1,8 @@
 package backend
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -162,12 +164,122 @@ func (a *App) PerformUpdate(downloadURL, assetName string) error {
 	out.Close()
 
 	a.logger.Console("Download complete: %s (%d bytes)", tmpPath, written)
+
+	// ダウンロードしたバイナリの完全性・真正性を実行前に検証する（2 層）。
+	// URL は HTTPS + GitHub リポジトリにピン留め済み。その上で:
+	//
+	//  1. SHA-256 チェックサム検証 (verifyUpdateChecksum):
+	//     リリースに併載した <asset>.sha256 と照合し、ダウンロード破損や部分的な
+	//     改竄を捕捉する。チェックサムはバイナリと同じリリースにあるため「完全性」
+	//     は担保するが「真正性」は担保しない（リリースごと差し替えられたら共に偽装
+	//     されうる）。.sha256 が無い旧リリースでは skip する（署名検証で守る）。
+	//
+	//  2. コード署名検証 (verifyUpdateSignature):
+	//     Authenticode (Windows) / codesign + notarization (macOS) を検証する。
+	//     攻撃者は署名鍵なしに有効な署名を偽造できないため、リリースアセットや配布
+	//     アカウントが侵害された場合でも改竄/差し替えされたインストーラを弾ける（真正性）。
+	//
+	// いずれか一方でも失敗したら fail-closed で更新を中止する。
+	wailsRuntime.EventsEmit(a.ctx.ctx, "update:progress", "verifying")
+	if err := a.verifyUpdateChecksum(tmpPath, downloadURL); err != nil {
+		os.Remove(tmpPath)
+		a.logger.Console("Update checksum verification failed: %v", err)
+		return fmt.Errorf("update checksum verification failed: %w", err)
+	}
+	if err := a.verifyUpdateSignature(tmpPath); err != nil {
+		os.Remove(tmpPath)
+		a.logger.Console("Update signature verification failed: %v", err)
+		return fmt.Errorf("update signature verification failed: %w", err)
+	}
+	a.logger.Console("Update verified (checksum + signature): %s", tmpPath)
+
 	wailsRuntime.EventsEmit(a.ctx.ctx, "update:progress", "installing")
 
 	// BeforeClose処理をスキップして即座に終了できるようにする
 	a.ctx.SkipBeforeClose(true)
 
 	return a.applyUpdate(tmpPath)
+}
+
+// verifyUpdateChecksum はリリースに併載された "<asset>.sha256" を取得し、
+// ダウンロードしたファイルの SHA-256 と照合する。チェックサムが見つからない
+// (404) 場合は、旧リリース互換のため検証を skip する（署名検証側で守る）。
+// 不一致や取得失敗（404 以外）は fail-closed でエラーにする。
+func (a *App) verifyUpdateChecksum(filePath, downloadURL string) error {
+	checksumURL := downloadURL + ".sha256"
+	// downloadURL は validateUpdateDownload 済み。.sha256 も同じ GitHub リリース
+	// パス配下なので追加検証は不要だが、念のためスキーム/ホストを再確認する。
+	if parsed, err := url.Parse(checksumURL); err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" {
+		return fmt.Errorf("invalid checksum URL")
+	}
+
+	resp, err := http.Get(checksumURL)
+	if err != nil {
+		return fmt.Errorf("failed to fetch checksum: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		// このリリースにはチェックサムが無い（旧リリース）。署名検証に委ねる。
+		a.logger.Console("No .sha256 published for this release; skipping checksum verification")
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("checksum download returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil {
+		return fmt.Errorf("failed to read checksum: %w", err)
+	}
+	expected := parseSHA256Hex(string(body))
+	if expected == "" {
+		return fmt.Errorf("could not parse sha256 from checksum file")
+	}
+
+	actual, err := fileSHA256(filePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(actual, expected) {
+		return fmt.Errorf("sha256 mismatch: expected %s, got %s", expected, actual)
+	}
+	return nil
+}
+
+// fileSHA256 はファイルの SHA-256 を 16 進小文字で返す。
+func fileSHA256(filePath string) (string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("failed to hash file: %w", err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// parseSHA256Hex は sha256sum 形式 ("<hex>  <filename>") または素の 16 進文字列から
+// 64 文字の SHA-256 16 進ダイジェストを取り出す。見つからなければ空文字を返す。
+func parseSHA256Hex(content string) string {
+	for _, field := range strings.Fields(content) {
+		if len(field) == 64 && isHex(field) {
+			return strings.ToLower(field)
+		}
+	}
+	return ""
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateUpdateDownload(downloadURL, assetName string) error {

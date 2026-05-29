@@ -12,6 +12,25 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// verifyUpdateSignature はダウンロードした DMG の公証 (notarization) と
+// コード署名を実行前に検証する。Gatekeeper の評価 (spctl) に通らない場合は
+// fail-closed で更新を中止する。攻撃者は Apple の公証と Developer ID 署名鍵
+// なしには有効な署名を偽造できないため、改竄/差し替えされた DMG の適用を防ぐ。
+func (a *App) verifyUpdateSignature(dmgPath string) error {
+	// spctl による Gatekeeper 評価（公証込み）。DMG は primary-signature コンテキストで評価する。
+	assess := exec.Command("/usr/sbin/spctl", "--assess", "--type", "open",
+		"--context", "context:primary-signature", "-v", dmgPath)
+	if out, err := assess.CombinedOutput(); err != nil {
+		return fmt.Errorf("Gatekeeper assessment failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	// コード署名そのものの検証も併せて行う。
+	verify := exec.Command("/usr/bin/codesign", "--verify", "--verbose=2", dmgPath)
+	if out, err := verify.CombinedOutput(); err != nil {
+		return fmt.Errorf("codesign verification failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // applyUpdate はmacOS用のアップデート処理を実行する
 // DMGをマウント→.appをコピー→アンマウント→再起動
 func (a *App) applyUpdate(dmgPath string) error {

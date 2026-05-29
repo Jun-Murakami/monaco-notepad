@@ -104,13 +104,17 @@ export class DriveClient {
 			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
 			supportsAllDrives: 'false',
 		});
-		const res = await this.request(`/files/${fileId}?${params.toString()}`);
+		const res = await this.request(
+			`/files/${encodeURIComponent(fileId)}?${params.toString()}`,
+		);
 		return (await res.json()) as DriveFile;
 	}
 
 	/** ファイルのテキスト内容取得。 */
 	async downloadText(fileId: string): Promise<string> {
-		const res = await this.request(`/files/${fileId}?alt=media`);
+		const res = await this.request(
+			`/files/${encodeURIComponent(fileId)}?alt=media`,
+		);
 		return res.text();
 	}
 
@@ -183,17 +187,22 @@ export class DriveClient {
 			uploadType: 'media',
 			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
 		});
-		const res = await this.request(`/files/${fileId}?${params.toString()}`, {
-			method: 'PATCH',
-			headers: { 'Content-Type': mimeType },
-			body: content,
-			baseUrl: DRIVE_UPLOAD,
-		});
+		const res = await this.request(
+			`/files/${encodeURIComponent(fileId)}?${params.toString()}`,
+			{
+				method: 'PATCH',
+				headers: { 'Content-Type': mimeType },
+				body: content,
+				baseUrl: DRIVE_UPLOAD,
+			},
+		);
 		return (await res.json()) as DriveFile;
 	}
 
 	async deleteFile(fileId: string): Promise<void> {
-		await this.request(`/files/${fileId}`, { method: 'DELETE' });
+		await this.request(`/files/${encodeURIComponent(fileId)}`, {
+			method: 'DELETE',
+		});
 	}
 
 	/** appDataFolder 内の全ファイル/フォルダを削除する。 */

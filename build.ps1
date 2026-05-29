@@ -220,9 +220,19 @@ if (Test-Path $targetInstallerPath) {
 }
 Rename-Item -Path $sourceInstaller.FullName -NewName $targetInstallerName
 
+# ---- SHA-256 チェックサム生成 ----------------------------------------------
+# アプリ内自動更新 (backend/updater.go の verifyUpdateChecksum) が照合する
+# "<asset>.sha256" を生成する。形式は sha256sum 互換 ("<hex>  <filename>")。
+# このファイルもリリースアセットとして必ずアップロードすること。
+$sha256Path = "$targetInstallerPath.sha256"
+$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetInstallerPath).Hash.ToLower()
+"$hash  $targetInstallerName`n" | Set-Content -LiteralPath $sha256Path -Encoding ascii -NoNewline
+Write-Host "Checksum: $sha256Path"
+
 Write-Host ''
 Write-Host 'Build completed successfully!'
 Write-Host "Output: $targetInstallerPath"
+Write-Host "        $sha256Path"
 if (-not $skipSign) {
     Write-Host '  - signed: exe + installer (Azure Key Vault)'
 }

@@ -92,7 +92,16 @@ if [ $attempt -gt $max_attempts ]; then
 fi
 
 echo "Validating DMG..."
-xcrun stapler validate "build/bin/Monaco Notepad-mac-universal-$VERSION.dmg"
+xcrun stapler validate "build/bin/MonacoNotepad-mac-universal-$VERSION.dmg"
+
+# SHA-256 チェックサム生成
+# アプリ内自動更新 (backend/updater.go の verifyUpdateChecksum) が照合する
+# "<asset>.sha256" を生成する。形式は shasum -a 256 のデフォルト ("<hex>  <filename>")。
+# このファイルもリリースアセットとして必ずアップロードすること。
+echo "Generating SHA-256 checksum..."
+DMG_NAME="MonacoNotepad-mac-universal-$VERSION.dmg"
+( cd build/bin && shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256" )
 
 echo "Build and notarization completed successfully!"
-echo "Output: build/bin/Monaco Notepad-mac-universal-$VERSION.dmg" 
+echo "Output: build/bin/MonacoNotepad-mac-universal-$VERSION.dmg"
+echo "        build/bin/MonacoNotepad-mac-universal-$VERSION.dmg.sha256"

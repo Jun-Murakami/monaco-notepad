@@ -13,22 +13,22 @@ import (
 
 // アプリケーションのメインの構造体
 type App struct {
-	ctx              *Context         // アプリケーションのコンテキスト
-	appDataDir       string           // アプリケーションデータディレクトリのパス
-	notesDir         string           // ノートファイル保存ディレクトリのパス
-	authService      AuthService      // Google Drive認証サービス
-	noteService      *noteService     // ノート操作サービス
-	driveService     DriveService     // Google Drive操作サービス (インターフェースで受けるよう変更)
-	settingsService  *settingsService // 設定操作サービス
-	fileService      *fileService     // ファイル操作サービス
-	fileNoteService    *fileNoteService    // ファイルノート操作サービス
-	recentFilesService *recentFilesService // 最近開いたファイル操作サービス
-	syncState        *SyncState       // 同期状態管理（dirtyフラグ方式）
-	migrationMessage     string           // マイグレーション結果メッセージ（フロントエンド準備後に通知）
-	frontendReady        chan struct{}    // フロントエンドの準備完了を通知するチャネル
-	logger               AppLogger        // アプリケーションのロガー
-	lastActiveNoteId     string           // 最後に選択されたノートID（終了時にsettings.jsonへ保存）
-	lastActiveNoteIsFile bool             // 最後に選択されたノートがファイルノートかどうか
+	ctx                  *Context            // アプリケーションのコンテキスト
+	appDataDir           string              // アプリケーションデータディレクトリのパス
+	notesDir             string              // ノートファイル保存ディレクトリのパス
+	authService          AuthService         // Google Drive認証サービス
+	noteService          *noteService        // ノート操作サービス
+	driveService         DriveService        // Google Drive操作サービス (インターフェースで受けるよう変更)
+	settingsService      *settingsService    // 設定操作サービス
+	fileService          *fileService        // ファイル操作サービス
+	fileNoteService      *fileNoteService    // ファイルノート操作サービス
+	recentFilesService   *recentFilesService // 最近開いたファイル操作サービス
+	syncState            *SyncState          // 同期状態管理（dirtyフラグ方式）
+	migrationMessage     string              // マイグレーション結果メッセージ（フロントエンド準備後に通知）
+	frontendReady        chan struct{}       // フロントエンドの準備完了を通知するチャネル
+	logger               AppLogger           // アプリケーションのロガー
+	lastActiveNoteId     string              // 最後に選択されたノートID（終了時にsettings.jsonへ保存）
+	lastActiveNoteIsFile bool                // 最後に選択されたノートがファイルノートかどうか
 }
 
 // アプリケーションのコンテキストを管理
@@ -348,6 +348,9 @@ const (
 	MsgSystemOpenFileFailed        = "system.error.openFile"
 	MsgSystemNoteListRestored      = "system.noteListRestored"
 	MsgSystemIntegrityAutoRepaired = "system.integrityAutoRepaired"
+	// noteList が破損し物理ファイルから再構築された (フォルダ構造・表示順がリセット)。
+	// IntegrityIssue.Summary に入れ、フロントは kind="noteList_recovered" で翻訳する。
+	MsgIntegrityNoteListRebuilt = "integrity.noteListRebuilt"
 	// アーカイブ済みフォルダ削除時に、削除されたノート件数をステータスバーへ多言語表示する
 	MsgSystemArchivedFolderDeletedNotes = "system.archivedFolderDeletedNotes"
 )

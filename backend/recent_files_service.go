@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const maxRecentFiles = 20
+const maxRecentFiles = 100
 
 // 最近開いたファイルの操作
 type recentFilesService struct {

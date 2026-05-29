@@ -165,6 +165,54 @@ export const useSplitEditor = () => {
     [setCurrentNote, setCurrentFileNote, saveSplitState, flushPaneSave],
   );
 
+  // 片方のペインを閉じた時に、もう一方のペインの内容を残して分割表示を解除する。
+  // 閉じる側 (keepPane の反対) のペンディング編集は破棄、残す側は flush してから解除。
+  const exitSplitKeepingPane = useCallback(
+    (keepPane: 'left' | 'right') => {
+      const store = useSplitEditorStore.getState();
+      if (!store.isSplit) return;
+
+      const closedPane: 'left' | 'right' = keepPane === 'left' ? 'right' : 'left';
+
+      // 閉じる側の dirty 状態は破棄（archive / close 済みのノートを書き戻すと整合が崩れる）
+      if (closedPane === 'left') {
+        if (leftDebounceTimer.current) {
+          clearTimeout(leftDebounceTimer.current);
+          leftDebounceTimer.current = null;
+        }
+        isLeftModified.current = false;
+        pendingLeftContentRef.current = null;
+      } else {
+        if (rightDebounceTimer.current) {
+          clearTimeout(rightDebounceTimer.current);
+          rightDebounceTimer.current = null;
+        }
+        isRightModified.current = false;
+        pendingRightContentRef.current = null;
+      }
+
+      // 残す側のペンディング編集はバックエンドへ書き出す
+      flushPaneSave(keepPane);
+
+      const survivorNote =
+        keepPane === 'left' ? store.leftNote : store.rightNote;
+      const survivorFile =
+        keepPane === 'left' ? store.leftFileNote : store.rightFileNote;
+
+      setCurrentNote(survivorNote);
+      setCurrentFileNote(survivorFile);
+      store.setIsMarkdownPreview(false);
+      store.setLeftNote(null);
+      store.setLeftFileNote(null);
+      store.setRightNote(null);
+      store.setRightFileNote(null);
+      store.setFocusedPane('left');
+      store.setIsSplit(false);
+      saveSplitState();
+    },
+    [setCurrentNote, setCurrentFileNote, saveSplitState, flushPaneSave],
+  );
+
   const toggleMarkdownPreview = useCallback(() => {
     const store = useSplitEditorStore.getState();
     if (store.isSplit) {
@@ -654,6 +702,7 @@ export const useSplitEditor = () => {
 
   return {
     toggleSplit,
+    exitSplitKeepingPane,
     toggleMarkdownPreview,
     handleFocusPane,
     handleSelectNoteForPane,

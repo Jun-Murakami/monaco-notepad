@@ -7,12 +7,16 @@
  * 移植したもの。electron-builder の afterAllArtifactBuild に相当する立ち位置を
  * build_linux.sh の終端で果たす。
  *
- *   - SHA256SUMS     : 各成果物の SHA-256 (sha256sum -c 互換フォーマット)
+ *   - <asset>.sha256 : 成果物ごとの SHA-256 (sha256sum 互換 "<hex>  <file>")。
+ *                      Windows (build.ps1) / macOS (build_mac.sh) と命名を揃え、
+ *                      単体ダウンロード時の検証や updater 経路と整合させる。
+ *   - SHA256SUMS     : 全成果物の SHA-256 をまとめたマニフェスト (sha256sum -c 互換)
  *   - SHA256SUMS.asc : SHA256SUMS への GPG デタッチ署名 (鍵があれば)
  *
  * ユーザー側検証手順:
- *   gpg --verify SHA256SUMS.asc SHA256SUMS   # 真正性
- *   sha256sum -c SHA256SUMS                  # 完全性
+ *   gpg --verify SHA256SUMS.asc SHA256SUMS   # 真正性 (まとめて)
+ *   sha256sum -c SHA256SUMS                  # 完全性 (まとめて)
+ *   sha256sum -c <asset>.sha256              # 完全性 (単体)
  *
  * 環境変数:
  *   GPG_SIGNING_KEY : 署名鍵 (鍵ID / フィンガープリント / メール)。省略時は既定鍵
@@ -68,7 +72,13 @@ const sumsPath = resolve(outDir, 'SHA256SUMS');
 
 const lines = artifacts.map((p) => {
 	const hash = createHash('sha256').update(readFileSync(p)).digest('hex');
-	return `${hash}  ${basename(p)}`;
+	const line = `${hash}  ${basename(p)}`;
+	// 成果物ごとの <asset>.sha256 も書き出す (Win/Mac と同じ命名・フォーマット)。
+	// sha256sum -c で単体検証でき、ファイル名にハッシュ対象が含まれるので可搬。
+	const perAssetPath = `${p}.sha256`;
+	writeFileSync(perAssetPath, `${line}\n`);
+	console.log(`  • Wrote ${basename(perAssetPath)} → ${perAssetPath}`);
+	return line;
 });
 writeFileSync(sumsPath, `${lines.join('\n')}\n`);
 console.log(`  • Wrote SHA256SUMS (${artifacts.length} artifacts) → ${sumsPath}`);

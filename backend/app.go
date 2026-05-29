@@ -291,7 +291,9 @@ func (a *App) NotifyFrontendReady() {
 						Kind:              "noteList_recovered",
 						Severity:          "warn",
 						NeedsUserDecision: true,
-						Summary:           "Note list was corrupted and rebuilt from note files. Folder structure and display order have been reset.",
+						// 表示文言はフロントが kind="noteList_recovered" で翻訳する。
+						// Summary には MessageCode を入れ、英語ハードコードを排除する。
+						Summary: MsgIntegrityNoteListRebuilt,
 					},
 				})
 			case "backup":
