@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"golang.org/x/sys/windows"
 )
 
 // verifyUpdateSignature はダウンロードしたインストーラの Authenticode 署名を
@@ -19,9 +20,19 @@ import (
 // PowerShell の Get-AuthenticodeSignature を使い、信頼された CA チェーンと
 // ファイル未改竄の両方を OS に検証させる。
 func (a *App) verifyUpdateSignature(installerPath string) error {
-	// -LiteralPath でワイルドカード展開を無効化し、パスを安全に渡す。
-	psScript := "$ErrorActionPreference='Stop'; (Get-AuthenticodeSignature -LiteralPath $args[0]).Status.ToString()"
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", psScript, installerPath)
+	// GUI アプリの PATH に Windows PowerShell が含まれない環境でも、
+	// OS の標準配置から実行する。PATH 上の別の実行ファイルも拾わない。
+	systemDir, err := windows.GetSystemDirectory()
+	if err != nil {
+		return fmt.Errorf("failed to locate Windows system directory: %w", err)
+	}
+	powerShellPath := filepath.Join(systemDir, "WindowsPowerShell", "v1.0", "powershell.exe")
+	// -Command の末尾引数は PowerShell のコードとして解釈されるため、
+	// パスは子プロセスの環境変数で渡し、-LiteralPath で展開を防ぐ。
+	// PowerShell 7 等から継承した PSModulePath にも依存しない。
+	psScript := "$ErrorActionPreference='Stop'; Import-Module ($PSHOME + '\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'); (Microsoft.PowerShell.Security\\Get-AuthenticodeSignature -LiteralPath $env:MONACO_NOTEPAD_UPDATE_PATH).Status.ToString()"
+	cmd := exec.Command(powerShellPath, "-NoProfile", "-NonInteractive", "-Command", psScript)
+	cmd.Env = append(cmd.Environ(), "MONACO_NOTEPAD_UPDATE_PATH="+installerPath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	out, err := cmd.Output()
 	if err != nil {
