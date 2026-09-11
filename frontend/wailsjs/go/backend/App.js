@@ -257,3 +257,7 @@ export function UpdateNoteOrder(arg1, arg2) {
 export function UpdateTopLevelOrder(arg1) {
   return window['go']['backend']['App']['UpdateTopLevelOrder'](arg1);
 }
+
+export function WaitForBackendReady() {
+  return window['go']['backend']['App']['WaitForBackendReady']();
+}

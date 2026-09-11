@@ -136,7 +136,18 @@
       "Bash(npx --yes tsc --noEmit)",
       "Bash(echo \"=== tsc done \\(exit $?\\) ===\")",
       "Bash(npx --yes @biomejs/biome check src/App.tsx)",
-      "Bash(echo \"tsc exit $?\")"
+      "Bash(echo \"tsc exit $?\")",
+      "Bash(pkg-config --exists gtk+-3.0)",
+      "Bash(pkg-config --modversion gtk+-3.0)",
+      "Bash(echo \"gtk+-3.0 OK: $\\(pkg-config --modversion gtk+-3.0\\)\")",
+      "Read(//usr/local/go/bin/**)",
+      "Bash(command -v gvm)",
+      "Bash(find / -maxdepth 4 -name go -type f -path \"*bin*\")",
+      "Read(//snap/bin/**)",
+      "Read(//home/jun/.asdf/shims/**)",
+      "Read(//opt/**)",
+      "Read(//usr/local/**)",
+      "Bash(bash -lc 'command -v go')"
     ]
   }
 }

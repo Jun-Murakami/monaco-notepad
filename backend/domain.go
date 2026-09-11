@@ -26,6 +26,8 @@ type App struct {
 	syncState            *SyncState          // 同期状態管理（dirtyフラグ方式）
 	migrationMessage     string              // マイグレーション結果メッセージ（フロントエンド準備後に通知）
 	frontendReady        chan struct{}       // フロントエンドの準備完了を通知するチャネル
+	startupReady         chan struct{}       // ローカルサービスの初期化完了
+	backendReady         chan struct{}       // DomReady のサービス初期化完了（Drive 接続は待たない）
 	logger               AppLogger           // アプリケーションのロガー
 	lastActiveNoteId     string              // 最後に選択されたノートID（終了時にsettings.jsonへ保存）
 	lastActiveNoteIsFile bool                // 最後に選択されたノートがファイルノートかどうか

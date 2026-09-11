@@ -2,6 +2,7 @@ import React from 'react';
 import { HotkeysProvider } from '@tanstack/react-hotkeys';
 import { createRoot } from 'react-dom/client';
 
+import { WaitForBackendReady } from '../wailsjs/go/backend/App';
 import App from './App';
 import { Providers } from './components/Providers';
 import { initI18n } from './i18n';
@@ -24,12 +25,18 @@ if (!container) {
 
 const root = createRoot(container);
 
-root.render(
-  <React.StrictMode>
-    <HotkeysProvider>
-      <Providers>
-        <App />
-      </Providers>
-    </HotkeysProvider>
-  </React.StrictMode>,
-);
+// ローカルサービスと DomReady の準備完了後に hook を起動する。
+// 固定時間の待機やイベント購読では、遅い起動・通知の取り逃しを防げない。
+WaitForBackendReady()
+  .then(() =>
+    root.render(
+      <React.StrictMode>
+        <HotkeysProvider>
+          <Providers>
+            <App />
+          </Providers>
+        </HotkeysProvider>
+      </React.StrictMode>,
+    ),
+  )
+  .catch((error) => console.error('Failed to initialize backend:', error));

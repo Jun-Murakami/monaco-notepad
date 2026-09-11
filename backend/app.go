@@ -98,6 +98,8 @@ func NewApp() *App {
 	return &App{
 		ctx:           NewContext(context.Background()),
 		frontendReady: make(chan struct{}),
+		startupReady:  make(chan struct{}),
+		backendReady:  make(chan struct{}),
 	}
 }
 
@@ -164,10 +166,18 @@ func (a *App) Startup(ctx context.Context) {
 	if err := a.syncState.Load(); err != nil {
 		a.logger.Console("Warning: failed to load sync state: %v", err)
 	}
+	close(a.startupReady)
 }
 
 // フロントエンドにDOMが読み込まれたときに呼び出される関数 ------------------------------------------------------------
 func (a *App) DomReady(ctx context.Context) {
+	// Wails は Startup と DomReady を並行実行する。コールド起動時も
+	// ローカルノートの読み込みが完了するまでサービスへアクセスしない。
+	select {
+	case <-a.startupReady:
+	case <-ctx.Done():
+		return
+	}
 	a.logger.Console("DomReady called")
 
 	// ネイティブメニューの言語を設定に合わせて反映
@@ -220,6 +230,13 @@ func (a *App) DomReady(ctx context.Context) {
 
 	a.logger.Console("Emitting backend:ready event")
 	wailsRuntime.EventsEmit(ctx, "backend:ready")
+	close(a.backendReady)
+}
+
+// WaitForBackendReady は React 起動前の待ち合わせ。イベントと異なり、
+// 呼び出し前に完了していても取り逃さない。ネットワーク接続は待たない。
+func (a *App) WaitForBackendReady() {
+	<-a.backendReady
 }
 
 // アプリケーション終了前に呼び出される処理 ------------------------------------------------------------
@@ -833,6 +850,8 @@ func (a *App) LoadSettings() (*Settings, error) {
 
 	// デバッグモードを設定
 	a.logger.SetDebugMode(settings.IsDebug)
+	// Linux(GNOME 等)のタイトルバーをアプリのテーマ設定に追従させる
+	setTitlebarDarkMode(settings.IsDarkMode)
 	return settings, nil
 }
 
@@ -843,6 +862,8 @@ func (a *App) SaveSettings(settings *Settings) error {
 	}
 	if settings != nil {
 		a.applyNativeMenuLocalization(settings.UILanguage)
+		// テーマ切替時に Linux(GNOME 等)のタイトルバーを追従させる
+		setTitlebarDarkMode(settings.IsDarkMode)
 	}
 	return nil
 }
