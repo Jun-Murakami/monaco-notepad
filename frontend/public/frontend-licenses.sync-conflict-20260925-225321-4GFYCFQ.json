@@ -7,7 +7,7 @@
   },
   {
     "name": "@atlaskit/pragmatic-drag-and-drop",
-    "version": "1.7.10",
+    "version": "1.8.1",
     "license": "Apache-2.0",
     "repository": "https://github.com/atlassian/pragmatic-drag-and-drop"
   },
@@ -19,43 +19,43 @@
   },
   {
     "name": "@babel/code-frame",
-    "version": "7.29.0",
+    "version": "7.29.7",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/generator",
-    "version": "7.29.1",
+    "version": "7.29.8",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/helper-globals",
-    "version": "7.28.0",
+    "version": "7.29.7",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/helper-module-imports",
-    "version": "7.28.6",
+    "version": "7.29.7",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/helper-string-parser",
-    "version": "7.27.1",
+    "version": "7.29.7",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/helper-validator-identifier",
-    "version": "7.28.5",
+    "version": "7.29.7",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/parser",
-    "version": "7.29.0",
+    "version": "7.29.8",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
@@ -67,19 +67,19 @@
   },
   {
     "name": "@babel/template",
-    "version": "7.28.6",
+    "version": "7.29.7",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/traverse",
-    "version": "7.29.0",
+    "version": "7.29.8",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
   {
     "name": "@babel/types",
-    "version": "7.29.0",
+    "version": "7.29.8",
     "license": "MIT",
     "repository": "https://github.com/babel/babel"
   },
@@ -90,32 +90,8 @@
     "repository": "https://github.com/braintree/sanitize-url"
   },
   {
-    "name": "@chevrotain/cst-dts-gen",
-    "version": "12.0.0",
-    "license": "Apache-2.0",
-    "repository": "https://github.com/Chevrotain/chevrotain"
-  },
-  {
-    "name": "@chevrotain/gast",
-    "version": "12.0.0",
-    "license": "Apache-2.0",
-    "repository": "https://github.com/Chevrotain/chevrotain"
-  },
-  {
-    "name": "@chevrotain/regexp-to-ast",
-    "version": "12.0.0",
-    "license": "Apache-2.0",
-    "repository": "https://github.com/Chevrotain/chevrotain"
-  },
-  {
     "name": "@chevrotain/types",
-    "version": "12.0.0",
-    "license": "Apache-2.0",
-    "repository": "https://github.com/Chevrotain/chevrotain"
-  },
-  {
-    "name": "@chevrotain/utils",
-    "version": "12.0.0",
+    "version": "11.1.2",
     "license": "Apache-2.0",
     "repository": "https://github.com/Chevrotain/chevrotain"
   },
@@ -235,31 +211,31 @@
   },
   {
     "name": "@mermaid-js/parser",
-    "version": "1.1.0",
+    "version": "1.2.1",
     "license": "MIT",
     "repository": "https://github.com/mermaid-js/mermaid"
   },
   {
     "name": "@mui/core-downloads-tracker",
-    "version": "9.0.0",
+    "version": "9.0.1",
     "license": "MIT",
     "repository": "https://github.com/mui/material-ui"
   },
   {
     "name": "@mui/icons-material",
-    "version": "9.0.0",
+    "version": "9.0.1",
     "license": "MIT",
     "repository": "https://github.com/mui/material-ui"
   },
   {
     "name": "@mui/material",
-    "version": "9.0.0",
+    "version": "9.0.1",
     "license": "MIT",
     "repository": "https://github.com/mui/material-ui"
   },
   {
     "name": "@mui/private-theming",
-    "version": "9.0.0",
+    "version": "9.0.1",
     "license": "MIT",
     "repository": "https://github.com/mui/material-ui"
   },
@@ -271,7 +247,7 @@
   },
   {
     "name": "@mui/system",
-    "version": "9.0.0",
+    "version": "9.0.1",
     "license": "MIT",
     "repository": "https://github.com/mui/material-ui"
   },
@@ -288,20 +264,26 @@
     "repository": "https://github.com/mui/material-ui"
   },
   {
-    "name": "@mui/x-data-grid",
+    "name": "@mui/utils",
     "version": "9.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/mui/material-ui"
+  },
+  {
+    "name": "@mui/x-data-grid",
+    "version": "9.3.0",
     "license": "MIT",
     "repository": "https://github.com/mui/mui-x"
   },
   {
     "name": "@mui/x-internals",
-    "version": "9.0.0",
+    "version": "9.1.0",
     "license": "MIT",
     "repository": "https://github.com/mui/mui-x"
   },
   {
     "name": "@mui/x-virtualizer",
-    "version": "9.0.0-alpha.0",
+    "version": "9.0.0-alpha.7",
     "license": "MIT",
     "repository": "https://github.com/mui/mui-x"
   },
@@ -313,25 +295,25 @@
   },
   {
     "name": "@tanstack/hotkeys",
-    "version": "0.7.1",
+    "version": "0.8.0",
     "license": "MIT",
     "repository": "https://github.com/TanStack/hotkeys"
   },
   {
     "name": "@tanstack/react-hotkeys",
-    "version": "0.9.1",
+    "version": "0.10.0",
     "license": "MIT",
     "repository": "https://github.com/TanStack/hotkeys"
   },
   {
     "name": "@tanstack/react-store",
-    "version": "0.9.3",
+    "version": "0.11.0",
     "license": "MIT",
     "repository": "https://github.com/TanStack/store"
   },
   {
     "name": "@tanstack/store",
-    "version": "0.9.3",
+    "version": "0.11.0",
     "license": "MIT",
     "repository": "https://github.com/TanStack/store"
   },
@@ -577,7 +559,7 @@
   },
   {
     "name": "@types/react",
-    "version": "19.2.14",
+    "version": "19.2.15",
     "license": "MIT",
     "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped"
   },
@@ -618,12 +600,6 @@
     "repository": "https://github.com/upsetjs/venn.js"
   },
   {
-    "name": "@wailsio/runtime",
-    "version": "3.0.0-alpha.79",
-    "license": "MIT",
-    "repository": "https://github.com/wailsapp/wails"
-  },
-  {
     "name": "acorn",
     "version": "8.16.0",
     "license": "MIT",
@@ -640,12 +616,6 @@
     "version": "3.1.0",
     "license": "MIT",
     "repository": "https://github.com/kentcdodds/babel-plugin-macros"
-  },
-  {
-    "name": "babel-plugin-react-compiler",
-    "version": "1.0.0",
-    "license": "MIT",
-    "repository": "https://github.com/facebook/react"
   },
   {
     "name": "bail",
@@ -694,18 +664,6 @@
     "version": "2.0.1",
     "license": "MIT",
     "repository": "https://github.com/wooorm/character-reference-invalid"
-  },
-  {
-    "name": "chevrotain",
-    "version": "12.0.0",
-    "license": "Apache-2.0",
-    "repository": "https://github.com/Chevrotain/chevrotain"
-  },
-  {
-    "name": "chevrotain-allstar",
-    "version": "0.4.1",
-    "license": "MIT",
-    "repository": "https://github.com/langium/chevrotain-allstar"
   },
   {
     "name": "classnames",
@@ -775,7 +733,7 @@
   },
   {
     "name": "cytoscape",
-    "version": "3.33.1",
+    "version": "3.34.3",
     "license": "MIT",
     "repository": "https://github.com/cytoscape/cytoscape.js"
   },
@@ -1009,7 +967,7 @@
   },
   {
     "name": "dayjs",
-    "version": "1.11.20",
+    "version": "1.11.21",
     "license": "MIT",
     "repository": "https://github.com/iamkun/dayjs"
   },
@@ -1057,7 +1015,7 @@
   },
   {
     "name": "dompurify",
-    "version": "3.3.3",
+    "version": "3.4.15",
     "license": "(MPL-2.0 OR Apache-2.0)",
     "repository": "https://github.com/cure53/DOMPurify"
   },
@@ -1066,6 +1024,12 @@
     "version": "1.3.2",
     "license": "MIT",
     "repository": "https://github.com/qix-/node-error-ex"
+  },
+  {
+    "name": "es-toolkit",
+    "version": "1.47.0",
+    "license": "MIT",
+    "repository": "https://github.com/toss/es-toolkit"
   },
   {
     "name": "escape-string-regexp",
@@ -1110,6 +1074,12 @@
     "repository": "https://github.com/Microsoft/node-fast-plist"
   },
   {
+    "name": "fastdom",
+    "version": "1.0.12",
+    "license": "MIT",
+    "repository": "https://github.com/wilsonpage/fastdom"
+  },
+  {
     "name": "find-root",
     "version": "1.1.0",
     "license": "MIT",
@@ -1117,7 +1087,7 @@
   },
   {
     "name": "frontend",
-    "version": "1.6.1",
+    "version": "1.7.0",
     "license": "UNLICENSED",
     "repository": ""
   },
@@ -1189,7 +1159,7 @@
   },
   {
     "name": "i18next",
-    "version": "26.0.4",
+    "version": "26.3.0",
     "license": "MIT",
     "repository": "https://github.com/i18next/i18next"
   },
@@ -1285,7 +1255,7 @@
   },
   {
     "name": "katex",
-    "version": "0.16.44",
+    "version": "0.16.47",
     "license": "MIT",
     "repository": "https://github.com/KaTeX/KaTeX"
   },
@@ -1294,12 +1264,6 @@
     "version": "2.1.0",
     "license": "MIT*",
     "repository": "https://github.com/fabiospampinato/khroma"
-  },
-  {
-    "name": "langium",
-    "version": "4.2.2",
-    "license": "MIT",
-    "repository": "https://github.com/eclipse-langium/langium"
   },
   {
     "name": "layout-base",
@@ -1477,7 +1441,7 @@
   },
   {
     "name": "mermaid",
-    "version": "11.14.0",
+    "version": "11.17.2",
     "license": "MIT",
     "repository": "https://github.com/mermaid-js/mermaid"
   },
@@ -1771,19 +1735,19 @@
   },
   {
     "name": "react",
-    "version": "19.2.5",
+    "version": "19.2.6",
     "license": "MIT",
     "repository": "https://github.com/facebook/react"
   },
   {
     "name": "react-dom",
-    "version": "19.2.5",
+    "version": "19.2.6",
     "license": "MIT",
     "repository": "https://github.com/facebook/react"
   },
   {
     "name": "react-i18next",
-    "version": "17.0.2",
+    "version": "17.0.8",
     "license": "MIT",
     "repository": "https://github.com/i18next/react-i18next"
   },
@@ -1849,7 +1813,7 @@
   },
   {
     "name": "reselect",
-    "version": "5.1.1",
+    "version": "5.2.0",
     "license": "MIT",
     "repository": "https://github.com/reduxjs/reselect"
   },
@@ -1920,6 +1884,12 @@
     "repository": "https://github.com/wooorm/space-separated-tokens"
   },
   {
+    "name": "strictdom",
+    "version": "1.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/wilsonpage/strictdom"
+  },
+  {
     "name": "stringify-entities",
     "version": "4.0.4",
     "license": "MIT",
@@ -1981,7 +1951,7 @@
   },
   {
     "name": "typescript",
-    "version": "6.0.2",
+    "version": "6.0.3",
     "license": "Apache-2.0",
     "repository": "https://github.com/microsoft/TypeScript"
   },
@@ -2047,7 +2017,7 @@
   },
   {
     "name": "uuid",
-    "version": "11.1.0",
+    "version": "14.0.0",
     "license": "MIT",
     "repository": "https://github.com/uuidjs/uuid"
   },
@@ -2070,42 +2040,6 @@
     "repository": "https://github.com/pugjs/void-elements"
   },
   {
-    "name": "vscode-jsonrpc",
-    "version": "8.2.0",
-    "license": "MIT",
-    "repository": "https://github.com/Microsoft/vscode-languageserver-node"
-  },
-  {
-    "name": "vscode-languageserver",
-    "version": "9.0.1",
-    "license": "MIT",
-    "repository": "https://github.com/Microsoft/vscode-languageserver-node"
-  },
-  {
-    "name": "vscode-languageserver-protocol",
-    "version": "3.17.5",
-    "license": "MIT",
-    "repository": "https://github.com/Microsoft/vscode-languageserver-node"
-  },
-  {
-    "name": "vscode-languageserver-textdocument",
-    "version": "1.0.12",
-    "license": "MIT",
-    "repository": "https://github.com/Microsoft/vscode-languageserver-node"
-  },
-  {
-    "name": "vscode-languageserver-types",
-    "version": "3.17.5",
-    "license": "MIT",
-    "repository": "https://github.com/Microsoft/vscode-languageserver-node"
-  },
-  {
-    "name": "vscode-uri",
-    "version": "3.1.0",
-    "license": "MIT",
-    "repository": "https://github.com/microsoft/vscode-uri"
-  },
-  {
     "name": "yaml",
     "version": "1.10.3",
     "license": "ISC",
@@ -2113,7 +2047,7 @@
   },
   {
     "name": "zustand",
-    "version": "5.0.12",
+    "version": "5.0.14",
     "license": "MIT",
     "repository": "https://github.com/pmndrs/zustand"
   },
