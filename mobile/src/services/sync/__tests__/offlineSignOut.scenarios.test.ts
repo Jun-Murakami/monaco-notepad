@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DesktopPeer } from '@/test/desktopPeer';
 import { FakeDrive } from '@/test/fakeDrive';
 import { MobileDevice } from '@/test/mobileDevice';
+import { saveNoteLocally } from '../localActions';
 
 /**
  * オフライン / 連携解除中のノート操作と、復帰時の競合解決（端末間シナリオ）。
@@ -442,6 +443,54 @@ describe('復帰時の競合（シミュレーションで見つかったレー�
 		expect(await contentOf(other, 'A')).toBe('other edit (newer)');
 		expect(backupsOf(other)).toEqual([
 			['local_wins', 'A', 'mobile edit (older)'],
+		]);
+	});
+	it('自分の版を見ずに新しい版で上書きされた端末は、自分の版をバックアップに残す', async () => {
+		await other.editNoteOffline('A', { content: 'other edit (older)' });
+		await mobile.editNoteOffline('A', { content: 'mobile edit (newer)' });
+		// mobile は「Drive は前回から変わっていない」と判断して送る。その送信の直前に other が自分の編集を送る
+		drive.beforeRequest(
+			(r) =>
+				r.deviceId === 'mobile' &&
+				r.op === 'files.update' &&
+				r.fileName === 'A.json',
+			async () => {
+				await other.sync();
+			},
+		);
+		await mobile.sync();
+		expect(cloudContent('A')).toBe('mobile edit (newer)');
+
+		await syncBoth();
+		expect(await contentOf(other, 'A')).toBe('mobile edit (newer)');
+		// mobile は other の版を見ていないので、other から見ると競合。新しい方が勝ち、自分の版は残る
+		expect(backupsOf(other)).toEqual([
+			['cloud_wins', 'A', 'other edit (older)'],
+		]);
+	});
+
+	// 既知の制限: 勝敗は modifiedTime（端末の時計）で決めるので、時計が大きく進んでいる端末があると
+	// その後の他端末の編集が巻き戻ることがある。ただし黙っては消えず、バックアップに残る。
+	it('時計が進んでいる端末があると後からの編集が巻き戻ることがあるが、黙っては消えない', async () => {
+		// other の時計は 1 年進んでいる
+		const a = await other.readNote('A');
+		if (!a) throw new Error('A missing');
+		await saveNoteLocally(other.notes, other.state, {
+			...a,
+			content: 'edited on a clock that runs ahead',
+			modifiedTime: '2027-01-01T00:00:00.000Z',
+		});
+		await other.sync();
+		await mobile.sync();
+		// mobile は other の版を見た上で編集する（mobile の時計ではこちらの方が古い時刻になる）
+		await mobile.editNote('A', { content: 'edited later on mobile' });
+
+		await syncBoth();
+		expect(await contentOf(mobile, 'A')).toBe(
+			'edited on a clock that runs ahead',
+		);
+		expect(backupsOf(other)).toEqual([
+			['local_wins', 'A', 'edited later on mobile'],
 		]);
 	});
 });

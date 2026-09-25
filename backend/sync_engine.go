@@ -103,8 +103,9 @@ func (e *syncEngine) ResetBase() error {
 }
 
 type downloadedNote struct {
-	note *Note
-	hash string
+	note          *Note
+	hash          string
+	parentVersion int64 // 書いた端末が見ていた Drive の版番号（不明なら 0）
 }
 
 type uploadedNote struct {
@@ -205,7 +206,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			in.Local = &l
 		}
 		if b, ok := base.Notes[id]; ok {
-			in.Base = &baseNoteState{Hash: b.Hash, Md5: b.Md5, FileID: b.FileID}
+			in.Base = &baseNoteState{Hash: b.Hash, Md5: b.Md5, FileID: b.FileID, Version: b.Version}
 		}
 		if r, ok := remoteFiles.ByNoteID[id]; ok {
 			in.Remote = &remoteNoteState{Md5: r.Md5, FileID: r.FileID}
@@ -221,7 +222,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 	downloaded := map[string]downloadedNote{}
 	for i, id := range toDownload {
 		e.logger.InfoCode(MsgDriveSyncDownloadNote, map[string]interface{}{"noteId": id, "current": i + 1, "total": len(toDownload)})
-		note, err := e.gateway.DownloadNote(remoteFiles.ByNoteID[id].FileID, id)
+		note, parentVersion, err := e.gateway.DownloadNote(remoteFiles.ByNoteID[id].FileID, id)
 		if err != nil {
 			if isAuthDriveError(err) {
 				return report, false, err
@@ -234,7 +235,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			report.Failures++
 			continue
 		}
-		downloaded[id] = downloadedNote{note: note, hash: computeContentHash(note)}
+		downloaded[id] = downloadedNote{note: note, hash: computeContentHash(note), parentVersion: parentVersion}
 		report.Downloaded++
 	}
 	for _, id := range toDownload {
@@ -244,7 +245,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			continue
 		}
 		in := inputs[id]
-		in.Downloaded = &noteSideState{Hash: dl.hash, ModifiedTime: dl.note.ModifiedTime}
+		in.Downloaded = &noteSideState{Hash: dl.hash, ModifiedTime: dl.note.ModifiedTime, ParentVersion: dl.parentVersion}
 		decisions[id] = decideNote(in)
 	}
 
@@ -276,7 +277,8 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 		note := *loaded
 		note.Syncing = false
 		note.FolderID = localMeta[id].FolderID // 旧クライアント向けに現在の所属を書く（読み手は noteList を正とする）
-		ref, err := e.gateway.UploadNote(layout, &note, remoteFiles.ByNoteID[id].FileID)
+		remote := remoteFiles.ByNoteID[id]
+		ref, err := e.gateway.UploadNote(layout, &note, remote.FileID, remote.Version)
 		if err != nil {
 			if isAuthDriveError(err) {
 				return report, false, err
@@ -480,15 +482,15 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 		switch d.Kind {
 		case decisionNone:
 			if l, ok := localState[id]; ok && onRemote {
-				nextBase.Notes[id] = syncBaseNote{Hash: l.Hash, Md5: remote.Md5, FileID: remote.FileID}
+				nextBase.Notes[id] = syncBaseNote{Hash: l.Hash, Md5: remote.Md5, FileID: remote.FileID, Version: remote.Version}
 			}
 		case decisionUpload:
 			if up, ok := uploaded[id]; ok {
-				nextBase.Notes[id] = syncBaseNote{Hash: up.hash, Md5: up.ref.Md5, FileID: up.ref.FileID}
+				nextBase.Notes[id] = syncBaseNote{Hash: up.hash, Md5: up.ref.Md5, FileID: up.ref.FileID, Version: up.ref.Version}
 			}
 		case decisionApplyRemote:
 			if applied[id] && onRemote {
-				nextBase.Notes[id] = syncBaseNote{Hash: downloaded[id].hash, Md5: remote.Md5, FileID: remote.FileID}
+				nextBase.Notes[id] = syncBaseNote{Hash: downloaded[id].hash, Md5: remote.Md5, FileID: remote.FileID, Version: remote.Version}
 				if deletedIDs[id] {
 					resolvedDeletions = append(resolvedDeletions, id) // 削除の取り消し
 				}

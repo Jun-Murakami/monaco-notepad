@@ -7,9 +7,35 @@ import type { Note, NoteList } from './types';
  */
 
 /** ノート本体の JSON。folderId は noteList が正なので読み手は無視する（書き手は現在値を入れる）。 */
-export function serializeNote(note: Note): string {
+/**
+ * Drive に置くノート本体。parentVersion は、この書き込みが置き換える Drive の版番号
+ * （= 書いた端末が見ていた版）。他端末が「自分の版が見ずに上書きされたか」を判定し、その版をバックアップに残すのに使う
+ * （docs/sync-engine-v3.md §6）。新規作成では付けない。
+ */
+export function serializeNote(note: Note, parentVersion?: number): string {
 	const { syncing: _s, ...persist } = note;
-	return JSON.stringify(persist);
+	return JSON.stringify(
+		parentVersion && parentVersion > 0
+			? { ...persist, syncParentVersion: parentVersion }
+			: persist,
+	);
+}
+
+/** Drive から落としたノート本体と、書いた端末が見ていた版番号（旧クライアントの書き込みには無い）。 */
+export function parseRemoteNote(
+	text: string,
+): { note: Note; parentVersion?: number } | null {
+	const note = parseNote(text);
+	if (!note) return null;
+	try {
+		const raw = (JSON.parse(text) as { syncParentVersion?: unknown })
+			.syncParentVersion;
+		return typeof raw === 'number' && Number.isInteger(raw) && raw > 0
+			? { note, parentVersion: raw }
+			: { note };
+	} catch {
+		return { note };
+	}
 }
 
 export function parseNote(text: string): Note | null {

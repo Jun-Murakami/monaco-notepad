@@ -1,6 +1,6 @@
 import {
 	normalizeNoteList,
-	parseNote,
+	parseRemoteNote,
 	serializeNote,
 	serializeNoteList,
 } from './codec';
@@ -190,23 +190,27 @@ export class DriveGateway {
 	async downloadNote(
 		fileId: string,
 		expectedNoteId: string,
-	): Promise<Note | null> {
+	): Promise<{ note: Note; parentVersion?: number } | null> {
 		const text = await withRetry(
 			() => this.client.downloadText(fileId),
 			'downloadNote',
 			this.retry.download,
 		);
-		const note = parseNote(text);
-		if (!note || note.id !== expectedNoteId) return null;
-		return note;
+		const remote = parseRemoteNote(text);
+		if (!remote || remote.note.id !== expectedNoteId) return null;
+		return remote;
 	}
 
+	/**
+	 * 本体を作成 / 更新する。parentVersion は置き換える Drive の版番号（書いた端末が見ていた版）。
+	 */
 	async uploadNote(
 		layout: DriveLayoutIds,
 		note: Note,
 		fileId: string | null,
+		parentVersion?: number,
 	): Promise<RemoteFileRef> {
-		const body = serializeNote(note);
+		const body = serializeNote(note, fileId ? parentVersion : undefined);
 		const file = await withRetry(
 			() =>
 				fileId

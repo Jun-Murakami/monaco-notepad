@@ -153,6 +153,9 @@ mobile/
 9. **SyncState の `revision` は永続化しない**（同期中のユーザー操作の検知用、再起動でリセット）
 10. **DriveClient を新規メソッド追加時は `spaces=appDataFolder` を必ず付け、必要な項目を `fields` に入れる**
    - FakeDrive は `fields` に無い項目を返さないので、入れ忘れはテストで落ちる
+11. **連携解除（signOut）で `sync_base.json` / `sync_state.json` を消さない**
+   - 再接続は「オフラインからの復帰」として扱う。消すと相手の削除が復活し、離れていた間の移動・並び替えや削除が失われる
+   - 別アカウントの Drive ではフォルダ ID が違うのでエンジンが base を使わない。消してよいのは Drive データ全削除時だけ
 
 ---
 

@@ -186,7 +186,10 @@ export class SyncEngine {
 			if (decision.kind === 'download') toDownload.push(id);
 		}
 
-		const downloaded = new Map<string, { note: Note; hash: string }>();
+		const downloaded = new Map<
+			string,
+			{ note: Note; hash: string; parentVersion?: number }
+		>();
 		if (toDownload.length > 0) {
 			syncEvents.emit('sync:phase', { phase: 'downloading-notes' });
 		}
@@ -202,9 +205,14 @@ export class SyncEngine {
 				args: { noteId: id, current: i + 1, total: toDownload.length },
 			});
 			try {
-				const note = await this.gateway.downloadNote(ref.fileId, id);
-				if (note) {
-					downloaded.set(id, { note, hash: await computeContentHash(note) });
+				const remote = await this.gateway.downloadNote(ref.fileId, id);
+				if (remote) {
+					const { note, parentVersion } = remote;
+					downloaded.set(id, {
+						note,
+						hash: await computeContentHash(note),
+						parentVersion,
+					});
 					report.downloaded++;
 				} else {
 					report.failures++;
@@ -222,7 +230,11 @@ export class SyncEngine {
 				dl
 					? decideNote({
 							...(inputs.get(id) as DecideNoteInput),
-							downloaded: { hash: dl.hash, modifiedTime: dl.note.modifiedTime },
+							downloaded: {
+								hash: dl.hash,
+								modifiedTime: dl.note.modifiedTime,
+								parentVersion: dl.parentVersion,
+							},
 						})
 					: { kind: 'skip' },
 			);
@@ -276,10 +288,12 @@ export class SyncEngine {
 				continue;
 			}
 			try {
+				const remote = remoteFiles.byNoteId.get(id);
 				const ref = await this.gateway.uploadNote(
 					layout,
 					note,
-					remoteFiles.byNoteId.get(id)?.fileId ?? null,
+					remote?.fileId ?? null,
+					remote?.version,
 				);
 				uploaded.set(id, { ref, note, hash: await computeContentHash(note) });
 				report.uploaded++;
@@ -445,6 +459,7 @@ export class SyncEngine {
 							hash: local.hash,
 							md5: remote.md5,
 							fileId: remote.fileId,
+							version: remote.version,
 						};
 					break;
 				}
@@ -455,6 +470,7 @@ export class SyncEngine {
 							hash: up.hash,
 							md5: up.ref.md5,
 							fileId: up.ref.fileId,
+							version: up.ref.version,
 						};
 					break;
 				}
@@ -465,6 +481,7 @@ export class SyncEngine {
 							hash: dl.hash,
 							md5: remote.md5,
 							fileId: remote.fileId,
+							version: remote.version,
 						};
 						if (deleted.has(id)) resolvedDeletions.push(id); // 削除の取り消し
 					}

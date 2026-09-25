@@ -476,3 +476,40 @@ func TestRace_StaleOverwriteKeepsOverwrittenVersionInBackup(t *testing.T) {
 	assert.Equal(t, "other edit (newer)", p.content(p.other, "A"))
 	assert.Equal(t, [][3]string{{"local_wins", "A", "desk edit (older)"}}, p.other.backups())
 }
+
+func TestRace_OverwrittenUnseenByNewerVersionKeepsOwnVersionInBackup(t *testing.T) {
+	p := newOfflinePair(t)
+	p.edit(p.other, "A", "other edit (older)")
+	p.edit(p.desk, "A", "desk edit (newer)")
+	// desk は「Drive は前回から変わっていない」と判断して送る。その送信の直前に other が自分の編集を送る
+	p.fd.BeforeRequest(func(r fakeRequest) bool {
+		return r.Device == "desktop" && r.Op == "files.update" && r.FileName == "A.json"
+	}, func(fakeRequest) {
+		p.other.sync()
+	})
+	p.desk.sync()
+	got, _ := p.cloudContent("A")
+	require.Equal(t, "desk edit (newer)", got)
+
+	p.syncBoth()
+	assert.Equal(t, "desk edit (newer)", p.content(p.other, "A"))
+	// desk は other の版を見ていないので、other から見ると競合。新しい方が勝ち、自分の版は残る
+	assert.Equal(t, [][3]string{{"cloud_wins", "A", "other edit (older)"}}, p.other.backups())
+}
+
+// 既知の制限: 勝敗は ModifiedTime（端末の時計）で決めるので、時計が大きく進んでいる端末があると
+// その後の他端末の編集が巻き戻ることがある。ただし黙っては消えず、バックアップに残る。
+func TestClockSkew_DeviceAheadMayRevertLaterEditButKeepsItInBackup(t *testing.T) {
+	p := newOfflinePair(t)
+	// other の時計は 1 年進んでいる
+	p.other.editNoteAt("A", "edited on a clock that runs ahead", "2027-01-01T00:00:00Z")
+	p.other.sync()
+	p.desk.sync()
+	// desk は other の版を見た上で編集する（desk の時計ではこちらの方が古い時刻になる）
+	p.edit(p.desk, "A", "edited later on desktop")
+	p.desk.sync()
+
+	p.syncBoth()
+	assert.Equal(t, "edited on a clock that runs ahead", p.content(p.desk, "A"))
+	assert.Equal(t, [][3]string{{"local_wins", "A", "edited later on desktop"}}, p.other.backups())
+}

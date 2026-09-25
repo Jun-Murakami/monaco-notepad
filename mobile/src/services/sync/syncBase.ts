@@ -16,10 +16,14 @@ export interface SyncBase {
 	/** 最後に確定したクラウドの noteList（null = 未確定）。 */
 	noteList: NoteList | null;
 	/**
-	 * noteId -> 前回同期時の本文 hash と Drive 本体の md5 / ファイル ID（移行直後などで欠けうる）。
-	 * ファイル ID が変わっていれば、ノートは一度削除されて作り直されている。
+	 * noteId -> 前回同期時の本文 hash と Drive 本体の md5 / ファイル ID / 版番号（移行直後などで欠けうる）。
+	 * ファイル ID が変わっていれば、ノートは一度削除されて作り直されている。版番号は、他端末の書き込みが
+	 * この版を見た上でのものか（syncParentVersion と比べる）の判定に使う。
 	 */
-	notes: Record<string, { hash: string; md5?: string; fileId?: string }>;
+	notes: Record<
+		string,
+		{ hash: string; md5?: string; fileId?: string; version?: number }
+	>;
 }
 
 export function emptySyncBase(): SyncBase {

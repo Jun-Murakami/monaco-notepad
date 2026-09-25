@@ -19,12 +19,16 @@ import (
 type noteSideState struct {
 	Hash         string `json:"hash"`
 	ModifiedTime string `json:"modifiedTime"`
+	// ParentVersion はダウンロードした版を書いた端末が置き換えた Drive の版番号（= その端末が見ていた版）。
+	// 旧クライアントの書き込みには無い（0）。ローカル側では使わない。
+	ParentVersion int64 `json:"parentVersion,omitempty"`
 }
 
 type baseNoteState struct {
-	Hash   string `json:"hash"`
-	Md5    string `json:"md5,omitempty"`
-	FileID string `json:"fileId,omitempty"`
+	Hash    string `json:"hash"`
+	Md5     string `json:"md5,omitempty"`
+	FileID  string `json:"fileId,omitempty"`
+	Version int64  `json:"version,omitempty"` // 前回同期時の Drive の版番号
 }
 
 type remoteNoteState struct {
@@ -127,7 +131,11 @@ func decideNote(in decideNoteInput) noteDecision {
 		if isAfterRFC3339(local.ModifiedTime, downloaded.ModifiedTime) {
 			return noteDecision{Kind: decisionUpload, BackupRemote: true}
 		}
-		return noteDecision{Kind: decisionApplyRemote}
+		// リモートの方が新しい = 通常は更新として取り込むだけ。ただし書いた端末が置き換えた版
+		// （syncParentVersion）が手元の版より前なら、手元の版を見ずに上書きされている（入れ違い）ので、
+		// 手元の版も残す。勝敗は変えず（新しい方が勝つ）、バックアップを増やすだけに使う。
+		blind := downloaded.ParentVersion > 0 && base != nil && base.Version > 0 && downloaded.ParentVersion < base.Version
+		return noteDecision{Kind: decisionApplyRemote, BackupLocal: blind}
 	}
 	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る
 	if base != nil && downloaded.Hash == base.Hash {

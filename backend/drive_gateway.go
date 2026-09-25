@@ -230,7 +230,16 @@ func (g *driveGateway) ListNoteFiles(layout driveLayoutIDs) (remoteNoteFiles, er
 }
 
 // DownloadNote は本体をダウンロードする。壊れている / ID が要求と違う場合は (nil, nil)。
-func (g *driveGateway) DownloadNote(fileID, expectedNoteID string) (*Note, error) {
+// driveNoteFile は Drive に置くノート本体。SyncParentVersion は、この書き込みが置き換えた Drive の版番号
+// （= 書いた端末が見ていた版）。他端末が「自分の版が見ずに上書きされたか」を判定し、その版をバックアップに残すのに使う
+// （docs/sync-engine-v3.md §6）。新規作成と旧クライアントの書き込みには無い。
+type driveNoteFile struct {
+	Note
+	SyncParentVersion int64 `json:"syncParentVersion,omitempty"`
+}
+
+// DownloadNote は本体をダウンロードし、書いた端末が見ていた版番号（不明なら 0）と一緒に返す。
+func (g *driveGateway) DownloadNote(fileID, expectedNoteID string) (*Note, int64, error) {
 	var data []byte
 	err := g.withRetry(func() error {
 		var e error
@@ -238,24 +247,33 @@ func (g *driveGateway) DownloadNote(fileID, expectedNoteID string) (*Note, error
 		return e
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	var note Note
-	if err := json.Unmarshal(data, &note); err != nil {
-		return nil, nil
+	var file driveNoteFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, 0, nil
 	}
+	note := file.Note
 	// 同期データ由来の ID はパストラバーサルに悪用されうるため取り込み境界で検証する
 	if !isSafeNoteID(note.ID) || note.ID != expectedNoteID {
-		return nil, nil
+		return nil, 0, nil
 	}
 	note.FolderID = "" // 所属は noteList が正（P7）
 	note.Syncing = false
-	return &note, nil
+	parentVersion := file.SyncParentVersion
+	if parentVersion < 0 {
+		parentVersion = 0
+	}
+	return &note, parentVersion, nil
 }
 
-// UploadNote は本体を作成 / 更新する。
-func (g *driveGateway) UploadNote(layout driveLayoutIDs, note *Note, fileID string) (remoteFileRef, error) {
-	data, err := json.MarshalIndent(note, "", "  ")
+// UploadNote は本体を作成 / 更新する。parentVersion は置き換える Drive の版番号（書いた端末が見ていた版）。
+func (g *driveGateway) UploadNote(layout driveLayoutIDs, note *Note, fileID string, parentVersion int64) (remoteFileRef, error) {
+	payload := driveNoteFile{Note: *note}
+	if fileID != "" && parentVersion > 0 {
+		payload.SyncParentVersion = parentVersion
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return remoteFileRef{}, err
 	}

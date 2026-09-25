@@ -258,6 +258,7 @@ wails dev          # ホットリロード付き開発サーバー
 - 失敗した操作の base は進めない。noteList は書き込み前後に md5 / version を確認し、他端末に上書きされていたらやり直す。
 - ローカルへの反映は noteService のロック内で、その時点のローカルに対して再マージする（同期中の編集を消さない）。
 - 所属フォルダは noteList が正。本体ファイルの folderId は使わない。
+- 接続解除（LogoutDrive）では base と未送信の変更を消さない（再接続はオフラインからの復帰と同じ扱い）。消すのは Drive データ全削除時だけ。
 
 判定・マージの規則を変えるときは、`sync-spec/vectors/*.json` にケースを足し、Go（`sync_core.go`）と TS（`mobile/src/services/sync/core/`）の両方を同時に直す。
 

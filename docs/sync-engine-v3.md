@@ -42,18 +42,20 @@
 ```
 appDataFolder/monaco-notepad/          ← 同名が複数あれば createdTime 最古（同値は id 昇順）を使う
   ├── noteList_v2.json                 ← NoteList（構造 + 表示用メタ）
-  └── notes/<noteId>.json              ← Note 本体（id,title,content,contentHeader,language,modifiedTime,archived[,folderId]）
+  └── notes/<noteId>.json              ← Note 本体（id,title,content,contentHeader,language,modifiedTime,archived[,folderId][,syncParentVersion]）
 ```
 
 - `version` は情報用で意味を持たない（デスクトップ "2.0" / モバイル "v2"）。
-- 旧クライアントが同じ Drive を使っても形式は壊れない（旧クライアント自身の不具合は残る）。
+- `syncParentVersion`（v3 で追加・省略可）: その書き込みが置き換えた Drive の版番号（= 書いた端末が見ていた版）。
+  新規作成と旧クライアントの書き込みには無い。読み手は §6 で「自分の版が見ずに上書きされたか」の判定（バックアップを残すか）に使う。
+- 旧クライアントが同じ Drive を使っても形式は壊れない（旧クライアント自身の不具合は残る。未知の項目は無視される）。
 
 ## 4. 端末ローカルの同期状態
 
 | 保存先 | 内容 |
 |---|---|
 | `sync_state.json`（既存・スキーマ互換） | `dirty`, `dirtyNoteIDs`, `deletedNoteIDs`, `deletedFolderIDs`: 未送信のローカル変更の記録。v2 の `lastSyncedNoteHash` は base が無いときだけ base の本文 hash として読み、最初の同期サイクルの終了時に（失敗しても）空にする。以後 base が無いときは和集合で同期する。 |
-| `sync_base.json`（新規） | `{ version, rootFolderId, noteListFileId, noteListMd5, noteList, notes: { <id>: { hash, md5?, fileId? } } }`: 最後に同期が確定した時点のクラウド noteList と、ノートごとの本文 hash / Drive 本体 md5 / ファイル ID。 |
+| `sync_base.json`（新規） | `{ version, rootFolderId, noteListFileId, noteListMd5, noteList, notes: { <id>: { hash, md5?, fileId?, version? } } }`: 最後に同期が確定した時点のクラウド noteList と、ノートごとの本文 hash / Drive 本体 md5 / ファイル ID / 版番号。 |
 
 - base は Drive（アカウント）に紐づく。`rootFolderId` / `noteListFileId` が現在と違えば base は無効（null）。
 - Drive データ全削除 / クラウド noteList 消失時は base を破棄する（→ 次回は和集合で安全に再同期、ローカル削除は起きない）。
@@ -94,9 +96,9 @@ syncOnce()  ※ 端末内の sync ロックで直列化
 
 - `local?`: `{hash, modifiedTime}` ローカルに存在する場合（本体ファイルが読めること）
 - `localDeleted`: `deletedNoteIDs` に含まれる
-- `base?`: `{hash, md5?, fileId?}` 前回同期時点（md5 / fileId は移行直後などで欠けうる）
+- `base?`: `{hash, md5?, fileId?, version?}` 前回同期時点（md5 / fileId / version は移行直後などで欠けうる）
 - `remote?`: `{md5, fileId?}` Drive に本体ファイルがある場合
-- `downloaded?`: `{hash, modifiedTime}` フェーズ2でのみ与える（ダウンロード結果）
+- `downloaded?`: `{hash, modifiedTime, parentVersion?}` フェーズ2でのみ与える（ダウンロード結果。parentVersion は本体の `syncParentVersion`）
 
 出力: `none` / `download`（フェーズ1のみ）/ `upload{backupRemote}` / `applyRemote{backupLocal}` / `deleteLocal{backupLocal}` / `deleteRemote` / `forget`
 
@@ -124,13 +126,26 @@ if !base || local.hash != base.hash:     // ローカルも変更あり
 if base.fileId && remote.fileId && base.fileId != remote.fileId:
   → applyRemote{backupLocal:true}      // 一度削除され、編集が勝って作り直された（削除より後の出来事）
 // 同じファイルでリモートの方が古い = 別端末が古い判断で上書きした（ノート本体の lost update）
-isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload{backupRemote:true} : applyRemote{false}
+if isAfter(local.modifiedTime, downloaded.modifiedTime): → upload{backupRemote:true}
+// リモートの方が新しい = 更新として取り込む。書いた端末が手元の版を見ずに上書きしていたら手元の版も残す
+→ applyRemote{backupLocal: downloaded.parentVersion && base.version && downloaded.parentVersion < base.version}
 ```
 
 - 結果として「常に modifiedTime の新しい版が勝つ」。Drive は条件付き更新ができないため、
   判断から書き込みまでの間に別端末が新しい版を書いても上書きしうるが、上書きされた側が次の同期で
   より新しい手元の版を送り直すので、新しい版が失われない（ランダム・シミュレーションで検出した経路）。
   上書きしてきた版もその端末のユーザーの編集なので、送り直す側がバックアップに残す（`backupRemote`）。
+- 書き込みには `syncParentVersion`（置き換えた版番号）を付ける。Drive の版番号はファイルごとに単調増加なので、
+  `parentVersion < base.version` なら、書いた端末は手元の版を見ずに上書きした（判断から書き込みまでの入れ違い）。
+  新しい版が古い判断で上書きした場合（上の送り直しが起きない側）でも、上書きされた版をバックアップに残せる。
+  **勝敗には使わない**（バックアップを増やすだけ）。「より後の版を見た = 手元の版の内容も見た」とは限らない
+  （間の版自体が見ずに書かれた上書きだと推移しない）ことがシミュレーションで分かったため。
+- 既知の制限: 勝敗は modifiedTime（端末の時計）で決める。時計が大きく進んでいる端末があると、その後の他端末の編集が
+  巻き戻ることがある（黙っては消えず、バックアップに残る）。
+- 既知の制限: 見ずに上書きされた版の検出は 1 段だけ。「見ずに上書きされた版の上に、さらに別端末が（その上書き版を見て）
+  より新しい版を書いた」場合、最初に上書きされた版はどこにも残らないことがある（同じノートで同期の入れ違いが 2 回
+  重なる必要がある。5 端末・割り込み最大のシミュレーションで約 0.3%）。塞ぐには、書き込みごとに「履歴の中で見ずに
+  上書きされた版番号の範囲」を本体に持たせる拡張が要る。
 - ただしファイルが作り直されている（`fileId` が base と違う）場合は、削除 → 「編集は削除に勝つ」による復元なので
   時刻にかかわらず取り込む。古い版の送り直しを適用すると、削除された版が復活し、復元した編集が消える
   （オフライン・シミュレーションで検出した経路）。
