@@ -320,12 +320,12 @@
     "archivedFolderDeletedNotes": "Deleted {{count}} notes in archived folder"
   },
   "orphan": {
-    "localRecoveryDone": "Recovered {{count}} orphan notes into \"{{folder}}\" folder",
-    "cloudRecoveryDone": "Recovered {{count}} orphan cloud notes into \"{{folder}}\" folder",
+    "localRecoveryDone": "Recovered {{count}} orphan notes at the top of the list",
+    "cloudRecoveryDone": "Recovered {{count}} orphan cloud notes at the top of the list",
     "recoverySkipCorrupt": "Skipped corrupted orphan file",
     "recoveryDialogTitle": "Orphan Notes Recovered",
     "recoveryDialogLocal": "{{count}} orphan note(s) found on local disk were restored at the top of the list.",
-    "recoveryDialogCloud": "{{count}} orphan note(s) found on Google Drive were recovered into the \"{{folder}}\" folder.",
+    "recoveryDialogCloud": "{{count}} orphan note(s) found on Google Drive were restored at the top of the list.",
     "recoveryDialogCloudDeleted": "{{count}} duplicate conflict copy/copies were deleted from Google Drive.",
     "localRecoveryProgress": "Recovering orphan notes... ({{current}}/{{total}})",
     "cloudRecoveryProgress": "Recovering orphan cloud notes... ({{current}}/{{total}})"

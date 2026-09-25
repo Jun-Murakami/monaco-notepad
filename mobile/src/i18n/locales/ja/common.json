@@ -130,8 +130,8 @@
 		}
 	},
 	"orphan": {
-		"localRecoveryDone": "ローカル孤立ノートを「不明ノート」へ復元しました",
-		"cloudRecoveryDone": "クラウド孤立ノートを「不明ノート」へ復元しました"
+		"localRecoveryDone": "ローカル孤立ノートを一覧の先頭に復元しました",
+		"cloudRecoveryDone": "クラウド孤立ノートを一覧の先頭に復元しました"
 	},
 	"about": {
 		"title": "このアプリについて",

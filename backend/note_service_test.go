@@ -705,7 +705,7 @@ func TestOrphanAutoRestore_DoesNotUseExistingOrphanFolder(t *testing.T) {
 	defer helper.cleanup()
 
 	// 旧バージョンが作った不明ノートフォルダ（アーカイブ済み）が残っている
-	folder, err := helper.noteService.CreateFolder(RecoveryFolderName)
+	folder, err := helper.noteService.CreateFolder(legacyRecoveryFolderName)
 	require.NoError(t, err)
 	require.NoError(t, helper.noteService.ArchiveFolder(folder.ID))
 

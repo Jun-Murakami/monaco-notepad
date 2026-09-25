@@ -329,14 +329,10 @@ const (
 	MsgSystemArchivedFolderDeletedNotes = "system.archivedFolderDeletedNotes"
 )
 
-// 復元フォルダ名（固定名、ローカル/クラウド共通）
-const RecoveryFolderName = "不明ノート"
-
-// 孤立ファイル復元情報（フロントエンド通知用）
+// 孤立ファイル復元情報（フロントエンド通知用）。復元先は常にトップレベル先頭
 type OrphanRecoveryInfo struct {
 	Source            string `json:"source"` // "local" or "cloud"
 	Count             int    `json:"count"`
-	FolderName        string `json:"folderName"`
 	DeletedDuplicates int    `json:"deletedDuplicates"`
 }
 

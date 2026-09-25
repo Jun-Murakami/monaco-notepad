@@ -46,33 +46,34 @@ mobile/
 
 ### 同期レイヤー (src/services/sync/)
 
-**デスクトップ版 `backend/drive_service.go` + `drive_sync_service.go` + `sync_state.go` + `drive_operations_queue.go` + `drive_polling.go` の TS 移植**。挙動完全一致が鉄則。
+**同期エンジン v3**。仕様は `docs/sync-engine-v3.md` が唯一の正で、デスクトップ版（Go）と同じ手順・同じ判定を実装する。
+純粋コア（`core/`）の一致は `sync-spec/vectors/*.json` の共有ベクターで Go / TS 両方のテストが機械的に検証する。
 
 | ファイル | 対応する Go | 責務 |
 |---|---|---|
-| `types.ts` | `domain.go` | Note/NoteMetadata/NoteList/SyncStateSnapshot/MessageCode の型と定数 |
-| `hash.ts` | `domain.go` の computeContentHash | SHA-256 (`id,title,content,language,archived`) と conflict copy dedup |
-| `asyncLock.ts` | `sync.Mutex` 相当 | Promise ベースの排他。JS はシングルスレッドだが非同期並行の直列化に必須 |
-| `retry.ts` | `withRetry` | AuthError/RetryableError/HTTP status で分類、指数バックオフ |
-| `syncState.ts` | `sync_state.go` | **revision ベース race 検知**。`clearDirtyIfUnchanged` / `updateSyncedState` |
-| `driveClient.ts` | `drive_operations.go` | REST v3 低レベル fetch ラッパ (appDataFolder 専用) |
-| `driveSyncService.ts` | `drive_sync_service.go` | ノート CRUD + noteList 更新 + fileId キャッシュ |
-| `driveLayout.ts` | ensureFolders 相当 | appDataFolder 配下のフォルダ・ファイル ID を初期化 |
-| `orchestrator.ts` | `SyncNotes/pushLocal/pullCloud/resolveConflict` | 4 分岐 + LWW 競合解決 + race 対応 |
-| `polling.ts` | `drive_polling.go` | 5→60s 指数 backoff + NetInfo + AppState 連携 + Changes API pageToken |
-| `operationQueue.ts` | `drive_operations_queue.go` | **SQLite 永続**キュー (モバイル固有)。UPDATE 3s debounce |
-| `orphanRecovery.ts` | drive_service.go の orphan 処理 | 「不明ノート」復元 + Conflict Copy dedup |
-| `conflictBackup.ts` | cloud_wins/cloud_delete バックアップ | ローカルに max 100 件保持 |
-| `driveService.ts` | drive_service.go のライフサイクル部 | 上記を束ねる。UI はこれ経由で操作 |
-| `events.ts` | Wails EventsEmit 相当 | `drive:status` / `notes:reload` / `sync:message` 等の型付き pub/sub |
+| `core/decideNote.ts` | `sync_core.go` の decideNote | ノート単位の判定（Drive の md5 + base で「誰が変えたか」を決める。編集は削除に勝つ / 新しい版が勝つ） |
+| `core/mergeSequence.ts` | `sync_core.go` の mergeSequence | 順序の 3-way マージ（LCS で「ローカルで動かした項目」だけを相手の順序に再配置） |
+| `core/mergeNoteList.ts` | `sync_core.go` の mergeNoteList | 構造（フォルダ・所属・notes 配列・トップレベル順・折りたたみ）の 3-way マージ |
+| `syncEngine.ts` | `sync_engine.go` | 1 サイクルの実行（リモート読み取り → 判定 → 本体 I/O → ローカルコミット → noteList 書き込み → base 更新） |
+| `driveGateway.ts` | `drive_gateway.go` | 状態を持たない Drive 操作（最古の root / noteList を使う、作成直後に重複を確認、重複本体の掃除） |
+| `syncBase.ts` | `sync_base.go` | `sync_base.json`: 最後に同期が確定した noteList と、ノートごとの本文 hash / Drive md5 |
+| `syncState.ts` | `sync_state.go` | `sync_state.json`: dirty 系（ヒント）と `deletedNoteIds`（削除の意図） |
+| `codec.ts` | `drive_gateway.go` の decodeNoteList | Drive 上の JSON ⇄ 型（デスクトップ形式も読める） |
+| `localActions.ts` | `app.go` の SaveNote / DeleteNote 等 | UI 操作に伴うローカル手順（保存 → 変更の記録）。アプリとテストで共有 |
+| `driveClient.ts` | `drive_operations.go` | REST v3 低レベル fetch ラッパ (appDataFolder 専用、md5 / version / createdTime を要求) |
+| `polling.ts` | `drive_polling.go` | 5→60s 指数 backoff + NetInfo + AppState + Changes API（消費した分だけ進める）+ 5 分ごとの定期同期 |
+| `driveService.ts` | `drive_service.go` | 接続ライフサイクル。UI はこれ経由で操作（保存は記録 + debounce した同期要求） |
+| `conflictBackup.ts` | `conflict_backup.go` | `cloud_wins` / `cloud_delete` / `local_wins` バックアップ（max 100 件） |
+| `types.ts` / `hash.ts` / `retry.ts` / `asyncLock.ts` / `events.ts` | `domain.go` 等 | 型・本文 hash・再試行・排他・型付き pub/sub |
 
 ---
 
 ## モバイル固有の拡張 (デスクトップとの差分)
 
-1. **操作キューを SQLite に永続化** (`operationQueue.ts`)
-   - アプリが kill されてもペンディング操作を復元できる
-   - 起動時に `driveService.initialize()` が `operationQueue.start()` を呼ぶと、残留項目を再生する
+1. **保存は記録だけ、同期は debounce してまとめる** (`driveService.ts` / `polling.ts`)
+   - 保存・削除は `localActions.ts` でローカルに書いて `sync_state.json` に記録するだけ。kill されても記録が残るので、
+     起動後の最初の同期で必ず送られる（v2 の操作キュー `operationQueue` は廃止）
+   - 同期要求は `kickDebounced()`（既定 2 秒）で入力中の連続保存を 1 回にまとめる
 2. **NetInfo によるオフライン停止** (`polling.ts`)
    - `isConnected=false` になったらポーリング停止、`drive:status` を `offline` に
    - オンライン復帰で即座に同期再開、interval を 5s にリセット
@@ -97,10 +98,11 @@ mobile/
 |---|---|---|
 | Note 完全体 | `Note` struct | `Note` interface |
 | noteList 要素 | `NoteMetadata` | `NoteMetadata` |
-| SyncState | `SyncState` struct (sync_state.go) | `SyncStateSnapshot` + `SyncStateManager` |
-| 同期 mutex | `syncMu` | `AsyncLock` (orchestrator 内部) |
-| ローカルパス | `appDataDir/` | `documentDirectory + 'monaco-notepad/'` |
-| 不明ノートフォルダ名 | `"不明ノート"` | `"不明ノート"` (定数 `ORPHAN_FOLDER_NAME`) |
+| SyncState（変更の記録） | `SyncState` struct (sync_state.go) | `SyncStateSnapshot` + `SyncStateManager` |
+| 同期 base | `SyncBase` (sync_base.go, `sync_base.json`) | `SyncBase` (syncBase.ts, `sync_base.json`) |
+| 同期の直列化 | `syncEngine.mu` + `driveService.syncMu` | `SyncEngine` 内の `AsyncLock` |
+| ローカル書き込みの排他 | `noteService.mu`（`WithLock`） | `NoteService` 内の `AsyncLock`（`transact`） |
+| ローカルパス | `appDataDir/` | `documentDirectory + 'monaco-notepad/'`（`storagePaths()` で差し替え可能） |
 | conflict backup 場所 | `appDataDir/cloud_conflict_backups/` | 同じ相対配置 |
 | noteList ファイル名 | `noteList_v2.json` | 同じ |
 
@@ -119,7 +121,7 @@ mobile/
 - サービス層は `src/services/<area>/`
 - 画面共通 UI は `src/components/`
 - テストは対象ファイルと同階層の `__tests__/` に `.test.ts` で
-- テスト共通ヘルパは `src/test/` (helpers.ts, fakeCloud.ts, mocks/)
+- テスト共通ヘルパは `src/test/` (helpers.ts, fakeDrive.ts, desktopPeer.ts, mobileDevice.ts, mocks/)
 
 ### 命名
 - サービスクラス: `XxxService`、ファクトリなしの直接 export されたシングルトン
@@ -134,35 +136,23 @@ mobile/
 
 ## 同期ロジック編集時の厳守ルール
 
-1. **SyncState の `revision` は決して永続化しない**
-   - 永続化するのは `dirty`/`dirtyNoteIds`/`deletedNoteIds`/`deletedFolderIds`/`lastSyncedDriveTs`/`lastSyncedNoteHash` のみ
-   - `revision` は in-memory の race 検知用カウンタ。再起動でリセットされる前提
+仕様は `docs/sync-engine-v3.md`。原則（P1〜P9）に反する変更をしないこと。
 
-2. **`clearDirtyIfUnchanged` の返り値チェックを省略しない**
-   ```ts
-   const cleared = await this.syncState.clearDirtyIfUnchanged(snap.revision, ts, hashes);
-   if (!cleared) {
-     // ★ 必須: 同期中にユーザー編集があった → dirty 維持、ts と hash だけ更新
-     await this.syncState.updateSyncedState(ts, hashes);
-   }
-   ```
-   これを忘れるとユーザーの編集が失われる。
-
-3. **ローカル＋クラウド両変更の判定は `lastSyncedNoteHash` と照合**
-   - `ModifiedTime` だけで競合判定してはダメ
-   - `cloudMeta.contentHash === lastSyncedHash` なら「クラウドは前回同期から変わっていない」= ローカル勝ち固定
-
-4. **Conflict Copy の dedup は `(content, language)` のみ**
-   - `id` や `title` は違っても OK
-
-5. **`backupLocalNote('cloud_wins', ...)` は上書き直前に取る**
-   - 後から取るとデータが飛ぶ
-
-6. **`syncLock` (`AsyncLock`) は `orchestrator.syncNotes()` と `saveNoteAndUpdateList()` 両方で取る**
-   - ポーリング同期とユーザー保存の競合を防ぐ
-
-7. **DriveClient を新規メソッド追加時は `space=appDataFolder` を必ず付ける**
-   - 忘れるとユーザーの通常 Drive を漁りに行ってしまう
+1. **判定・マージのロジックは `core/` の純粋関数だけに置き、Go 版と同時に変える**
+   - まず `sync-spec/vectors/*.json` にケースを足して両方のテストが RED になることを確認し、両実装を直して GREEN にする
+2. **本文の変更検知は Drive の md5 で行う。noteList の contentHash を同期判定に使わない**（P1）
+3. **「無い」ことから削除を推論しない**（P2）
+   - リモート削除 = Drive の本体ファイルが無くなったこと。ローカル削除 = `markNoteDeleted` で記録した意図
+   - noteList に載っていないが本体があるノートは、配置情報の無いノートとしてトップレベル先頭に置く（不明ノートは作らない）
+4. **失敗したものの base を進めない**（P5）。やり直し・中断時も `checkpoint` で確定した事実だけ保存する
+5. **ローカルへの書き込みは必ず `NoteService` のロック内**（UI は通常メソッド、エンジンは `transact`）
+   - エンジンのコミットは「その時点のローカル」に対して再マージする。スナップショット以降に触られたノートは上書き・削除しない
+6. **所属フォルダは noteList が正**（P7）。本体ファイルの folderId を読まない。既存ノートの保存で所属を変えない
+7. **Changes API のトークンは消費したぶんだけ進める**（P9）。自分の書き込み後に取り直さない
+8. **上書き・削除の直前にバックアップ**: `cloud_wins`（ローカルが負け）/ `cloud_delete`（リモート削除）/ `local_wins`（負けたリモートの版）
+9. **SyncState の `revision` は永続化しない**（同期中のユーザー操作の検知用、再起動でリセット）
+10. **DriveClient を新規メソッド追加時は `spaces=appDataFolder` を必ず付け、必要な項目を `fields` に入れる**
+   - FakeDrive は `fields` に無い項目を返さないので、入れ忘れはテストで落ちる
 
 ---
 
@@ -171,17 +161,21 @@ mobile/
 ### 新しい同期イベント/状態を足したい場合
 1. `types.ts` の `SyncStatus` 型 or `MessageCode` 定数に追加
 2. `events.ts` の `SyncEvents` 型に追加
-3. `orchestrator.ts` から emit
+3. `syncEngine.ts` から emit
 4. `stores/syncStore.ts` で受ける（UI 反映）
 5. `i18n/locales/{en,ja}/common.json` に翻訳追加
-6. テスト (`orchestrator.test.ts` / `syncState.test.ts`) を追加
+6. テスト（`syncEngine.test.ts` 等）を追加
 
 ### 新しい Drive 操作を追加する場合
 1. `driveClient.ts` に低レベル fetch ラッパを追加（`withRetry` は上位で使う）
-2. `driveSyncService.ts` に高レベル API + fileId キャッシュ利用
-3. `operationQueue.ts` の `OpType` に新しい種別を足すか既存を再利用
-4. `driveService.ts` の `executeQueuedOp` で dispatch
-5. `driveClient.test.ts` に fetch mock でテスト追加
+2. `driveGateway.ts` に同期エンジン向けの操作を追加（状態・キャッシュは持たない）
+3. `src/test/fakeDrive.ts` が未対応の API / クエリならそこも実装する（未知のクエリは例外になる）
+4. デスクトップ版 `drive_gateway.go` にも同じ操作を足す
+
+### 新しいユーザー操作（ローカル変更）を追加する場合
+1. `localActions.ts` に「ローカルへ保存 → `syncStateManager` に記録」の手順を追加
+2. `driveService.ts` から呼び、最後に `requestSync()`
+3. `src/test/mobileDevice.ts` に同じ操作を足し、シナリオ / シミュレーションで検証する
 
 ### 新しい画面を追加する場合
 1. `app/<route>.tsx` を作成（Expo Router が自動認識）
@@ -207,16 +201,23 @@ npm run test:coverage    # coverage
 - モック対象: `expo-file-system`, `expo-sqlite`, `expo-crypto`, `expo-secure-store`, `expo-auth-session`, `expo-constants`, `expo-localization`, `@react-native-community/netinfo`, `react-native`
 - `afterEach` で自動リセット (`resetFileSystem` / `resetSqlite` / `resetSecureStore`)
 
-### 同期ロジックのテストの書き方
-- `FakeCloud` (`src/test/fakeCloud.ts`) を `DriveSyncService` の代わりに注入
-  - 呼び出しカウンタ (`cloud.calls.create` 等) で検証可能
-  - `setCloudNote()` / `rebuildNoteListFromCloud(ts)` で任意の初期状態を構築
-  - `updateNoteList` を上書きすれば race シナリオを再現できる
+### 同期ロジックのテストの書き方（4 層）
+
+| 層 | 場所 | 内容 |
+|---|---|---|
+| L0 共有ベクタ | `sync-spec/vectors/*.json` → `core/__tests__/specVectors.test.ts` | `decideNote` / `mergeSequence` / `mergeNoteList` の入出力表。**Go 版も同じファイルを読む** |
+| L1 FakeDrive | `src/test/fakeDrive.ts` | fetch レベルの Drive 偽物。本物の `DriveClient` をそのまま通す。`fields` / md5 / version / Changes / 重複ファイル / 障害注入（`failWhen` / `beforeRequest`）を再現 |
+| L2 端末間シナリオ | `crossDevice.scenarios.test.ts` | `mobileDevice.ts`（本物のサービス群）と `desktopPeer.ts`（プロトコルどおりに書くデスクトップ役）で、実際に報告された症状を再現する |
+| L3 シミュレーション | `simulation.test.ts` | 乱数シード付きで複数端末の操作・同期・障害をランダムに実行し、収束 / 最新版が勝つ / 誰も消していないノートが消えない / 構造が正しい を検査 |
+
 - `SyncStateManager` / `NoteService` は**本物を使う**（ファイルも SQLite も in-memory）
 - 時刻依存は `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync()` で制御
+- シミュレーションの規模は環境変数で変えられる: `SIM_SEEDS` / `SIM_STEPS` / `SIM_DEVICES` / `SIM_SEED`（1 シードだけ再実行）/ `SIM_DEBUG=1`（操作ログ）
 
 ### テストを追加すべきタイミング
-- 同期フローに影響する変更は必ず `orchestrator.test.ts` にシナリオ追加
+- 判定・マージの規則を変える → まずベクタを追加（Go / TS 両方で RED を確認）
+- 同期フローに影響する変更 → `syncEngine.test.ts` か `crossDevice.scenarios.test.ts` にシナリオ追加
+- シミュレーションが落ちたら、そのシードを `SIM_SEED` で再現し、最小シナリオに落としてから直す
 - `syncState.ts` 変更は `syncState.test.ts` に revision race ケース追加
 - Drive REST 呼び出し変更は `driveClient.test.ts` に fetch mock 追加
 
@@ -346,18 +347,20 @@ keytool -list -v -keystore ~/.android/debug.keystore \
 2. ContentHash の計算対象フィールドを変えること（`folderId` / `modifiedTime` は含めない、それ以外は含める）
 3. `sync_state.json` のスキーマをデスクトップと非互換にすること
 4. `drive.appdata` 以外のスコープを要求すること
-5. `operationQueue` を同期レイヤーを経由せず直接叩くこと（順序保証が壊れる）
-6. Expo Go で動かすことを前提にした実装（`expo-sqlite` や native 依存は prebuild 必須）
-7. PII （ユーザーの Drive パス、トークン等）を `console.log` に流すこと
+5. 同期エンジンを経由せず Drive を直接書き換えること（base と食い違い、他端末の変更を消す）
+6. `sync_base.json` を同期エンジン以外から書き換えること（消すのはサインアウト / Drive データ削除時のみ）
+7. Expo Go で動かすことを前提にした実装（`expo-sqlite` や native 依存は prebuild 必須）
+8. PII （ユーザーの Drive パス、トークン等）を `console.log` に流すこと
+9. Drive から来たノート ID を検証せずにパスやクエリに使うこと（`isSafeNoteId` を通す。codec / gateway で実施済み）
 
 ---
 
 ## デバッグ Tips
 
 - `syncEvents.on('sync:message', ...)` を直接購読すれば同期の進行が全て見える
-- `syncStateManager.snapshot()` で dirty / 最後の同期 ts / hash を取得
-- `operationQueue.pendingCount()` で積み残し件数
-- `FakeCloud` は呼び出しカウンタを持つので、テスト中は期待呼び出し回数で検証するのが確実
+- `syncStateManager.snapshot()` で未送信の変更（dirtyNoteIds / deletedNoteIds 等）を取得
+- `syncBaseStore.load()` で前回同期時点の base（noteList / 各ノートの md5）を確認できる
+- `FakeDrive` は `noteHistory()`（どの端末がいつ何を書いたか）と呼び出しログを持つので、テスト中はそれで検証するのが確実
 - Drive 側の状態を調べたい時は Google OAuth 2 Playground で `drive.appdata` スコープをリクエストし、`spaces=appDataFolder` で `files.list` を叩く
 
 ### 開発環境の引っかかりポイント（Windows Android debug）
@@ -385,8 +388,8 @@ keytool -list -v -keystore ~/.android/debug.keystore \
 - [ ] ノート CRUD → Drive 反映（create / edit / archive / delete / move）
 - [ ] アプリ再起動後の refresh_token 自動更新
 - [ ] **デスクトップ版で作成した既存ノートがモバイルで読める** ことの検証（同期ロジック 1:1 互換の生命線）
-- [ ] 競合解決シナリオ（同じノートをデスクトップとモバイルで同時編集）
-- [ ] オフライン → オンライン復帰時の operationQueue 再生
+- [ ] 競合解決シナリオ（同じノートをデスクトップとモバイルで同時編集）の実機確認（FakeDrive 上のシナリオ / シミュレーションでは検証済み）
+- [ ] オフライン中の変更がオンライン復帰時に送られることの実機確認
 - [ ] iOS 実機での動作確認（EAS で IPA 出力可能、TestFlight 配信は次ステップ）
 - [ ] Play Console 内部テスト配信 → 実機検証
 

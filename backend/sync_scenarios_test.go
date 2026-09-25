@@ -199,11 +199,11 @@ func TestScenario_InFlightPeerNoteIsNotMovedToOrphanFolder(t *testing.T) {
 
 	s.desk.sync()
 
-	_, hasOrphanFolder := s.desk.folderNamed(RecoveryFolderName)
+	_, hasOrphanFolder := s.desk.folderNamed(legacyRecoveryFolderName)
 	assert.False(t, hasOrphanFolder, "不明ノートフォルダが作られた")
 	assert.Equal(t, "", s.desk.folderOf("P"))
 	for _, f := range s.peer.readList().Folders {
-		assert.NotEqual(t, RecoveryFolderName, f.Name, "不明ノートがクラウドへ伝播した")
+		assert.NotEqual(t, legacyRecoveryFolderName, f.Name, "不明ノートがクラウドへ伝播した")
 	}
 	meta, ok := s.peer.cloudMeta("P")
 	require.True(t, ok)

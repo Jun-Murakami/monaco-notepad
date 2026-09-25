@@ -57,13 +57,16 @@ Monaco Notepad は、[Wails v2](https://wails.io/) で構築されたデスク�
 - `app.go` — Wails 公開メソッド（エントリ）
 - `domain.go` — 全データ構造定義 + MessageCode
 - `note_service` — ノート CRUD + 整合性チェック
-- `drive_service` — Drive 同期オーケストレーション
-- `drive_sync_service` — 中レベル同期ロジック
-- `drive_migration` — ストレージ移行ロジック
+- `drive_service` — Drive 接続のライフサイクル（認証 / 同期要求の debounce / ログアウト）
+- `sync_core` — ★ 同期の判定・マージ（純粋関数: `decideNote` / `mergeSequence` / `mergeNoteList`）
+- `sync_engine` — ★ 同期 1 サイクルの実行（取得 → 判定 → 本文転送 → noteList 書き込み → ローカル反映）
+- `sync_base` — 前回同期時点の状態（`sync_base.json`）
+- `sync_state` — 未送信のローカル変更の記録（dirty ノート / 削除意図）
+- `drive_gateway` — 同期エンジン向けの Drive 操作（フォルダ解決 / md5・version 付き一覧 / 本文・noteList 転送）
 - `drive_operations` — Drive 低レベル API + ページング
-- `drive_operations_queue` — 非同期キュー
-- `drive_polling` — 指数バックオフ付きポーリング
-- `sync_state` — 同期状態の永続化（dirty フラグ）
+- `drive_polling` — Changes API による変更検知 + 指数バックオフ付きポーリング
+- `drive_migration` — ストレージ移行ロジック
+- `conflict_backup` — 競合バックアップ（`cloud_wins` / `cloud_delete` / `local_wins`）
 - `auth_service` — OAuth2 認証フロー
 - `settings_service` — 設定永続化
 - `file_service` — ファイルダイアログ・I/O
@@ -172,6 +175,21 @@ cd backend && go test ./...
 - `testify` の `assert`, `require` を使用
 - `isTestMode: true` で Wails EventsEmit を無効化してテスト
 
+同期のテストは 4 層（詳細は `docs/sync-engine-v3.md`）:
+
+| 層 | ファイル | 内容 |
+| --- | --- | --- |
+| L0 共有ベクタ | `sync_core_vectors_test.go` ← `sync-spec/vectors/*.json` | 判定・マージの入出力表。モバイルも同じ JSON を読む |
+| L1 FakeDrive | `fakedrive_test.go` | httptest の Drive 偽物。本物の google-api クライアントを通す。`fields` / md5 / version / Changes / 重複ファイル / 障害注入（`BeforeRequest` / `AfterRequest` / `FailWhen`） |
+| L2 端末間シナリオ | `sync_scenarios_test.go`（`sync_harness_test.go` の `desktopDevice` / `mobilePeer`） | 報告された症状（反映されない / 順序が崩れる / 不明ノート）の再現 |
+| L3 シミュレーション | `sync_simulation_test.go` | 乱数シード付きの複数端末シミュレーション。収束・最新版の勝ち・データ喪失なしを検査 |
+
+シミュレーションの規模は環境変数で変更できる（`SIM_SEEDS` / `SIM_STEPS` / `SIM_DEVICES` / `SIM_SEED`）:
+
+```bash
+cd backend && SIM_SEEDS=300 go test -run TestSyncSimulation .
+```
+
 ### フロントエンド (Vitest)
 
 ```bash
@@ -232,11 +250,22 @@ wails dev          # ホットリロード付き開発サーバー
 
 ## 重要な注意事項
 
-### SyncState による整合性
-`sync_state.go` の `Dirty` フラグが立っている場合のみ同期が実行される。操作失敗時は `ClearDirtyIfUnchanged` を通じて安全にリトライが行われる。
+### 同期エンジン v3（デスクトップ / モバイル共通仕様）
+仕様は `docs/sync-engine-v3.md`。要点:
+- ノート本文の変更は Drive の **md5** で検知する（noteList の contentHash は信用しない）。
+- 削除は明示的なものだけ（Drive の本体ファイルが消えた / ユーザーの削除意図が `sync_state.json` にある）。「リストに無い」ことから削除を推論しない。
+- 前回同期時点の状態（`sync_base.json`）を base にした 3-way マージ。編集は削除に勝つ。同じノートを両方で編集した場合は modifiedTime が新しい方が勝ち、負けた版は競合バックアップに残す。
+- 失敗した操作の base は進めない。noteList は書き込み前後に md5 / version を確認し、他端末に上書きされていたらやり直す。
+- ローカルへの反映は noteService のロック内で、その時点のローカルに対して再マージする（同期中の編集を消さない）。
+- 所属フォルダは noteList が正。本体ファイルの folderId は使わない。
+
+判定・マージの規則を変えるときは、`sync-spec/vectors/*.json` にケースを足し、Go（`sync_core.go`）と TS（`mobile/src/services/sync/core/`）の両方を同時に直す。
+
+### SyncState（未送信の変更の記録）
+`sync_state.go` は保存・削除のたびに「どのノートを送るべきか」を記録する（`MarkNoteDirty` / `MarkNoteDeleted`）。同期が成功すると `CompleteSync` で、同期開始時点までの記録だけを消す（同期中の編集は revision で判別して残す）。失敗時は記録を残して次回やり直す。
 
 ### 孤立ファイル復元 (Orphan Recovery)
-起動時に `noteList` に登録されていない物理ノートファイルを検知した場合、自動的に「不明ノート」フォルダを作成して登録する。Drive移行時にも同様のチェックを行い、データの紛失を防止する。
+起動時に `noteList` に登録されていない物理ノートファイルを検知した場合、新規ノートと同じく**トップレベル先頭**に登録する。「不明ノート」フォルダへの自動移動は廃止した（旧バージョンが作ったフォルダは普通のフォルダとして残る）。旧 Drive 形式からの移行時も同様。
 
 ### 多言語対応メッセージ
 バックエンドからユーザーへの通知は、直接文字列を渡すのではなく `MessageCode` (domain.go) を使用する。

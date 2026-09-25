@@ -130,8 +130,8 @@
 		}
 	},
 	"orphan": {
-		"localRecoveryDone": "Recovered local orphan notes into 'Unknown Notes'",
-		"cloudRecoveryDone": "Recovered cloud orphan notes into 'Unknown Notes'"
+		"localRecoveryDone": "Recovered local orphan notes at the top of the list",
+		"cloudRecoveryDone": "Recovered cloud orphan notes at the top of the list"
 	},
 	"about": {
 		"title": "About",

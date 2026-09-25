@@ -320,12 +320,12 @@
     "archivedFolderDeletedNotes": "アーカイブフォルダ内のノートを{{count}}件削除しました"
   },
   "orphan": {
-    "localRecoveryDone": "{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました",
-    "cloudRecoveryDone": "{{count}}件のクラウド孤立ノートを「{{folder}}」フォルダに復元しました",
+    "localRecoveryDone": "{{count}}件の孤立ノートを一覧の先頭に復元しました",
+    "cloudRecoveryDone": "{{count}}件のクラウド孤立ノートを一覧の先頭に復元しました",
     "recoverySkipCorrupt": "破損した孤立ファイルをスキップしました",
     "recoveryDialogTitle": "孤立ノートの復元",
     "recoveryDialogLocal": "ローカルディスクで見つかった{{count}}件の孤立ノートを一覧の先頭に復元しました。",
-    "recoveryDialogCloud": "Google Driveで見つかった{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました。",
+    "recoveryDialogCloud": "Google Driveで見つかった{{count}}件の孤立ノートを一覧の先頭に復元しました。",
     "recoveryDialogCloudDeleted": "重複していた{{count}}件のコンフリクトコピーをGoogle Driveから削除しました。",
     "localRecoveryProgress": "孤立ノートを復元中... ({{current}}/{{total}})",
     "cloudRecoveryProgress": "クラウドの孤立ノートを復元中... ({{current}}/{{total}})"

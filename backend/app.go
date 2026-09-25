@@ -326,8 +326,7 @@ func (a *App) NotifyFrontendReady() {
 			for _, r := range recoveries {
 				if r.Source == "local" {
 					a.logger.InfoCode(MsgOrphanLocalRecoveryDone, map[string]interface{}{
-						"count":  r.Count,
-						"folder": r.FolderName,
+						"count": r.Count,
 					})
 				}
 			}
@@ -395,7 +394,7 @@ func (a *App) SaveNoteList() error {
 	a.logger.Console("SaveNoteList called")
 
 	// まずノートサービスでローカルに保存
-	if err := a.noteService.saveNoteList(); err != nil {
+	if err := a.noteService.SaveNoteList(); err != nil {
 		return err
 	}
 
@@ -516,7 +515,7 @@ func (a *App) GetCollapsedFolderIDs() []string {
 
 func (a *App) UpdateCollapsedFolderIDs(ids []string) error {
 	a.noteService.noteList.CollapsedFolderIDs = ids
-	if err := a.noteService.saveNoteList(); err != nil {
+	if err := a.noteService.SaveNoteList(); err != nil {
 		return err
 	}
 

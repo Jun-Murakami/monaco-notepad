@@ -1174,19 +1174,13 @@ func TestCleanupLegacyOrphans_UpdatesDriveNoteListAfterRecovery(t *testing.T) {
 	assert.True(t, driveNoteIDs["existing-1"], "Drive noteList should contain existing note")
 	assert.True(t, driveNoteIDs["orphan-1"], "Drive noteList should contain recovered orphan")
 
-	hasRecoveryFolder := false
-	for _, f := range driveNoteList.Folders {
-		if f.Name == RecoveryFolderName {
-			hasRecoveryFolder = true
-			for _, n := range driveNoteList.Notes {
-				if n.ID == "orphan-1" {
-					assert.Equal(t, f.ID, n.FolderID, "orphan should be in recovery folder")
-				}
-			}
-			break
+	// 不明ノートフォルダは作らず、トップレベルに置く（docs/sync-engine-v3.md P8）
+	assert.Empty(t, driveNoteList.Folders, "recovery folder should not be created")
+	for _, n := range driveNoteList.Notes {
+		if n.ID == "orphan-1" {
+			assert.Equal(t, "", n.FolderID, "orphan should be placed at the top level")
 		}
 	}
-	assert.True(t, hasRecoveryFolder, "Drive noteList should have recovery folder")
 }
 
 func TestCleanupLegacyOrphans_NoRecovery_DoesNotUpdateDriveNoteList(t *testing.T) {
@@ -1368,7 +1362,7 @@ func TestCleanupLegacyOrphans_ConflictCopyDedup_DeletesFromDrive(t *testing.T) {
 	assert.False(t, driveNoteIDs["dup-conflict-1"], "duplicate conflict copy should NOT be in cloud noteList")
 }
 
-func TestCleanupLegacyOrphans_ReusesExistingRecoveryFolder(t *testing.T) {
+func TestCleanupLegacyOrphans_PlacesOrphansAtTopLevelEvenIfOldRecoveryFolderExists(t *testing.T) {
 	store := newMigrationMockDriveStore()
 	_, notesID := store.addLegacyData(0, true)
 
@@ -1401,7 +1395,11 @@ func TestCleanupLegacyOrphans_ReusesExistingRecoveryFolder(t *testing.T) {
 			Language: "plaintext", ModifiedTime: existingNote.ModifiedTime,
 			ContentHash: computeContentHash(existingNote),
 		}},
-		Folders: []Folder{{ID: existingFolderID, Name: RecoveryFolderName}},
+		Folders: []Folder{{ID: existingFolderID, Name: "不明ノート"}},
+		TopLevelOrder: []TopLevelItem{
+			{Type: "note", ID: "existing-1"},
+			{Type: "folder", ID: existingFolderID},
+		},
 	}
 	noteListData, _ := json.Marshal(noteList)
 	store.mu.Lock()
@@ -1434,18 +1432,16 @@ func TestCleanupLegacyOrphans_ReusesExistingRecoveryFolder(t *testing.T) {
 	var driveNoteList NoteList
 	require.NoError(t, json.Unmarshal(driveNoteListContent, &driveNoteList))
 
-	folderCount := 0
-	for _, f := range driveNoteList.Folders {
-		if f.Name == RecoveryFolderName {
-			folderCount++
-			assert.Equal(t, existingFolderID, f.ID, "should reuse existing recovery folder ID")
-		}
-	}
-	assert.Equal(t, 1, folderCount, "should have exactly one recovery folder")
+	// 旧バージョンが作った不明ノートフォルダは普通のフォルダとして残すが、そこへは入れない
+	require.Len(t, driveNoteList.Folders, 1)
+	assert.Equal(t, existingFolderID, driveNoteList.Folders[0].ID)
 
 	for _, n := range driveNoteList.Notes {
 		if n.ID == "orphan-1" || n.ID == "orphan-2" {
-			assert.Equal(t, existingFolderID, n.FolderID, "orphan should be placed in existing recovery folder")
+			assert.Equal(t, "", n.FolderID, "orphan should be placed at the top level")
 		}
 	}
+	require.GreaterOrEqual(t, len(driveNoteList.TopLevelOrder), 3)
+	head := []string{driveNoteList.TopLevelOrder[0].ID, driveNoteList.TopLevelOrder[1].ID}
+	assert.ElementsMatch(t, []string{"orphan-1", "orphan-2"}, head, "orphans should be at the head of the top level")
 }

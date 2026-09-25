@@ -284,7 +284,7 @@ func checkNoteListStructure(t *testing.T, list *NoteList, label string) {
 		require.NotEqual(t, -1, indexOfItem(order, TopLevelItem{Type: "note", ID: n.ID}), "%s: %s が順序に無い", label, n.ID)
 	}
 	for _, f := range list.Folders {
-		require.NotEqual(t, RecoveryFolderName, f.Name, "%s: 不明ノートが現れた", label)
+		require.NotEqual(t, legacyRecoveryFolderName, f.Name, "%s: 不明ノートが現れた", label)
 	}
 }
 

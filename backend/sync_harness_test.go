@@ -14,6 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// 旧バージョンが孤立ノートを自動で入れていたフォルダ名。v3 では作らないことを検証するのに使う
+const legacyRecoveryFolderName = "不明ノート"
+
 // ============================================================
 // mobilePeer: 「プロトコル通りに正しく振る舞うモバイル版」を fakeDrive 上で模擬する。
 //

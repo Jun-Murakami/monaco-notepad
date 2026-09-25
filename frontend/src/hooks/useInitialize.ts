@@ -222,7 +222,6 @@ export const useInitialize = (
       recoveries: {
         source: string;
         count: number;
-        folderName: string;
         deletedDuplicates: number;
       }[],
     ) => {
@@ -234,12 +233,7 @@ export const useInitialize = (
             recovery.source === 'local'
               ? 'orphan.recoveryDialogLocal'
               : 'orphan.recoveryDialogCloud';
-          lines.push(
-            i18n.t(messageKey, {
-              count: recovery.count,
-              folder: recovery.folderName,
-            }),
-          );
+          lines.push(i18n.t(messageKey, { count: recovery.count }));
         }
         if (recovery.deletedDuplicates > 0) {
           lines.push(

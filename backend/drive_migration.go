@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"google.golang.org/api/drive/v3"
 )
 
@@ -357,24 +356,10 @@ func (s *driveService) cleanupLegacyOrphansBeforeMigration(legacyOps DriveOperat
 		}
 	}
 
-	// クラウドnoteListにリカバリフォルダを確保
-	var recoveryFolderID string
-	for _, f := range cloudNoteList.Folders {
-		if f.Name == RecoveryFolderName {
-			recoveryFolderID = f.ID
-			break
-		}
-	}
-	if recoveryFolderID == "" {
-		recoveryFolderID = uuid.New().String()
-		cloudNoteList.Folders = append(cloudNoteList.Folders, Folder{
-			ID:   recoveryFolderID,
-			Name: RecoveryFolderName,
-		})
-	}
-
-	// 孤立ノートをクラウドnoteListにのみ追加（ローカルには反映しない）
+	// 孤立ノートをクラウドnoteListにのみ追加（ローカルには反映しない）。
+	// 不明ノートフォルダは使わず、新規ノートと同じくトップレベル先頭に置く（docs/sync-engine-v3.md P8）
 	var recoveredCount int
+	var recoveredOrder []TopLevelItem
 	totalOrphans := len(orphans)
 	for i, entry := range orphans {
 		s.logger.InfoCode(MsgOrphanCloudRecoveryProgress, map[string]interface{}{
@@ -418,8 +403,8 @@ func (s *driveService) cleanupLegacyOrphansBeforeMigration(legacyOps DriveOperat
 			Language:      note.Language,
 			ModifiedTime:  note.ModifiedTime,
 			ContentHash:   computeContentHash(&note),
-			FolderID:      recoveryFolderID,
 		})
+		recoveredOrder = append(recoveredOrder, TopLevelItem{Type: "note", ID: note.ID})
 
 		recoveredCount++
 		s.logger.Console("Recovered orphan cloud note: \"%s\" (%s)", note.Title, entry.noteID)
@@ -427,6 +412,9 @@ func (s *driveService) cleanupLegacyOrphansBeforeMigration(legacyOps DriveOperat
 
 	if recoveredCount > 0 {
 		s.logger.Console("Pre-migration orphan cleanup: recovered %d notes", recoveredCount)
+		if len(cloudNoteList.TopLevelOrder) > 0 {
+			cloudNoteList.TopLevelOrder = append(recoveredOrder, cloudNoteList.TopLevelOrder...)
+		}
 		updatedData, err := json.Marshal(&cloudNoteList)
 		if err != nil {
 			s.logger.Console("Pre-migration: failed to marshal updated cloud noteList: %v", err)
