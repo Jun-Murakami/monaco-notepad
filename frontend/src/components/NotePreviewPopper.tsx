@@ -5,6 +5,8 @@ import { DEFAULT_EDITOR_FONT_FAMILY } from '../types';
 
 interface NotePreviewPopperProps {
   content: string | undefined;
+  /** プレビューの 1 行目に出す見出し（更新日時など）。本文が空でもこれがあれば表示する。 */
+  header?: string;
   anchorX?: number;
   disabled?: boolean;
   children: React.ReactNode;
@@ -12,6 +14,7 @@ interface NotePreviewPopperProps {
 
 export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
   content,
+  header,
   anchorX,
   disabled,
   children,
@@ -20,7 +23,7 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
   if (disabled) return <>{children}</>;
 
   return (
-    <NotePreviewPopperInner content={content} anchorX={anchorX}>
+    <NotePreviewPopperInner content={content} header={header} anchorX={anchorX}>
       {children}
     </NotePreviewPopperInner>
   );
@@ -28,7 +31,7 @@ export const NotePreviewPopper: React.FC<NotePreviewPopperProps> = ({
 
 const NotePreviewPopperInner: React.FC<
   Omit<NotePreviewPopperProps, 'disabled'>
-> = ({ content, anchorX, children }) => {
+> = ({ content, header, anchorX, children }) => {
   const [open, setOpen] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
   const mouseYRef = useRef(0);
@@ -88,7 +91,7 @@ const NotePreviewPopperInner: React.FC<
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
-      {open && previewLines && (
+      {open && (previewLines || header) && (
         <Popper
           open
           anchorEl={virtualAnchorRef.current as unknown as HTMLElement}
@@ -120,21 +123,37 @@ const NotePreviewPopperInner: React.FC<
                 minHeight: 0,
               }}
             >
-              <Typography
-                variant="body1"
-                component="pre"
-                sx={{
-                  fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
-                  fontSize: '0.875rem',
-                  lineHeight: 1.5,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  m: 0,
-                  color: 'text.secondary',
-                }}
-              >
-                {previewLines}
-              </Typography>
+              {header && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    color: 'text.disabled',
+                    fontSize: '0.8rem',
+                    lineHeight: 1.2,
+                    mb: previewLines ? 0.75 : 0,
+                  }}
+                >
+                  {header}
+                </Typography>
+              )}
+              {previewLines && (
+                <Typography
+                  variant="body1"
+                  component="pre"
+                  sx={{
+                    fontFamily: DEFAULT_EDITOR_FONT_FAMILY,
+                    fontSize: '0.875rem',
+                    lineHeight: 1.5,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                    m: 0,
+                    color: 'text.secondary',
+                  }}
+                >
+                  {previewLines}
+                </Typography>
+              )}
             </Box>
             <Box sx={{ px: 1.5, pb: 1, flex: '0 0 auto' }} />
           </Paper>

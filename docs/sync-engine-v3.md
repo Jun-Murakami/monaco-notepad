@@ -77,12 +77,25 @@ syncOnce()  ※ 端末内の sync ロックで直列化
        （同名重複は modifiedTime 最新を採用、残りは後で削除）
     c. noteList の md5 が base と同じなら base.noteList を remote として使う（ダウンロード省略）
  2. ローカルのスナップショット（ローカルロック内で複製）
+    - 本文 hash は dirty でないノートなら noteList の contentHash を使う（本体の読み取りを省く）
  3. ノート判定フェーズ1（decideNote・§6）→ ダウンロードが必要なノートを取得
+    - upload / download / deleteLocal になったノートは、その前に本体の hash と照合する（起動後の最初の同期は
+      全ノート。失敗の無いサイクルを 1 回終えるまで続ける）。contentHash が本体と食い違っていたら本体の値で
+      判定し直し、6. で noteList の記録を本体に合わせる（古い記録のせいで変わっていないノートを送り続けたり、
+      本体にしか無い内容を黙って上書きしたりしない）
+    - 食い違っていて、本体が base とも違う（編集の記録も無い）なら出どころ不明の内容（過去のバージョンの
+      不具合の名残など）。`localUnrecorded` を付けて判定し直す（§6.1: 復帰ノート）
  4. ノート判定フェーズ2 → アクション確定
+    - 復帰ノートが 1 回の同期で上限（10 件）を超えたら、仕組み側の問題（ハッシュの計算方法の変更など）が
+      疑われるので分けない。そのノートは skip にして知らせるだけ（base も noteList の記録も進めない）
  5. リモート変更の実行: 本体アップロード / 本体削除（成功したものだけ記録）
  6. ローカルコミット（ローカルロック内・ネットワーク I/O なし）
     - applyRemote / deleteLocal は「スナップショット以降にユーザーが触っていない」ノートだけ適用
     - mergeNoteList（§7）を「現在の」ローカルに対して実行し、ローカル noteList を保存
+      （アップロード / 照合した本体のメタは、触られていなければその本体から作り直す。skip のノートは直さない）
+    - `applyRemote{recoverLocal}` は、上書きする前にローカルの版を新しい ID のノート（復帰ノート）として保存し、
+      元のノートのすぐ下（同じフォルダ / 同じ系列）に置いてからマージする。復帰ノートは Drive にまだ無いので
+      クラウド用の noteList には載らない。同期要求を記録し、そのまま次のサイクルを回して送る
  7. noteList アップロード
     - クラウドに載せるのは本体が Drive に確定しているノートだけ（§7.5）
     - アップロード直前に noteList の md5 を再確認し、1. から変わっていたら 1. からやり直す（最大 3 回）
@@ -102,8 +115,9 @@ syncOnce()  ※ 端末内の sync ロックで直列化
 - `base?`: `{hash, md5?, fileId?, version?}` 前回同期時点（md5 / fileId / version は移行直後などで欠けうる）
 - `remote?`: `{md5, fileId?, version?}` Drive に本体ファイルがある場合（version は一覧で分かる版番号）
 - `downloaded?`: `{hash, modifiedTime, parentVersion?, skipped?}` フェーズ2でのみ与える（ダウンロード結果。本体の `syncParentVersion` / `syncSkipped`）
+- `localUnrecorded`: ローカルの本体が noteList の記録とも base とも違い、編集の記録も無い（§5 の 3.。§6.1）
 
-出力: `none` / `download`（フェーズ1のみ）/ `upload{backupRemote}` / `applyRemote{backupLocal}` / `deleteLocal{backupLocal}` / `deleteRemote` / `forget`
+出力: `none` / `download`（フェーズ1のみ）/ `upload{backupRemote}` / `applyRemote{backupLocal, recoverLocal}` / `deleteLocal{backupLocal}` / `deleteRemote` / `forget`
 
 ```
 if !local:
@@ -118,6 +132,9 @@ if !local:
 if !remote:
   if !base || local.hash != base.hash:   → upload                    // 新規 or 編集が削除に勝つ
   → deleteLocal{backupLocal:true}
+if localUnrecorded && base && local.hash != base.hash:              // 出どころ不明の内容（§6.1）
+  if !downloaded:                        → download
+  downloaded.hash == local.hash ? none : applyRemote{recoverLocal:true}
 if base && base.md5 && remote.md5 == base.md5:
   local.hash == base.hash ? none : upload
 if !downloaded:                          → download
@@ -165,6 +182,22 @@ skipped := known(downloaded.skipped, downloaded.parentVersion, remote.version)
   リモート削除でローカルを消すとき → `deleteLocal{backupLocal}`（`cloud_delete`）。
 - `isAfter(a, b)`: RFC3339 として解析できれば時刻比較、できなければ文字列比較。**同時刻はリモート勝ち**。
 - `applyRemote` が `localDeleted` のノートに対して出た場合、そのノートの削除意図は取り消す。
+
+### 6.1 出どころ不明のローカルの内容（復帰ノート）
+
+ローカルの本体が noteList の記録とも base とも違い、編集の記録（dirty）も無いノートは、誰がいつ書いた内容か分からない
+（過去のバージョンの不具合の名残など。更新日時も当てにならない）。どちらの版が正しいか判断できないので勝敗を決めず、
+**両方残す**:
+
+- リモートの版を取り込み（元の ID）、ローカルの版は新しい ID の別ノートとして残す。タイトルに接尾辞を付ける
+  （日本語「(復帰済み)」/ 英語「 (Recovered)」。表示中の UI の言語）。バックアップは作らない
+  （バックアップは端末ローカルで上限もあり、他端末から見えないため）。
+- リモートで削除されていれば、通常の「編集は削除に勝つ」で元の ID のまま復元する（分けない）。
+- リモートの版が同じ内容なら何もしない（記録を直すだけ）。
+- ダウンロードに失敗したら何もしない（次の同期でやり直す）。
+- コミットの時点でユーザーがそのノートを編集していたら分けない（手元の版から編集を続けている）。
+  base はリモートの版のままなので次の同期でその編集がリモートの版を上書きする。上書きされる版は `local_wins` に残す。
+- 本体が base と同じ（記録だけが古い）なら出どころ不明ではない。記録を直すだけ。
 
 ## 7. 構造マージ `mergeNoteList(base, local, remote, notes)`
 

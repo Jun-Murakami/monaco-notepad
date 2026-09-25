@@ -1,7 +1,9 @@
 package backend
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -92,4 +94,16 @@ func ResolveLocale(uiLanguage string) string {
 		return DetectSystemLocale()
 	}
 	return NormalizeLocale(uiLanguage)
+}
+
+// uiLocaleOf は設定ファイル（settings.json）の UI 言語を解決する（未設定・読めなければシステムの言語）。
+// 設定サービスを持たない層（同期エンジン等）から使う。
+func uiLocaleOf(appDataDir string) string {
+	var payload struct {
+		UILanguage string `json:"uiLanguage"`
+	}
+	if data, err := os.ReadFile(filepath.Join(appDataDir, "settings.json")); err == nil {
+		_ = json.Unmarshal(data, &payload)
+	}
+	return ResolveLocale(payload.UILanguage)
 }

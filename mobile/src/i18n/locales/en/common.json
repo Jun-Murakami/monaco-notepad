@@ -122,7 +122,9 @@
 			"conflictDetected": "Conflict detected, auto-resolving",
 			"uploadNote": "Uploading note {{noteId}} ({{current}}/{{total}})",
 			"deleteNote": "Deleting note {{noteId}}",
-			"downloadNote": "Downloading note {{noteId}}"
+			"downloadNote": "Downloading note {{noteId}}",
+			"recoveredNote": "Kept content found only on this device as a separate note \"{{title}}\"",
+			"recoveryLimited": "{{count}} notes on this device differ from their synced versions. Too many to split automatically, so they were left unchanged"
 		},
 		"conflict": {
 			"keepLocal": "Note {{noteId}}: kept local version",

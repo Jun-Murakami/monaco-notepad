@@ -1,5 +1,5 @@
 {
-  "description": "decideNote: ノート単位の判定（docs/sync-engine-v3.md §6）。downloaded を与えないケースはフェーズ1、与えるケースはフェーズ2。expected.backupLocal は applyRemote / deleteLocal、expected.backupRemote は upload のときのみ比較する（省略時 false）。",
+  "description": "decideNote: ノート単位の判定（docs/sync-engine-v3.md §6）。downloaded を与えないケースはフェーズ1、与えるケースはフェーズ2。expected.backupLocal は applyRemote / deleteLocal、expected.backupRemote は upload のときのみ比較する（省略時 false）。expected.recoverLocal は applyRemote のときのみ比較する（省略時 false）。",
   "cases": [
     {
       "name": "双方変更なし",
@@ -1160,6 +1160,167 @@
               6
             ]
           ]
+        }
+      },
+      "expected": {
+        "kind": "upload",
+        "backupRemote": true
+      }
+    },
+    {
+      "name": "出どころ不明のローカル（リモート未変更）はリモートの版を取りに行く",
+      "input": {
+        "local": {
+          "hash": "h9",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "localUnrecorded": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "download"
+      }
+    },
+    {
+      "name": "出どころ不明のローカル（リモート未変更）: リモートの版を取り込み、ローカルの版は別ノートに残す",
+      "input": {
+        "local": {
+          "hash": "h9",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "localUnrecorded": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h1",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false,
+        "recoverLocal": true
+      }
+    },
+    {
+      "name": "出どころ不明のローカル: ローカルの方が新しくても勝敗は決めず、両方残す",
+      "input": {
+        "local": {
+          "hash": "h9",
+          "modifiedTime": "2026-07-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "localUnrecorded": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false,
+        "recoverLocal": true
+      }
+    },
+    {
+      "name": "出どころ不明のローカル: リモートも同じ内容なら何もしない",
+      "input": {
+        "local": {
+          "hash": "h9",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "localUnrecorded": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h9",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "出どころ不明のローカル: リモートで削除されていれば、編集として復元する（編集は削除に勝つ）",
+      "input": {
+        "local": {
+          "hash": "h9",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "localUnrecorded": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "upload"
+      }
+    },
+    {
+      "name": "出どころ不明の印があっても base と同じ内容なら通常どおり",
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-06-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "localUnrecorded": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "none"
+      }
+    },
+    {
+      "name": "出どころ不明の印があっても base が無ければ通常の競合判定",
+      "input": {
+        "local": {
+          "hash": "h9",
+          "modifiedTime": "2026-07-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "localUnrecorded": true,
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-06-01T00:00:00Z"
         }
       },
       "expected": {

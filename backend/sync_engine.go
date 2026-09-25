@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 // 同期エンジン v3（docs/sync-engine-v3.md §5）。モバイル版 mobile/src/services/sync/syncEngine.ts と同じ手順。
@@ -25,6 +27,8 @@ type syncEngineOptions struct {
 	backup func(kind string, kept *Note, other *Note) error
 	// noteList の書き込みが他端末と競合したときの最大試行回数（0 なら 3）。
 	maxAttempts int
+	// recoveredTitle は復帰ノートのタイトル（nil なら英語の接尾辞）。
+	recoveredTitle func(title string) string
 }
 
 type syncReport struct {
@@ -50,6 +54,8 @@ type syncEngine struct {
 	mu         sync.Mutex
 	baseCache  *SyncBase
 	baseLoaded bool
+	// verifiedAll は起動後に全ノートの本体をノート一覧の記録と照合し終えたか（失敗の無いサイクルを 1 回終えたら true）。
+	verifiedAll bool
 }
 
 func newSyncEngine(ctx context.Context, gateway *driveGateway, notes *noteService, state *SyncState,
@@ -98,6 +104,7 @@ func (e *syncEngine) ResetBase() error {
 	defer e.mu.Unlock()
 	e.baseCache = nil
 	e.baseLoaded = true
+	e.verifiedAll = false
 	e.gateway.InvalidateLayout()
 	return e.baseStore.Clear()
 }
@@ -106,6 +113,12 @@ type downloadedNote struct {
 	note    *Note
 	hash    string
 	lineage noteLineage // 書いた端末が置き換えた版と、見ずに上書きされた版番号（不明なら空）
+}
+
+// recoveredLocal は復帰ノートとして分けたローカルの版。
+type recoveredLocal struct {
+	originalID string
+	note       *Note
 }
 
 type uploadedNote struct {
@@ -117,6 +130,18 @@ type uploadedNote struct {
 
 // decisionSkip はダウンロードに失敗して判定できなかったノート（base を進めない）。
 const decisionSkip decisionKind = "skip"
+
+// maxRecoveredNotesPerSync は 1 回の同期で復帰ノートとして分ける上限。これを超えて食い違うのは
+// 個々のノートの不具合の名残ではなく仕組み側の問題（ハッシュの計算方法の変更など）が疑われるので、分けずにそのままにする。
+const maxRecoveredNotesPerSync = 10
+
+// recoveredNoteTitle は復帰ノート（出どころ不明のローカルの内容を分けたノート）のタイトル。
+func recoveredNoteTitle(title, locale string) string {
+	if locale == LocaleJapanese {
+		return title + "(復帰済み)"
+	}
+	return title + " (Recovered)"
+}
 
 func (e *syncEngine) runCycle() (syncReport, bool, error) {
 	var report syncReport
@@ -199,7 +224,6 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 
 	inputs := map[string]decideNoteInput{}
 	decisions := map[string]noteDecision{}
-	var toDownload []string
 	for _, id := range ids {
 		in := decideNoteInput{LocalDeleted: deletedIDs[id]}
 		if l, ok := localState[id]; ok {
@@ -213,9 +237,49 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			in.Remote = &remoteNoteState{Md5: r.Md5, FileID: r.FileID, Version: r.Version}
 		}
 		inputs[id] = in
-		d := decideNote(in)
-		decisions[id] = d
-		if d.Kind == decisionDownload {
+		decisions[id] = decideNote(in)
+	}
+
+	// 何かをする前には本体で確かめる。上の判定はノート一覧に記録された ContentHash で手元の状態を見ている
+	// （全ノートの本体を毎回読まないため）が、記録が本体と食い違っていると、変わっていないノートを送り続けたり
+	// （送るたびに相手が同期して終わらない）、一覧が知らない本体の内容を黙って上書き・削除したりする。
+	// 起動後の最初のサイクルは全ノートを照合する（判定上は何もしないノートの本体が、記録とも前回同期した版とも
+	// 違うことがある。過去のバージョンの不具合の名残など）。以後は何かをするノートだけ。
+	verified := map[string]*Note{}
+	for _, id := range ids {
+		if e.verifiedAll {
+			switch decisions[id].Kind {
+			case decisionUpload, decisionDownload, decisionDeleteLocal:
+			default:
+				continue
+			}
+		}
+		meta, ok := localMeta[id]
+		if !ok || dirtyIDs[id] || meta.ContentHash == "" {
+			continue // 本体から計算済み
+		}
+		note, err := e.notes.LoadNote(id)
+		if err != nil {
+			continue
+		}
+		fileHash := computeContentHash(note)
+		if fileHash == meta.ContentHash {
+			continue
+		}
+		verified[id] = note
+		localState[id] = noteSideState{Hash: fileHash, ModifiedTime: note.ModifiedTime}
+		in := inputs[id]
+		l := localState[id]
+		in.Local = &l
+		// 前回同期した版とも違い、編集の記録も無い = 出どころ不明の内容。勝敗を決めず両方残す（復帰ノート）
+		in.LocalUnrecorded = in.Base != nil && fileHash != in.Base.Hash
+		inputs[id] = in
+		decisions[id] = decideNote(in)
+	}
+
+	var toDownload []string
+	for _, id := range ids {
+		if decisions[id].Kind == decisionDownload {
 			toDownload = append(toDownload, id)
 		}
 	}
@@ -251,6 +315,20 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			ParentVersion: dl.lineage.ParentVersion, Skipped: dl.lineage.Skipped,
 		}
 		decisions[id] = decideNote(in)
+	}
+
+	// 一度に大量の復帰ノートは作らない（仕組み側の問題が疑われる）。そのままにして知らせるだけ（base も記録も進めない）
+	var recoverIDs []string
+	for _, id := range ids {
+		if d := decisions[id]; d.Kind == decisionApplyRemote && d.RecoverLocal {
+			recoverIDs = append(recoverIDs, id)
+		}
+	}
+	if len(recoverIDs) > maxRecoveredNotesPerSync {
+		for _, id := range recoverIDs {
+			decisions[id] = noteDecision{Kind: decisionSkip}
+		}
+		e.logger.InfoCode(MsgDriveSyncRecoveryLimited, map[string]interface{}{"count": len(recoverIDs)})
 	}
 
 	// skippedOf は置き換える版の「履歴の中で見ずに上書きされた版番号」。このサイクルで落とした版はその系譜から、
@@ -341,6 +419,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 	}
 	applied := map[string]bool{}
 	removedLocally := map[string]bool{}
+	var recovered []recoveredLocal
 	var cloudList *NoteList
 	var commitErr error
 
@@ -358,10 +437,28 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			d := decisions[id]
 			switch d.Kind {
 			case decisionApplyRemote:
+				dl := downloaded[id]
 				if !untouched(id) {
+					// 出どころ不明の版からユーザーが編集を続けた: 分けない。base はクラウドの版のままなので、
+					// 次の同期でその編集がクラウドの版を上書きする。上書きされる版をここで残す
+					if d.RecoverLocal && backupEnabled && e.opts.backup != nil {
+						if err := e.opts.backup("local_wins", dl.note, nil); err != nil {
+							e.logger.Console("Sync: failed to backup remote note %s: %v", id, err)
+						}
+						e.logger.InfoCode(MsgDriveConflictKeepLocal, map[string]interface{}{"noteId": id})
+					}
 					continue
 				}
-				dl := downloaded[id]
+				var fork *Note
+				if d.RecoverLocal {
+					// 上書きする前に、ローカルの版を新しい ID の別ノート（復帰ノート）として残す。残せなければ上書きしない
+					var err error
+					if fork, err = e.recoverLocalLocked(id); err != nil {
+						e.logger.Console("Sync: failed to keep local note %s as a recovered note: %v", id, err)
+						report.Failures++
+						continue
+					}
+				}
 				if d.BackupLocal && backupEnabled && e.opts.backup != nil {
 					if local, err := e.notes.loadNoteLocked(id); err == nil {
 						if err := e.opts.backup("cloud_wins", local, dl.note); err != nil {
@@ -375,7 +472,13 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 				if err := e.notes.saveNoteFromSyncLocked(&write); err != nil {
 					e.logger.ErrorCode(err, MsgDriveErrorSaveDownloadedNote, map[string]interface{}{"noteId": id})
 					report.Failures++
+					if fork != nil {
+						_ = e.notes.deleteNoteFromSyncLocked(fork.ID) // 元のノートがローカルの版のままなので分けない
+					}
 					continue
+				}
+				if fork != nil {
+					recovered = append(recovered, recoveredLocal{originalID: id, note: fork})
 				}
 				applied[id] = true
 				report.LocalChanged = true
@@ -408,10 +511,19 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			if removedLocally[meta.ID] || finalIDs[meta.ID] {
 				continue
 			}
-			if applied[meta.ID] {
+			up, wasUploaded := uploaded[meta.ID]
+			switch {
+			case applied[meta.ID]:
 				dl := downloaded[meta.ID]
 				finals = append(finals, metaOfNote(dl.note, dl.hash))
-			} else {
+			case wasUploaded && untouched(meta.ID):
+				// 送った本体に合わせる（一覧の記録が本体と食い違っていても、ここで直る）
+				finals = append(finals, metaOfNote(up.note, up.hash))
+			case verified[meta.ID] != nil && untouched(meta.ID) && decisions[meta.ID].Kind != decisionSkip:
+				// 判定できなかったノートの記録は直さない（直すと次からローカルの編集として送ってしまう）
+				note := verified[meta.ID]
+				finals = append(finals, metaOfNote(note, computeContentHash(note)))
+			default:
 				finals = append(finals, meta)
 			}
 			finalIDs[meta.ID] = true
@@ -422,6 +534,10 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 				finals = append(finals, metaOfNote(dl.note, dl.hash))
 				finalIDs[id] = true
 			}
+		}
+		for _, r := range recovered {
+			finals = append(finals, metaOfNote(r.note, computeContentHash(r.note)))
+			finalIDs[r.note.ID] = true
 		}
 		// Drive には本体があるがローカルに無いノート（ダウンロード失敗など）はクラウドの記載を保つ
 		passThrough := map[string]bool{}
@@ -441,7 +557,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 
 		merged := mergeNoteList(mergeNoteListInput{
 			Base:   base.NoteList,
-			Local:  current,
+			Local:  withRecoveredNotes(current, recovered),
 			Remote: remoteList,
 			Notes:  append(append([]NoteMetadata{}, finals...), passMetas...),
 		})
@@ -489,6 +605,10 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 	})
 	if commitErr != nil {
 		return report, false, fmt.Errorf("failed to save merged note list: %w", commitErr)
+	}
+	for _, r := range recovered {
+		e.state.MarkNoteDirty(r.note.ID)
+		e.logger.InfoCode(MsgDriveSyncRecoveredNote, map[string]interface{}{"noteId": r.note.ID, "title": r.note.Title})
 	}
 
 	// ---- 6. ノート単位の base（このサイクルで確定した事実）----
@@ -615,7 +735,81 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 	}
 	e.state.CompleteSync(revision, resolvedDeletions, report.Failures == 0)
 	e.notifyLocalChange(report)
-	return report, false, nil
+	if report.Failures == 0 {
+		e.verifiedAll = true
+	}
+	// 復帰ノートはローカルにだけある。続けてもう一度同期して Drive に送る
+	return report, len(recovered) > 0, nil
+}
+
+// recoverLocalLocked はローカルの版を新しい ID の別ノート（復帰ノート）として保存する（noteService のロック内）。
+// noteList への登録はマージで行う（withRecoveredNotes）。
+func (e *syncEngine) recoverLocalLocked(id string) (*Note, error) {
+	local, err := e.notes.loadNoteLocked(id)
+	if err != nil {
+		return nil, err
+	}
+	fork := *local
+	fork.ID = uuid.New().String()
+	fork.Title = e.recoveredTitle(local.Title)
+	fork.ContentHeader = generateContentHeader(fork.Content)
+	fork.FolderID = ""
+	fork.Syncing = false
+	if err := e.notes.saveNoteFromSyncLocked(&fork); err != nil {
+		return nil, err
+	}
+	return &fork, nil
+}
+
+func (e *syncEngine) recoveredTitle(title string) string {
+	if e.opts.recoveredTitle != nil {
+		return e.opts.recoveredTitle(title)
+	}
+	return recoveredNoteTitle(title, LocaleEnglish)
+}
+
+// withRecoveredNotes は復帰ノートを元のノートのすぐ下（同じフォルダ / 同じ系列）に置いた noteList のコピーを返す。
+// マージの local 側に使う（base にも remote にも無いので「ローカルで追加した位置」がそのまま残る）。
+func withRecoveredNotes(list *NoteList, recovered []recoveredLocal) *NoteList {
+	if len(recovered) == 0 {
+		return list
+	}
+	out := *list
+	out.Notes = append([]NoteMetadata{}, list.Notes...)
+	out.TopLevelOrder = append([]TopLevelItem{}, list.TopLevelOrder...)
+	out.ArchivedTopLevelOrder = append([]TopLevelItem{}, list.ArchivedTopLevelOrder...)
+	for _, r := range recovered {
+		meta := metaOfNote(r.note, computeContentHash(r.note))
+		at := len(out.Notes)
+		for i, m := range out.Notes {
+			if m.ID == r.originalID {
+				meta.FolderID = m.FolderID
+				at = i + 1
+				break
+			}
+		}
+		out.Notes = append(out.Notes[:at], append([]NoteMetadata{meta}, out.Notes[at:]...)...)
+		if meta.FolderID != "" {
+			continue
+		}
+		item := TopLevelItem{Type: "note", ID: meta.ID}
+		if meta.Archived {
+			out.ArchivedTopLevelOrder = insertNoteItemAfter(out.ArchivedTopLevelOrder, r.originalID, item)
+		} else {
+			out.TopLevelOrder = insertNoteItemAfter(out.TopLevelOrder, r.originalID, item)
+		}
+	}
+	return &out
+}
+
+// insertNoteItemAfter は順序の中で afterID のノートの直後に item を入れる（見つからなければ先頭）。
+func insertNoteItemAfter(order []TopLevelItem, afterID string, item TopLevelItem) []TopLevelItem {
+	for i, it := range order {
+		if it.Type == "note" && it.ID == afterID {
+			return append(order[:i+1], append([]TopLevelItem{item}, order[i+1:]...)...)
+		}
+	}
+	return append([]TopLevelItem{item}, order...)
 }
 
 func (e *syncEngine) notifyLocalChange(report syncReport) {

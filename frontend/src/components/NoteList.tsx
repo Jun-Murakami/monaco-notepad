@@ -50,7 +50,7 @@ import {
 } from '@mui/material';
 
 import { SaveFileNotes, UpdateNoteOrder } from '../../wailsjs/go/backend/App';
-import { formatNoteDate } from '../utils/dateFormat';
+import { formatNoteDateTime } from '../utils/dateFormat';
 import { NotePreviewPopper } from './NotePreviewPopper';
 import {
   insertTopLevelNote,
@@ -201,7 +201,11 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     const cmdKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
     const { t } = useTranslation();
     const noteTitle = getNoteTitle(note);
-    const formattedDate = formatNoteDate(note.modifiedTime, systemLocale);
+    // 更新日時は一覧には出さず、ホバープレビューの 1 行目に出す
+    const modifiedDateTime = formatNoteDateTime(
+      note.modifiedTime,
+      systemLocale,
+    );
     const [contextMenu, setContextMenu] = useState<{
       mouseX: number;
       mouseY: number;
@@ -229,6 +233,7 @@ const NoteItem: React.FC<NoteItemProps> = memo(
     return (
       <NotePreviewPopper
         content={'content' in note ? (note.content ?? undefined) : undefined}
+        header={modifiedDateTime || undefined}
         disabled={contextMenu !== null || isSyncing || !!isDragging}
       >
         <Box
@@ -300,20 +305,6 @@ const NoteItem: React.FC<NoteItemProps> = memo(
               )}
               {noteTitle.text}
             </Typography>
-            {formattedDate && (
-              <Typography
-                variant="caption"
-                sx={{
-                  width: '100%',
-                  color: 'text.disabled',
-                  fontSize: '0.8rem',
-                  lineHeight: 1.2,
-                  mt: 0.25,
-                }}
-              >
-                {formattedDate}
-              </Typography>
-            )}
           </ListItemButton>
           {isFileMode ? (
             <>

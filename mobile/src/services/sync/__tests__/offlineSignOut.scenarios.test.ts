@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DesktopPeer } from '@/test/desktopPeer';
 import { FakeDrive } from '@/test/fakeDrive';
 import { MobileDevice } from '@/test/mobileDevice';
+import { computeContentHash } from '../hash';
 import { saveNoteLocally } from '../localActions';
+import {
+	MAX_RECOVERED_NOTES_PER_SYNC,
+	recoveredNoteTitle,
+} from '../syncEngine';
 
 /**
  * オフライン / 連携解除中のノート操作と、復帰時の競合解決（端末間シナリオ）。
@@ -538,5 +543,253 @@ describe('復帰時の競合（シミュレーションで見つかったレー�
 		expect(backupsOf(other)).toEqual([
 			['local_wins', 'A', 'edited later on mobile'],
 		]);
+	});
+});
+
+describe('ノート一覧の記録（contentHash）と本体の食い違い', () => {
+	/** ノート本体が Drive に書き込まれた回数。 */
+	function uploadCount(id: string): number {
+		return drive.noteHistory.filter(
+			(h) => h.kind === 'upload' && h.name === `${id}.json`,
+		).length;
+	}
+
+	/** ノート一覧に記録された contentHash だけを本体と食い違わせる（旧版や保存途中の中断で起きうる状態）。 */
+	async function setStaleListHash(d: MobileDevice, id: string): Promise<void> {
+		await d.notes.transact(async (tx) => {
+			const list = tx.list();
+			await tx.setNoteList({
+				...list,
+				notes: list.notes.map((n) =>
+					n.id === id
+						? { ...n, contentHash: 'stale-hash-from-an-older-version' }
+						: n,
+				),
+			});
+		});
+	}
+
+	it('記録が古いだけで中身が同じノートを送り続けない（記録は本体に合わせて直る）', async () => {
+		await setStaleListHash(mobile, 'A');
+		const before = uploadCount('A');
+
+		for (let i = 0; i < 5; i++) {
+			await mobile.sync();
+			await other.sync();
+		}
+
+		expect(uploadCount('A')).toBe(before);
+		const note = await mobile.readNote('A');
+		if (!note) throw new Error('A missing');
+		expect(mobile.list().notes.find((n) => n.id === 'A')?.contentHash).toBe(
+			await computeContentHash(note),
+		);
+	});
+
+	it('一覧が知らないうちに本体が変わっていたら、勝敗を決めずに復帰ノートとして残す', async () => {
+		// mobile の本体だけが（一覧の記録を更新しないまま）別の内容になっている
+		await changeFileBehindList(
+			mobile,
+			'A',
+			'local file content the list does not know about',
+		);
+		// 相手が A を編集する
+		await other.editNote('A', { content: 'other edit' });
+
+		await mobile.sync();
+		// A は相手の版になり、mobile の本体の内容は復帰ノートとして残る（バックアップではなく別のノート）
+		expect(await contentOf(mobile, 'A')).toBe('other edit');
+		expect(await recoveredNotes(mobile)).toEqual({
+			'A (Recovered)': 'local file content the list does not know about',
+		});
+		expect(backupsOf(mobile)).toEqual([]);
+	});
+});
+
+// ---- 出どころ不明のローカルの内容（復帰ノート） ----
+
+/** ノート一覧の記録を変えずに本体だけを書き換える（過去のバージョンの不具合で起きた状態）。 */
+async function changeFileBehindList(
+	d: MobileDevice,
+	id: string,
+	content: string,
+): Promise<void> {
+	const note = await d.readNote(id);
+	if (!note) throw new Error(`${id} missing`);
+	await d.notes.transact((tx) => tx.writeNoteFile({ ...note, content }));
+}
+
+/** 復帰ノートのタイトル → 内容（このテストのノートは ID とタイトルが同じなので、それ以外）。 */
+async function recoveredNotes(
+	d: MobileDevice,
+): Promise<Record<string, string>> {
+	const out: Record<string, string> = {};
+	for (const m of d.list().notes) {
+		if (m.id === m.title) continue;
+		out[m.title] = (await contentOf(d, m.id)) ?? '';
+	}
+	return out;
+}
+
+function recoveredNoteId(d: MobileDevice): string | undefined {
+	return d.list().notes.find((m) => m.id !== m.title)?.id;
+}
+
+/** ノート一覧の記録が本体と一致しているか。 */
+async function listHashMatchesFile(
+	d: MobileDevice,
+	id: string,
+): Promise<boolean> {
+	const note = await d.readNote(id);
+	if (!note) throw new Error(`${id} missing`);
+	return (
+		d.list().notes.find((m) => m.id === id)?.contentHash ===
+		(await computeContentHash(note))
+	);
+}
+
+describe('出どころ不明のローカルの内容（復帰ノート）', () => {
+	it('起動後の最初の同期で見つけ、元のノートのすぐ下に復帰ノートとして残す', async () => {
+		await changeFileBehindList(mobile, 'A', 'only on this mobile');
+		// 同期の判定だけでは気づかない（記録も base も同じ）。起動後の最初の同期で全ノートを本体と照合する
+		await mobile.restart();
+
+		await syncBoth();
+		const recovered = recoveredNoteId(mobile);
+		if (!recovered) throw new Error('recovered note missing');
+		for (const d of [mobile, other]) {
+			expect(await contentOf(d, 'A')).toBe('a1');
+			expect(await recoveredNotes(d)).toEqual({
+				'A (Recovered)': 'only on this mobile',
+			});
+			expect(d.topLevelNoteIds()).toEqual(['B', 'A', recovered]);
+			expect(backupsOf(d)).toEqual([]);
+		}
+		expect(cloudContent(recovered)).toBe('only on this mobile');
+		expect(await listHashMatchesFile(mobile, 'A')).toBe(true);
+
+		// 一度分けたら繰り返さない
+		await mobile.restart();
+		await syncBoth();
+		expect(Object.keys(await recoveredNotes(mobile))).toHaveLength(1);
+	});
+
+	it('復帰ノートは同じフォルダの、元のノートのすぐ下に入る', async () => {
+		const folder = await other.createFolder('F');
+		await other.moveNoteToFolder('A', folder);
+		await other.moveNoteToFolder('B', folder);
+		await other.sync();
+		await mobile.sync();
+		const inFolder = (d: MobileDevice) =>
+			d
+				.list()
+				.notes.filter((m) => m.folderId === folder)
+				.map((m) => m.id);
+		const before = inFolder(mobile);
+		expect([...before].sort()).toEqual(['A', 'B']);
+		await changeFileBehindList(mobile, 'B', 'only on this mobile');
+		await mobile.restart();
+
+		await syncBoth();
+		const recovered = recoveredNoteId(mobile);
+		if (!recovered) throw new Error('recovered note missing');
+		const want = before.flatMap((id) => (id === 'B' ? [id, recovered] : [id]));
+		for (const d of [mobile, other]) {
+			expect(await recoveredNotes(d)).toEqual({
+				'B (Recovered)': 'only on this mobile',
+			});
+			expect(inFolder(d)).toEqual(want);
+		}
+	});
+
+	it('一度に大量に食い違うときは分けず、送らず、記録も直さない', async () => {
+		const ids: string[] = [];
+		for (let i = 0; i <= MAX_RECOVERED_NOTES_PER_SYNC; i++) {
+			const id = `N${String(i).padStart(2, '0')}`;
+			await other.createNote({ id, title: id, content: `synced ${id}` });
+			ids.push(id);
+		}
+		await mobile.sync();
+		for (const id of ids) {
+			await changeFileBehindList(mobile, id, `local ${id}`);
+		}
+		const historyBefore = drive.noteHistory.length;
+		await mobile.restart();
+
+		await mobile.sync();
+		expect(await recoveredNotes(mobile)).toEqual({});
+		for (const id of ids) {
+			expect(await contentOf(mobile, id)).toBe(`local ${id}`);
+			expect(cloudContent(id)).toBe(`synced ${id}`);
+			expect(await listHashMatchesFile(mobile, id)).toBe(false);
+		}
+		expect(drive.noteHistory.length).toBe(historyBefore);
+	});
+
+	it('リモートの版を取れなかったら分けず、次の同期でやり直す', async () => {
+		await changeFileBehindList(mobile, 'A', 'only on this mobile');
+		await mobile.restart();
+		drive.failWhen(
+			(r) =>
+				r.deviceId === 'mobile' &&
+				r.op === 'files.download' &&
+				r.fileName === 'A.json',
+			500,
+			1,
+		);
+
+		await mobile.sync();
+		expect(await recoveredNotes(mobile)).toEqual({});
+		expect(await contentOf(mobile, 'A')).toBe('only on this mobile');
+
+		await syncBoth();
+		expect(await contentOf(mobile, 'A')).toBe('a1');
+		expect(await recoveredNotes(mobile)).toEqual({
+			'A (Recovered)': 'only on this mobile',
+		});
+	});
+
+	it('同期中にユーザーが編集を続けたら分けず、上書きされるクラウドの版をバックアップに残す', async () => {
+		await changeFileBehindList(mobile, 'A', 'only on this mobile');
+		await mobile.restart();
+		drive.beforeRequest(
+			(r) =>
+				r.deviceId === 'mobile' &&
+				r.op === 'files.download' &&
+				r.fileName === 'A.json',
+			async () => {
+				const a = await mobile.readNote('A');
+				if (!a) throw new Error('A missing');
+				await saveNoteLocally(mobile.notes, mobile.state, {
+					...a,
+					content: 'edited during sync',
+					modifiedTime: drive.now(),
+				});
+			},
+		);
+
+		await mobile.sync();
+		await syncBoth();
+		expect(await recoveredNotes(mobile)).toEqual({});
+		expect(await contentOf(mobile, 'A')).toBe('edited during sync');
+		expect(await contentOf(other, 'A')).toBe('edited during sync');
+		expect(backupsOf(mobile)).toEqual([['local_wins', 'A', 'a1']]);
+	});
+
+	it('相手が削除していたら分けずに、手元の内容で復元する（編集は削除に勝つ）', async () => {
+		await other.deleteNoteOffline('A');
+		await other.sync();
+		await changeFileBehindList(mobile, 'A', 'only on this mobile');
+		await mobile.restart();
+
+		await syncBoth();
+		expect(await recoveredNotes(mobile)).toEqual({});
+		expect(await contentOf(mobile, 'A')).toBe('only on this mobile');
+		expect(await contentOf(other, 'A')).toBe('only on this mobile');
+	});
+
+	it('タイトルの接尾辞は UI の言語に合わせる', () => {
+		expect(recoveredNoteTitle('A', 'ja')).toBe('A(復帰済み)');
+		expect(recoveredNoteTitle('A', 'en')).toBe('A (Recovered)');
 	});
 });

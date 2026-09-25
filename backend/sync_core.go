@@ -42,11 +42,14 @@ type remoteNoteState struct {
 
 // decideNoteInput の Downloaded を nil で呼ぶのがフェーズ1、ダウンロード結果を入れて呼ぶのがフェーズ2。
 type decideNoteInput struct {
-	Local        *noteSideState   `json:"local,omitempty"`      // ローカルに存在する（本体が読める）
-	LocalDeleted bool             `json:"localDeleted"`         // ユーザー操作で削除が記録されている
-	Base         *baseNoteState   `json:"base,omitempty"`       // 前回同期時点（md5 は欠けうる）
-	Remote       *remoteNoteState `json:"remote,omitempty"`     // Drive に本体ファイルがある
-	Downloaded   *noteSideState   `json:"downloaded,omitempty"` // フェーズ2のダウンロード結果
+	Local        *noteSideState `json:"local,omitempty"` // ローカルに存在する（本体が読める）
+	LocalDeleted bool           `json:"localDeleted"`    // ユーザー操作で削除が記録されている
+	// LocalUnrecorded はローカルの本体が、ノート一覧の記録とも前回同期した版（base）とも違い、編集の記録も無い
+	// （出どころ不明の内容。過去のバージョンの不具合の名残など）。どちらの版が正しいか分からないので両方残す。
+	LocalUnrecorded bool             `json:"localUnrecorded,omitempty"`
+	Base            *baseNoteState   `json:"base,omitempty"`       // 前回同期時点（md5 は欠けうる）
+	Remote          *remoteNoteState `json:"remote,omitempty"`     // Drive に本体ファイルがある
+	Downloaded      *noteSideState   `json:"downloaded,omitempty"` // フェーズ2のダウンロード結果
 }
 
 type decisionKind string
@@ -66,6 +69,8 @@ type noteDecision struct {
 	BackupLocal bool // applyRemote / deleteLocal: 上書き・削除する前にローカルの版を残す
 	// BackupRemote は upload で、真の競合でローカルが勝った。負けたリモートの版を勝った端末に残す。
 	BackupRemote bool
+	// RecoverLocal は applyRemote で、上書きする前のローカルの版を新しい ID の別ノート（復帰ノート）として残す。
+	RecoverLocal bool
 }
 
 func decideNote(in decideNoteInput) noteDecision {
@@ -106,6 +111,19 @@ func decideNote(in decideNoteInput) noteDecision {
 			return noteDecision{Kind: decisionUpload}
 		}
 		return noteDecision{Kind: decisionDeleteLocal, BackupLocal: true}
+	}
+
+	// 出どころ不明のローカルの内容: どちらの版が正しいか分からない（時刻も当てにならない）ので勝敗は決めない。
+	// リモートの版を取り込み、ローカルの版は別ノート（復帰ノート）として残す。リモートで削除されていれば
+	// 上の「編集は削除に勝つ」で復元される。
+	if in.LocalUnrecorded && base != nil && local.Hash != base.Hash {
+		if downloaded == nil {
+			return noteDecision{Kind: decisionDownload}
+		}
+		if downloaded.Hash == local.Hash {
+			return noteDecision{Kind: decisionNone}
+		}
+		return noteDecision{Kind: decisionApplyRemote, RecoverLocal: true}
 	}
 
 	if base != nil && base.Md5 != "" && remote.Md5 == base.Md5 {

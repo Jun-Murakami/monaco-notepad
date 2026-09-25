@@ -240,6 +240,8 @@ const (
 	MsgDriveSyncDownloadNote        = "drive.sync.downloadNote"
 	MsgDriveSyncDownloadRemoteNote  = "drive.sync.downloadRemoteNote"
 	MsgDriveSyncRemoveLocalDeleted  = "drive.sync.removeLocalDeleted"
+	MsgDriveSyncRecoveredNote       = "drive.sync.recoveredNote"
+	MsgDriveSyncRecoveryLimited     = "drive.sync.recoveryLimited"
 	MsgDriveNoteAlreadyAbsent       = "drive.noteAlreadyAbsent"
 	MsgDriveNoteMissingRemoveList   = "drive.noteMissingRemoveList"
 	MsgDriveNoteMissingUploadLocal  = "drive.noteMissingUploadLocal"

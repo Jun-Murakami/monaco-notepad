@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { formatNoteDate, formatNoteDateTime } from '../../utils/dateFormat';
 import { insertTopLevelNote, moveTopLevelItem, NoteList } from '../NoteList';
 
 import type { FileNote, Folder, Note, TopLevelItem } from '../../types';
@@ -125,6 +126,50 @@ describe('NoteList', () => {
 
     expect(screen.getByText('Note 1')).toBeInTheDocument();
     expect(screen.getByText('First line Second line')).toBeInTheDocument();
+  });
+
+  describe('更新日時の表示', () => {
+    const locale = 'ja-JP';
+
+    it('一覧の各行には日付を表示しないこと', () => {
+      render(<NoteList {...defaultProps} systemLocale={locale} />);
+      expect(
+        screen.queryByText(formatNoteDate(mockNotes[0].modifiedTime, locale)),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          formatNoteDateTime(mockNotes[0].modifiedTime, locale),
+        ),
+      ).not.toBeInTheDocument();
+    });
+
+    it('ホバープレビューの 1 行目に日付と時刻を表示すること', async () => {
+      render(<NoteList {...defaultProps} systemLocale={locale} />);
+      const dateTime = formatNoteDateTime(mockNotes[0].modifiedTime, locale);
+
+      fireEvent.mouseEnter(screen.getByText('Note 1'));
+
+      const header = await screen.findByText(dateTime);
+      const preview = await screen.findByText('Content 1');
+      // 日付と時刻が本文より前（1 行目）にある
+      expect(
+        header.compareDocumentPosition(preview) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it('本文が空のノートでもホバーで日付と時刻を表示すること', async () => {
+      const empty: Note = { ...mockNotes[0], id: 'empty', content: '' };
+      render(
+        <NoteList {...defaultProps} notes={[empty]} systemLocale={locale} />,
+      );
+
+      fireEvent.mouseEnter(screen.getByText('Note 1'));
+
+      expect(
+        await screen.findByText(formatNoteDateTime(empty.modifiedTime, locale)),
+      ).toBeInTheDocument();
+    });
   });
 
   it('ファイルノートが正しく表示されること', () => {

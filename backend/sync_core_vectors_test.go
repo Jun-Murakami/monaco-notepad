@@ -181,6 +181,7 @@ func TestSpecVectors_DecideNote(t *testing.T) {
 				Kind         string `json:"kind"`
 				BackupLocal  bool   `json:"backupLocal"`
 				BackupRemote bool   `json:"backupRemote"`
+				RecoverLocal bool   `json:"recoverLocal"`
 			} `json:"expected"`
 		} `json:"cases"`
 	}
@@ -191,6 +192,9 @@ func TestSpecVectors_DecideNote(t *testing.T) {
 			assert.Equal(t, c.Expected.Kind, string(d.Kind))
 			if d.Kind == decisionApplyRemote || d.Kind == decisionDeleteLocal {
 				assert.Equal(t, c.Expected.BackupLocal, d.BackupLocal)
+			}
+			if d.Kind == decisionApplyRemote {
+				assert.Equal(t, c.Expected.RecoverLocal, d.RecoverLocal)
 			}
 			if d.Kind == decisionUpload {
 				assert.Equal(t, c.Expected.BackupRemote, d.BackupRemote)

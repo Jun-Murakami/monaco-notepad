@@ -2,6 +2,9 @@ package backend
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -558,4 +561,273 @@ func TestClockSkew_DeviceAheadMayRevertLaterEditButKeepsItInBackup(t *testing.T)
 	p.syncBoth()
 	assert.Equal(t, "edited on a clock that runs ahead", p.content(p.desk, "A"))
 	assert.Equal(t, [][3]string{{"local_wins", "A", "edited later on desktop"}}, p.other.backups())
+}
+
+// ---- ノート一覧の記録（ContentHash）と本体の食い違い ----
+
+// uploadCount はノート本体が Drive に書き込まれた回数。
+func (p *offlinePair) uploadCount(id string) int {
+	n := 0
+	for _, h := range p.fd.NoteHistory() {
+		if h.Name == id+".json" && h.Kind == "upload" {
+			n++
+		}
+	}
+	return n
+}
+
+// setStaleListHash はノート一覧に記録された ContentHash だけを本体と食い違わせる
+// （旧バージョンや保存途中の中断で起きうる状態）。
+func (p *offlinePair) setStaleListHash(d *desktopDevice, id string) {
+	p.t.Helper()
+	d.ns.WithLock(func() {
+		for i, m := range d.ns.noteList.Notes {
+			if m.ID == id {
+				d.ns.noteList.Notes[i].ContentHash = "stale-hash-from-an-older-version"
+			}
+		}
+		require.NoError(p.t, d.ns.saveNoteList())
+	})
+}
+
+func TestListHash_StaleHashDoesNotCauseEndlessReupload(t *testing.T) {
+	p := newOfflinePair(t)
+	p.setStaleListHash(p.desk, "A")
+	before := p.uploadCount("A")
+
+	for i := 0; i < 5; i++ {
+		p.desk.sync()
+		p.other.sync()
+	}
+
+	assert.Equal(t, before, p.uploadCount("A"), "中身が変わっていないノートを送り続けた")
+	note, err := p.desk.readNote("A")
+	require.NoError(t, err)
+	for _, m := range p.desk.ns.SnapshotNoteList().Notes {
+		if m.ID == "A" {
+			assert.Equal(t, computeContentHash(note), m.ContentHash, "ノート一覧の記録が本体に合わせて直っていない")
+		}
+	}
+}
+
+func TestListHash_FileChangedBehindTheListIsKeptAsRecoveredNote(t *testing.T) {
+	p := newOfflinePair(t)
+	p.setUILanguage(p.desk, "en")
+	// desk の本体だけが（一覧の記録を更新しないまま）別の内容になっている
+	p.changeFileBehindList(p.desk, "A", "local file content the list does not know about")
+	// 相手が A を編集する
+	p.edit(p.other, "A", "other edit")
+	p.other.sync()
+
+	p.desk.sync()
+	// どちらが正しいか分からないので勝敗は決めない: A は相手の版になり、desk の本体の内容は復帰ノートとして残る
+	assert.Equal(t, "other edit", p.content(p.desk, "A"))
+	assert.Equal(t, map[string]string{"A (Recovered)": "local file content the list does not know about"}, p.recoveredNotes(p.desk))
+	assert.Equal(t, noBackups(), p.desk.backups())
+}
+
+// ---- 出どころ不明のローカルの内容（復帰ノート） ----
+
+// changeFileBehindList はノート一覧の記録を変えずに本体だけを書き換える（過去のバージョンの不具合で起きた状態）。
+func (p *offlinePair) changeFileBehindList(d *desktopDevice, id, content string) {
+	p.t.Helper()
+	note, err := d.readNote(id)
+	require.NoError(p.t, err)
+	changed := *note
+	changed.Content = content
+	d.ns.WithLock(func() {
+		require.NoError(p.t, d.ns.saveNoteFromSyncLocked(&changed))
+	})
+}
+
+// recoveredNotes は復帰ノートのタイトル → 内容（元のノートの ID でもタイトルでもないノート）。
+func (p *offlinePair) recoveredNotes(d *desktopDevice) map[string]string {
+	p.t.Helper()
+	got := map[string]string{}
+	for _, m := range d.ns.SnapshotNoteList().Notes {
+		if m.ID == m.Title {
+			continue // このテストのノートは ID とタイトルが同じ
+		}
+		got[m.Title] = p.content(d, m.ID)
+	}
+	return got
+}
+
+// recoveredNoteID は復帰ノートの ID（無ければ空）。
+func (p *offlinePair) recoveredNoteID(d *desktopDevice) string {
+	for _, m := range d.ns.SnapshotNoteList().Notes {
+		if m.ID != m.Title {
+			return m.ID
+		}
+	}
+	return ""
+}
+
+// setUILanguage は設定の UI 言語を変える（復帰ノートのタイトルに使う。未設定だとシステムの言語になる）。
+func (p *offlinePair) setUILanguage(d *desktopDevice, uiLanguage string) {
+	p.t.Helper()
+	require.NoError(p.t, os.WriteFile(filepath.Join(d.dir, "settings.json"), []byte(`{"uiLanguage":"`+uiLanguage+`"}`), 0644))
+}
+
+// relaunch はアプリを再起動して Drive に接続し直す（UI の言語を指定する）。
+func (p *offlinePair) relaunch(d *desktopDevice, uiLanguage string) {
+	p.t.Helper()
+	p.setUILanguage(d, uiLanguage)
+	d.restart()
+	d.connect()
+}
+
+// listHashMatchesFile はノート一覧の記録が本体と一致しているか。
+func listHashMatchesFile(t *testing.T, d *desktopDevice, id string) bool {
+	t.Helper()
+	note, err := d.readNote(id)
+	require.NoError(t, err)
+	for _, m := range d.ns.SnapshotNoteList().Notes {
+		if m.ID == id {
+			return m.ContentHash == computeContentHash(note)
+		}
+	}
+	return false
+}
+
+func TestRecover_UnrecordedLocalContentIsKeptAsRecoveredNoteAfterRelaunch(t *testing.T) {
+	p := newOfflinePair(t)
+	p.changeFileBehindList(p.desk, "A", "only on this desk")
+	// 同期の判定だけでは気づかない（記録も base も同じ）。起動後の最初の同期で全ノートを本体と照合して見つける
+	p.relaunch(p.desk, "ja")
+
+	p.syncBoth()
+	recovered := p.recoveredNoteID(p.desk)
+	require.NotEmpty(t, recovered)
+	for _, d := range []*desktopDevice{p.desk, p.other} {
+		assert.Equal(t, "a1", p.content(d, "A"), d.name)
+		assert.Equal(t, map[string]string{"A(復帰済み)": "only on this desk"}, p.recoveredNotes(d), d.name)
+		assert.Equal(t, []string{"B", "A", recovered}, d.topLevelNoteIDs(), "復帰ノートは元のノートのすぐ下に入る")
+		assert.Equal(t, noBackups(), d.backups(), d.name)
+	}
+	got, ok := p.cloudContent(recovered)
+	require.True(t, ok)
+	assert.Equal(t, "only on this desk", got)
+	assert.True(t, listHashMatchesFile(t, p.desk, "A"))
+
+	// 一度分けたら繰り返さない
+	p.relaunch(p.desk, "ja")
+	p.syncBoth()
+	assert.Len(t, p.recoveredNotes(p.desk), 1)
+}
+
+func TestRecover_RecoveredNoteStaysInTheSameFolder(t *testing.T) {
+	p := newOfflinePair(t)
+	folder := p.other.createFolder("F")
+	p.other.moveNoteToFolder("A", folder)
+	p.other.moveNoteToFolder("B", folder)
+	p.other.sync()
+	p.desk.sync()
+	inFolder := func(d *desktopDevice) []string {
+		var ids []string
+		for _, m := range d.ns.SnapshotNoteList().Notes {
+			if m.FolderID == folder {
+				ids = append(ids, m.ID)
+			}
+		}
+		return ids
+	}
+	before := inFolder(p.desk)
+	require.ElementsMatch(t, []string{"A", "B"}, before)
+	p.changeFileBehindList(p.desk, "B", "only on this desk")
+	p.relaunch(p.desk, "en")
+
+	p.syncBoth()
+	recovered := p.recoveredNoteID(p.desk)
+	require.NotEmpty(t, recovered)
+	want := []string{}
+	for _, id := range before {
+		want = append(want, id)
+		if id == "B" {
+			want = append(want, recovered)
+		}
+	}
+	for _, d := range []*desktopDevice{p.desk, p.other} {
+		assert.Equal(t, map[string]string{"B (Recovered)": "only on this desk"}, p.recoveredNotes(d), d.name)
+		assert.Equal(t, want, inFolder(d), "復帰ノートは同じフォルダの、元のノートのすぐ下に入る")
+	}
+}
+
+func TestRecover_TooManyAtOnceAreLeftAsIs(t *testing.T) {
+	p := newOfflinePair(t)
+	var ids []string
+	for i := 0; i <= maxRecoveredNotesPerSync; i++ {
+		id := fmt.Sprintf("N%02d", i)
+		p.create(p.other, id, "synced "+id)
+		ids = append(ids, id)
+	}
+	p.other.sync()
+	p.desk.sync()
+	for _, id := range ids {
+		p.changeFileBehindList(p.desk, id, "local "+id)
+	}
+	uploadsBefore := len(p.fd.NoteHistory())
+	p.relaunch(p.desk, "ja")
+
+	p.desk.sync()
+	// 一度に大量に食い違うのは仕組み側の問題の疑いがあるので、分けずにそのままにする（何も失わない・何も送らない）
+	assert.Empty(t, p.recoveredNotes(p.desk))
+	for _, id := range ids {
+		assert.Equal(t, "local "+id, p.content(p.desk, id))
+		got, _ := p.cloudContent(id)
+		assert.Equal(t, "synced "+id, got)
+		assert.False(t, listHashMatchesFile(t, p.desk, id), "記録を本体に合わせると次からローカルの編集として送ってしまう")
+	}
+	assert.Equal(t, uploadsBefore, len(p.fd.NoteHistory()))
+}
+
+func TestRecover_DownloadFailureIsRetriedOnNextSync(t *testing.T) {
+	p := newOfflinePair(t)
+	p.changeFileBehindList(p.desk, "A", "only on this desk")
+	p.relaunch(p.desk, "ja")
+	p.fd.FailWhen(func(r fakeRequest) bool {
+		return r.Device == "desktop" && r.Op == "files.download" && r.FileName == "A.json"
+	}, 500, 1)
+
+	p.desk.sync()
+	assert.Empty(t, p.recoveredNotes(p.desk))
+	assert.Equal(t, "only on this desk", p.content(p.desk, "A"))
+
+	p.syncBoth()
+	assert.Equal(t, "a1", p.content(p.desk, "A"))
+	assert.Equal(t, map[string]string{"A(復帰済み)": "only on this desk"}, p.recoveredNotes(p.desk))
+}
+
+func TestRecover_EditDuringSyncKeepsCloudVersionInBackup(t *testing.T) {
+	p := newOfflinePair(t)
+	p.changeFileBehindList(p.desk, "A", "only on this desk")
+	p.relaunch(p.desk, "ja")
+	// 同期中（リモートの版を取りに行っている間）にユーザーが A を編集する
+	p.fd.BeforeRequest(func(r fakeRequest) bool {
+		return r.Device == "desktop" && r.Op == "files.download" && r.FileName == "A.json"
+	}, func(fakeRequest) {
+		p.edit(p.desk, "A", "edited during sync")
+	})
+
+	p.desk.sync()
+	p.syncBoth()
+	// ユーザーが手元の版から編集を続けたので分けない。上書きされるクラウドの版はバックアップに残す
+	assert.Empty(t, p.recoveredNotes(p.desk))
+	assert.Equal(t, "edited during sync", p.content(p.desk, "A"))
+	assert.Equal(t, "edited during sync", p.content(p.other, "A"))
+	assert.Equal(t, [][3]string{{"local_wins", "A", "a1"}}, p.desk.backups())
+}
+
+func TestRecover_RemoteDeletionRestoresLocalContentInsteadOfSplitting(t *testing.T) {
+	p := newOfflinePair(t)
+	p.other.deleteNote("A")
+	p.other.sync()
+	p.changeFileBehindList(p.desk, "A", "only on this desk")
+	p.relaunch(p.desk, "ja")
+
+	p.syncBoth()
+	// 相手は削除したが、手元には相手の知らない内容がある: 編集は削除に勝つ（分けずに元の ID で復元）
+	assert.Empty(t, p.recoveredNotes(p.desk))
+	assert.Equal(t, "only on this desk", p.content(p.desk, "A"))
+	assert.Equal(t, "only on this desk", p.content(p.other, "A"))
 }

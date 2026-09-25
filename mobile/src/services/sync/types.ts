@@ -102,6 +102,8 @@ export const MessageCode = {
 	DriveSyncUploadNote: 'drive.sync.uploadNote',
 	DriveSyncDeleteNote: 'drive.sync.deleteNote',
 	DriveSyncDownloadNote: 'drive.sync.downloadNote',
+	DriveSyncRecoveredNote: 'drive.sync.recoveredNote',
+	DriveSyncRecoveryLimited: 'drive.sync.recoveryLimited',
 	DriveConflictKeepLocal: 'drive.conflict.keepLocal',
 	DriveConflictKeepCloud: 'drive.conflict.keepCloud',
 	OrphanLocalRecoveryDone: 'orphan.localRecoveryDone',

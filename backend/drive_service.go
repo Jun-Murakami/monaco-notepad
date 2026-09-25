@@ -270,6 +270,9 @@ func (s *driveService) buildEngine(useAppData bool) error {
 		backup: func(kind string, local *Note, cloud *Note) error {
 			return backupConflictLocalNote(s.appDataDir, kind, local, cloud)
 		},
+		recoveredTitle: func(title string) string {
+			return recoveredNoteTitle(title, uiLocaleOf(s.appDataDir))
+		},
 	})
 	return nil
 }

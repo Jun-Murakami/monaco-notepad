@@ -1,3 +1,4 @@
+import { uuidv4 } from '../../utils/uuid';
 import { generateContentHeader, type NoteService } from '../notes/noteService';
 import { AsyncLock } from './asyncLock';
 import { sameNoteList } from './codec';
@@ -47,6 +48,8 @@ export interface SyncEngineOptions {
 	backup?: (kind: ConflictBackupKind, note: Note) => Promise<void>;
 	/** noteList の書き込みが他端末と競合したときの最大試行回数（既定 3）。 */
 	maxAttempts?: number;
+	/** 復帰ノートのタイトル（既定は英語の接尾辞）。 */
+	recoveredTitle?: (title: string) => string;
 }
 
 export interface SyncReport {
@@ -61,6 +64,23 @@ export interface SyncReport {
 
 type EngineDecision = NoteDecision | { kind: 'skip' };
 
+/**
+ * 1 回の同期で復帰ノートとして分ける上限。これを超えて食い違うのは個々のノートの不具合の名残ではなく
+ * 仕組み側の問題（ハッシュの計算方法の変更など）が疑われるので、分けずにそのままにする。
+ */
+export const MAX_RECOVERED_NOTES_PER_SYNC = 10;
+
+/** 復帰ノート（出どころ不明のローカルの内容を分けたノート）のタイトル。 */
+export function recoveredNoteTitle(title: string, locale: string): string {
+	return locale === 'ja' ? `${title}(復帰済み)` : `${title} (Recovered)`;
+}
+
+/** 復帰ノートとして分けたローカルの版。 */
+interface RecoveredLocal {
+	originalId: string;
+	note: Note;
+}
+
 interface CycleResult {
 	retry: boolean;
 	report: SyncReport;
@@ -69,6 +89,8 @@ interface CycleResult {
 export class SyncEngine {
 	private readonly lock = new AsyncLock();
 	private baseCache: SyncBase | null | undefined;
+	/** 起動後に全ノートの本体をノート一覧の記録と照合し終えたか（失敗の無いサイクルを 1 回終えたら true）。 */
+	private verifiedAll = false;
 
 	constructor(
 		private readonly gateway: DriveGateway,
@@ -108,6 +130,7 @@ export class SyncEngine {
 		await this.lock.run(async () => {
 			await this.baseStore.clear();
 			this.baseCache = null;
+			this.verifiedAll = false;
 			this.gateway.invalidateLayout();
 		});
 	}
@@ -175,7 +198,6 @@ export class SyncEngine {
 		]);
 		const inputs = new Map<string, DecideNoteInput>();
 		const decisions = new Map<string, EngineDecision>();
-		const toDownload: string[] = [];
 		for (const id of ids) {
 			const remote = remoteFiles.byNoteId.get(id);
 			const input: DecideNoteInput = {
@@ -187,10 +209,46 @@ export class SyncEngine {
 					: undefined,
 			};
 			inputs.set(id, input);
-			const decision = decideNote(input);
-			decisions.set(id, decision);
-			if (decision.kind === 'download') toDownload.push(id);
+			decisions.set(id, decideNote(input));
 		}
+		// 何かをする前には本体で確かめる。一覧の contentHash は読み取りを省くための記録にすぎず、
+		// 本体と食い違っていると「変わっていないノートを送り続ける」「本体にしか無い内容を黙って
+		// 上書きする」ことになる。食い違っていたら本体の値で判定し直し、コミットで記録を直す。
+		// 起動後の最初のサイクルは全ノートを照合する（判定上は何もしないノートの本体が、記録とも前回同期した版とも
+		// 違うことがある。過去のバージョンの不具合の名残など）。以後は何かをするノートだけ。
+		const verified = new Map<string, { note: Note; hash: string }>();
+		for (const id of ids) {
+			const kind = decisions.get(id)?.kind;
+			if (
+				this.verifiedAll &&
+				kind !== 'upload' &&
+				kind !== 'download' &&
+				kind !== 'deleteLocal'
+			) {
+				continue;
+			}
+			const meta = localMeta.get(id);
+			if (!meta || dirty.has(id) || !meta.contentHash) continue;
+			const note = await this.notes.readNote(id);
+			if (!note) continue;
+			const hash = await computeContentHash(note);
+			if (hash === meta.contentHash) continue;
+			verified.set(id, { note, hash });
+			const local = { hash, modifiedTime: note.modifiedTime };
+			localState.set(id, local);
+			const prev = inputs.get(id) as DecideNoteInput;
+			const input: DecideNoteInput = {
+				...prev,
+				local,
+				// 前回同期した版とも違い、編集の記録も無い = 出どころ不明の内容。勝敗を決めず両方残す（復帰ノート）
+				localUnrecorded: !!prev.base && hash !== prev.base.hash,
+			};
+			inputs.set(id, input);
+			decisions.set(id, decideNote(input));
+		}
+		const toDownload = [...decisions]
+			.filter(([, d]) => d.kind === 'download')
+			.map(([id]) => id);
 
 		const downloaded = new Map<
 			string,
@@ -251,6 +309,18 @@ export class SyncEngine {
 						})
 					: { kind: 'skip' },
 			);
+		}
+
+		// 一度に大量の復帰ノートは作らない（仕組み側の問題が疑われる）。そのままにして知らせるだけ（base も記録も進めない）
+		const recoverIds = [...decisions]
+			.filter(([, d]) => d.kind === 'applyRemote' && d.recoverLocal)
+			.map(([id]) => id);
+		if (recoverIds.length > MAX_RECOVERED_NOTES_PER_SYNC) {
+			for (const id of recoverIds) decisions.set(id, { kind: 'skip' });
+			syncEvents.emit('sync:message', {
+				code: MessageCode.DriveSyncRecoveryLimited,
+				args: { count: recoverIds.length },
+			});
 		}
 
 		const backupEnabled = this.options.enableConflictBackup?.() ?? true;
@@ -378,6 +448,7 @@ export class SyncEngine {
 		);
 		const applied = new Set<string>();
 		const removedLocally = new Set<string>();
+		const recovered: RecoveredLocal[] = [];
 		let localChanged = false;
 
 		const cloudList = await this.notes.transact(async (tx) => {
@@ -390,8 +461,36 @@ export class SyncEngine {
 
 			for (const [id, d] of decisions) {
 				if (d.kind === 'applyRemote') {
-					if (!untouched(id)) continue;
 					const dl = downloaded.get(id) as { note: Note; hash: string };
+					if (!untouched(id)) {
+						// 出どころ不明の版からユーザーが編集を続けた: 分けない。base はクラウドの版のままなので、
+						// 次の同期でその編集がクラウドの版を上書きする。上書きされる版をここで残す
+						if (d.recoverLocal && backupEnabled) {
+							await backup('local_wins', dl.note);
+							syncEvents.emit('sync:message', {
+								code: MessageCode.DriveConflictKeepLocal,
+								args: { noteId: id },
+							});
+						}
+						continue;
+					}
+					// 上書きする前に、ローカルの版を新しい ID の別ノート（復帰ノート）として残す。残せなければ上書きしない
+					let fork: Note | null = null;
+					if (d.recoverLocal) {
+						const localNote = await tx.readNote(id);
+						if (!localNote) {
+							report.failures++;
+							continue;
+						}
+						fork = {
+							...localNote,
+							id: uuidv4(),
+							title: this.recoveredTitle(localNote.title),
+							contentHeader: generateContentHeader(localNote.content),
+							folderId: '',
+						};
+						await tx.writeNoteFile(fork);
+					}
 					if (d.backupLocal && backupEnabled) {
 						const localNote = await tx.readNote(id);
 						if (localNote) await backup('cloud_wins', localNote);
@@ -400,12 +499,19 @@ export class SyncEngine {
 							args: { noteId: id },
 						});
 					}
-					await tx.writeNoteFile({
-						...dl.note,
-						contentHeader:
-							dl.note.contentHeader || generateContentHeader(dl.note.content),
-						folderId: currentMeta.get(id)?.folderId ?? '',
-					});
+					try {
+						await tx.writeNoteFile({
+							...dl.note,
+							contentHeader:
+								dl.note.contentHeader || generateContentHeader(dl.note.content),
+							folderId: currentMeta.get(id)?.folderId ?? '',
+						});
+					} catch (e) {
+						// 元のノートがローカルの版のままなので分けない
+						if (fork) await tx.removeNoteFile(fork.id).catch(() => {});
+						throw e;
+					}
+					if (fork) recovered.push({ originalId: id, note: fork });
 					applied.add(id);
 					localChanged = true;
 				} else if (d.kind === 'deleteLocal') {
@@ -426,11 +532,28 @@ export class SyncEngine {
 			for (const meta of current.notes) {
 				if (removedLocally.has(meta.id)) continue;
 				const dl = applied.has(meta.id) ? downloaded.get(meta.id) : undefined;
-				finals.set(meta.id, dl ? metaOf(dl.note, dl.hash) : stripFolder(meta));
+				// 送った本体 / 確かめた本体に合わせる（一覧の記録が本体と食い違っていても、ここで直る）
+				const up = untouched(meta.id) ? uploaded.get(meta.id) : undefined;
+				// 判定できなかったノートの記録は直さない（直すと次からローカルの編集として送ってしまう）
+				const checked =
+					untouched(meta.id) && decisions.get(meta.id)?.kind !== 'skip'
+						? verified.get(meta.id)
+						: undefined;
+				const fresh = dl ?? up ?? checked;
+				finals.set(
+					meta.id,
+					fresh ? metaOf(fresh.note, fresh.hash) : stripFolder(meta),
+				);
 			}
 			for (const id of applied) {
 				const dl = downloaded.get(id);
 				if (dl && !finals.has(id)) finals.set(id, metaOf(dl.note, dl.hash));
+			}
+			const recoveredMetas = new Map<string, FinalNoteMeta>();
+			for (const r of recovered) {
+				const meta = metaOf(r.note, await computeContentHash(r.note));
+				recoveredMetas.set(r.originalId, meta);
+				finals.set(r.note.id, meta);
 			}
 			// Drive には本体があるがローカルに無いノート（ダウンロード失敗など）はクラウドの記載を保つ
 			const passThrough = new Map<string, FinalNoteMeta>();
@@ -448,7 +571,7 @@ export class SyncEngine {
 
 			const merged = mergeNoteList({
 				base: base.noteList,
-				local: current,
+				local: withRecoveredNotes(current, recoveredMetas),
 				remote: remoteList,
 				notes: [...finals.values(), ...passThrough.values()],
 			});
@@ -488,6 +611,14 @@ export class SyncEngine {
 			}));
 			return cloud;
 		});
+
+		for (const r of recovered) {
+			await this.state.markNoteDirty(r.note.id);
+			syncEvents.emit('sync:message', {
+				code: MessageCode.DriveSyncRecoveredNote,
+				args: { noteId: r.note.id, title: r.note.title },
+			});
+		}
 
 		// ---- 6. ノート単位の base（このサイクルで確定した事実）----
 		const baseNotes = { ...base.notes };
@@ -647,7 +778,15 @@ export class SyncEngine {
 		);
 		if (localChanged) syncEvents.emit('notes:reload', undefined);
 		syncEvents.emit('drive:status', { status: 'idle' });
-		return { retry: false, report };
+		if (report.failures === 0) this.verifiedAll = true;
+		// 復帰ノートはローカルにだけある。続けてもう一度同期して Drive に送る
+		return { retry: recovered.length > 0, report };
+	}
+
+	private recoveredTitle(title: string): string {
+		return (
+			this.options.recoveredTitle?.(title) ?? recoveredNoteTitle(title, 'en')
+		);
 	}
 
 	/**
@@ -714,6 +853,50 @@ function metaOf(note: Note, hash: string): FinalNoteMeta {
 function stripFolder(meta: NoteMetadata): FinalNoteMeta {
 	const { folderId: _f, ...rest } = meta;
 	return rest;
+}
+
+/**
+ * 復帰ノートを元のノートのすぐ下（同じフォルダ / 同じ系列）に置いた noteList のコピーを返す。
+ * マージの local 側に使う（base にも remote にも無いので「ローカルで追加した位置」がそのまま残る）。
+ * recovered は元のノートの ID → 復帰ノートのメタ。
+ */
+function withRecoveredNotes(
+	list: NoteList,
+	recovered: Map<string, FinalNoteMeta>,
+): NoteList {
+	if (recovered.size === 0) return list;
+	const notes = [...list.notes];
+	let topLevelOrder = [...list.topLevelOrder];
+	let archivedTopLevelOrder = [...list.archivedTopLevelOrder];
+	for (const [originalId, meta] of recovered) {
+		const at = notes.findIndex((n) => n.id === originalId);
+		const folderId = at >= 0 ? notes[at].folderId : '';
+		notes.splice(at >= 0 ? at + 1 : notes.length, 0, { ...meta, folderId });
+		if (folderId) continue;
+		const item = { type: 'note' as const, id: meta.id };
+		if (meta.archived) {
+			archivedTopLevelOrder = insertNoteItemAfter(
+				archivedTopLevelOrder,
+				originalId,
+				item,
+			);
+		} else {
+			topLevelOrder = insertNoteItemAfter(topLevelOrder, originalId, item);
+		}
+	}
+	return { ...list, notes, topLevelOrder, archivedTopLevelOrder };
+}
+
+/** 順序の中で afterId のノートの直後に item を入れる（見つからなければ先頭）。 */
+function insertNoteItemAfter<T extends { type: string; id: string }>(
+	order: T[],
+	afterId: string,
+	item: T,
+): T[] {
+	const i = order.findIndex((it) => it.type === 'note' && it.id === afterId);
+	return i < 0
+		? [item, ...order]
+		: [...order.slice(0, i + 1), item, ...order.slice(i + 1)];
 }
 
 /** noteList からノートを取り除く（残りの相対順序は変えない）。 */

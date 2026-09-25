@@ -181,7 +181,12 @@ describe('sync-spec: decide-note', () => {
 		cases: Array<{
 			name: string;
 			input: DecideNoteInput;
-			expected: { kind: string; backupLocal?: boolean; backupRemote?: boolean };
+			expected: {
+				kind: string;
+				backupLocal?: boolean;
+				backupRemote?: boolean;
+				recoverLocal?: boolean;
+			};
 		}>;
 	}>('decide-note.json');
 	it.each(cases)('$name', ({ input, expected }) => {
@@ -189,6 +194,11 @@ describe('sync-spec: decide-note', () => {
 		expect(decision.kind).toBe(expected.kind);
 		if (expected.kind === 'applyRemote' || expected.kind === 'deleteLocal') {
 			expect(decision).toMatchObject({ backupLocal: expected.backupLocal });
+		}
+		if (expected.kind === 'applyRemote') {
+			expect(
+				'recoverLocal' in decision ? (decision.recoverLocal ?? false) : false,
+			).toBe(expected.recoverLocal ?? false);
 		}
 		if (expected.kind === 'upload') {
 			expect('backupRemote' in decision ? decision.backupRemote : false).toBe(

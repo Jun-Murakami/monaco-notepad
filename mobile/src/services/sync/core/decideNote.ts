@@ -19,6 +19,11 @@ export interface DecideNoteInput {
 	/** ユーザー操作で削除が記録されている（deletedNoteIDs）。 */
 	localDeleted: boolean;
 	/**
+	 * ローカルの本体が、ノート一覧の記録とも前回同期した版（base）とも違い、編集の記録も無い
+	 * （出どころ不明の内容。過去のバージョンの不具合の名残など）。どちらの版が正しいか分からないので両方残す。
+	 */
+	localUnrecorded?: boolean;
+	/**
 	 * 前回同期時点の状態。md5 / fileId / version（Drive の版番号）は移行直後などで欠けうる。
 	 */
 	base?: { hash: string; md5?: string; fileId?: string; version?: number };
@@ -42,7 +47,8 @@ export type NoteDecision =
 	| { kind: 'download' }
 	/** backupRemote: 真の競合でローカルが勝った。負けたリモートの版を勝った端末に残す。 */
 	| { kind: 'upload'; backupRemote?: boolean }
-	| { kind: 'applyRemote'; backupLocal: boolean }
+	/** recoverLocal: 上書きする前のローカルの版を新しい ID の別ノート（復帰ノート）として残す。 */
+	| { kind: 'applyRemote'; backupLocal: boolean; recoverLocal?: boolean }
 	| { kind: 'deleteLocal'; backupLocal: boolean }
 	| { kind: 'deleteRemote' }
 	| { kind: 'forget' };
@@ -73,6 +79,15 @@ export function decideNote(input: DecideNoteInput): NoteDecision {
 		// 新規 or ローカル編集あり → 編集は削除に勝つ
 		if (!base || local.hash !== base.hash) return { kind: 'upload' };
 		return { kind: 'deleteLocal', backupLocal: true };
+	}
+
+	// 出どころ不明のローカルの内容: どちらの版が正しいか分からない（時刻も当てにならない）ので勝敗は決めない。
+	// リモートの版を取り込み、ローカルの版は別ノート（復帰ノート）として残す。リモートで削除されていれば
+	// 上の「編集は削除に勝つ」で復元される。
+	if (input.localUnrecorded && base && local.hash !== base.hash) {
+		if (!downloaded) return { kind: 'download' };
+		if (downloaded.hash === local.hash) return { kind: 'none' };
+		return { kind: 'applyRemote', backupLocal: false, recoverLocal: true };
 	}
 
 	if (base?.md5 && remote.md5 === base.md5) {

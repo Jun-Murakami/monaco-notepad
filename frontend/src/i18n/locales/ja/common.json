@@ -242,7 +242,9 @@
       "deleteNote": "ノート「{{noteId}}」を削除中...",
       "downloadNote": "ノート「{{noteId}}」をダウンロード中...",
       "downloadRemoteNote": "ノート「{{noteId}}」をダウンロード中（他のデバイスで変更されました）...",
-      "removeLocalDeleted": "ローカルノート「{{noteId}}」を削除中（他のデバイスで削除されました）..."
+      "removeLocalDeleted": "ローカルノート「{{noteId}}」を削除中（他のデバイスで削除されました）...",
+      "recoveredNote": "この端末にだけ残っていたノートの内容を「{{title}}」として別のノートに残しました",
+      "recoveryLimited": "{{count}} 件のノートで、この端末の内容が同期済みの内容と食い違っています。件数が多いため自動では分けませんでした"
     },
     "noteAlreadyAbsent": "ノート「{{noteId}}」はすでにDriveに存在しません。削除済みとして処理します。",
     "noteMissingRemoveList": "ノート「{{noteId}}」がDriveファイルに見つかりません。クラウドノートリストから削除します。",

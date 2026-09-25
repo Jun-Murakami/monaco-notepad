@@ -1,6 +1,7 @@
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { Directory } from 'expo-file-system';
 import { AppState, type AppStateStatus } from 'react-native';
+import i18n from '@/i18n';
 import { authService } from '../auth/authService';
 import { noteService } from '../notes/noteService';
 import { appSettings } from '../settings/appSettings';
@@ -17,7 +18,7 @@ import {
 } from './localActions';
 import { PollingService } from './polling';
 import { syncBaseStore } from './syncBase';
-import { SyncEngine } from './syncEngine';
+import { recoveredNoteTitle, SyncEngine } from './syncEngine';
 import { syncStateManager } from './syncState';
 import type { Note } from './types';
 
@@ -350,6 +351,8 @@ export class DriveService {
 			{
 				// 設定画面の「競合バックアップを保存」を毎回参照する。
 				enableConflictBackup: () => appSettings.snapshot().conflictBackup,
+				// 復帰ノートのタイトルは表示中の言語で付ける
+				recoveredTitle: (title) => recoveredNoteTitle(title, i18n.language),
 			},
 		);
 		this.polling = new PollingService(client, this.engine);
