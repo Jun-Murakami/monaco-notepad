@@ -22,6 +22,21 @@
       "expected": { "kind": "applyRemote", "backupLocal": false }
     },
     {
+      "name": "ローカル未変更でもリモートがローカルより古い版なら、古い版による上書きなのでローカルを送り直す",
+      "input": { "local": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:30Z" }, "localDeleted": false, "base": { "hash": "h3", "md5": "m3" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:20Z" } },
+      "expected": { "kind": "upload" }
+    },
+    {
+      "name": "ローカル未変更・リモートと同時刻ならリモートを採用",
+      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:10Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:10Z" } },
+      "expected": { "kind": "applyRemote", "backupLocal": false }
+    },
+    {
+      "name": "base の md5 不明・ローカル未変更でもリモートの方が古ければローカルを送り直す",
+      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:09Z" }, "localDeleted": false, "base": { "hash": "h1" }, "remote": { "md5": "m1" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:01Z" } },
+      "expected": { "kind": "upload" }
+    },
+    {
       "name": "md5 は変わったが内容は同じ（再シリアライズ）",
       "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" } },
       "expected": { "kind": "none" }

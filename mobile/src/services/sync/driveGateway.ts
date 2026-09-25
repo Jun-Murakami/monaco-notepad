@@ -75,30 +75,42 @@ export class DriveGateway {
 	/** root / notes フォルダを解決する（無ければ作る）。noteList は作らない（最初の同期で作る）。 */
 	async resolveLayout(): Promise<DriveLayoutIds> {
 		if (this.layout) return this.layout;
-		const rootFolderId =
-			(await this.findOldest(
-				`name='${DRIVE_ROOT_FOLDER}' and 'appDataFolder' in parents and mimeType='${FOLDER_MIME}' and trashed=false`,
-			)) ??
-			(
-				await withRetry(
-					() => this.client.createFolder(DRIVE_ROOT_FOLDER, null),
-					'createRootFolder',
-					this.retry.other,
-				)
-			).id;
-		const notesFolderId =
-			(await this.findOldest(
-				`name='${DRIVE_NOTES_FOLDER}' and '${rootFolderId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`,
-			)) ??
-			(
-				await withRetry(
-					() => this.client.createFolder(DRIVE_NOTES_FOLDER, [rootFolderId]),
-					'createNotesFolder',
-					this.retry.other,
-				)
-			).id;
+		const rootFolderId = await this.findOrCreateFolder(
+			DRIVE_ROOT_FOLDER,
+			`name='${DRIVE_ROOT_FOLDER}' and 'appDataFolder' in parents and mimeType='${FOLDER_MIME}' and trashed=false`,
+			null,
+		);
+		const notesFolderId = await this.findOrCreateFolder(
+			DRIVE_NOTES_FOLDER,
+			`name='${DRIVE_NOTES_FOLDER}' and '${rootFolderId}' in parents and mimeType='${FOLDER_MIME}' and trashed=false`,
+			[rootFolderId],
+		);
 		this.layout = { rootFolderId, notesFolderId };
 		return this.layout;
+	}
+
+	/**
+	 * 最古の同名フォルダを使う。無ければ作り、作った直後に一覧を取り直して最古のものに合わせる。
+	 * 2 台が同時に初回接続して二重に作った場合でも、全端末が同じフォルダに収束する
+	 * （作ったものが最古でなければ、まだ空なので削除して最古の方を使う）。
+	 */
+	private async findOrCreateFolder(
+		name: string,
+		query: string,
+		parents: string[] | null,
+	): Promise<string> {
+		const existing = await this.findOldest(query);
+		if (existing) return existing;
+		const created = await withRetry(
+			() => this.client.createFolder(name, parents),
+			`createFolder:${name}`,
+			this.retry.other,
+		);
+		const oldest = (await this.findOldest(query)) ?? created.id;
+		if (oldest !== created.id) {
+			await this.deleteFile(created.id).catch(() => {});
+		}
+		return oldest;
 	}
 
 	/** Drive 側のフォルダ構成が変わった可能性があるとき（全削除後など）に呼ぶ。 */

@@ -65,7 +65,13 @@ export function decideNote(input: DecideNoteInput): NoteDecision {
 	if (downloaded.hash === local.hash) return { kind: 'none' };
 
 	const localChanged = !base || local.hash !== base.hash;
-	if (!localChanged) return { kind: 'applyRemote', backupLocal: false };
+	if (!localChanged) {
+		// 手元は前回同期から変わっていないのにリモートの方が古い = 別端末が古い判断で上書きした。
+		// 最新の版（手元）を送り直す（常に modifiedTime の新しい版が勝つ）。
+		return isModifiedTimeAfter(local.modifiedTime, downloaded.modifiedTime)
+			? { kind: 'upload' }
+			: { kind: 'applyRemote', backupLocal: false };
+	}
 	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る
 	if (base && downloaded.hash === base.hash) return { kind: 'upload' };
 	return isModifiedTimeAfter(local.modifiedTime, downloaded.modifiedTime)

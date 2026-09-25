@@ -117,8 +117,13 @@ if downloaded.hash == local.hash:        → none                      // 収束
 if !base || local.hash != base.hash:     // ローカルも変更あり
   if base && downloaded.hash == base.hash → upload                   // md5 だけ違う（再シリアライズ）
   isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload : applyRemote{backupLocal:true}
-→ applyRemote{false}
+// 手元は未変更。リモートの方が古ければ、別端末が古い判断で上書きした（ノート本体の lost update）
+isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload : applyRemote{false}
 ```
+
+- 結果として「常に modifiedTime の新しい版が勝つ」。Drive は条件付き更新ができないため、
+  判断から書き込みまでの間に別端末が新しい版を書いても上書きしうるが、上書きされた側が次の同期で
+  より新しい手元の版を送り直すので、新しい版が失われない（ランダム・シミュレーションで検出した経路）。
 
 - `isAfter(a, b)`: RFC3339 として解析できれば時刻比較、できなければ文字列比較。**同時刻はリモート勝ち**。
 - `applyRemote` が `localDeleted` のノートに対して出た場合、そのノートの削除意図は取り消す。

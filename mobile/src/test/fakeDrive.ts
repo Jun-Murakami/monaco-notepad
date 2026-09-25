@@ -70,6 +70,19 @@ export class FakeDrive {
 	readonly files = new Map<string, FakeFile>();
 	/** 実行されたリクエストの記録（検証・デバッグ用）。 */
 	readonly requests: FakeRequestInfo[] = [];
+	/**
+	 * ノート本体（<id>.json、noteList を除く）の履歴。書き込まれた版と、そのノートのファイルが
+	 * Drive から 1 つも無くなった時点（= 削除）を順に記録する。シミュレーションの検証に使う。
+	 */
+	readonly noteHistory: Array<{
+		kind: 'upload' | 'gone';
+		name: string;
+		content?: string;
+		/** 書き込んだ端末（fetch 経由の場合）。 */
+		deviceId?: string;
+	}> = [];
+	/** 処理中のリクエストの端末 ID（モデル操作の記録に使う）。 */
+	private currentDevice: string | undefined;
 	private changes: ChangeEntry[] = [];
 	private idSeq = 0;
 	private clockMs = EPOCH;
@@ -78,7 +91,9 @@ export class FakeDrive {
 
 	// ---- 論理時計 ----
 
+	/** 論理時計の現在時刻。呼ぶたびに 1ms 進むので、端末をまたいでも時刻が重ならない。 */
 	now(): string {
+		this.clockMs += 1;
 		return new Date(this.clockMs).toISOString();
 	}
 
@@ -111,6 +126,13 @@ export class FakeDrive {
 		};
 		this.files.set(file.id, file);
 		this.changes.push({ fileId: file.id, removed: false });
+		if (isNoteFileName(name))
+			this.noteHistory.push({
+				kind: 'upload',
+				name,
+				content,
+				deviceId: this.currentDevice,
+			});
 		return { ...file };
 	}
 
@@ -122,6 +144,13 @@ export class FakeDrive {
 		file.version += 1;
 		file.modifiedTime = this.tick();
 		this.changes.push({ fileId, removed: false });
+		if (isNoteFileName(file.name))
+			this.noteHistory.push({
+				kind: 'upload',
+				name: file.name,
+				content,
+				deviceId: this.currentDevice,
+			});
 		return { ...file };
 	}
 
@@ -131,6 +160,12 @@ export class FakeDrive {
 		this.files.delete(fileId);
 		this.tick();
 		this.changes.push({ fileId, removed: true });
+		if (
+			isNoteFileName(file.name) &&
+			![...this.files.values()].some((f) => f.name === file.name)
+		) {
+			this.noteHistory.push({ kind: 'gone', name: file.name });
+		}
 		// フォルダ削除時は配下も消える（Drive の挙動）
 		if (file.mimeType === FOLDER_MIME) {
 			for (const child of [...this.files.values()]) {
@@ -234,7 +269,12 @@ export class FakeDrive {
 					);
 				}
 			}
-			return route.handle();
+			this.currentDevice = deviceId;
+			try {
+				return route.handle();
+			} finally {
+				this.currentDevice = undefined;
+			}
 		} catch (e) {
 			if (e instanceof FakeHttpError) {
 				return jsonResponse(e.status, errorBody(e.status, e.message));
@@ -418,6 +458,10 @@ export class FakeHttpError extends Error {
 	) {
 		super(message);
 	}
+}
+
+function isNoteFileName(name: string): boolean {
+	return name.endsWith('.json') && name !== 'noteList_v2.json';
 }
 
 function md5(content: string): string {

@@ -180,6 +180,19 @@ export class MobileDevice {
 		return folder.id;
 	}
 
+	/**
+	 * アーカイブ / 復元（UI と同じ setNoteArchived）。本番は端末の時計で modifiedTime を入れるが、
+	 * テストでは「最新の編集が勝つ」を検証できるよう論理時計で打ち直す。
+	 */
+	async setArchived(id: string, archived: boolean): Promise<Note> {
+		await this.notes.setNoteArchived(id, archived);
+		const note = await this.notes.readNote(id);
+		if (!note) throw new Error(`note ${id} not found on ${this.deviceId}`);
+		const stamped = { ...note, modifiedTime: this.drive.now() };
+		await saveNoteLocally(this.notes, this.state, stamped);
+		return stamped;
+	}
+
 	list(): NoteList {
 		return this.notes.getNoteList();
 	}

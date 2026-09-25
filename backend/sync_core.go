@@ -112,6 +112,11 @@ func decideNote(in decideNoteInput) noteDecision {
 
 	localChanged := base == nil || local.Hash != base.Hash
 	if !localChanged {
+		// 手元は前回同期から変わっていないのにリモートの方が古い = 別端末が古い判断で上書きした。
+		// 最新の版（手元）を送り直す（常に modifiedTime の新しい版が勝つ）。
+		if isAfterRFC3339(local.ModifiedTime, downloaded.ModifiedTime) {
+			return noteDecision{Kind: decisionUpload}
+		}
 		return noteDecision{Kind: decisionApplyRemote}
 	}
 	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る

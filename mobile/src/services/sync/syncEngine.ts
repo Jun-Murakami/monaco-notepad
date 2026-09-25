@@ -457,55 +457,78 @@ export class SyncEngine {
 			}
 		}
 
+		// 削除意図の対象がローカルに存在する（同期で復元された等）なら、その意図はもう無効
+		for (const id of deleted) {
+			if (localState.has(id) && !resolvedDeletions.includes(id)) {
+				resolvedDeletions.push(id);
+			}
+		}
+
+		// このサイクルで確定した事実（ノート単位の base・処理済みの削除意図）を保存する。
+		// やり直し・中断のときに使う。noteList の base は「ローカルに取り込み済みのクラウドの版」。
+		const checkpoint = async (listBase: {
+			ref: RemoteFileRef | null;
+			list: NoteList | null;
+		}) => {
+			await this.saveBase({
+				version: 1,
+				rootFolderId: layout.rootFolderId,
+				noteListFileId: listBase.ref?.fileId ?? '',
+				noteListMd5: listBase.ref?.md5 ?? '',
+				noteList: listBase.list,
+				notes: baseNotes,
+			});
+			await this.state.completeSync(snap.revision, resolvedDeletions, false);
+			if (localChanged) syncEvents.emit('notes:reload', undefined);
+		};
+
 		// ---- 7. noteList のアップロード ----
 		let newListRef = listRef;
 		let newBaseList = remoteList;
 		if (!remoteList || !sameNoteList(cloudList, remoteList)) {
-			const latest = await this.gateway.findNoteList(layout);
-			if (
-				(latest?.fileId ?? '') !== (listRef?.fileId ?? '') ||
-				(latest?.md5 ?? '') !== (listRef?.md5 ?? '')
-			) {
-				// 読み取り後に他端末が noteList を書いた。ローカルは remoteList を取り込み済みなので
-				// それを base として確定し、最初からやり直す（相手の書き込みを上書きしない）。
-				await this.saveBase({
-					version: 1,
-					rootFolderId: layout.rootFolderId,
-					noteListFileId: listRef?.fileId ?? '',
-					noteListMd5: listRef?.md5 ?? '',
-					noteList: remoteList,
-					notes: baseNotes,
-				});
-				await this.state.completeSync(snap.revision, resolvedDeletions, false);
-				if (localChanged) syncEvents.emit('notes:reload', undefined);
-				return { retry: true, report };
-			}
-			const uploadedRef = await this.gateway.uploadNoteList(
-				layout,
-				listRef?.fileId ?? null,
-				cloudList,
-			);
-			newListRef = uploadedRef;
-			newBaseList = cloudList;
-			report.listUploaded = true;
-			// 確認から書き込みまでの間に他端末が書いていた（版が 2 以上進んだ）場合は相手の noteList を
-			// 上書きしている。相手のノート本体は Drive に残っているので、すぐにもう一度同期して取り戻す。
-			if (
-				listRef &&
-				listRef.version > 0 &&
-				uploadedRef.version > listRef.version + 1
-			) {
-				await this.saveBase({
-					version: 1,
-					rootFolderId: layout.rootFolderId,
-					noteListFileId: uploadedRef.fileId,
-					noteListMd5: uploadedRef.md5,
-					noteList: cloudList,
-					notes: baseNotes,
-				});
-				await this.state.completeSync(snap.revision, resolvedDeletions, false);
-				if (localChanged) syncEvents.emit('notes:reload', undefined);
-				return { retry: true, report };
+			try {
+				const latest = await this.gateway.findNoteList(layout);
+				if (
+					(latest?.fileId ?? '') !== (listRef?.fileId ?? '') ||
+					(latest?.md5 ?? '') !== (listRef?.md5 ?? '')
+				) {
+					// 読み取り後に他端末が noteList を書いた。ローカルは remoteList を取り込み済みなので
+					// それを base として確定し、最初からやり直す（相手の書き込みを上書きしない）。
+					await checkpoint({ ref: listRef, list: remoteList });
+					return { retry: true, report };
+				}
+				const uploadedRef = await this.gateway.uploadNoteList(
+					layout,
+					listRef?.fileId ?? null,
+					cloudList,
+				);
+				newListRef = uploadedRef;
+				newBaseList = cloudList;
+				report.listUploaded = true;
+				// 確認から書き込みまでの間に他端末が書いていた（版が 2 以上進んだ）場合は相手の noteList を
+				// 上書きしている。相手のノート本体は Drive に残っているので、すぐにもう一度同期して取り戻す。
+				if (
+					listRef &&
+					listRef.version > 0 &&
+					uploadedRef.version > listRef.version + 1
+				) {
+					await checkpoint({ ref: uploadedRef, list: cloudList });
+					return { retry: true, report };
+				}
+				// noteList を新規作成した場合、同時に別端末も作っていないか確認する（最古が正）。
+				// 自分のものが最古でなければ削除し、最古の noteList を相手にやり直す。
+				if (!listRef) {
+					const oldest = await this.gateway.findNoteList(layout);
+					if (oldest && oldest.fileId !== uploadedRef.fileId) {
+						await this.gateway.deleteFile(uploadedRef.fileId).catch(() => {});
+						await checkpoint({ ref: null, list: null });
+						return { retry: true, report };
+					}
+				}
+			} catch (e) {
+				// noteList の書き込みに失敗しても、ノート単位で確定した事実は失わない
+				await checkpoint({ ref: listRef, list: remoteList });
+				throw e;
 			}
 		}
 
