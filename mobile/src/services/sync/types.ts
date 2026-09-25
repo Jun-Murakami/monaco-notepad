@@ -84,9 +84,6 @@ export const EMPTY_NOTE_LIST: NoteList = {
 	collapsedFolderIds: [],
 };
 
-/** 復元先の固定フォルダ名（デスクトップ版と一致）。 */
-export const ORPHAN_FOLDER_NAME = '不明ノート';
-
 /** Drive 上のファイル名規約。 */
 export const DRIVE_ROOT_FOLDER = 'monaco-notepad';
 export const DRIVE_NOTES_FOLDER = 'notes';

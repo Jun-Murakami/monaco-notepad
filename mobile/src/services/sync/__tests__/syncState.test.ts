@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { writeAtomic } from '@/services/storage/atomicFile';
+import { SYNC_STATE_PATH } from '@/services/storage/paths';
 import { SyncStateManager } from '../syncState';
 
 async function freshState(): Promise<SyncStateManager> {
@@ -8,18 +10,16 @@ async function freshState(): Promise<SyncStateManager> {
 }
 
 describe('SyncStateManager', () => {
-	it('初期状態: dirty=false, lastSyncedDriveTs=空', async () => {
+	it('初期状態は同期不要', async () => {
 		const s = await freshState();
 		expect(s.isDirty()).toBe(false);
-		expect(s.lastSyncedDriveTs()).toBe('');
 	});
 
 	it('markNoteDirty で dirty, dirtyNoteIds が立つ', async () => {
 		const s = await freshState();
 		await s.markNoteDirty('n1');
-		const snap = s.snapshot();
 		expect(s.isDirty()).toBe(true);
-		expect(snap.dirtyNoteIds).toEqual({ n1: true });
+		expect(s.snapshot().dirtyNoteIds).toEqual({ n1: true });
 	});
 
 	it('markNoteDeleted は dirtyNoteIds から除き deletedNoteIds に入れる', async () => {
@@ -40,169 +40,99 @@ describe('SyncStateManager', () => {
 		expect(snap.deletedNoteIds).toEqual({});
 	});
 
-	it('clearDirtyIfUnchanged: revision 一致なら dirty をクリア', async () => {
+	it('completeSync: 同期中に操作が無ければヒント系をクリアする', async () => {
 		const s = await freshState();
 		await s.markNoteDirty('n1');
+		await s.markFolderDeleted('f1');
 		const snap = await s.getDirtySnapshotWithRevision();
-		const cleared = await s.clearDirtyIfUnchanged(
-			snap.revision,
-			'2026-02-01T00:00:00Z',
-			{
-				n1: 'hash-1',
-			},
-		);
+
+		const cleared = await s.completeSync(snap.revision, [], true);
+
 		expect(cleared).toBe(true);
 		expect(s.isDirty()).toBe(false);
-		expect(s.lastSyncedDriveTs()).toBe('2026-02-01T00:00:00Z');
-		expect(s.lastSyncedHash('n1')).toBe('hash-1');
+		expect(s.snapshot().dirtyNoteIds).toEqual({});
+		expect(s.snapshot().deletedFolderIds).toEqual({});
 	});
 
-	it('clearDirtyIfUnchanged: 同期中に markDirty が走ると false を返し dirty を維持', async () => {
+	it('completeSync: 同期中にユーザー操作があればヒント系を残す（次の同期で拾う）', async () => {
 		const s = await freshState();
 		await s.markNoteDirty('n1');
 		const snap = await s.getDirtySnapshotWithRevision();
-		// 同期中に別編集
-		await s.markNoteDirty('n2');
-		const cleared = await s.clearDirtyIfUnchanged(
-			snap.revision,
-			'2026-02-01T00:00:00Z',
-			{
-				n1: 'h1',
-			},
-		);
+		await s.markNoteDirty('n2'); // 同期中の編集
+
+		const cleared = await s.completeSync(snap.revision, [], true);
+
 		expect(cleared).toBe(false);
 		expect(s.isDirty()).toBe(true);
-		// n1/n2 の両方がまだ dirty
 		expect(s.snapshot().dirtyNoteIds).toEqual({ n1: true, n2: true });
 	});
 
-	it('updateSyncedState: dirty は維持しつつ hash と ts は更新', async () => {
+	it('completeSync: 失敗があった同期ではヒント系を残し、再同期を促す', async () => {
 		const s = await freshState();
 		await s.markNoteDirty('n1');
-		await s.updateSyncedState('2026-02-01T00:00:00Z', { n1: 'h1' });
+		const snap = await s.getDirtySnapshotWithRevision();
+
+		expect(await s.completeSync(snap.revision, [], false)).toBe(false);
 		expect(s.isDirty()).toBe(true);
-		expect(s.lastSyncedDriveTs()).toBe('2026-02-01T00:00:00Z');
-		expect(s.lastSyncedHash('n1')).toBe('h1');
-		expect(s.snapshot().dirtyNoteIds).toEqual({ n1: true });
 	});
 
-	it('forgetNoteHash で個別ノートの hash を落とす', async () => {
+	it('completeSync: 削除意図は処理が確定した ID だけ個別に消える', async () => {
 		const s = await freshState();
-		await s.updateSyncedState('t', { n1: 'h1', n2: 'h2' });
-		await s.forgetNoteHash('n1');
-		expect(s.lastSyncedHash('n1')).toBeUndefined();
-		expect(s.lastSyncedHash('n2')).toBe('h2');
+		await s.markNoteDeleted('done');
+		await s.markNoteDeleted('pending');
+		const snap = await s.getDirtySnapshotWithRevision();
+
+		await s.completeSync(snap.revision, ['done'], false);
+
+		expect(s.snapshot().deletedNoteIds).toEqual({ pending: true });
+		// 未処理の削除が残っている間は「同期が必要」
+		expect(s.isDirty()).toBe(true);
 	});
 
-	it('reset: 全フィールド初期化', async () => {
+	it('v2 の lastSyncedNoteHash は移行用に読めて、completeSync 後は消える', async () => {
+		await writeAtomic(
+			SYNC_STATE_PATH,
+			JSON.stringify({
+				dirty: false,
+				lastSyncedDriveTs: '2026-01-01T00:00:00Z',
+				dirtyNoteIds: {},
+				deletedNoteIds: {},
+				deletedFolderIds: {},
+				lastSyncedNoteHash: { a: 'hash-a' },
+			}),
+		);
 		const s = await freshState();
-		await s.markNoteDirty('n1');
-		await s.updateSyncedState('ts', { n1: 'h1' });
-		await s.reset();
-		expect(s.isDirty()).toBe(false);
-		expect(s.lastSyncedDriveTs()).toBe('');
-		expect(s.snapshot().dirtyNoteIds).toEqual({});
-		expect(s.lastSyncedHash('n1')).toBeUndefined();
+		expect(s.legacyNoteHashes()).toEqual({ a: 'hash-a' });
+
+		const snap = await s.getDirtySnapshotWithRevision();
+		await s.completeSync(snap.revision, [], true);
+		expect(s.legacyNoteHashes()).toEqual({});
 	});
 
-	it('永続化: 別インスタンスでもロード時に状態を復元', async () => {
+	it('永続化: 別インスタンスで load しても記録が復元される（revision は永続化しない）', async () => {
 		const a = await freshState();
 		await a.markNoteDirty('n1');
 		await a.markNoteDeleted('n2');
-		await a.updateSyncedState('2026-03-01', { n1: 'h1' });
 
-		const b = new SyncStateManager();
-		await b.load();
-		expect(b.isDirty()).toBe(true);
+		const b = await freshState();
 		expect(b.snapshot().dirtyNoteIds).toEqual({ n1: true });
 		expect(b.snapshot().deletedNoteIds).toEqual({ n2: true });
-		expect(b.lastSyncedHash('n1')).toBe('h1');
-		expect(b.lastSyncedDriveTs()).toBe('2026-03-01');
+		const snap = await b.getDirtySnapshotWithRevision();
+		expect(snap.revision).toBe(0);
 	});
 
-	it('revision はインスタンス内だけで有効（再ロード後はリセット）', async () => {
-		const a = await freshState();
-		await a.markNoteDirty('n1');
-		const snapA = await a.getDirtySnapshotWithRevision();
-		expect(snapA.revision).toBeGreaterThan(0);
-
-		const b = new SyncStateManager();
-		await b.load();
-		const snapB = await b.getDirtySnapshotWithRevision();
-		expect(snapB.revision).toBe(0);
-	});
-
-	it('revision は dirty 系操作でインクリメントされる', async () => {
+	it('壊れた sync_state.json は初期状態として読む', async () => {
+		await writeAtomic(SYNC_STATE_PATH, '{ broken');
 		const s = await freshState();
-		const r0 = (await s.getDirtySnapshotWithRevision()).revision;
-		await s.markNoteDirty('n1');
-		const r1 = (await s.getDirtySnapshotWithRevision()).revision;
-		await s.markNoteDirty('n2');
-		const r2 = (await s.getDirtySnapshotWithRevision()).revision;
-		expect(r1).toBeGreaterThan(r0);
-		expect(r2).toBeGreaterThan(r1);
+		expect(s.isDirty()).toBe(false);
 	});
 
-	it('同期成功後は dirtyNoteIds/deletedNoteIds が空でなくなる前の状態も hash だけ保存', async () => {
+	it('reset で全リセット', async () => {
 		const s = await freshState();
 		await s.markNoteDirty('n1');
 		await s.markNoteDeleted('n2');
-		const snap = await s.getDirtySnapshotWithRevision();
-		await s.clearDirtyIfUnchanged(snap.revision, 'ts', { n1: 'h1' });
-		const after = s.snapshot();
-		expect(after.dirtyNoteIds).toEqual({});
-		expect(after.deletedNoteIds).toEqual({});
-		expect(after.lastSyncedNoteHash).toEqual({ n1: 'h1' });
-	});
-
-	it('markFolderDeleted が deletedFolderIds に入る', async () => {
-		const s = await freshState();
-		await s.markFolderDeleted('f1');
-		expect(s.snapshot().deletedFolderIds).toEqual({ f1: true });
-		expect(s.isDirty()).toBe(true);
-	});
-
-	// ---- updateSyncedNoteHash (resume optimization) ----
-
-	it('updateSyncedNoteHash は個別の hash を書き込む', async () => {
-		const s = await freshState();
-		await s.markNoteDirty('n1');
-		await s.updateSyncedNoteHash('n1', 'hash-of-n1');
-		expect(s.lastSyncedHash('n1')).toBe('hash-of-n1');
-	});
-
-	it('updateSyncedNoteHash は永続化される (再起動で復元)', async () => {
-		const a = await freshState();
-		await a.updateSyncedNoteHash('n1', 'hash-of-n1');
-		await a.updateSyncedNoteHash('n2', 'hash-of-n2');
-
-		const b = new SyncStateManager();
-		await b.load();
-		expect(b.lastSyncedHash('n1')).toBe('hash-of-n1');
-		expect(b.lastSyncedHash('n2')).toBe('hash-of-n2');
-	});
-
-	it('updateSyncedNoteHash は revision を増やさない (進行中の clearDirtyIfUnchanged を壊さない)', async () => {
-		const s = await freshState();
-		await s.markNoteDirty('n1');
-		const before = (await s.getDirtySnapshotWithRevision()).revision;
-		await s.updateSyncedNoteHash('n1', 'h1');
-		await s.updateSyncedNoteHash('n2', 'h2');
-		const after = (await s.getDirtySnapshotWithRevision()).revision;
-		expect(after).toBe(before);
-
-		// その revision で clearDirtyIfUnchanged が成功する
-		const cleared = await s.clearDirtyIfUnchanged(before, 'ts', { n1: 'h1' });
-		expect(cleared).toBe(true);
-	});
-
-	it('updateSyncedNoteHash は dirty/deleted フラグに影響しない', async () => {
-		const s = await freshState();
-		await s.markNoteDirty('n1');
-		await s.markNoteDeleted('n2');
-		await s.updateSyncedNoteHash('n1', 'h1');
-		expect(s.isDirty()).toBe(true);
-		expect(s.snapshot().dirtyNoteIds).toEqual({ n1: true });
-		expect(s.snapshot().deletedNoteIds).toEqual({ n2: true });
+		await s.reset();
+		expect(s.isDirty()).toBe(false);
+		expect(s.snapshot().deletedNoteIds).toEqual({});
 	});
 });

@@ -1,5 +1,5 @@
 import { ensureDir, readString, writeAtomic } from '../storage/atomicFile';
-import { APP_DATA_DIR, SYNC_STATE_PATH } from '../storage/paths';
+import { DEFAULT_STORAGE_PATHS } from '../storage/paths';
 import { AsyncLock } from './asyncLock';
 import type { SyncStateSnapshot } from './types';
 
@@ -20,14 +20,15 @@ function freshSnapshot(): SyncStateSnapshot {
 }
 
 /**
- * 同期状態の永続管理。
+ * ローカル変更の記録（sync_state.json、デスクトップ版 sync_state.go と同じスキーマ）。
  *
- * デスクトップ版 sync_state.go を移植。競合を防ぐ revision カウンタと
- * ClearDirtyIfUnchanged パターンを完全に踏襲する。
- *
- * - dirty/dirtyNoteIds/deletedNoteIds/deletedFolderIds/lastSyncedDriveTs/lastSyncedNoteHash は永続化
- * - revision はメモリ上のみ（起動ごとに 0 リセット）
- * - 全書き込みは atomic（tempfile→rename）
+ * v3 での役割（docs/sync-engine-v3.md §4）:
+ * - `deletedNoteIds` はユーザーの削除意図の記録。処理が確定した ID だけ個別に消す。
+ * - `dirty` / `dirtyNoteIds` / `deletedFolderIds` は「早く同期して」というヒント。
+ *   同期の正しさは base（sync_base.json）との差分で決まる。
+ * - `lastSyncedNoteHash` / `lastSyncedDriveTs` は v2 の遺物。移行時に base が無ければ
+ *   `lastSyncedNoteHash` を base の本文 hash として読むだけで、v3 は更新しない。
+ * - revision はメモリ上だけのカウンタ（永続化しない）。同期中にユーザー操作があったかの検知に使う。
  */
 export class SyncStateManager {
 	private state: SyncStateSnapshot = freshSnapshot();
@@ -35,10 +36,14 @@ export class SyncStateManager {
 	private readonly lock = new AsyncLock();
 	private loaded = false;
 
+	constructor(
+		private readonly path: string = DEFAULT_STORAGE_PATHS.syncStatePath,
+	) {}
+
 	async load(): Promise<void> {
 		if (this.loaded) return;
-		await ensureDir(APP_DATA_DIR);
-		const raw = await readString(SYNC_STATE_PATH);
+		await ensureDir(this.path.slice(0, this.path.lastIndexOf('/') + 1));
+		const raw = await readString(this.path);
 		if (raw) {
 			try {
 				const parsed = JSON.parse(raw) as Partial<SyncStateSnapshot>;
@@ -61,7 +66,7 @@ export class SyncStateManager {
 		this.loaded = true;
 	}
 
-	/** 現在の状態のシャローコピーを返す（UI 表示用）。 */
+	/** 現在の状態のコピーを返す（UI 表示用）。 */
 	snapshot(): Readonly<SyncStateSnapshot> {
 		return {
 			...this.state,
@@ -73,15 +78,14 @@ export class SyncStateManager {
 	}
 
 	isDirty(): boolean {
-		return this.state.dirty;
+		return (
+			this.state.dirty || Object.keys(this.state.deletedNoteIds).length > 0
+		);
 	}
 
-	lastSyncedDriveTs(): string {
-		return this.state.lastSyncedDriveTs;
-	}
-
-	lastSyncedHash(noteId: string): string | undefined {
-		return this.state.lastSyncedNoteHash[noteId];
+	/** v2 が記録していた「前回同期時の本文 hash」（base が無い移行直後だけ使う）。 */
+	legacyNoteHashes(): Record<string, string> {
+		return { ...this.state.lastSyncedNoteHash };
 	}
 
 	/** ノート編集を dirty として記録する。 */
@@ -99,7 +103,6 @@ export class SyncStateManager {
 			this.state.dirty = true;
 			this.state.deletedNoteIds[noteId] = true;
 			delete this.state.dirtyNoteIds[noteId];
-			delete this.state.lastSyncedNoteHash[noteId];
 		});
 	}
 
@@ -117,11 +120,7 @@ export class SyncStateManager {
 		});
 	}
 
-	/**
-	 * 同期開始前にスナップショットを取り revision も返す。
-	 * 同期完了時に clearDirtyIfUnchanged に渡すことで、
-	 * 同期中にユーザー編集があったか検知できる。
-	 */
+	/** 同期開始時のスナップショット（revision 付き）。 */
 	async getDirtySnapshotWithRevision(): Promise<{
 		revision: number;
 		dirtyIds: string[];
@@ -137,71 +136,33 @@ export class SyncStateManager {
 	}
 
 	/**
-	 * 同期完了時の dirty クリア。revision 不変のときのみクリアする。
-	 * 同期中に新しい編集が来て revision が進んでいた場合は false を返し、
-	 * dirty を維持する（デスクトップ版 ClearDirtyIfUnchanged と完全互換）。
+	 * 同期完了時の後始末。
+	 * - `resolvedDeletions`: 処理が確定した削除意図（リモート削除済み / 取り消し）は個別に消す。
+	 * - `succeeded`: サイクルが失敗なく終わったか。失敗があれば dirty を立て、すぐ再同期させる。
+	 * - 成功かつ revision が同期開始時から変わっていなければ（= 同期中にユーザー操作が無い）、
+	 *   ヒント系（dirty / dirtyNoteIds / deletedFolderIds）をクリアする。
+	 * 戻り値: ヒント系をクリアしたか。
 	 */
-	async clearDirtyIfUnchanged(
+	async completeSync(
 		snapshotRevision: number,
-		driveTs: string,
-		noteHashes: Record<string, string>,
+		resolvedDeletions: readonly string[],
+		succeeded: boolean,
 	): Promise<boolean> {
 		return this.lock.run(async () => {
-			if (this.revision !== snapshotRevision) {
-				return false;
+			for (const id of resolvedDeletions) delete this.state.deletedNoteIds[id];
+			const cleared = succeeded && this.revision === snapshotRevision;
+			if (cleared) {
+				this.state.dirty = false;
+				this.state.dirtyNoteIds = {};
+				this.state.deletedFolderIds = {};
+			} else if (!succeeded) {
+				this.state.dirty = true;
 			}
-			this.state.dirty = false;
-			this.state.dirtyNoteIds = {};
-			this.state.deletedNoteIds = {};
-			this.state.deletedFolderIds = {};
-			this.state.lastSyncedDriveTs = driveTs;
-			for (const [id, hash] of Object.entries(noteHashes)) {
-				this.state.lastSyncedNoteHash[id] = hash;
-			}
+			// v2 の同期記録は v3 では使わない（移行後は base が正）
+			this.state.lastSyncedNoteHash = {};
+			this.state.lastSyncedDriveTs = '';
 			await this.persist();
-			return true;
-		});
-	}
-
-	/**
-	 * clearDirtyIfUnchanged が false の場合のフォールバック。
-	 * dirty と dirty IDs は保持したまま、既に確定した hash と driveTs のみ更新する。
-	 * 次回同期で「変わっていない既知ノート」を再 resolve しないようにする。
-	 */
-	async updateSyncedState(
-		driveTs: string,
-		noteHashes: Record<string, string>,
-	): Promise<void> {
-		await this.lock.run(async () => {
-			this.state.lastSyncedDriveTs = driveTs;
-			for (const [id, hash] of Object.entries(noteHashes)) {
-				this.state.lastSyncedNoteHash[id] = hash;
-			}
-			await this.persist();
-		});
-	}
-
-	/**
-	 * 1 ノート分だけ lastSyncedNoteHash を即時永続化する。
-	 * 大量アップロード途中でアプリが終了した場合、再起動後に「現在の hash と一致するノート」を
-	 * Drive 呼び出しせずスキップして 60 件中 31 件目から再開できるようにする用途。
-	 * revision はインクリメントしない（同期側の内部記録で、進行中の clearDirtyIfUnchanged の
-	 * revision チェックを破壊してはならないため）。
-	 */
-	async updateSyncedNoteHash(noteId: string, hash: string): Promise<void> {
-		await this.lock.run(async () => {
-			this.state.lastSyncedNoteHash[noteId] = hash;
-			await this.persist();
-		});
-	}
-
-	/** 個別ノートのハッシュを削除（ノート完全削除後）。 */
-	async forgetNoteHash(noteId: string): Promise<void> {
-		await this.lock.run(async () => {
-			if (this.state.lastSyncedNoteHash[noteId] !== undefined) {
-				delete this.state.lastSyncedNoteHash[noteId];
-				await this.persist();
-			}
+			return cleared;
 		});
 	}
 
@@ -221,10 +182,7 @@ export class SyncStateManager {
 		this.loaded = true;
 	}
 
-	/**
-	 * 状態を変更し revision をインクリメント、永続化する共通処理。
-	 * ユーザー編集トリガーで使う（同期側は別経路）。
-	 */
+	/** 状態を変更し revision をインクリメント、永続化する共通処理（ユーザー操作用）。 */
 	private async mutate(fn: () => void): Promise<void> {
 		await this.lock.run(async () => {
 			this.revision++;
@@ -234,7 +192,7 @@ export class SyncStateManager {
 	}
 
 	private async persist(): Promise<void> {
-		await writeAtomic(SYNC_STATE_PATH, JSON.stringify(this.state, null, 2));
+		await writeAtomic(this.path, JSON.stringify(this.state, null, 2));
 	}
 }
 

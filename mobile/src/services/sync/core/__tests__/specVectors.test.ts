@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { computeContentHash } from '../../hash';
 import type {
@@ -18,7 +19,11 @@ import { mergeSequence } from '../mergeSequence';
  * 同じファイルを Go 側（backend/sync_core_vectors_test.go）も読み、両実装の出力一致を保証する。
  */
 
-const VECTOR_DIR = path.resolve(process.cwd(), '../sync-spec/vectors');
+// リポジトリ直下の sync-spec/vectors（実行ディレクトリに依存しないよう、このファイル基準で解決）
+const VECTOR_DIR = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	'../../../../../../sync-spec/vectors',
+);
 
 function loadVectors<T>(name: string): T {
 	return JSON.parse(readFileSync(path.join(VECTOR_DIR, name), 'utf8')) as T;

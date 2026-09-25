@@ -15,9 +15,38 @@ export const CONFLICT_BACKUP_DIR = `${APP_DATA_DIR}cloud_conflict_backups/`;
 
 export const NOTE_LIST_PATH = `${APP_DATA_DIR}noteList.json`;
 export const SYNC_STATE_PATH = `${APP_DATA_DIR}sync_state.json`;
+export const SYNC_BASE_PATH = `${APP_DATA_DIR}sync_base.json`;
 export const CHANGE_PAGE_TOKEN_PATH = `${APP_DATA_DIR}change_page_token.json`;
 export const SETTINGS_PATH = `${APP_DATA_DIR}settings.json`;
+/** 旧バージョンの操作キュー（v3 では使わない。サインアウト時の掃除用に残す）。 */
 export const OP_QUEUE_PATH = `${APP_DATA_DIR}op_queue.json`;
+
+/**
+ * 端末ローカルの保存先一式。本番は既定値（APP_DATA_DIR 配下）を使い、
+ * テストでは端末ごとに別ディレクトリを渡して複数端末を 1 プロセスで動かす。
+ */
+export interface StoragePaths {
+	appDataDir: string;
+	notesDir: string;
+	noteListPath: string;
+	syncStatePath: string;
+	syncBasePath: string;
+	conflictBackupDir: string;
+}
+
+export function storagePaths(appDataDir: string = APP_DATA_DIR): StoragePaths {
+	const root = ensureSlash(appDataDir);
+	return {
+		appDataDir: root,
+		notesDir: `${root}notes/`,
+		noteListPath: `${root}noteList.json`,
+		syncStatePath: `${root}sync_state.json`,
+		syncBasePath: `${root}sync_base.json`,
+		conflictBackupDir: `${root}cloud_conflict_backups/`,
+	};
+}
+
+export const DEFAULT_STORAGE_PATHS = storagePaths();
 
 /**
  * 同期データ由来のノートIDがファイルパス生成に安全か検証する。
@@ -36,9 +65,9 @@ export function isSafeNoteId(id: string): boolean {
 	return true;
 }
 
-export function noteFilePath(noteId: string): string {
+export function noteFilePath(noteId: string, notesDir = NOTES_DIR): string {
 	if (!isSafeNoteId(noteId)) {
 		throw new Error(`unsafe note id rejected: ${JSON.stringify(noteId)}`);
 	}
-	return `${NOTES_DIR}${noteId}.json`;
+	return `${notesDir}${noteId}.json`;
 }

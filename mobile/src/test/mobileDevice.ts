@@ -1,65 +1,107 @@
 import { NoteService } from '@/services/notes/noteService';
+import { storagePaths } from '@/services/storage/paths';
 import { DriveClient } from '@/services/sync/driveClient';
-import { ensureDriveLayout } from '@/services/sync/driveLayout';
-import { DriveSyncService } from '@/services/sync/driveSyncService';
-import { SyncOrchestrator } from '@/services/sync/orchestrator';
-import { recoverCloudOrphans } from '@/services/sync/orphanRecovery';
+import { DriveGateway, type RetryPolicy } from '@/services/sync/driveGateway';
+import {
+	createNoteLocally,
+	deleteNoteLocally,
+	saveNoteLocally,
+} from '@/services/sync/localActions';
+import { SyncBaseStore } from '@/services/sync/syncBase';
+import { SyncEngine, type SyncReport } from '@/services/sync/syncEngine';
 import { SyncStateManager } from '@/services/sync/syncState';
-import type { Note, NoteList } from '@/services/sync/types';
+import type { ConflictBackupKind, Note, NoteList } from '@/services/sync/types';
 import type { FakeDrive } from './fakeDrive';
+
+/** テストでは待たずに即失敗させ、エンジン側の「次サイクルで再試行」を検証する。 */
+export const NO_RETRY: RetryPolicy = {
+	list: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+	download: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+	upload: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+	other: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+};
 
 /**
  * シナリオテスト用のモバイル端末ファサード。
  *
- * UI (app/index.tsx の新規作成、app/note/[id].tsx の編集/離脱時 flush、
- * driveService.saveNoteAndSync) と同じ手順で同期レイヤーを操作する。
+ * UI (app/index.tsx の新規作成、app/note/[id].tsx の編集/離脱時 flush、driveService の保存経路)
+ * と同じ手順（localActions）でローカルを操作し、アプリと同様に保存後に同期を走らせる。
+ * 端末ごとに別のストレージを持つので、複数台を 1 プロセスで動かせる。
  * シナリオテストはこのファサードだけを使い、同期エンジンの内部 API に依存しない。
  */
 export class MobileDevice {
-	readonly notes = new NoteService();
-	readonly state = new SyncStateManager();
-	private orchestrator: SyncOrchestrator | null = null;
-	private driveSync: DriveSyncService | null = null;
+	readonly notes: NoteService;
+	readonly state: SyncStateManager;
+	readonly baseStore: SyncBaseStore;
+	readonly backups: Array<{ kind: ConflictBackupKind; note: Note }> = [];
+	lastReport: SyncReport | null = null;
+	private engine: SyncEngine | null = null;
 
 	constructor(
 		private readonly drive: FakeDrive,
 		readonly deviceId = 'mobile',
-	) {}
+	) {
+		const paths = storagePaths(`/mem/devices/${deviceId}/monaco-notepad/`);
+		this.notes = new NoteService(paths);
+		this.state = new SyncStateManager(paths.syncStatePath);
+		this.baseStore = new SyncBaseStore(paths.syncBasePath);
+	}
 
 	async boot(): Promise<void> {
 		await this.state.load();
 		await this.notes.load();
 	}
 
-	/** driveService.connect() 相当: レイアウト解決 → クラウド孤立復元。 */
+	/** driveService.connect() 相当（起動時の孤立ファイル取り込み + エンジン構築）。 */
 	async connect(): Promise<void> {
+		await this.notes.adoptOrphanNotes();
 		const client = new DriveClient(async () => this.deviceId);
-		const layout = await ensureDriveLayout(client);
-		this.driveSync = new DriveSyncService(client, layout);
-		this.orchestrator = new SyncOrchestrator(
-			this.driveSync,
+		this.engine = new SyncEngine(
+			new DriveGateway(client, NO_RETRY),
 			this.notes,
 			this.state,
-			{ enableConflictBackup: true },
+			this.baseStore,
+			{
+				backup: async (kind, note) => {
+					this.backups.push({ kind, note });
+				},
+			},
 		);
-		await this.driveSync.listNoteFiles();
-		await recoverCloudOrphans(this.driveSync, this.notes);
 	}
 
 	/** ポーリング 1 サイクル相当の同期。 */
-	async sync(): Promise<void> {
-		if (!this.orchestrator) throw new Error('not connected');
-		await this.orchestrator.syncNotes();
+	async sync(): Promise<SyncReport> {
+		if (!this.engine) throw new Error('not connected');
+		this.lastReport = await this.engine.sync();
+		return this.lastReport;
 	}
 
-	/** 新規作成ボタン (index.tsx handleCreate) → エディタで本文入力 → 保存。 */
+	/** 同期が必要な状態か（ポーリングのゲート）。 */
+	async hasPendingWork(): Promise<boolean> {
+		if (!this.engine) throw new Error('not connected');
+		return this.engine.hasPendingWork();
+	}
+
+	/** 新規作成ボタン (index.tsx handleCreate) → エディタで本文入力 → 保存 → 同期。 */
 	async createNote(input: {
 		id: string;
 		title: string;
 		content: string;
 		language?: string;
 	}): Promise<Note> {
-		const created: Note = {
+		const note = await this.createNoteOffline(input);
+		if (this.engine) await this.sync();
+		return note;
+	}
+
+	/** 新規作成（オフライン: 保存はするが同期しない）。 */
+	async createNoteOffline(input: {
+		id: string;
+		title: string;
+		content: string;
+		language?: string;
+	}): Promise<Note> {
+		await createNoteLocally(this.notes, this.state, {
 			id: input.id,
 			title: '',
 			content: '',
@@ -68,55 +110,74 @@ export class MobileDevice {
 			modifiedTime: this.drive.now(),
 			archived: false,
 			folderId: '',
-		};
-		await this.notes.saveNote(created, { prependToOrder: true });
-		await this.state.markNoteDirty(created.id);
-		return this.editNote(input.id, {
+		});
+		return this.editNoteOffline(input.id, {
 			title: input.title,
 			content: input.content,
 		});
 	}
 
-	/** エディタでの編集 → debounce 後の saveNoteAndSync。 */
+	/** エディタでの編集 → debounce 後の保存 → 同期。 */
 	async editNote(
 		id: string,
 		patch: Partial<Pick<Note, 'title' | 'content' | 'language' | 'archived'>>,
 	): Promise<Note> {
-		const current = await this.notes.readNote(id);
-		if (!current) throw new Error(`note ${id} not found on mobile`);
-		const meta = this.notes.getNoteList().notes.find((n) => n.id === id);
-		const next: Note = {
-			...current,
-			...patch,
-			folderId: meta?.folderId ?? current.folderId,
-			modifiedTime: this.drive.now(),
-		};
-		await this.saveNoteAndSync(next);
+		const next = await this.editNoteOffline(id, patch);
+		if (this.engine) await this.sync();
 		return next;
 	}
 
-	/** ノートを開いて何も変えずに閉じる（エディタ unmount 時の flush）。 */
+	/** ノートを開いて何も変えずに閉じる（エディタ unmount 時の flush → 同期）。 */
 	async openAndClose(id: string): Promise<void> {
 		const current = await this.notes.readNote(id);
-		if (!current) throw new Error(`note ${id} not found on mobile`);
-		await this.saveNoteAndSync(current);
+		if (!current) throw new Error(`note ${id} not found on ${this.deviceId}`);
+		await saveNoteLocally(this.notes, this.state, current);
+		if (this.engine) await this.sync();
 	}
 
-	/** オフライン編集（保存はするが Drive へは送らない）。 */
+	/** オフライン編集（保存はするが同期しない）。 */
 	async editNoteOffline(
 		id: string,
-		patch: Partial<Pick<Note, 'title' | 'content'>>,
-	): Promise<void> {
+		patch: Partial<Pick<Note, 'title' | 'content' | 'language' | 'archived'>>,
+	): Promise<Note> {
 		const current = await this.notes.readNote(id);
-		if (!current) throw new Error(`note ${id} not found on mobile`);
-		const meta = this.notes.getNoteList().notes.find((n) => n.id === id);
-		await this.notes.saveNote({
-			...current,
-			...patch,
-			folderId: meta?.folderId ?? current.folderId,
-			modifiedTime: this.drive.now(),
-		});
-		await this.state.markNoteDirty(id);
+		if (!current) throw new Error(`note ${id} not found on ${this.deviceId}`);
+		const next: Note = { ...current, ...patch, modifiedTime: this.drive.now() };
+		await saveNoteLocally(this.notes, this.state, next);
+		return next;
+	}
+
+	async deleteNoteOffline(id: string): Promise<void> {
+		await deleteNoteLocally(this.notes, this.state, id);
+	}
+
+	/** 並び替え（ドラッグ）: トップレベル順を置き換える。 */
+	async reorderTopLevel(order: NoteList['topLevelOrder']): Promise<void> {
+		const list = this.notes.getNoteList();
+		list.topLevelOrder = order;
+		await this.notes.replaceNoteList(list, { preserveExtras: true });
+		await this.state.markDirty();
+	}
+
+	/** ノートをフォルダへ移動（長押し → フォルダ選択）。 */
+	async moveNoteToFolder(noteId: string, folderId: string): Promise<void> {
+		const list = this.notes.getNoteList();
+		const meta = list.notes.find((n) => n.id === noteId);
+		if (!meta) throw new Error(`note ${noteId} not found on ${this.deviceId}`);
+		meta.folderId = folderId;
+		list.topLevelOrder = list.topLevelOrder.filter(
+			(i) => !(i.type === 'note' && i.id === noteId),
+		);
+		if (!folderId) list.topLevelOrder.unshift({ type: 'note', id: noteId });
+		await this.notes.replaceNoteList(list, { preserveExtras: true });
+		await this.state.markNoteDirty(noteId);
+		await this.state.markDirty();
+	}
+
+	async createFolder(name: string): Promise<string> {
+		const folder = await this.notes.createFolder(name);
+		await this.state.markDirty();
+		return folder.id;
 	}
 
 	list(): NoteList {
@@ -140,13 +201,5 @@ export class MobileDevice {
 
 	folderNamed(name: string): string | undefined {
 		return this.list().folders.find((f) => f.name === name)?.id;
-	}
-
-	private async saveNoteAndSync(note: Note): Promise<void> {
-		await this.notes.saveNote(note);
-		await this.state.markNoteDirty(note.id);
-		if (this.orchestrator) {
-			await this.orchestrator.saveNoteAndUpdateList(note);
-		}
 	}
 }

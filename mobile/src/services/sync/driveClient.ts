@@ -13,9 +13,17 @@ export interface DriveFile {
 	name: string;
 	mimeType?: string;
 	modifiedTime?: string;
+	createdTime?: string;
+	/** 本体バイトの md5（フォルダには無い）。v3 の本文変更検知に使う。 */
+	md5Checksum?: string;
+	version?: string;
 	parents?: string[];
 	trashed?: boolean;
 }
+
+/** 本番コードが Drive に要求するファイルのフィールド。 */
+const FILE_FIELDS =
+	'id, name, mimeType, modifiedTime, createdTime, md5Checksum, version, parents, trashed';
 
 export interface ListChangesResult {
 	changes: Array<{
@@ -82,8 +90,7 @@ export class DriveClient {
 			const params = new URLSearchParams({
 				q: query,
 				spaces: 'appDataFolder',
-				fields:
-					'nextPageToken, files(id, name, mimeType, modifiedTime, parents, trashed)',
+				fields: `nextPageToken, files(${FILE_FIELDS})`,
 				pageSize: String(pageSize),
 			});
 			if (pageToken) params.set('pageToken', pageToken);
@@ -101,7 +108,7 @@ export class DriveClient {
 	/** 1ファイルのメタデータ取得。 */
 	async getFileMetadata(fileId: string): Promise<DriveFile> {
 		const params = new URLSearchParams({
-			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
+			fields: FILE_FIELDS,
 			supportsAllDrives: 'false',
 		});
 		const res = await this.request(
@@ -144,7 +151,7 @@ export class DriveClient {
 
 		const params = new URLSearchParams({
 			uploadType: 'multipart',
-			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
+			fields: FILE_FIELDS,
 		});
 
 		const res = await this.request(`/files?${params.toString()}`, {
@@ -167,7 +174,7 @@ export class DriveClient {
 			parents: parents && parents.length > 0 ? parents : ['appDataFolder'],
 		};
 		const params = new URLSearchParams({
-			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
+			fields: FILE_FIELDS,
 		});
 		const res = await this.request(`/files?${params.toString()}`, {
 			method: 'POST',
@@ -185,7 +192,7 @@ export class DriveClient {
 	): Promise<DriveFile> {
 		const params = new URLSearchParams({
 			uploadType: 'media',
-			fields: 'id, name, mimeType, modifiedTime, parents, trashed',
+			fields: FILE_FIELDS,
 		});
 		const res = await this.request(
 			`/files/${encodeURIComponent(fileId)}?${params.toString()}`,
@@ -246,8 +253,7 @@ export class DriveClient {
 			const params = new URLSearchParams({
 				pageToken: token,
 				spaces: 'appDataFolder',
-				fields:
-					'newStartPageToken, nextPageToken, changes(fileId, removed, file(id, name, mimeType, modifiedTime, parents, trashed))',
+				fields: `newStartPageToken, nextPageToken, changes(fileId, removed, file(${FILE_FIELDS}))`,
 				includeRemoved: 'true',
 				pageSize: '200',
 			});

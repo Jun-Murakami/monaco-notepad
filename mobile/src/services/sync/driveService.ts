@@ -4,15 +4,20 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { authService } from '../auth/authService';
 import { noteService } from '../notes/noteService';
 import { appSettings } from '../settings/appSettings';
-import { APP_DATA_DIR } from '../storage/paths';
+import { deleteIfExists } from '../storage/atomicFile';
+import { APP_DATA_DIR, OP_QUEUE_PATH } from '../storage/paths';
 import { DriveClient } from './driveClient';
-import { type DriveLayout, ensureDriveLayout } from './driveLayout';
-import { DriveSyncService } from './driveSyncService';
+import { DriveGateway } from './driveGateway';
 import { syncEvents } from './events';
-import { operationQueue } from './operationQueue';
-import { SyncOrchestrator } from './orchestrator';
-import { recoverCloudOrphans, recoverLocalOrphans } from './orphanRecovery';
+import {
+	deleteFolderHardLocally,
+	deleteNoteLocally,
+	restoreFolderLocally,
+	saveNoteLocally,
+} from './localActions';
 import { PollingService } from './polling';
+import { syncBaseStore } from './syncBase';
+import { SyncEngine } from './syncEngine';
 import { syncStateManager } from './syncState';
 import type { Note } from './types';
 
@@ -20,19 +25,20 @@ import type { Note } from './types';
  * Drive 関連の全サービスを束ねるライフサイクルオーナ。
  * デスクトップ版 drive_service.go のエントリポイント相当。
  *
- * UI からはこのクラス経由で操作する（initialize/signIn/signOut/saveNote/kickSync）。
+ * UI からはこのクラス経由で操作する（initialize/signIn/signOut/saveNoteAndSync/kickSync）。
+ * ノートの保存はローカルへ書いて変更を記録するだけで、Drive への反映は同期エンジン
+ * (SyncEngine) がまとめて行う（docs/sync-engine-v3.md）。
  */
 export class DriveService {
 	private client: DriveClient | null = null;
-	private driveSync: DriveSyncService | null = null;
-	private orchestrator: SyncOrchestrator | null = null;
+	private engine: SyncEngine | null = null;
 	private polling: PollingService | null = null;
 	private initialized = false;
 
-	// connect 失敗状態 (signedIn だが orchestrator が nil) のときに、
+	// connect 失敗状態 (signedIn だが engine が nil) のときに、
 	// AppState 復帰 / NetInfo オンライン復帰を検知して自動で reconnect を試みる
 	// ためのリスナ。接続成功すると PollingService 側のリスナが同等の役割を担うので
-	// このサービス側のリスナは no-op (`if (this.orchestrator) return`) になる。
+	// このサービス側のリスナは no-op (`if (this.engine) return`) になる。
 	private appStateSub: { remove: () => void } | null = null;
 	private netUnsub: (() => void) | null = null;
 	// 直前の状態。「実際に変化した時のみ」auto reconnect を発火させるため。
@@ -45,81 +51,51 @@ export class DriveService {
 
 	/**
 	 * 起動 critical path で同期的に必要な初期化のみを行う。
-	 *
-	 * ★ ready=true を最速で出すため、以下を**含めない**:
-	 *   - Drive API 呼び出し (connect) — ネットワーク往復で 1〜数秒かかる
-	 *   - ローカル孤立復元 (recoverLocalOrphans) — 全ファイル走査
-	 * これらは setReady(true) のあとに startBackgroundWork() で fire-and-forget する。
-	 *
-	 * load() 系は useInitialize 側で並列に呼ばれているのが期待される (各 service の
-	 * `loaded` フラグで no-op になるが、安全のため重ねて呼ぶ)。
+	 * Drive API 呼び出し (connect) とローカル孤立ファイルの取り込みは
+	 * setReady(true) のあとに startBackgroundWork() で fire-and-forget する。
 	 */
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
 		await syncStateManager.load();
 		await noteService.load();
 		await authService.load();
-
-		// 操作キューの永続分を再開
-		await operationQueue.init(async (item) => {
-			// 初期段階では Drive サービス未接続だと失敗させてリスケさせる
-			if (!this.driveSync || !this.orchestrator) {
-				throw new Error('Drive not connected');
-			}
-			await this.executeQueuedOp(item.opType, item.mapKey, item.payload);
-		});
-		// ⚠️ `start()` が runLoop を kick したあと `pause()` を呼ぶと、最初の 1 回の
-		// ループ反復が paused=false の状態で走ってしまい、保留分の item を処理しに
-		// 行って executor が「Drive not connected」エラーを投げる (signed out 状態で
-		// 再起動 → 過去の pending を踏むケース)。`start()` より前に `pause()` を
-		// 呼ぶことで、runLoop は最初から paused 分岐に入る。
-		operationQueue.pause();
-		await operationQueue.start();
+		// v2 の操作キューは使わない（保存・削除はすべて sync_state に記録済み）
+		await deleteIfExists(OP_QUEUE_PATH).catch(() => {});
 
 		// バックグラウンド復帰 / ネット復帰での自動 reconnect 用にリスナを張る。
-		// `connect` 成否によらず常時張り、`tryAutoReconnect` 側で「signedIn かつ
-		// 未接続」のときだけ動くよう判定する。
 		this.installResumeListeners();
-
 		this.initialized = true;
 	}
 
 	/**
 	 * setReady(true) のあとに UI ブロッキングなしで走らせる重い後処理。
-	 *   - Drive 接続 (signed in なら) — ネットワーク I/O
-	 *   - ローカル孤立ノート復元 — ファイル走査
-	 *
-	 * すべて fire-and-forget で起動し、進捗は drive:status / drive:disconnected /
-	 * drive:reauth-required イベントで UI に伝わる (syncStore 経由)。
+	 *   - ローカル孤立ファイルの取り込み（noteList に無い本体をトップレベル先頭へ）
+	 *   - Drive 接続 (signed in なら)
 	 */
 	startBackgroundWork(): void {
-		// ローカル孤立復元 (起動経路から外し、ready 後に非同期で実行)
-		recoverLocalOrphans(noteService).catch((e) => {
-			console.warn('[Drive] recoverLocalOrphans failed:', e);
-		});
+		noteService
+			.adoptOrphanNotes()
+			.then(async (adopted) => {
+				for (const id of adopted) await syncStateManager.markNoteDirty(id);
+				if (adopted.length > 0) {
+					syncEvents.emit('integrity:issues', { count: adopted.length });
+					syncEvents.emit('notes:reload', undefined);
+				}
+			})
+			.catch((e) => {
+				console.warn('[Drive] adoptOrphanNotes failed:', e);
+			});
 
 		if (!authService.isSignedIn()) return;
 
-		// Drive 接続を fire-and-forget。
-		// 起動時はネット状況不明 (オフライン起動などもありうる) なので
-		// 楽観的に "pulling" を出さず、第一段階の Drive 呼び出しが成功した
-		// 時点で初めて接続済みを emit する。
+		// 起動時はネット状況不明なので楽観的に "pulling" を出さず、
+		// 第一段階の Drive 呼び出しが成功した時点で初めて接続済みを emit する。
 		this.connect({ optimisticEmit: false }).catch((e) => {
-			// 起動時の Drive 接続が失敗しても、アプリ全体をクラッシュさせない。
-			// (401 / ネットワーク不通 / Drive 障害 等)
-			// 部分的に作られた接続オブジェクトをクリアして「未接続」状態に戻す。
 			console.warn('[Drive] connect failed during startup:', e);
-			this.client = null;
-			this.driveSync = null;
-			this.orchestrator = null;
-			this.polling = null;
+			this.clearConnection();
 			syncEvents.emit('drive:disconnected', undefined);
 			syncEvents.emit('drive:status', { status: 'offline' });
-			// 「Drive と同期していない」ことに気付かないままアプリを使い続けるのを
-			// 防ぐため、起動時の自動再接続失敗もダイアログで通知する。
-			// 401 由来 (authService.refresh が invalid_grant 検知) なら既に
-			// notifyReauthRequired('invalid_grant') が呼ばれて signOut 済みのはず。
-			// それ以外 (ネットワーク不通) は startup_failed で通知。
+			// 「Drive と同期していない」ことに気付かないまま使い続けるのを防ぐため通知する。
 			// notifyReauthRequired は内部で重複抑止するので二重表示にはならない。
 			authService.notifyReauthRequired(
 				'startup_failed',
@@ -130,23 +106,17 @@ export class DriveService {
 
 	async signIn(): Promise<void> {
 		await authService.signIn();
-		// signIn 直後は楽観的に「接続済み + pulling」を表示しても破綻しない
-		// (ユーザーの操作により直前にネット経由でコード交換が成功している)。
+		// signIn 直後は楽観的に「接続済み + pulling」を表示しても破綻しない。
 		await this.connect({ optimisticEmit: true });
-		// 明示的なサインイン直後は、Drive 上で contentHeader 欠落しているノートを
-		// 全件検査して埋める（古いデスクトップ版で作られたノートの救済）。
-		this.orchestrator?.requestBulkRepair();
 	}
 
 	/**
 	 * 起動時 connect 失敗 (ネットワーク不通など) からの手動リトライ用。
-	 * `signedIn` だが `orchestrator` が nil の状態でのみ意味を持つ。
-	 * UI の SyncStatusBar 同期ボタン、AppState/NetInfo の自動トリガから叩かれる。
-	 * 並行呼び出しは内部で dedup される。
+	 * `signedIn` だが `engine` が nil の状態でのみ意味を持つ。並行呼び出しは dedup される。
 	 */
 	async reconnect(): Promise<void> {
 		if (!authService.isSignedIn()) return;
-		if (this.orchestrator) return;
+		if (this.engine) return;
 		if (this.reconnectPromise) return this.reconnectPromise;
 		this.reconnectPromise = this.doReconnect().finally(() => {
 			this.reconnectPromise = null;
@@ -155,9 +125,7 @@ export class DriveService {
 	}
 
 	private async doReconnect(): Promise<void> {
-		// NetInfo が「offline」を返している場合、ここで fetch を走らせても
-		// withRetry が 4 回リトライして ~15s 後にタイムアウトする。それより
-		// ユーザーに即フィードバックを返したい。
+		// NetInfo が「offline」を返している場合はすぐにフィードバックを返す。
 		const net = await NetInfo.refresh().catch(() => null);
 		if (net && net.isConnected === false) {
 			console.warn('[Drive] reconnect skipped: NetInfo says offline');
@@ -179,25 +147,18 @@ export class DriveService {
 			await this.connect({ optimisticEmit: false });
 		} catch (e) {
 			console.warn('[Drive] reconnect failed:', e);
-			this.client = null;
-			this.driveSync = null;
-			this.orchestrator = null;
-			this.polling = null;
+			this.clearConnection();
 			syncEvents.emit('drive:disconnected', undefined);
 			syncEvents.emit('drive:status', { status: 'offline' });
 			throw e;
 		}
 	}
 
-	/**
-	 * AppState 復帰 / NetInfo オンライン復帰時に呼ばれる、自動 reconnect トリガ。
-	 * 接続済みなら no-op (PollingService 側のリスナが処理する)。
-	 */
+	/** AppState 復帰 / NetInfo オンライン復帰時の自動 reconnect トリガ。接続済みなら no-op。 */
 	private tryAutoReconnect(reason: string): void {
 		if (!authService.isSignedIn()) return;
-		if (this.orchestrator) return;
+		if (this.engine) return;
 		console.log(`[Drive] auto reconnect triggered: ${reason}`);
-		// fire-and-forget。エラーは reconnect 側でログ + offline 状態 emit 済み。
 		this.reconnect().catch(() => {});
 	}
 
@@ -223,8 +184,7 @@ export class DriveService {
 		const isOnline = state.isConnected === true;
 		const wasOnline = this.lastNetConnected;
 		this.lastNetConnected = isOnline;
-		// 初回 fire (wasOnline === null) は seed のみで trigger しない。
-		// 起動時 connect の自動実行と重複してしまうため。
+		// 初回 fire (wasOnline === null) は seed のみ（起動時 connect との重複を避ける）。
 		if (wasOnline === null) return;
 		if (isOnline && !wasOnline) {
 			this.tryAutoReconnect('netInfo:online');
@@ -233,27 +193,22 @@ export class DriveService {
 
 	async signOut(): Promise<void> {
 		await this.polling?.stop();
-		this.polling = null;
-		this.orchestrator = null;
-		this.driveSync = null;
-		this.client = null;
-		// connect 不在状態に戻すので queue も止める。
-		operationQueue.pause();
+		this.clearConnection();
 		await authService.signOut();
 		await syncStateManager.reset();
+		// 次にサインインするアカウントの Drive へ、この Drive の同期記録を持ち込まない
+		await syncBaseStore.clear();
 		syncEvents.emit('drive:disconnected', undefined);
 	}
 
 	/**
 	 * Google Drive の appDataFolder 内データを全削除してから連携を解除する。
-	 *
-	 * ローカルノートは残すため、次回 Google Drive に接続したときに空のクラウドで
-	 * ローカルが上書き消去されないよう、解除後に全ノートを dirty として記録する。
+	 * ローカルノートは残し、次回接続時に全件アップロードされる（base を破棄するので
+	 * 空のクラウドでローカルが消されることはない）。
 	 */
 	async deleteAllDriveDataAndSignOut(): Promise<void> {
 		if (!authService.isSignedIn()) return;
 		await this.polling?.stop();
-		operationQueue.pause();
 
 		const localNoteIds = noteService.getNoteList().notes.map((note) => note.id);
 		const client =
@@ -262,29 +217,17 @@ export class DriveService {
 		await client.deleteAllAppDataFiles();
 		await this.signOut();
 
-		if (localNoteIds.length > 0) {
-			await syncStateManager.markDirty();
-			for (const noteId of localNoteIds) {
-				await syncStateManager.markNoteDirty(noteId);
-			}
+		for (const noteId of localNoteIds) {
+			await syncStateManager.markNoteDirty(noteId);
 		}
 	}
 
 	/**
-	 * この端末に保存されたアプリデータを全削除する。
-	 *
-	 * Google Drive 上のデータは削除しない。先に連携解除して refresh token を失効/削除し、
-	 * その後にローカル JSON、ノート本文、同期キュー、設定をまとめて消す。
+	 * この端末に保存されたアプリデータを全削除する（Google Drive 上のデータは削除しない）。
 	 */
 	async deleteLocalData(): Promise<void> {
 		await this.signOut().catch((error) => {
 			console.warn('[Drive] signOut before local data deletion failed:', error);
-		});
-		await operationQueue.cleanupAll().catch((error) => {
-			console.warn(
-				'[Drive] queue cleanup before local data deletion failed:',
-				error,
-			);
 		});
 
 		const dir = new Directory(APP_DATA_DIR);
@@ -292,76 +235,42 @@ export class DriveService {
 			dir.delete();
 		}
 
-		this.client = null;
-		this.driveSync = null;
-		this.orchestrator = null;
-		this.polling = null;
+		this.clearConnection();
 		noteService.resetInMemory();
 		syncStateManager.resetInMemory();
-		await operationQueue.resetInMemory();
 		appSettings.resetInMemory();
 		syncEvents.emit('drive:disconnected', undefined);
 		syncEvents.emit('drive:status', { status: 'offline' });
 		syncEvents.emit('notes:reload', undefined);
 	}
 
-	/** UI 操作用: ノート保存トリガー。markDirty → push。 */
+	/** UI 操作用: ノート保存（エディタの debounce 保存 / 離脱時 flush）。 */
 	async saveNoteAndSync(note: Note): Promise<void> {
-		await noteService.saveNote(note);
-		await syncStateManager.markNoteDirty(note.id);
-		// noteList のメタデータ (title / contentHeader / modifiedTime 等) が
-		// 変わったので UI store に反映を通知する。これが無いと、ノート詳細で
-		// 編集 → ホームに戻った時にタイトルやプレビューが古いまま見える。
+		await saveNoteLocally(noteService, syncStateManager, note);
+		// noteList のメタデータ (title / contentHeader / modifiedTime 等) が変わったので
+		// UI store に反映を通知する。
 		syncEvents.emit('notes:reload', undefined);
-		if (this.orchestrator) {
-			try {
-				await this.orchestrator.saveNoteAndUpdateList(note);
-			} catch {
-				// 失敗はキューに残して後で再試行させる
-				await operationQueue.enqueue('UPDATE', `note:${note.id}`, {
-					noteId: note.id,
-				});
-			}
-		} else {
-			// オフライン: キューに入れて後で実行
-			await operationQueue.enqueue('UPDATE', `note:${note.id}`, {
-				noteId: note.id,
-			});
-		}
+		this.requestSync();
 	}
 
 	async deleteNoteAndSync(noteId: string): Promise<void> {
-		await noteService.deleteNote(noteId);
-		await syncStateManager.markNoteDeleted(noteId);
-		await operationQueue.enqueue('DELETE', `note:${noteId}`, { noteId });
+		await deleteNoteLocally(noteService, syncStateManager, noteId);
 		syncEvents.emit('notes:reload', undefined);
+		this.requestSync();
 	}
 
 	/**
-	 * archived フォルダを完全削除する。配下の archived ノートも本文ファイル・
-	 * クラウド両方から消える。デスクトップ版のフォルダ削除と異なり、
-	 * 「フォルダごとアーカイブ → アーカイブ画面で削除」という 2 段階フローで使う。
+	 * archived フォルダを完全削除する。配下の archived ノートも本文ファイル・クラウド両方から消える。
 	 */
 	async deleteFolderAndSync(folderId: string): Promise<void> {
-		const deletedNoteIds = await noteService.deleteFolderHard(folderId);
-		await syncStateManager.markFolderDeleted(folderId);
-		for (const noteId of deletedNoteIds) {
-			await syncStateManager.markNoteDeleted(noteId);
-			await operationQueue.enqueue('DELETE', `note:${noteId}`, { noteId });
-		}
+		await deleteFolderHardLocally(noteService, syncStateManager, folderId);
+		this.requestSync();
 	}
 
-	/**
-	 * archived フォルダを active へ復元する。配下の archived ノートも一緒に
-	 * unarchive する。`syncStateManager.markNoteDirty` を呼んで次回同期で
-	 * クラウド側にも反映させる。
-	 */
+	/** archived フォルダを active へ復元する（配下の archived ノートも unarchive）。 */
 	async restoreFolderAndSync(folderId: string): Promise<void> {
-		const restoredNoteIds = await noteService.restoreFolder(folderId);
-		await syncStateManager.markDirty();
-		for (const noteId of restoredNoteIds) {
-			await syncStateManager.markNoteDirty(noteId);
-		}
+		await restoreFolderLocally(noteService, syncStateManager, folderId);
+		this.requestSync();
 	}
 
 	async kickSync(): Promise<void> {
@@ -377,27 +286,31 @@ export class DriveService {
 		this.polling?.kick();
 	}
 
+	/** ローカル変更の後の同期要求。連続した保存は数秒待ってまとめる。 */
+	private requestSync(): void {
+		this.polling?.kickDebounced();
+	}
+
+	private clearConnection(): void {
+		this.client = null;
+		this.engine = null;
+		this.polling = null;
+	}
+
 	/**
 	 * Drive と接続を確立する。
 	 *
-	 * `optimisticEmit=true`: 第一段階の fetch を走らせる前に「接続済み + pulling」を
-	 * 即 emit する。ユーザーが操作した直後 (signIn) に「オフラインから突然ダウンロード」と
-	 * 見えるのを避けたいケース用。
-	 *
-	 * `optimisticEmit=false`: 第一段階の Drive 呼び出しが成功してから初めて
-	 * 「接続済み」を emit する。起動時 / 手動 reconnect で、失敗するかもしれないのに
-	 * 「ダウンロード中」と表示するフリッカーを避ける。
-	 *
-	 * どこで失敗したか (token refresh 段階か Drive 段階か) を切り分けやすいよう、
-	 * 各段階に診断ログを仕込む。
+	 * `optimisticEmit=true`: 第一段階の fetch 前に「接続済み + pulling」を即 emit する（signIn 直後）。
+	 * `optimisticEmit=false`: 第一段階の Drive 呼び出しが成功してから「接続済み」を emit する。
 	 */
 	private async connect(opts: { optimisticEmit: boolean }): Promise<void> {
 		if (opts.optimisticEmit) {
 			syncEvents.emit('drive:connected', undefined);
 			syncEvents.emit('drive:status', { status: 'pulling' });
+			syncEvents.emit('sync:phase', { phase: 'preparing' });
 		}
 
-		const tempClient = new DriveClient(async (force) => {
+		const client = new DriveClient(async (force) => {
 			try {
 				return await authService.getAccessToken({ force });
 			} catch (e) {
@@ -405,83 +318,37 @@ export class DriveService {
 				throw e;
 			}
 		});
+		const gateway = new DriveGateway(client);
 
-		// 第一段階: Drive layout 解決 (token refresh + listFiles)。
+		// 第一段階: Drive レイアウト解決 (token refresh + listFiles)。
 		// ここで失敗するなら「ネット不通 / OAuth エラー / Google API 障害」のどれか。
-		// optimistic 時はすでに pulling を出しているのでこの phase も意味を持つ。
-		if (opts.optimisticEmit) {
-			syncEvents.emit('sync:phase', { phase: 'preparing' });
-		}
-		let layout: DriveLayout;
 		try {
-			layout = await ensureDriveLayout(tempClient);
+			await gateway.resolveLayout();
 		} catch (e) {
-			console.warn('[Drive] ensureDriveLayout failed:', e);
+			console.warn('[Drive] resolveLayout failed:', e);
 			throw e;
 		}
 
-		// 成功確定後にコミット (非 optimistic 時はここで初めて emit)。
 		if (!opts.optimisticEmit) {
 			syncEvents.emit('drive:connected', undefined);
 			syncEvents.emit('drive:status', { status: 'pulling' });
 			syncEvents.emit('sync:phase', { phase: 'preparing' });
 		}
 
-		this.client = tempClient;
-		this.driveSync = new DriveSyncService(this.client, layout);
-		this.orchestrator = new SyncOrchestrator(
-			this.driveSync,
+		this.client = client;
+		this.engine = new SyncEngine(
+			gateway,
 			noteService,
 			syncStateManager,
+			syncBaseStore,
 			{
-				// 設定画面の「競合バックアップを保存」を同期の実処理に反映する。
-				// false の場合は、クラウド勝ち/クラウド削除時のローカル退避 JSON を作らない。
-				enableConflictBackup: appSettings.snapshot().conflictBackup,
+				// 設定画面の「競合バックアップを保存」を毎回参照する。
+				enableConflictBackup: () => appSettings.snapshot().conflictBackup,
 			},
 		);
-
-		// クラウド孤立復元（noteList 取得後）
-		await this.driveSync.listNoteFiles();
-		await recoverCloudOrphans(this.driveSync, noteService);
-
-		this.polling = new PollingService(
-			this.client,
-			this.driveSync,
-			this.orchestrator,
-			syncStateManager,
-		);
+		this.polling = new PollingService(client, this.engine);
+		// 初回同期は polling のループ内で即実行される（ここで待つと UI がブロックされる）。
 		await this.polling.start();
-		// 接続が確立したのでキューを再開する。`wake()` も呼ばれて、保留中の
-		// CREATE/UPDATE/DELETE が即座に再生される。
-		operationQueue.resume();
-	}
-
-	private async executeQueuedOp(
-		opType: string,
-		_mapKey: string,
-		payload: unknown,
-	): Promise<void> {
-		if (!this.driveSync || !this.orchestrator)
-			throw new Error('Drive not connected');
-		const p = (payload ?? {}) as { noteId?: string };
-		switch (opType) {
-			case 'UPDATE':
-			case 'CREATE': {
-				if (!p.noteId) return;
-				const note = await noteService.readNote(p.noteId);
-				if (!note) return;
-				await this.orchestrator.saveNoteAndUpdateList(note);
-				return;
-			}
-			case 'DELETE': {
-				if (!p.noteId) return;
-				await this.driveSync.deleteNote(p.noteId);
-				await syncStateManager.forgetNoteHash(p.noteId);
-				return;
-			}
-			default:
-				return;
-		}
 	}
 }
 

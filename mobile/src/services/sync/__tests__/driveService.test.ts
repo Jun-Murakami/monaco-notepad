@@ -7,7 +7,7 @@ import { DriveService } from '../driveService';
 /**
  * DriveService の自動 reconnect 機構の回帰テスト。
  *
- * 検証対象: connect 失敗状態 (signedIn だが orchestrator が nil) のとき、
+ * 検証対象: connect 失敗状態 (signedIn だが engine が nil) のとき、
  * AppState 復帰 / NetInfo オンライン復帰を検知して自動で reconnect が
  * 走ることの保証。接続済み状態では PollingService 側に処理を譲る (no-op)。
  */
@@ -41,7 +41,7 @@ describe('DriveService auto reconnect listeners', () => {
 		expect(reconnectSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it('AppState 復帰でも orchestrator がある (=接続済み) なら reconnect は呼ばれない', () => {
+	it('AppState 復帰でも engine がある (=接続済み) なら reconnect は呼ばれない', () => {
 		const reconnectSpy = vi
 			.spyOn(svc, 'reconnect')
 			.mockResolvedValue(undefined);
@@ -49,7 +49,7 @@ describe('DriveService auto reconnect listeners', () => {
 		(svc as any).installResumeListeners();
 		// 接続済み状態をシミュレート
 		// biome-ignore lint/suspicious/noExplicitAny: private 状態を直接設定
-		(svc as any).orchestrator = {} as unknown;
+		(svc as any).engine = {} as unknown;
 
 		__setAppState('background');
 		__setAppState('active');
@@ -112,14 +112,14 @@ describe('DriveService auto reconnect listeners', () => {
 		expect(reconnectSpy).not.toHaveBeenCalled();
 	});
 
-	it('NetInfo 復帰でも orchestrator がある (=接続済み) なら reconnect は呼ばれない', () => {
+	it('NetInfo 復帰でも engine がある (=接続済み) なら reconnect は呼ばれない', () => {
 		const reconnectSpy = vi
 			.spyOn(svc, 'reconnect')
 			.mockResolvedValue(undefined);
 		// biome-ignore lint/suspicious/noExplicitAny: private state
 		(svc as any).installResumeListeners();
 		// biome-ignore lint/suspicious/noExplicitAny: private state
-		(svc as any).orchestrator = {} as unknown;
+		(svc as any).engine = {} as unknown;
 
 		__setNetState({ isConnected: false });
 		__setNetState({ isConnected: true });
@@ -268,9 +268,9 @@ describe('DriveService.reconnect dedup', () => {
 		expect(connectSpy).not.toHaveBeenCalled();
 	});
 
-	it('既に接続済み (orchestrator あり) なら reconnect は no-op', async () => {
+	it('既に接続済み (engine あり) なら reconnect は no-op', async () => {
 		// biome-ignore lint/suspicious/noExplicitAny: private state
-		(svc as any).orchestrator = {} as unknown;
+		(svc as any).engine = {} as unknown;
 		// biome-ignore lint/suspicious/noExplicitAny: private method spy
 		const connectSpy = vi.spyOn(svc as any, 'connect');
 

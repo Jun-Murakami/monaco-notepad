@@ -43,7 +43,7 @@ export function useInitialize(): { ready: boolean; error: Error | null } {
 				]);
 
 				// load 群が完了した状態で driveService.initialize() を呼ぶ。
-				// 内部の load() は loaded フラグで no-op、operationQueue.init と
+				// 内部の load() は loaded フラグで no-op、旧操作キューの掃除と
 				// listener 登録だけ実行される。Drive API は呼ばれない。
 				await driveService.initialize();
 				if (cancelled) return;

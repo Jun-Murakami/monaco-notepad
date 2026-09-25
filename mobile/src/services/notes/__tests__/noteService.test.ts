@@ -80,37 +80,79 @@ describe('NoteService', () => {
 		expect(s.getNoteList().notes[0].folderId).toBe('');
 	});
 
-	it('ensureFolder は同名フォルダがあれば再作成しない', async () => {
+	it('adoptOrphanNotes は noteList に無い本体をトップレベル先頭に登録する（不明ノートは作らない）', async () => {
 		const s = await fresh();
-		const id1 = await s.ensureFolder('Unknown');
-		const id2 = await s.ensureFolder('Unknown');
-		expect(id1).toBe(id2);
-		expect(s.getNoteList().folders).toHaveLength(1);
-	});
-
-	it('scanOrphans は notes/ 内で noteList に無いファイルを拾う', async () => {
-		const s = await fresh();
+		await s.saveNote(makeNote({ id: 'a' }), { prependToOrder: true });
 		await ensureDir(NOTES_DIR);
-		// noteList に無い note ファイルを直接書く
+		// noteList に無い note ファイルを直接書く（本体ファイルに古い folderId が残っていても無視する）
 		const f = new File(noteFilePath('orphan-1'));
 		f.create({ intermediates: true, overwrite: true });
-		f.write(JSON.stringify(makeNote({ id: 'orphan-1', content: 'orphan' })));
-		const orphans = await s.scanOrphans();
-		expect(orphans).toHaveLength(1);
-		expect(orphans[0].id).toBe('orphan-1');
+		f.write(
+			JSON.stringify(
+				makeNote({ id: 'orphan-1', content: 'orphan', folderId: 'gone' }),
+			),
+		);
+
+		const adopted = await s.adoptOrphanNotes();
+
+		expect(adopted).toEqual(['orphan-1']);
+		const list = s.getNoteList();
+		expect(list.folders).toEqual([]);
+		expect(list.notes.find((n) => n.id === 'orphan-1')?.folderId).toBe('');
+		expect(list.topLevelOrder[0]).toEqual({ type: 'note', id: 'orphan-1' });
 	});
 
-	it('recoverOrphanNote は「不明ノート」フォルダに登録する', async () => {
+	it('readNote の folderId は noteList の値（本体ファイルの folderId は使わない）', async () => {
 		const s = await fresh();
-		const orphan = makeNote({ id: 'orphan-1', content: 'orphan' });
-		await s.recoverOrphanNote(orphan);
-		const list = s.getNoteList();
-		const folder = list.folders.find((f) => f.name === '不明ノート');
-		expect(folder).toBeDefined();
-		expect(list.notes[0]).toMatchObject({
-			id: 'orphan-1',
-			folderId: folder!.id,
+		const folder = await s.createFolder('Work');
+		await s.saveNote(makeNote({ id: 'a', folderId: folder.id }));
+		// デスクトップ版が書いた本体（folderId なし）で上書きされた状態
+		const f = new File(noteFilePath('a'));
+		f.write(JSON.stringify({ ...makeNote({ id: 'a' }), folderId: undefined }));
+
+		expect((await s.readNote('a'))?.folderId).toBe(folder.id);
+	});
+
+	it('既存ノートの保存では所属フォルダを変えない（エディタの古い folderId で巻き戻さない）', async () => {
+		const s = await fresh();
+		const folder = await s.createFolder('Work');
+		await s.saveNote(makeNote({ id: 'a', folderId: folder.id }));
+
+		await s.saveNote(makeNote({ id: 'a', folderId: '', content: 'edited' }));
+
+		const meta = s.getNoteList().notes.find((n) => n.id === 'a');
+		expect(meta?.folderId).toBe(folder.id);
+		expect(s.getNoteList().topLevelOrder).not.toContainEqual({
+			type: 'note',
+			id: 'a',
 		});
+	});
+
+	it('transact 中の UI 保存はコミット完了まで待たされる（同期結果で編集を上書きしない）', async () => {
+		const s = await fresh();
+		await s.saveNote(makeNote({ id: 'a', content: 'v1' }));
+		const events: string[] = [];
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+
+		const commit = s.transact(async (tx) => {
+			events.push('commit:start');
+			await gate;
+			await tx.writeNoteFile(makeNote({ id: 'a', content: 'from-cloud' }));
+			events.push('commit:end');
+		});
+		const uiSave = s
+			.saveNote(makeNote({ id: 'a', content: 'user-edit' }))
+			.then(() => {
+				events.push('ui:saved');
+			});
+		release();
+		await Promise.all([commit, uiSave]);
+
+		expect(events).toEqual(['commit:start', 'commit:end', 'ui:saved']);
+		expect((await s.readNote('a'))?.content).toBe('user-edit');
 	});
 
 	it('replaceNoteList でクラウド同期結果を丸ごと取り込める', async () => {
@@ -172,13 +214,12 @@ describe('NoteService', () => {
 		]);
 		// 既存フォルダも保持
 		expect(list.folders.find((f) => f.id === cloudFolderId)).toBeDefined();
-		// topLevelOrder: stale が指定した moved-folder + 既存 (extras) が末尾追加される
+		// topLevelOrder: 既存 (extras) は「新着」として先頭、stale が指定した moved-folder はその後
 		const orderKeys = list.topLevelOrder.map((i) => `${i.type}:${i.id}`);
-		expect(orderKeys).toContain('folder:moved-folder');
+		expect(orderKeys.at(-1)).toBe('folder:moved-folder');
 		expect(orderKeys).toContain(`folder:${cloudFolderId}`);
 		// folderId 付きノートは topLevelOrder に乗らない (data model 整合)
 		expect(orderKeys).not.toContain('note:pulled-2');
-		// folderId なしノートは末尾追加
 		expect(orderKeys).toContain('note:pulled-1');
 	});
 
@@ -219,13 +260,11 @@ describe('NoteService', () => {
 		expect(b.getNoteList().notes[0]?.title).toBe('persisted');
 	});
 
-	// NOTES_DIR が未作成でも scanOrphans がクラッシュしない
-	it('NOTES_DIR 未作成でも scanOrphans は空配列を返す', async () => {
+	it('孤立ファイルが無ければ adoptOrphanNotes は何もしない', async () => {
 		const s = new NoteService();
 		await s.load();
-		// load の時点で ensureDir されるので明示的には触らない
-		const orphans = await s.scanOrphans();
-		expect(orphans).toEqual([]);
+		const adopted = await s.adoptOrphanNotes();
+		expect(adopted).toEqual([]);
 		// notes/ が存在することは保証されない前提を確認（ここでは作成されている）
 		const entries = new Directory(NOTES_DIR).list().map((e) => e.name);
 		expect(entries).toEqual([]);

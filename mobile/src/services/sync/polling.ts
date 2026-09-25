@@ -5,11 +5,15 @@ import { appSettings } from '../settings/appSettings';
 import { readString, writeAtomic } from '../storage/atomicFile';
 import { CHANGE_PAGE_TOKEN_PATH } from '../storage/paths';
 import type { DriveClient } from './driveClient';
-import type { DriveSyncService } from './driveSyncService';
 import { syncEvents } from './events';
-import type { SyncOrchestrator } from './orchestrator';
 import { AuthError, sleep } from './retry';
-import type { SyncStateManager } from './syncState';
+
+/** ポーリングが同期エンジンに求める最小限の API。 */
+export interface SyncRunner {
+	sync(): Promise<unknown>;
+	/** 未送信のローカル変更がある / 一度も同期していない。 */
+	hasPendingWork(): Promise<boolean>;
+}
 
 /**
  * ポーリングサービス。
@@ -31,6 +35,10 @@ const RECONNECT_MAX_MS = 3 * 60 * 1000;
 // 一時的な Wi-Fi 切替 / スリープ復帰直後は backoff でやり過ごし、永続的なオフライン
 // (refresh_token 失効など) はユーザーに通知する。
 const REAUTH_FAILURE_THRESHOLD = 3;
+// Changes API の取りこぼしに備え、変化が無くてもこの間隔でフル判定する（docs/sync-engine-v3.md §8）。
+const SAFETY_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+// 保存直後の同期要求をまとめる待ち時間（入力中に毎回同期しない）。
+export const SAVE_SYNC_DEBOUNCE_MS = 2000;
 
 export type ConnectivityState = 'online' | 'offline';
 
@@ -58,12 +66,12 @@ export class PollingService {
 	private wakeUp: Promise<void> = Promise.resolve();
 	private notify: (() => void) | null = null;
 	private loopPromise: Promise<void> | null = null;
+	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private lastSyncAt = 0;
 
 	constructor(
 		private readonly driveClient: DriveClient,
-		private readonly driveSync: DriveSyncService,
-		private readonly orchestrator: SyncOrchestrator,
-		private readonly syncState: SyncStateManager,
+		private readonly engine: SyncRunner,
 	) {
 		this.resetWake();
 	}
@@ -72,6 +80,7 @@ export class PollingService {
 		if (this.running) return;
 		this.running = true;
 		this.stopFlag = false;
+		this.lastSyncAt = Date.now();
 		await this.loadPageToken();
 
 		this.netUnsub = NetInfo.addEventListener((s) => this.handleNetChange(s));
@@ -114,6 +123,8 @@ export class PollingService {
 
 	async stop(): Promise<void> {
 		this.stopFlag = true;
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+		this.debounceTimer = null;
 		this.wake();
 		this.netUnsub?.();
 		this.netUnsub = null;
@@ -134,6 +145,15 @@ export class PollingService {
 		// 次のループ判定までに最新状態を反映する。
 		this.refreshConnectivity();
 		this.wake();
+	}
+
+	/** 保存直後の同期要求。連続した保存は最後の 1 回にまとめてから kick する。 */
+	kickDebounced(delayMs = SAVE_SYNC_DEBOUNCE_MS): void {
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+		this.debounceTimer = setTimeout(() => {
+			this.debounceTimer = null;
+			this.kick();
+		}, delayMs);
 	}
 
 	private async runLoop(): Promise<void> {
@@ -166,21 +186,16 @@ export class PollingService {
 
 			try {
 				const changed = await this.checkForChanges();
-				// ローカルに pending な変更がある場合 (前回 session で push 途中終了 →
-				// 再起動で resume したいケース等) は、cloud 側に変化が無くても sync を
-				// 走らせる必要がある。Changes API は伝播ラグがあり、local dirty を見ないと
-				// 数十秒〜数分待たされて UX が悪い。
-				const localDirty = this.syncState.isDirty();
-				// 初回 pull 中に kill された場合: cloud は変化していない (Changes API は false)、
-				// localDirty も立たない (pull は dirty にしない) ので、明示的に「まだ初回 sync を
-				// 完了していない」を判定軸にする。lastSyncedDriveTs が空文字なら、updateSyncedState
-				// に到達したことが無い = 初回 sync 未完了。
-				const neverSynced = this.syncState.lastSyncedDriveTs() === '';
+				// ローカルに未送信の変更がある / 一度も同期を完了していない（初回同期中に kill 等）
+				// 場合は、cloud 側に変化が無くても同期する。
+				const pending = await this.engine.hasPendingWork();
 				// foreground 復帰や UI kick() で立つフラグ。Changes API の伝播ラグを
 				// 待たずに強制 sync する。フラグは消費したらクリア。
 				const forced = this.forceSync;
 				this.forceSync = false;
-				if (forced || changed || localDirty || neverSynced) {
+				const safetyDue =
+					Date.now() - this.lastSyncAt >= SAFETY_SYNC_INTERVAL_MS;
+				if (forced || changed || pending || safetyDue) {
 					await this.runSyncSafe();
 					this.intervalMs = MIN_INTERVAL_MS;
 				} else {
@@ -219,7 +234,8 @@ export class PollingService {
 
 	private async runSyncSafe(): Promise<void> {
 		try {
-			await this.orchestrator.syncNotes();
+			this.lastSyncAt = Date.now();
+			await this.engine.sync();
 		} catch (e) {
 			if (e instanceof AuthError) {
 				await this.handleAuthError();
@@ -244,7 +260,6 @@ export class PollingService {
 			delay = Math.min(delay * BACKOFF_FACTOR, RECONNECT_MAX_MS);
 			try {
 				await this.driveClient.getStartPageToken();
-				this.driveSync.clearCache();
 				syncEvents.emit('drive:reconnected', undefined);
 				this.intervalMs = MIN_INTERVAL_MS;
 				// 接続復帰: 次回オフライン時にも改めて通知できるようリセット
