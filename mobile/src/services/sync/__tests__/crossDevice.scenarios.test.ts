@@ -20,7 +20,11 @@ let drive: FakeDrive;
 let peer: DesktopPeer;
 let mobile: MobileDevice;
 
-function peerNote(id: string, content: string, overrides: Partial<PeerNote> = {}): PeerNote {
+function peerNote(
+	id: string,
+	content: string,
+	overrides: Partial<PeerNote> = {},
+): PeerNote {
 	return {
 		id,
 		title: `Title ${id}`,
@@ -154,7 +158,9 @@ describe('② 表示順', () => {
 		await mobile.sync();
 
 		expect(mobile.folderOf('W1')).toBe('work');
-		expect(peer.readList().notes.find((n) => n.id === 'W1')?.folderId).toBe('work');
+		expect(peer.readList().notes.find((n) => n.id === 'W1')?.folderId).toBe(
+			'work',
+		);
 		expect(mobile.topLevelNoteIds()).not.toContain('W1');
 	});
 
@@ -168,9 +174,13 @@ describe('② 表示順', () => {
 		peer.saveNote(peerNote('W1', 'newer edit on desktop'));
 		await mobile.sync();
 
-		expect((await mobile.readNote('W1'))?.content).toBe('newer edit on desktop');
+		expect((await mobile.readNote('W1'))?.content).toBe(
+			'newer edit on desktop',
+		);
 		expect(mobile.folderOf('W1')).toBe('work');
-		expect(peer.readList().notes.find((n) => n.id === 'W1')?.folderId).toBe('work');
+		expect(peer.readList().notes.find((n) => n.id === 'W1')?.folderId).toBe(
+			'work',
+		);
 	});
 });
 
@@ -188,8 +198,12 @@ describe('③ 不明ノート', () => {
 
 		expect(mobile.folderNamed(ORPHAN_FOLDER)).toBeUndefined();
 		expect(mobile.folderOf('P')).toBe('');
-		expect((peer.readList().folders ?? []).map((f) => f.name)).not.toContain(ORPHAN_FOLDER);
-		expect(peer.readList().notes.find((n) => n.id === 'P')?.folderId ?? '').toBe('');
+		expect((peer.readList().folders ?? []).map((f) => f.name)).not.toContain(
+			ORPHAN_FOLDER,
+		);
+		expect(
+			peer.readList().notes.find((n) => n.id === 'P')?.folderId ?? '',
+		).toBe('');
 	});
 
 	it('同期（pull）中に作成したノートが同期後もリストに残る', async () => {
@@ -207,7 +221,10 @@ describe('③ 不明ノート', () => {
 		};
 		// pull が B をダウンロードする直前に、UI が新規ノートをローカル保存する
 		drive.beforeRequest(
-			(r) => r.deviceId === 'mobile' && r.op === 'files.download' && r.fileName === 'B.json',
+			(r) =>
+				r.deviceId === 'mobile' &&
+				r.op === 'files.download' &&
+				r.fileName === 'B.json',
 			async () => {
 				await mobile.notes.saveNote(created, { prependToOrder: true });
 			},

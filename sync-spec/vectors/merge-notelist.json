@@ -1,0 +1,218 @@
+{
+  "description": "mergeNoteList(base, local, remote, notes): 構造の 3-way マージ（docs/sync-engine-v3.md §7）。順序キーは \"n:<noteId>\" / \"f:<folderId>\"。省略したフィールドは既定値（文字列は \"\"、真偽は false）。expected.notes は {id, folderId} だけを書き、それ以外は notes（最終メタ）の同じ id の値で補って比較する。version は比較しない。",
+  "cases": [
+    {
+      "name": "ピアの新規ノートは先頭（ローカルに未送信の編集があっても）",
+      "base": { "notes": [{ "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:B", "n:A"] },
+      "local": { "notes": [{ "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:B", "n:A"] },
+      "remote": { "notes": [{ "id": "P" }, { "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:P", "n:B", "n:A"] },
+      "notes": [
+        { "id": "P", "title": "P title", "modifiedTime": "2026-01-01T00:00:03Z", "contentHash": "p1" },
+        { "id": "B", "modifiedTime": "2026-01-01T00:00:01Z", "contentHash": "b1" },
+        { "id": "A", "modifiedTime": "2026-01-01T00:00:04Z", "contentHash": "a2" }
+      ],
+      "expected": {
+        "notes": [{ "id": "P" }, { "id": "B" }, { "id": "A" }],
+        "topLevelOrder": ["n:P", "n:B", "n:A"]
+      }
+    },
+    {
+      "name": "フォルダ所属は noteList から決まる",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "notes": [{ "id": "W1", "contentHash": "w2" }, { "id": "A" }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }],
+        "topLevelOrder": ["f:work", "n:A"]
+      }
+    },
+    {
+      "name": "ローカルでフォルダへ移動・リモートで新規ノート追加",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:X", "n:A"] },
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "P" }, { "id": "X" }, { "id": "A" }], "topLevelOrder": ["n:P", "f:work", "n:X", "n:A"] },
+      "notes": [{ "id": "P", "modifiedTime": "2026-01-01T00:00:03Z" }, { "id": "X" }, { "id": "A" }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "P" }, { "id": "X", "folderId": "work" }, { "id": "A" }],
+        "topLevelOrder": ["n:P", "f:work", "n:A"]
+      }
+    },
+    {
+      "name": "リモートでフォルダへ移動・ローカル未変更",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:X", "n:A"] },
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:X", "n:A"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "notes": [{ "id": "X" }, { "id": "A" }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "X", "folderId": "work" }, { "id": "A" }],
+        "topLevelOrder": ["f:work", "n:A"]
+      }
+    },
+    {
+      "name": "リモートでフォルダを削除（中身は外へ）・ローカル未変更",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "remote": { "notes": [{ "id": "W1" }, { "id": "A" }], "topLevelOrder": ["n:W1", "n:A"] },
+      "notes": [{ "id": "W1" }, { "id": "A" }],
+      "expected": {
+        "notes": [{ "id": "W1" }, { "id": "A" }],
+        "topLevelOrder": ["n:W1", "n:A"]
+      }
+    },
+    {
+      "name": "リモートで消えたフォルダへローカルで移動したらフォルダは復活",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:X", "n:A"] },
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"] },
+      "remote": { "notes": [{ "id": "X" }, { "id": "A" }], "topLevelOrder": ["n:X", "n:A"] },
+      "notes": [{ "id": "X" }, { "id": "A" }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "X", "folderId": "work" }, { "id": "A" }],
+        "topLevelOrder": ["f:work", "n:A"]
+      }
+    },
+    {
+      "name": "フォルダの属性は項目ごとの 3-way（ローカルの名前変更 + リモートのアーカイブ）",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "topLevelOrder": ["f:work"] },
+      "local": { "folders": [{ "id": "work", "name": "Job" }], "topLevelOrder": ["f:work"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work", "archived": true }], "archivedTopLevelOrder": ["f:work"] },
+      "notes": [],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Job", "archived": true }],
+        "archivedTopLevelOrder": ["f:work"]
+      }
+    },
+    {
+      "name": "配置情報の無いノート（本体だけ届いた）は先頭に置く",
+      "base": { "notes": [{ "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:B", "n:A"] },
+      "local": { "notes": [{ "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:B", "n:A"] },
+      "remote": { "notes": [{ "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:B", "n:A"] },
+      "notes": [
+        { "id": "P", "modifiedTime": "2026-01-01T00:00:03Z" },
+        { "id": "B", "modifiedTime": "2026-01-01T00:00:01Z" },
+        { "id": "A", "modifiedTime": "2026-01-01T00:00:00Z" }
+      ],
+      "expected": {
+        "notes": [{ "id": "P" }, { "id": "B" }, { "id": "A" }],
+        "topLevelOrder": ["n:P", "n:B", "n:A"]
+      }
+    },
+    {
+      "name": "存在しなくなったノートは順序から消える",
+      "base": { "notes": [{ "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:B", "n:A"] },
+      "local": { "notes": [{ "id": "A" }], "topLevelOrder": ["n:A"] },
+      "remote": { "notes": [{ "id": "B" }, { "id": "A" }], "topLevelOrder": ["n:B", "n:A"] },
+      "notes": [{ "id": "A" }],
+      "expected": {
+        "notes": [{ "id": "A" }],
+        "topLevelOrder": ["n:A"]
+      }
+    },
+    {
+      "name": "アーカイブしたノートはアーカイブ側の順序へ",
+      "base": { "notes": [{ "id": "A" }, { "id": "B" }], "topLevelOrder": ["n:A", "n:B"] },
+      "local": { "notes": [{ "id": "A", "archived": true }, { "id": "B" }], "topLevelOrder": ["n:B"], "archivedTopLevelOrder": ["n:A"] },
+      "remote": { "notes": [{ "id": "A" }, { "id": "B" }], "topLevelOrder": ["n:A", "n:B"] },
+      "notes": [{ "id": "A", "archived": true }, { "id": "B" }],
+      "expected": {
+        "notes": [{ "id": "A" }, { "id": "B" }],
+        "topLevelOrder": ["n:B"],
+        "archivedTopLevelOrder": ["n:A"]
+      }
+    },
+    {
+      "name": "アクティブなフォルダに属するアーカイブ済みノートはフォルダから外す",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X", "folderId": "work" }], "topLevelOrder": ["f:work"] },
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X", "folderId": "work" }], "topLevelOrder": ["f:work"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "X", "folderId": "work" }], "topLevelOrder": ["f:work"] },
+      "notes": [{ "id": "X", "archived": true }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "X" }],
+        "topLevelOrder": ["f:work"],
+        "archivedTopLevelOrder": ["n:X"]
+      }
+    },
+    {
+      "name": "base なし（移行直後）: 共通項目はリモート優先、ローカルのみはローカルの位置",
+      "base": null,
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "M" }, { "id": "X", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["n:M", "f:work", "n:A"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "P" }, { "id": "X" }, { "id": "A" }], "topLevelOrder": ["n:P", "f:work", "n:X", "n:A"] },
+      "notes": [
+        { "id": "M", "modifiedTime": "2026-01-01T00:00:05Z" },
+        { "id": "P", "modifiedTime": "2026-01-01T00:00:04Z" },
+        { "id": "X" },
+        { "id": "A" }
+      ],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "M" }, { "id": "P" }, { "id": "X" }, { "id": "A" }],
+        "topLevelOrder": ["n:M", "n:P", "f:work", "n:X", "n:A"]
+      }
+    },
+    {
+      "name": "折りたたみ状態は集合の 3-way",
+      "base": { "folders": [{ "id": "f1", "name": "1" }, { "id": "f2", "name": "2" }, { "id": "f3", "name": "3" }], "topLevelOrder": ["f:f1", "f:f2", "f:f3"], "collapsedFolderIds": ["f1"] },
+      "local": { "folders": [{ "id": "f1", "name": "1" }, { "id": "f2", "name": "2" }, { "id": "f3", "name": "3" }], "topLevelOrder": ["f:f1", "f:f2", "f:f3"], "collapsedFolderIds": ["f1", "f2"] },
+      "remote": { "folders": [{ "id": "f1", "name": "1" }, { "id": "f2", "name": "2" }, { "id": "f3", "name": "3" }], "topLevelOrder": ["f:f1", "f:f2", "f:f3"], "collapsedFolderIds": ["f3"] },
+      "notes": [],
+      "expected": {
+        "folders": [{ "id": "f1", "name": "1" }, { "id": "f2", "name": "2" }, { "id": "f3", "name": "3" }],
+        "topLevelOrder": ["f:f1", "f:f2", "f:f3"],
+        "collapsedFolderIds": ["f3", "f2"]
+      }
+    },
+    {
+      "name": "フォルダ内の並び（notes 配列）もローカルの移動を保つ",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W1", "folderId": "work" }, { "id": "W2", "folderId": "work" }, { "id": "W3", "folderId": "work" }], "topLevelOrder": ["f:work"] },
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W3", "folderId": "work" }, { "id": "W1", "folderId": "work" }, { "id": "W2", "folderId": "work" }], "topLevelOrder": ["f:work"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W4", "folderId": "work" }, { "id": "W1", "folderId": "work" }, { "id": "W2", "folderId": "work" }, { "id": "W3", "folderId": "work" }], "topLevelOrder": ["f:work"] },
+      "notes": [{ "id": "W4" }, { "id": "W1" }, { "id": "W2" }, { "id": "W3" }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "W3", "folderId": "work" }, { "id": "W4", "folderId": "work" }, { "id": "W1", "folderId": "work" }, { "id": "W2", "folderId": "work" }],
+        "topLevelOrder": ["f:work"]
+      }
+    },
+    {
+      "name": "ローカルで作ったフォルダは先頭に残る",
+      "base": { "notes": [{ "id": "A" }], "topLevelOrder": ["n:A"] },
+      "local": { "folders": [{ "id": "nf", "name": "New" }], "notes": [{ "id": "A" }], "topLevelOrder": ["f:nf", "n:A"] },
+      "remote": { "notes": [{ "id": "P" }, { "id": "A" }], "topLevelOrder": ["n:P", "n:A"] },
+      "notes": [{ "id": "P" }, { "id": "A" }],
+      "expected": {
+        "folders": [{ "id": "nf", "name": "New" }],
+        "notes": [{ "id": "P" }, { "id": "A" }],
+        "topLevelOrder": ["f:nf", "n:P", "n:A"]
+      }
+    },
+    {
+      "name": "本体の無いメタ（ゴースト）は落ちる",
+      "base": { "notes": [{ "id": "A" }], "topLevelOrder": ["n:A"] },
+      "local": { "notes": [{ "id": "A" }], "topLevelOrder": ["n:A"] },
+      "remote": { "notes": [{ "id": "G" }, { "id": "A" }], "topLevelOrder": ["n:G", "n:A"] },
+      "notes": [{ "id": "A" }],
+      "expected": {
+        "notes": [{ "id": "A" }],
+        "topLevelOrder": ["n:A"]
+      }
+    },
+    {
+      "name": "リモートの noteList が無い（初回）",
+      "base": null,
+      "local": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }], "topLevelOrder": ["f:work", "n:A"], "collapsedFolderIds": ["work"] },
+      "remote": null,
+      "notes": [{ "id": "W1" }, { "id": "A" }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work" }],
+        "notes": [{ "id": "W1", "folderId": "work" }, { "id": "A" }],
+        "topLevelOrder": ["f:work", "n:A"],
+        "collapsedFolderIds": ["work"]
+      }
+    }
+  ]
+}

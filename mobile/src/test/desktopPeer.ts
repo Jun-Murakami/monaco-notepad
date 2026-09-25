@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { FOLDER_MIME, type FakeDrive, type FakeFile } from './fakeDrive';
+import { type FakeDrive, type FakeFile, FOLDER_MIME } from './fakeDrive';
 
 /**
  * 「プロトコル通りに正しく振る舞うデスクトップ版」を FakeDrive 上で模擬するピア端末。
@@ -106,7 +106,12 @@ export class DesktopPeer {
 			)
 			.at(0);
 		if (!root) {
-			root = this.drive.createFile('monaco-notepad', ['appDataFolder'], '', FOLDER_MIME);
+			root = this.drive.createFile(
+				'monaco-notepad',
+				['appDataFolder'],
+				'',
+				FOLDER_MIME,
+			);
 		}
 		const notes = this.drive
 			.list(`name='notes' and '${root.id}' in parents and trashed=false`)
@@ -126,7 +131,9 @@ export class DesktopPeer {
 	noteListFile(): FakeFile | undefined {
 		const root = this.rootFolder();
 		return this.drive
-			.list(`name='noteList_v2.json' and '${root.id}' in parents and trashed=false`)
+			.list(
+				`name='noteList_v2.json' and '${root.id}' in parents and trashed=false`,
+			)
 			.at(0);
 	}
 
@@ -142,7 +149,8 @@ export class DesktopPeer {
 			folders: raw.folders ?? [],
 			topLevelOrder: raw.topLevelOrder ?? [],
 			archivedTopLevelOrder: raw.archivedTopLevelOrder ?? [],
-			collapsedFolderIDs: raw.collapsedFolderIDs ?? raw.collapsedFolderIds ?? [],
+			collapsedFolderIDs:
+				raw.collapsedFolderIDs ?? raw.collapsedFolderIds ?? [],
 		};
 	}
 
@@ -210,7 +218,10 @@ export class DesktopPeer {
 			if (opts.folderId) meta.folderId = opts.folderId;
 			list.notes.unshift(meta);
 			if (!opts.folderId && !note.archived) {
-				list.topLevelOrder = [{ type: 'note', id: note.id }, ...(list.topLevelOrder ?? [])];
+				list.topLevelOrder = [
+					{ type: 'note', id: note.id },
+					...(list.topLevelOrder ?? []),
+				];
 			}
 		});
 	}
@@ -226,7 +237,9 @@ export class DesktopPeer {
 		if (f) this.drive.deleteFile(f.id);
 		this.updateList((list) => {
 			list.notes = list.notes.filter((n) => n.id !== noteId);
-			list.topLevelOrder = (list.topLevelOrder ?? []).filter((i) => i.id !== noteId);
+			list.topLevelOrder = (list.topLevelOrder ?? []).filter(
+				(i) => i.id !== noteId,
+			);
 			list.archivedTopLevelOrder = (list.archivedTopLevelOrder ?? []).filter(
 				(i) => i.id !== noteId,
 			);
@@ -236,7 +249,10 @@ export class DesktopPeer {
 	createFolder(id: string, name: string): void {
 		this.updateList((list) => {
 			list.folders = [...(list.folders ?? []), { id, name }];
-			list.topLevelOrder = [{ type: 'folder', id }, ...(list.topLevelOrder ?? [])];
+			list.topLevelOrder = [
+				{ type: 'folder', id },
+				...(list.topLevelOrder ?? []),
+			];
 		});
 	}
 
@@ -263,7 +279,9 @@ function normalizeGoList(list: GoNoteList): GoNoteList {
 		}),
 	};
 	if (list.folders && list.folders.length > 0) {
-		out.folders = list.folders.map((f) => (f.archived ? f : { id: f.id, name: f.name }));
+		out.folders = list.folders.map((f) =>
+			f.archived ? f : { id: f.id, name: f.name },
+		);
 	}
 	if (list.topLevelOrder && list.topLevelOrder.length > 0) {
 		out.topLevelOrder = list.topLevelOrder;

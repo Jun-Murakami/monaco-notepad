@@ -1,0 +1,117 @@
+{
+  "description": "mergeSequence(base, local, remote): 順序の 3-way マージ（docs/sync-engine-v3.md §7.2）。base が null のときは local ∩ remote（local の順）を base とみなす。",
+  "cases": [
+    {
+      "name": "リモートで先頭に追加された項目は先頭のまま",
+      "base": ["B", "A"],
+      "local": ["B", "A"],
+      "remote": ["P", "B", "A"],
+      "expected": ["P", "B", "A"]
+    },
+    {
+      "name": "ローカルで先頭に追加した項目は先頭に入る",
+      "base": ["B", "A"],
+      "local": ["M", "B", "A"],
+      "remote": ["B", "A"],
+      "expected": ["M", "B", "A"]
+    },
+    {
+      "name": "両方が先頭に追加したらローカルの追加が先頭",
+      "base": ["B", "A"],
+      "local": ["M", "B", "A"],
+      "remote": ["P", "B", "A"],
+      "expected": ["M", "P", "B", "A"]
+    },
+    {
+      "name": "ローカルで先頭へ移動した項目はリモートの追加より前",
+      "base": ["A", "B", "C"],
+      "local": ["C", "A", "B"],
+      "remote": ["N", "A", "B", "C"],
+      "expected": ["C", "N", "A", "B"]
+    },
+    {
+      "name": "ローカルで除いた項目はリモートにあっても除く",
+      "base": ["A", "B", "C"],
+      "local": ["A", "C"],
+      "remote": ["A", "B", "C", "D"],
+      "expected": ["A", "C", "D"]
+    },
+    {
+      "name": "リモートで除いた項目はローカルが触っていなければ除く",
+      "base": ["A", "B", "C"],
+      "local": ["A", "B", "C"],
+      "remote": ["A", "C"],
+      "expected": ["A", "C"]
+    },
+    {
+      "name": "リモートの並び替えはローカルが触っていなければ採用",
+      "base": ["A", "B", "C"],
+      "local": ["A", "B", "C"],
+      "remote": ["C", "B", "A"],
+      "expected": ["C", "B", "A"]
+    },
+    {
+      "name": "base なし: 共通項目はリモート順、ローカルのみの項目はアンカー位置",
+      "base": null,
+      "local": ["M", "B", "A"],
+      "remote": ["P", "B", "A"],
+      "expected": ["M", "P", "B", "A"]
+    },
+    {
+      "name": "base なし: 共通項目の順序が違えばリモート順",
+      "base": null,
+      "local": ["A", "B"],
+      "remote": ["B", "A"],
+      "expected": ["B", "A"]
+    },
+    {
+      "name": "ローカルで動かした項目がリモートで消えていても他の順序は壊れない",
+      "base": ["A", "B", "C"],
+      "local": ["B", "A", "C"],
+      "remote": ["A", "C"],
+      "expected": ["A", "C"]
+    },
+    {
+      "name": "連続して移動した項目はローカルの相対順を保つ",
+      "base": ["A", "B", "C", "D"],
+      "local": ["C", "D", "A", "B"],
+      "remote": ["A", "B", "C", "D"],
+      "expected": ["C", "D", "A", "B"]
+    },
+    {
+      "name": "リモートの重複キーは除去",
+      "base": [],
+      "local": [],
+      "remote": ["A", "B", "A"],
+      "expected": ["A", "B"]
+    },
+    {
+      "name": "すべて空",
+      "base": [],
+      "local": [],
+      "remote": [],
+      "expected": []
+    },
+    {
+      "name": "途中に追加した項目は直前の項目の後ろに入る",
+      "base": ["A", "B", "C"],
+      "local": ["A", "X", "B", "C"],
+      "remote": ["A", "B", "C", "Y"],
+      "expected": ["A", "X", "B", "C", "Y"]
+    },
+    {
+      "name": "アンカーがリモートで消えていたらさらに手前をアンカーにする",
+      "base": ["A", "B", "C"],
+      "local": ["A", "B", "X", "C"],
+      "remote": ["A", "C"],
+      "expected": ["A", "X", "C"]
+    },
+    {
+      "name": "両方で同じ項目を動かしたらローカルが勝つ",
+      "base": ["A", "B", "C"],
+      "local": ["C", "A", "B"],
+      "remote": ["A", "C", "B"],
+      "expected": ["C", "A", "B"]
+    }
+  ]
+}

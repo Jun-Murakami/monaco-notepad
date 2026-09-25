@@ -156,7 +156,8 @@ export class FakeDrive {
 	findByName(name: string, parentId?: string): FakeFile | undefined {
 		return [...this.files.values()].find(
 			(f) =>
-				f.name === name && (parentId === undefined || f.parents.includes(parentId)),
+				f.name === name &&
+				(parentId === undefined || f.parents.includes(parentId)),
 		);
 	}
 
@@ -451,7 +452,15 @@ function pickFields(
 ): Record<string, unknown> {
 	if (!fields) {
 		// 既定フィールド（Drive v3 の既定: kind, id, name, mimeType）
-		return pick(obj, ['kind', 'id', 'name', 'mimeType', 'fileId', 'removed', 'file']);
+		return pick(obj, [
+			'kind',
+			'id',
+			'name',
+			'mimeType',
+			'fileId',
+			'removed',
+			'file',
+		]);
 	}
 	const spec = parseFieldSpec(fields);
 	const target = container ? spec.get(container) : spec;

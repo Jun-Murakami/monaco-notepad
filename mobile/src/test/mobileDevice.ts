@@ -71,7 +71,10 @@ export class MobileDevice {
 		};
 		await this.notes.saveNote(created, { prependToOrder: true });
 		await this.state.markNoteDirty(created.id);
-		return this.editNote(input.id, { title: input.title, content: input.content });
+		return this.editNote(input.id, {
+			title: input.title,
+			content: input.content,
+		});
 	}
 
 	/** エディタでの編集 → debounce 後の saveNoteAndSync。 */

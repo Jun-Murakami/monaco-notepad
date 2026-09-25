@@ -1,0 +1,95 @@
+/**
+ * ノート単位の同期判定（docs/sync-engine-v3.md §6）。純粋関数。
+ *
+ * - `downloaded` を与えない呼び出しがフェーズ1。判定にリモート本文が必要なら `download` を返す。
+ * - ダウンロード後、`downloaded` を与えて再度呼ぶのがフェーズ2（`download` は返さない）。
+ *
+ * Go 版 backend/sync_core.go の decideNote と完全一致させること（共有ベクターで検証）。
+ */
+
+export interface DecideNoteInput {
+	/** ローカルに存在する（本体ファイルが読める）場合の状態。 */
+	local?: { hash: string; modifiedTime: string };
+	/** ユーザー操作で削除が記録されている（deletedNoteIDs）。 */
+	localDeleted: boolean;
+	/** 前回同期時点の状態。md5 は移行直後などで欠けうる。 */
+	base?: { hash: string; md5?: string };
+	/** Drive に本体ファイルがある場合の md5。 */
+	remote?: { md5: string };
+	/** フェーズ2でのみ与えるダウンロード結果。 */
+	downloaded?: { hash: string; modifiedTime: string };
+}
+
+export type NoteDecision =
+	| { kind: 'none' }
+	| { kind: 'download' }
+	| { kind: 'upload' }
+	| { kind: 'applyRemote'; backupLocal: boolean }
+	| { kind: 'deleteLocal'; backupLocal: boolean }
+	| { kind: 'deleteRemote' }
+	| { kind: 'forget' };
+
+export function decideNote(input: DecideNoteInput): NoteDecision {
+	const { local, localDeleted, base, remote, downloaded } = input;
+
+	if (!local) {
+		if (localDeleted) {
+			if (!remote) return { kind: 'forget' };
+			if (!base) return { kind: 'deleteRemote' };
+			if (base.md5 && remote.md5 === base.md5) return { kind: 'deleteRemote' };
+			if (!downloaded) return { kind: 'download' };
+			// 編集は削除に勝つ（P4）: 相手が編集していたら削除を取り消して復元する
+			return downloaded.hash === base.hash
+				? { kind: 'deleteRemote' }
+				: { kind: 'applyRemote', backupLocal: false };
+		}
+		if (remote) {
+			return downloaded
+				? { kind: 'applyRemote', backupLocal: false }
+				: { kind: 'download' };
+		}
+		return { kind: 'forget' };
+	}
+
+	if (!remote) {
+		// 新規 or ローカル編集あり → 編集は削除に勝つ
+		if (!base || local.hash !== base.hash) return { kind: 'upload' };
+		return { kind: 'deleteLocal', backupLocal: true };
+	}
+
+	if (base?.md5 && remote.md5 === base.md5) {
+		return local.hash === base.hash ? { kind: 'none' } : { kind: 'upload' };
+	}
+
+	if (!downloaded) return { kind: 'download' };
+	if (downloaded.hash === local.hash) return { kind: 'none' };
+
+	const localChanged = !base || local.hash !== base.hash;
+	if (!localChanged) return { kind: 'applyRemote', backupLocal: false };
+	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る
+	if (base && downloaded.hash === base.hash) return { kind: 'upload' };
+	return isModifiedTimeAfter(local.modifiedTime, downloaded.modifiedTime)
+		? { kind: 'upload' }
+		: { kind: 'applyRemote', backupLocal: true };
+}
+
+/**
+ * a が b より新しいか。両方 RFC3339 として解析できれば時刻で比較し、
+ * できなければ文字列比較にフォールバックする。同時刻は false（= リモート勝ち）。
+ */
+export function isModifiedTimeAfter(a: string, b: string): boolean {
+	const ta = parseRfc3339(a);
+	const tb = parseRfc3339(b);
+	if (ta !== null && tb !== null) return ta > tb;
+	return a > b;
+}
+
+// Go の time.Parse(time.RFC3339, ...) が受け付ける形に揃える（T / Z は大文字のみ）
+const RFC3339 =
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+function parseRfc3339(value: string): number | null {
+	if (!RFC3339.test(value)) return null;
+	const t = Date.parse(value);
+	return Number.isNaN(t) ? null : t;
+}

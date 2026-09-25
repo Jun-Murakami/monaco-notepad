@@ -1,0 +1,60 @@
+{
+  "description": "computeContentHash: sha256(id\ntitle\ncontent\nlanguage\narchived) の小文字 hex。folderId / modifiedTime / contentHeader は含めない。",
+  "cases": [
+    {
+      "name": "basic",
+      "note": {
+        "id": "n1",
+        "title": "Hello",
+        "content": "world",
+        "language": "markdown",
+        "archived": false
+      },
+      "expected": "972384556cf4a0a69b91a829d4c2b50072ab5805f888fa2cdcf0a2ec7957e291"
+    },
+    {
+      "name": "archived true",
+      "note": {
+        "id": "n1",
+        "title": "Hello",
+        "content": "world",
+        "language": "markdown",
+        "archived": true
+      },
+      "expected": "8ba959997fbdf2680a5b36cafd3cc2e633249ac9ea9bb044989bc08977b38a01"
+    },
+    {
+      "name": "empty fields",
+      "note": {
+        "id": "n2",
+        "title": "",
+        "content": "",
+        "language": "",
+        "archived": false
+      },
+      "expected": "1f1a94c2fe73895eeccb61c1be9636e55bbdb66a2d7c2f4a484e4e351c51f47e"
+    },
+    {
+      "name": "multiline and unicode",
+      "note": {
+        "id": "4f1c2d3e-0000-4000-8000-000000000001",
+        "title": "日本語タイトル",
+        "content": "一行目\n二行目\n\n<tag> & \"quote\"",
+        "language": "go",
+        "archived": false
+      },
+      "expected": "28b59ef9e566a8c7915b917955b7857328f3f3a2bb5a114fb514b641ee0dd1b6"
+    },
+    {
+      "name": "trailing newline and tabs",
+      "note": {
+        "id": "n3",
+        "title": "t\tab",
+        "content": "line\n",
+        "language": "plaintext",
+        "archived": false
+      },
+      "expected": "a681fc74d7dd4f640bce2d77099ee805fe81b68bbf71f8b7ae16ef0833dafbd6"
+    }
+  ]
+}
