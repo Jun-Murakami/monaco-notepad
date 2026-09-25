@@ -500,47 +500,73 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 		}
 	}
 
+	// 削除意図の対象がローカルに存在する（同期で復元された等）なら、その意図はもう無効
+	for id := range deletedIDs {
+		if _, ok := localState[id]; ok && !containsString(resolvedDeletions, id) {
+			resolvedDeletions = append(resolvedDeletions, id)
+		}
+	}
+
+	// checkpoint はこのサイクルで確定した事実（ノート単位の base・処理済みの削除意図）を保存する。
+	// やり直し・中断のときに使う。noteList の base は「ローカルに取り込み済みのクラウドの版」。
+	checkpoint := func(ref *remoteFileRef, list *NoteList) error {
+		nextBase.RootFolderID = layout.RootFolderID
+		nextBase.NoteListFileID = refFileID(ref)
+		nextBase.NoteListMd5 = refMd5(ref)
+		nextBase.NoteList = list
+		if err := e.saveBase(nextBase); err != nil {
+			return err
+		}
+		e.state.CompleteSync(revision, resolvedDeletions, false)
+		e.notifyLocalChange(report)
+		return nil
+	}
+
 	// ---- 7. noteList のアップロード ----
 	newListRef := listRef
 	newBaseList := remoteList
 	if remoteList == nil || !sameNoteList(cloudList, remoteList) {
-		latest, err := e.gateway.FindNoteList(layout)
+		retry, err := func() (bool, error) {
+			latest, err := e.gateway.FindNoteList(layout)
+			if err != nil {
+				return false, err
+			}
+			if refFileID(latest) != refFileID(listRef) || refMd5(latest) != refMd5(listRef) {
+				// 読み取り後に他端末が noteList を書いた。ローカルは remoteList を取り込み済みなので
+				// それを base として確定し、最初からやり直す（相手の書き込みを上書きしない）。
+				return true, checkpoint(listRef, remoteList)
+			}
+			ref, err := e.gateway.UploadNoteList(layout, refFileID(listRef), cloudList)
+			if err != nil {
+				return false, err
+			}
+			newListRef = &ref
+			newBaseList = cloudList
+			report.ListUploaded = true
+			// 確認から書き込みまでの間に他端末が書いていた（版が 2 以上進んだ）場合は相手の noteList を
+			// 上書きしている。相手のノート本体は Drive に残っているので、すぐにもう一度同期して取り戻す。
+			if listRef != nil && listRef.Version > 0 && ref.Version > listRef.Version+1 {
+				return true, checkpoint(&ref, cloudList)
+			}
+			// noteList を新規作成した場合、同時に別端末も作っていないか確認する（最古が正）。
+			// 自分のものが最古でなければ削除し、最古の noteList を相手にやり直す。
+			if listRef == nil {
+				oldest, err := e.gateway.FindNoteList(layout)
+				if err == nil && oldest != nil && oldest.FileID != ref.FileID {
+					_ = e.gateway.DeleteFile(ref.FileID)
+					return true, checkpoint(nil, nil)
+				}
+			}
+			return false, nil
+		}()
 		if err != nil {
+			// noteList の書き込みに失敗しても、ノート単位で確定した事実は失わない
+			if cpErr := checkpoint(listRef, remoteList); cpErr != nil {
+				e.logger.Console("Sync: failed to save checkpoint: %v", cpErr)
+			}
 			return report, false, err
 		}
-		if refFileID(latest) != refFileID(listRef) || refMd5(latest) != refMd5(listRef) {
-			// 読み取り後に他端末が noteList を書いた。ローカルは remoteList を取り込み済みなので
-			// それを base として確定し、最初からやり直す（相手の書き込みを上書きしない）。
-			nextBase.RootFolderID = layout.RootFolderID
-			nextBase.NoteListFileID = refFileID(listRef)
-			nextBase.NoteListMd5 = refMd5(listRef)
-			nextBase.NoteList = remoteList
-			if err := e.saveBase(nextBase); err != nil {
-				return report, false, err
-			}
-			e.state.CompleteSync(revision, resolvedDeletions, false)
-			e.notifyLocalChange(report)
-			return report, true, nil
-		}
-		ref, err := e.gateway.UploadNoteList(layout, refFileID(listRef), cloudList)
-		if err != nil {
-			return report, false, err
-		}
-		newListRef = &ref
-		newBaseList = cloudList
-		report.ListUploaded = true
-		// 確認から書き込みまでの間に他端末が書いていた（版が 2 以上進んだ）場合は相手の noteList を
-		// 上書きしている。相手のノート本体は Drive に残っているので、すぐにもう一度同期して取り戻す。
-		if listRef != nil && listRef.Version > 0 && ref.Version > listRef.Version+1 {
-			nextBase.RootFolderID = layout.RootFolderID
-			nextBase.NoteListFileID = ref.FileID
-			nextBase.NoteListMd5 = ref.Md5
-			nextBase.NoteList = cloudList
-			if err := e.saveBase(nextBase); err != nil {
-				return report, false, err
-			}
-			e.state.CompleteSync(revision, resolvedDeletions, false)
-			e.notifyLocalChange(report)
+		if retry {
 			return report, true, nil
 		}
 	}
@@ -606,6 +632,15 @@ func (e *syncEngine) saveBase(base *SyncBase) error {
 	e.baseCache = base
 	e.baseLoaded = true
 	return nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, v := range values {
+		if v == target {
+			return true
+		}
+	}
+	return false
 }
 
 func refFileID(ref *remoteFileRef) string {

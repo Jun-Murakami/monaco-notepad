@@ -393,6 +393,15 @@ func (d *desktopDevice) connect() {
 	require.NoError(d.t, err)
 }
 
+// connectLazy はフォルダ構成の解決を最初の同期まで遅らせる接続（複数端末の同時初回接続を再現する）。
+func (d *desktopDevice) connectLazy() {
+	d.t.Helper()
+	ds := d.ds
+	ds.gatewayRetry = gatewayRetry{attempts: 1}
+	ds.driveOps = ds.newDriveOperations(true)
+	require.NoError(d.t, ds.buildEngine(true))
+}
+
 // startup は WaitForFrontendAndStartSync 相当（変更検知の基準点を取ってから初回同期）。
 func (d *desktopDevice) startup() {
 	d.t.Helper()

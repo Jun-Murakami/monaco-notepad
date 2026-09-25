@@ -40,9 +40,12 @@ type fakeDrive struct {
 	idSeq    int
 	clock    time.Time
 	requests []fakeRequest
-	hooks    []*fakeHook
-	failures []*fakeFailure
-	server   *httptest.Server
+	// noteHistory はノート本体（<id>.json、noteList を除く）の書き込みと、そのノートのファイルが
+	// Drive から 1 つも無くなった時点を順に記録する（ランダム・シミュレーションの検証用）。
+	noteHistory []fakeNoteEvent
+	hooks       []*fakeHook
+	failures    []*fakeFailure
+	server      *httptest.Server
 }
 
 type fakeFile struct {
@@ -55,6 +58,24 @@ type fakeFile struct {
 	Version      int64
 	CreatedTime  string
 	ModifiedTime string
+}
+
+type fakeNoteEvent struct {
+	Kind    string // "upload" / "gone"
+	Name    string
+	Content []byte
+	Device  string // 書き込んだ端末（ピアの直接操作は ""）
+}
+
+func isFakeNoteFile(name string) bool {
+	return strings.HasSuffix(name, ".json") && name != "noteList_v2.json"
+}
+
+// NoteHistory はノート本体の履歴のコピーを返す。
+func (fd *fakeDrive) NoteHistory() []fakeNoteEvent {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	return append([]fakeNoteEvent(nil), fd.noteHistory...)
 }
 
 type fakeChange struct {
@@ -145,10 +166,10 @@ func (fd *fakeDrive) tickLocked() string {
 func (fd *fakeDrive) CreateFile(name string, parents []string, content []byte, mimeType string) fakeFile {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
-	return fd.createFileLocked(name, parents, content, mimeType)
+	return fd.createFileLocked("", name, parents, content, mimeType)
 }
 
-func (fd *fakeDrive) createFileLocked(name string, parents []string, content []byte, mimeType string) fakeFile {
+func (fd *fakeDrive) createFileLocked(device, name string, parents []string, content []byte, mimeType string) fakeFile {
 	ts := fd.tickLocked()
 	fd.idSeq++
 	if len(parents) == 0 {
@@ -167,16 +188,19 @@ func (fd *fakeDrive) createFileLocked(name string, parents []string, content []b
 	}
 	fd.files[f.ID] = f
 	fd.changes = append(fd.changes, fakeChange{FileID: f.ID})
+	if isFakeNoteFile(name) {
+		fd.noteHistory = append(fd.noteHistory, fakeNoteEvent{Kind: "upload", Name: name, Content: f.Content, Device: device})
+	}
 	return *f
 }
 
 func (fd *fakeDrive) UpdateFile(fileID string, content []byte) (fakeFile, error) {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
-	return fd.updateFileLocked(fileID, content)
+	return fd.updateFileLocked("", fileID, content)
 }
 
-func (fd *fakeDrive) updateFileLocked(fileID string, content []byte) (fakeFile, error) {
+func (fd *fakeDrive) updateFileLocked(device, fileID string, content []byte) (fakeFile, error) {
 	f, ok := fd.files[fileID]
 	if !ok {
 		return fakeFile{}, errFakeNotFound(fileID)
@@ -186,6 +210,9 @@ func (fd *fakeDrive) updateFileLocked(fileID string, content []byte) (fakeFile, 
 	f.Version++
 	f.ModifiedTime = fd.tickLocked()
 	fd.changes = append(fd.changes, fakeChange{FileID: fileID})
+	if isFakeNoteFile(f.Name) {
+		fd.noteHistory = append(fd.noteHistory, fakeNoteEvent{Kind: "upload", Name: f.Name, Content: f.Content, Device: device})
+	}
 	return *f, nil
 }
 
@@ -203,6 +230,18 @@ func (fd *fakeDrive) deleteFileLocked(fileID string) error {
 	delete(fd.files, fileID)
 	fd.tickLocked()
 	fd.changes = append(fd.changes, fakeChange{FileID: fileID, Removed: true})
+	if isFakeNoteFile(f.Name) {
+		remaining := false
+		for _, other := range fd.files {
+			if other.Name == f.Name {
+				remaining = true
+				break
+			}
+		}
+		if !remaining {
+			fd.noteHistory = append(fd.noteHistory, fakeNoteEvent{Kind: "gone", Name: f.Name})
+		}
+	}
 	if f.MimeType == fakeFolderMime {
 		for _, child := range fd.sortedFilesLocked() {
 			for _, p := range child.Parents {
@@ -348,13 +387,13 @@ func (fd *fakeDrive) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	fd.mu.Unlock()
 
-	handle(w, fields)
+	handle(w, fields, device)
 	for _, h := range after {
 		h.run(req)
 	}
 }
 
-type fakeHandler func(w http.ResponseWriter, fields string)
+type fakeHandler func(w http.ResponseWriter, fields string, device string)
 
 func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 	path := r.URL.Path
@@ -362,7 +401,7 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 
 	switch {
 	case path == "/drive/v3/changes/startPageToken" && r.Method == http.MethodGet:
-		return fakeRequest{Op: "changes.getStartPageToken"}, func(w http.ResponseWriter, fields string) {
+		return fakeRequest{Op: "changes.getStartPageToken"}, func(w http.ResponseWriter, fields string, device string) {
 			fd.mu.Lock()
 			token := strconv.Itoa(len(fd.changes) + 1)
 			fd.mu.Unlock()
@@ -370,7 +409,7 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 		}, nil
 
 	case path == "/drive/v3/changes" && r.Method == http.MethodGet:
-		return fakeRequest{Op: "changes.list"}, func(w http.ResponseWriter, fields string) {
+		return fakeRequest{Op: "changes.list"}, func(w http.ResponseWriter, fields string, device string) {
 			fd.mu.Lock()
 			defer fd.mu.Unlock()
 			token, _ := strconv.Atoi(q.Get("pageToken"))
@@ -411,7 +450,7 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 
 	case path == "/drive/v3/files" && r.Method == http.MethodGet:
 		query := q.Get("q")
-		return fakeRequest{Op: "files.list", Query: query}, func(w http.ResponseWriter, fields string) {
+		return fakeRequest{Op: "files.list", Query: query}, func(w http.ResponseWriter, fields string, device string) {
 			files, err := fd.List(query)
 			if err != nil {
 				writeFakeError(w, http.StatusBadRequest, err.Error())
@@ -444,12 +483,14 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 		if err != nil {
 			return fakeRequest{}, nil, err
 		}
-		return fakeRequest{Op: "files.create", FileName: meta.Name}, func(w http.ResponseWriter, fields string) {
+		return fakeRequest{Op: "files.create", FileName: meta.Name}, func(w http.ResponseWriter, fields string, device string) {
 			mimeType := meta.MimeType
 			if mimeType == "" {
 				mimeType = "application/json"
 			}
-			f := fd.CreateFile(meta.Name, meta.Parents, content, mimeType)
+			fd.mu.Lock()
+			f := fd.createFileLocked(device, meta.Name, meta.Parents, content, mimeType)
+			fd.mu.Unlock()
 			writeFakeJSON(w, applyFieldSpec(fakeFileResource(&f), parseFieldSpec(fields)))
 		}, nil
 	}
@@ -467,8 +508,10 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 					return fakeRequest{}, nil, err
 				}
 			}
-			return fakeRequest{Op: "files.update", FileID: fileID}, func(w http.ResponseWriter, fields string) {
-				f, err := fd.UpdateFile(fileID, content)
+			return fakeRequest{Op: "files.update", FileID: fileID}, func(w http.ResponseWriter, fields string, device string) {
+				fd.mu.Lock()
+				f, err := fd.updateFileLocked(device, fileID, content)
+				fd.mu.Unlock()
 				if err != nil {
 					writeFakeError(w, http.StatusNotFound, err.Error())
 					return
@@ -476,7 +519,7 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 				writeFakeJSON(w, applyFieldSpec(fakeFileResource(&f), parseFieldSpec(fields)))
 			}, nil
 		case r.Method == http.MethodDelete:
-			return fakeRequest{Op: "files.delete", FileID: fileID}, func(w http.ResponseWriter, fields string) {
+			return fakeRequest{Op: "files.delete", FileID: fileID}, func(w http.ResponseWriter, fields string, device string) {
 				if err := fd.DeleteFile(fileID); err != nil {
 					writeFakeError(w, http.StatusNotFound, err.Error())
 					return
@@ -484,7 +527,7 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 				w.WriteHeader(http.StatusNoContent)
 			}, nil
 		case r.Method == http.MethodGet && q.Get("alt") == "media":
-			return fakeRequest{Op: "files.download", FileID: fileID}, func(w http.ResponseWriter, fields string) {
+			return fakeRequest{Op: "files.download", FileID: fileID}, func(w http.ResponseWriter, fields string, device string) {
 				f, ok := fd.Get(fileID)
 				if !ok {
 					writeFakeError(w, http.StatusNotFound, errFakeNotFound(fileID).Error())
@@ -494,7 +537,7 @@ func (fd *fakeDrive) route(r *http.Request) (fakeRequest, fakeHandler, error) {
 				_, _ = w.Write(f.Content)
 			}, nil
 		case r.Method == http.MethodGet:
-			return fakeRequest{Op: "files.get", FileID: fileID}, func(w http.ResponseWriter, fields string) {
+			return fakeRequest{Op: "files.get", FileID: fileID}, func(w http.ResponseWriter, fields string, device string) {
 				f, ok := fd.Get(fileID)
 				if !ok {
 					writeFakeError(w, http.StatusNotFound, errFakeNotFound(fileID).Error())

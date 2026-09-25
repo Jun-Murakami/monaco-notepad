@@ -136,6 +136,16 @@ func (g *driveGateway) findOrCreateFolder(name, searchParent, createParent strin
 	if err != nil {
 		return "", err
 	}
+	// 作った直後に一覧を取り直し、最古のものに合わせる。2 台が同時に初回接続して二重に作った場合でも
+	// 全端末が同じフォルダに収束する（作ったものが最古でなければ、まだ空なので削除する）。
+	after, err := g.list(query)
+	if err != nil {
+		return created.Id, nil
+	}
+	if oldest := oldestFile(after); oldest != nil && oldest.Id != created.Id {
+		_ = g.DeleteFile(created.Id)
+		return oldest.Id, nil
+	}
 	return created.Id, nil
 }
 
