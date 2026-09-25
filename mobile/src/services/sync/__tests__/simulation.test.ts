@@ -596,7 +596,11 @@ describe('ランダム・シミュレーション（複数モバイル端末）'
 		vi.unstubAllGlobals();
 	});
 
-	it.each(SEEDS)('seed %i', async (seed) => {
-		await runSimulation(seed);
-	}, 60_000);
+	it.each(SEEDS)(
+		'seed %i',
+		async (seed) => {
+			await runSimulation(seed);
+		},
+		60_000,
+	);
 });

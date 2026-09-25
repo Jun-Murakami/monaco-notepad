@@ -8,7 +8,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-native",
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }

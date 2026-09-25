@@ -6,7 +6,7 @@
 
 `mobile/` は、デスクトップ版と同じ Google Drive の appDataFolder をバックエンドとする **独立したモバイルアプリ** (Expo / React Native)。デスクトップ版のバイナリとは別プロセス・別 OAuth クライアント ID で動く。同期するデータ構造・ファイル配置・ハッシュ計算・競合解決ルールは**デスクトップ版と 1:1 で互換**。
 
-- **フレームワーク**: Expo SDK 55+ / Expo Router（ファイルベースルーティング）
+- **フレームワーク**: Expo SDK 57（React Native 0.86 / React 19.2）/ Expo Router（ファイルベースルーティング）
 - **パッケージ名 / Bundle ID**: `dev.junmurakami.monaconotepad` (Android / iOS 共通)
 - **言語**: TypeScript strict
 - **UI**: React Native Paper（MD3）
@@ -226,6 +226,21 @@ npm run test:coverage    # coverage
 
 ---
 
+## 依存関係の更新メモ
+
+- **SDK の上げ方**: `npx expo install expo@^<版> && npx expo install --fix` → `npx expo-doctor` → `npx expo export --platform android`（Metro で本番バンドルが作れるか）→ ネイティブビルド。
+  SDK を上げたら生成済みの `android/` `ios/` は古いので `npx expo prebuild --clean` で作り直す（`npm run prebuild` はビルド番号も進める）。
+- **Expo が版を決めるもの**（`expo`・`expo-*`・`react`・`react-native`・`react-native-*` の多く・`typescript`・`@types/react`）は `npx expo install` で入れる。npm の latest に合わせない。
+- **アイコン**: SDK 56 で `expo` が `@expo/vector-icons` に依存しなくなったため、React Native Paper のアイコンは
+  `@react-native-vector-icons/material-design-icons` で出している（フォントは `expo-font` 経由で自動で読み込まれる。
+  `expo-font` の config plugin にフォントのパスを足さないこと）。
+- **`expo/fetch`**: SDK 56 から `globalThis.fetch` が `expo/fetch` になった。Drive 通信で不具合が出たら
+  `EXPO_PUBLIC_USE_RN_FETCH=1` で React Native 標準の fetch に戻して切り分ける。
+- **`npm audit` 対策の `overrides`**（`package.json`）:
+  - `decode-uri-component` → `vendor/decode-uri-component`（修正版 0.5.0 を CommonJS にしたもの）。`expo-router` が使う
+    `query-string@7` から `require()` できる修正版が無いため。`expo-router` が `query-string@7` をやめたら削除する（`vendor/decode-uri-component/README.md`）。
+  - `xcode` の `uuid` → `^11.1.1`（prebuild 用ツールの依存。`uuid@11` は CommonJS も配布している）。
+
 ## ローカル開発 / ビルド
 
 ```bash
@@ -370,7 +385,7 @@ keytool -list -v -keystore ~/.android/debug.keystore \
 
 - **adb にゾンビエミュレータが残る**: 他アプリ（Nahimic の `NTKDaemon.exe` 等）が port 5563 を掴んでいると、adb はそれを「emulator-5562」と誤認し永続的な offline エントリを作る。`setx ADB_LOCAL_TRANSPORT_MAX_PORT 5561` で adb の emulator スキャン範囲を絞ると回避できる
 - **Quick Boot スナップショット**: AVD がクイックブートで前回の状態（他アプリのスプラッシュ等）を復元することがある。`emulator -avd <name> -no-snapshot-load` でコールドブート
-- **`react-native-worklets` の 0.7.x ピン留め**: Expo SDK 55 は `reanimated@4.2.1` + `worklets@0.8.1` を同梱するが、reanimated がビルド時に worklets 0.7.x を要求する。`package.json` で `"react-native-worklets": "0.7.4"` 相当に固定する必要あり（将来 Expo が reanimated 4.3+ / worklets 0.8.x セットに更新したら解除可）
+- **`react-native-reanimated` / `react-native-worklets` の版**: 組み合わせを手で固定しない。Expo SDK の対応表どおり `npx expo install --fix` に任せる（SDK 55 時代の worklets 0.7.x 固定は SDK 57 で不要になった）
 
 ### OAuth2 関連の設計メモ
 

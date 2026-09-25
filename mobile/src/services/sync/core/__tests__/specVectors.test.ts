@@ -160,23 +160,20 @@ describe('sync-spec: skipped-versions', () => {
 	it.each(vectors.normalize)('normalize: $name', ({ input, expected }) => {
 		expect(normalizeSkippedVersions(input)).toEqual(expected);
 	});
-	it.each(vectors.known)('known: $name', ({
-		skipped,
-		parentVersion,
-		version,
-		expected,
-	}) => {
-		expect(knownSkippedVersions(skipped, parentVersion, version)).toEqual(
-			expected,
-		);
-	});
-	it.each(vectors.contains)('contains: $name', ({
-		ranges,
-		version,
-		expected,
-	}) => {
-		expect(skippedVersionsContain(ranges, version)).toBe(expected);
-	});
+	it.each(vectors.known)(
+		'known: $name',
+		({ skipped, parentVersion, version, expected }) => {
+			expect(knownSkippedVersions(skipped, parentVersion, version)).toEqual(
+				expected,
+			);
+		},
+	);
+	it.each(vectors.contains)(
+		'contains: $name',
+		({ ranges, version, expected }) => {
+			expect(skippedVersionsContain(ranges, version)).toBe(expected);
+		},
+	);
 });
 
 describe('sync-spec: decide-note', () => {

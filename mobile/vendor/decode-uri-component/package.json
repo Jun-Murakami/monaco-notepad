@@ -1,0 +1,9 @@
+{
+  "name": "decode-uri-component",
+  "version": "0.5.0",
+  "description": "CommonJS build of decode-uri-component 0.5.0 (vendored, see README.md)",
+  "main": "index.js",
+  "license": "MIT",
+  "author": "Sam Verschueren <sam.verschueren@gmail.com> (github.com/SamVerschueren)",
+  "repository": "SamVerschueren/decode-uri-component"
+}

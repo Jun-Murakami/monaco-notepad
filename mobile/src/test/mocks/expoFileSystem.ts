@@ -84,7 +84,7 @@ export class File {
 
 	async text(): Promise<string> {
 		const e = store.get(normalize(this.uri));
-		if (!e || e.kind !== 'file') throw new Error(`No such file: ${this.uri}`);
+		if (e?.kind !== 'file') throw new Error(`No such file: ${this.uri}`);
 		return e.content;
 	}
 
@@ -103,7 +103,7 @@ export class File {
 	move(destination: Directory | File): void {
 		const src = normalize(this.uri);
 		const e = store.get(src);
-		if (!e || e.kind !== 'file') throw new Error(`No such file: ${src}`);
+		if (e?.kind !== 'file') throw new Error(`No such file: ${src}`);
 		// Directory を渡された場合は元ファイル名を保持して配下に移動。
 		const dstUri =
 			destination instanceof Directory
