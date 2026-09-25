@@ -13,6 +13,12 @@ import type {
 import { type DecideNoteInput, decideNote } from '../decideNote';
 import { type FinalNoteMeta, mergeNoteList } from '../mergeNoteList';
 import { mergeSequence } from '../mergeSequence';
+import {
+	knownSkippedVersions,
+	normalizeSkippedVersions,
+	skippedVersionsContain,
+	type VersionRange,
+} from '../skippedVersions';
 
 /**
  * 共有仕様ベクター（sync-spec/vectors/*.json）の検証。
@@ -127,6 +133,49 @@ describe('sync-spec: merge-sequence', () => {
 	}>('merge-sequence.json');
 	it.each(cases)('$name', ({ base, local, remote, expected }) => {
 		expect(mergeSequence(base, local, remote)).toEqual(expected);
+	});
+});
+
+describe('sync-spec: skipped-versions', () => {
+	const vectors = loadVectors<{
+		normalize: Array<{
+			name: string;
+			input: VersionRange[];
+			expected: VersionRange[];
+		}>;
+		known: Array<{
+			name: string;
+			skipped: VersionRange[];
+			parentVersion: number;
+			version: number;
+			expected: VersionRange[];
+		}>;
+		contains: Array<{
+			name: string;
+			ranges: VersionRange[];
+			version: number;
+			expected: boolean;
+		}>;
+	}>('skipped-versions.json');
+	it.each(vectors.normalize)('normalize: $name', ({ input, expected }) => {
+		expect(normalizeSkippedVersions(input)).toEqual(expected);
+	});
+	it.each(vectors.known)('known: $name', ({
+		skipped,
+		parentVersion,
+		version,
+		expected,
+	}) => {
+		expect(knownSkippedVersions(skipped, parentVersion, version)).toEqual(
+			expected,
+		);
+	});
+	it.each(vectors.contains)('contains: $name', ({
+		ranges,
+		version,
+		expected,
+	}) => {
+		expect(skippedVersionsContain(ranges, version)).toBe(expected);
 	});
 });
 

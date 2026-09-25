@@ -1,4 +1,8 @@
 import { isSafeNoteId } from '../storage/paths';
+import {
+	normalizeSkippedVersions,
+	type VersionRange,
+} from './core/skippedVersions';
 import type { Note, NoteList } from './types';
 
 /**
@@ -8,34 +12,58 @@ import type { Note, NoteList } from './types';
 
 /** ノート本体の JSON。folderId は noteList が正なので読み手は無視する（書き手は現在値を入れる）。 */
 /**
- * Drive に置くノート本体。parentVersion は、この書き込みが置き換える Drive の版番号
- * （= 書いた端末が見ていた版）。他端末が「自分の版が見ずに上書きされたか」を判定し、その版をバックアップに残すのに使う
- * （docs/sync-engine-v3.md §6）。新規作成では付けない。
+ * ノート本体の書き込みの系譜（docs/sync-engine-v3.md §6）。他端末が「自分の版が見ずに上書きされたか」を判定し、
+ * その版をバックアップに残すのに使う。新規作成と旧クライアントの書き込みには無い。
+ * - parentVersion（syncParentVersion）: この書き込みが置き換えた Drive の版番号（= 書いた端末が見ていた版）
+ * - skipped（syncSkipped）: 置き換えた版の履歴の中で、見ずに上書きされた版番号の範囲
  */
-export function serializeNote(note: Note, parentVersion?: number): string {
-	const { syncing: _s, ...persist } = note;
-	return JSON.stringify(
-		parentVersion && parentVersion > 0
-			? { ...persist, syncParentVersion: parentVersion }
-			: persist,
-	);
+export interface NoteLineage {
+	parentVersion?: number;
+	skipped?: VersionRange[];
 }
 
-/** Drive から落としたノート本体と、書いた端末が見ていた版番号（旧クライアントの書き込みには無い）。 */
+export function serializeNote(note: Note, lineage: NoteLineage = {}): string {
+	const { syncing: _s, ...persist } = note;
+	const body: Record<string, unknown> = { ...persist };
+	if (lineage.parentVersion && lineage.parentVersion > 0) {
+		body.syncParentVersion = lineage.parentVersion;
+		const skipped = normalizeSkippedVersions(lineage.skipped ?? []);
+		if (skipped.length > 0) body.syncSkipped = skipped;
+	}
+	return JSON.stringify(body);
+}
+
+/** Drive から落としたノート本体と、その書き込みの系譜（不正な値は「不明」として捨てる）。 */
 export function parseRemoteNote(
 	text: string,
-): { note: Note; parentVersion?: number } | null {
+): ({ note: Note } & NoteLineage) | null {
 	const note = parseNote(text);
 	if (!note) return null;
+	let raw: { syncParentVersion?: unknown; syncSkipped?: unknown };
 	try {
-		const raw = (JSON.parse(text) as { syncParentVersion?: unknown })
-			.syncParentVersion;
-		return typeof raw === 'number' && Number.isInteger(raw) && raw > 0
-			? { note, parentVersion: raw }
-			: { note };
+		raw = JSON.parse(text);
 	} catch {
 		return { note };
 	}
+	const parent = raw.syncParentVersion;
+	if (
+		typeof parent !== 'number' ||
+		!Number.isSafeInteger(parent) ||
+		parent < 1
+	) {
+		return { note };
+	}
+	const skipped = Array.isArray(raw.syncSkipped)
+		? normalizeSkippedVersions(
+				raw.syncSkipped.filter(
+					(r): r is number[] =>
+						Array.isArray(r) && r.every((v) => typeof v === 'number'),
+				),
+			)
+		: [];
+	return skipped.length > 0
+		? { note, parentVersion: parent, skipped }
+		: { note, parentVersion: parent };
 }
 
 export function parseNote(text: string): Note | null {

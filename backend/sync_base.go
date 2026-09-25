@@ -16,6 +16,8 @@ type syncBaseNote struct {
 	Md5     string `json:"md5,omitempty"`
 	FileID  string `json:"fileId,omitempty"`
 	Version int64  `json:"version,omitempty"`
+	// Skipped はこの版の履歴の中で見ずに上書きされた版番号（次に書くときに引き継ぐ）。
+	Skipped []versionRange `json:"skipped,omitempty"`
 }
 
 // SyncBase は最後に同期が確定した時点の状態（docs/sync-engine-v3.md §4, sync_base.json）。

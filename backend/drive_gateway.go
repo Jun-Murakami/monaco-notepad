@@ -230,16 +230,51 @@ func (g *driveGateway) ListNoteFiles(layout driveLayoutIDs) (remoteNoteFiles, er
 }
 
 // DownloadNote は本体をダウンロードする。壊れている / ID が要求と違う場合は (nil, nil)。
-// driveNoteFile は Drive に置くノート本体。SyncParentVersion は、この書き込みが置き換えた Drive の版番号
-// （= 書いた端末が見ていた版）。他端末が「自分の版が見ずに上書きされたか」を判定し、その版をバックアップに残すのに使う
-// （docs/sync-engine-v3.md §6）。新規作成と旧クライアントの書き込みには無い。
-type driveNoteFile struct {
-	Note
-	SyncParentVersion int64 `json:"syncParentVersion,omitempty"`
+// noteLineage はノート本体の書き込みの系譜（docs/sync-engine-v3.md §6）。他端末が「自分の版が見ずに
+// 上書きされたか」を判定し、その版をバックアップに残すのに使う。新規作成と旧クライアントの書き込みには無い。
+//   - ParentVersion（syncParentVersion）: この書き込みが置き換えた Drive の版番号（= 書いた端末が見ていた版）
+//   - Skipped（syncSkipped）: 置き換えた版の履歴の中で、見ずに上書きされた版番号の範囲
+type noteLineage struct {
+	ParentVersion int64
+	Skipped       []versionRange
 }
 
-// DownloadNote は本体をダウンロードし、書いた端末が見ていた版番号（不明なら 0）と一緒に返す。
-func (g *driveGateway) DownloadNote(fileID, expectedNoteID string) (*Note, int64, error) {
+// driveNoteFile は Drive に置くノート本体。
+type driveNoteFile struct {
+	Note
+	SyncParentVersion int64          `json:"syncParentVersion,omitempty"`
+	SyncSkipped       []versionRange `json:"syncSkipped,omitempty"`
+}
+
+// driveNoteLineageFields は系譜を読むための緩い形（壊れた要素だけを捨てるため、要素ごとに解釈する）。
+type driveNoteLineageFields struct {
+	SyncParentVersion json.RawMessage   `json:"syncParentVersion"`
+	SyncSkipped       []json.RawMessage `json:"syncSkipped"`
+}
+
+// parseNoteLineage は本体 JSON から系譜を読む。不正な値は「不明」（空）として扱い、範囲は壊れた要素だけ捨てる
+// （モバイル版 codec.parseRemoteNote と同じ扱い）。
+func parseNoteLineage(data []byte) noteLineage {
+	var raw driveNoteLineageFields
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return noteLineage{}
+	}
+	var parent int64
+	if len(raw.SyncParentVersion) == 0 || json.Unmarshal(raw.SyncParentVersion, &parent) != nil || parent < 1 {
+		return noteLineage{}
+	}
+	ranges := []versionRange{}
+	for _, item := range raw.SyncSkipped {
+		var r versionRange
+		if json.Unmarshal(item, &r) == nil {
+			ranges = append(ranges, r)
+		}
+	}
+	return noteLineage{ParentVersion: parent, Skipped: normalizeSkippedVersions(ranges)}
+}
+
+// DownloadNote は本体をダウンロードし、その書き込みの系譜と一緒に返す（不正な値は「不明」として捨てる）。
+func (g *driveGateway) DownloadNote(fileID, expectedNoteID string) (*Note, noteLineage, error) {
 	var data []byte
 	err := g.withRetry(func() error {
 		var e error
@@ -247,31 +282,29 @@ func (g *driveGateway) DownloadNote(fileID, expectedNoteID string) (*Note, int64
 		return e
 	})
 	if err != nil {
-		return nil, 0, err
+		return nil, noteLineage{}, err
 	}
-	var file driveNoteFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, 0, nil
+	var note Note
+	if err := json.Unmarshal(data, &note); err != nil {
+		return nil, noteLineage{}, nil
 	}
-	note := file.Note
 	// 同期データ由来の ID はパストラバーサルに悪用されうるため取り込み境界で検証する
 	if !isSafeNoteID(note.ID) || note.ID != expectedNoteID {
-		return nil, 0, nil
+		return nil, noteLineage{}, nil
 	}
 	note.FolderID = "" // 所属は noteList が正（P7）
 	note.Syncing = false
-	parentVersion := file.SyncParentVersion
-	if parentVersion < 0 {
-		parentVersion = 0
-	}
-	return &note, parentVersion, nil
+	return &note, parseNoteLineage(data), nil
 }
 
-// UploadNote は本体を作成 / 更新する。parentVersion は置き換える Drive の版番号（書いた端末が見ていた版）。
-func (g *driveGateway) UploadNote(layout driveLayoutIDs, note *Note, fileID string, parentVersion int64) (remoteFileRef, error) {
+// UploadNote は本体を作成 / 更新する。lineage は置き換える版の系譜（新規作成では使わない）。
+func (g *driveGateway) UploadNote(layout driveLayoutIDs, note *Note, fileID string, lineage noteLineage) (remoteFileRef, error) {
 	payload := driveNoteFile{Note: *note}
-	if fileID != "" && parentVersion > 0 {
-		payload.SyncParentVersion = parentVersion
+	if fileID != "" && lineage.ParentVersion > 0 {
+		payload.SyncParentVersion = lineage.ParentVersion
+		if skipped := normalizeSkippedVersions(lineage.Skipped); len(skipped) > 0 {
+			payload.SyncSkipped = skipped
+		}
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

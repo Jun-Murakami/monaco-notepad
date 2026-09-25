@@ -953,6 +953,219 @@
         "kind": "upload",
         "backupRemote": true
       }
+    },
+    {
+      "name": "2 段の入れ違い: 手元の版を見ずに上書きした版の上に別端末が書いた（範囲を引き継いでいる）→ 手元の版は残す",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1",
+          "version": 6
+        },
+        "remote": {
+          "md5": "m8",
+          "fileId": "f1",
+          "version": 8
+        },
+        "downloaded": {
+          "hash": "h8",
+          "modifiedTime": "2026-01-01T00:00:40Z",
+          "parentVersion": 7,
+          "skipped": [
+            [
+              6,
+              6
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
+    },
+    {
+      "name": "3 段の入れ違い: 引き継いだ範囲に手元の版が含まれる → 手元の版は残す",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1",
+          "version": 6
+        },
+        "remote": {
+          "md5": "m8",
+          "fileId": "f1",
+          "version": 10
+        },
+        "downloaded": {
+          "hash": "h8",
+          "modifiedTime": "2026-01-01T00:00:40Z",
+          "parentVersion": 9,
+          "skipped": [
+            [
+              6,
+              6
+            ],
+            [
+              8,
+              8
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
+    },
+    {
+      "name": "1 段の入れ違いは書き込み後の版番号から分かる（置き換えた版 5 と 8 の間に手元の版 6）→ 手元の版は残す",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1",
+          "version": 6
+        },
+        "remote": {
+          "md5": "m8",
+          "fileId": "f1",
+          "version": 8
+        },
+        "downloaded": {
+          "hash": "h8",
+          "modifiedTime": "2026-01-01T00:00:40Z",
+          "parentVersion": 5
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
+    },
+    {
+      "name": "途中の版を見逃しただけ（範囲に含まれない）→ バックアップしない",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1",
+          "version": 6
+        },
+        "remote": {
+          "md5": "m8",
+          "fileId": "f1",
+          "version": 9
+        },
+        "downloaded": {
+          "hash": "h8",
+          "modifiedTime": "2026-01-01T00:00:40Z",
+          "parentVersion": 8,
+          "skipped": []
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
+      }
+    },
+    {
+      "name": "範囲はあるが手元の版は含まれない → バックアップしない",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1",
+          "version": 6
+        },
+        "remote": {
+          "md5": "m8",
+          "fileId": "f1",
+          "version": 12
+        },
+        "downloaded": {
+          "hash": "h8",
+          "modifiedTime": "2026-01-01T00:00:40Z",
+          "parentVersion": 11,
+          "skipped": [
+            [
+              3,
+              4
+            ],
+            [
+              8,
+              9
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
+      }
+    },
+    {
+      "name": "手元の方が新しければ範囲にかかわらず送り直し、上書きしてきた版を残す",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1",
+          "version": 6
+        },
+        "remote": {
+          "md5": "m8",
+          "fileId": "f1",
+          "version": 8
+        },
+        "downloaded": {
+          "hash": "h8",
+          "modifiedTime": "2026-01-01T00:00:20Z",
+          "parentVersion": 7,
+          "skipped": [
+            [
+              6,
+              6
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "kind": "upload",
+        "backupRemote": true
+      }
     }
   ]
 }

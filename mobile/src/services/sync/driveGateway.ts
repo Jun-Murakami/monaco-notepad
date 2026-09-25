@@ -1,4 +1,5 @@
 import {
+	type NoteLineage,
 	normalizeNoteList,
 	parseRemoteNote,
 	serializeNote,
@@ -190,7 +191,7 @@ export class DriveGateway {
 	async downloadNote(
 		fileId: string,
 		expectedNoteId: string,
-	): Promise<{ note: Note; parentVersion?: number } | null> {
+	): Promise<({ note: Note } & NoteLineage) | null> {
 		const text = await withRetry(
 			() => this.client.downloadText(fileId),
 			'downloadNote',
@@ -202,15 +203,15 @@ export class DriveGateway {
 	}
 
 	/**
-	 * 本体を作成 / 更新する。parentVersion は置き換える Drive の版番号（書いた端末が見ていた版）。
+	 * 本体を作成 / 更新する。lineage は置き換える版の系譜（新規作成では使わない）。
 	 */
 	async uploadNote(
 		layout: DriveLayoutIds,
 		note: Note,
 		fileId: string | null,
-		parentVersion?: number,
+		lineage: NoteLineage = {},
 	): Promise<RemoteFileRef> {
-		const body = serializeNote(note, fileId ? parentVersion : undefined);
+		const body = serializeNote(note, fileId ? lineage : {});
 		const file = await withRetry(
 			() =>
 				fileId

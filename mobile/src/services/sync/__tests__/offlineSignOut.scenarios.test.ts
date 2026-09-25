@@ -469,6 +469,52 @@ describe('復帰時の競合（シミュレーションで見つかったレー�
 		]);
 	});
 
+	it('入れ違いが 2 回重なっても（見ずに上書きされた版の上に別端末が書いても）、消えた版はバックアップに残る', async () => {
+		const third = new MobileDevice(drive, 'third');
+		await third.boot();
+		await third.connect();
+		await third.sync();
+
+		// other は「Drive は前回から変わっていない」と判断して送る。その送信の直前に mobile が編集を送る
+		await other.editNoteOffline('A', { content: 'other edit (blind)' });
+		drive.beforeRequest(
+			(r) =>
+				r.deviceId === 'other' &&
+				r.op === 'files.update' &&
+				r.fileName === 'A.json',
+			async () => {
+				await mobile.editNote('A', { content: 'mobile edit' });
+			},
+		);
+		await other.sync();
+		expect(cloudContent('A')).toBe('other edit (blind)');
+		// mobile が同期する前に、third が other の版を見た上で（より新しく）書く
+		await third.sync();
+		await third.editNote('A', { content: 'third edit (newest)' });
+
+		await mobile.sync();
+		await other.sync();
+		await third.sync();
+		for (const d of [mobile, other, third]) {
+			expect(await contentOf(d, 'A'), d.deviceId).toBe('third edit (newest)');
+		}
+		expect(backupsOf(mobile)).toEqual([['cloud_wins', 'A', 'mobile edit']]);
+		expect(backupsOf(other)).toEqual([]);
+		expect(backupsOf(third)).toEqual([]);
+	});
+
+	it('相手が続けて編集した途中の版を見逃しただけなら、バックアップを作らない', async () => {
+		mobile.goOffline();
+		await other.editNote('A', { content: 'a2' });
+		await other.editNote('A', { content: 'a3' });
+		await other.editNote('A', { content: 'a4' });
+
+		mobile.goOnline();
+		await syncBoth();
+		expect(await contentOf(mobile, 'A')).toBe('a4');
+		expect(backupsOf(mobile)).toEqual([]);
+	});
+
 	// 既知の制限: 勝敗は modifiedTime（端末の時計）で決めるので、時計が大きく進んでいる端末があると
 	// その後の他端末の編集が巻き戻ることがある。ただし黙っては消えず、バックアップに残る。
 	it('時計が進んでいる端末があると後からの編集が巻き戻ることがあるが、黙っては消えない', async () => {

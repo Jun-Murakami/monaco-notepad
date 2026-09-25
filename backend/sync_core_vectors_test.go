@@ -132,6 +132,46 @@ func TestSpecVectors_MergeSequence(t *testing.T) {
 	}
 }
 
+func TestSpecVectors_SkippedVersions(t *testing.T) {
+	var file struct {
+		Normalize []struct {
+			Name     string         `json:"name"`
+			Input    []versionRange `json:"input"`
+			Expected []versionRange `json:"expected"`
+		} `json:"normalize"`
+		Known []struct {
+			Name          string         `json:"name"`
+			Skipped       []versionRange `json:"skipped"`
+			ParentVersion int64          `json:"parentVersion"`
+			Version       int64          `json:"version"`
+			Expected      []versionRange `json:"expected"`
+		} `json:"known"`
+		Contains []struct {
+			Name     string         `json:"name"`
+			Ranges   []versionRange `json:"ranges"`
+			Version  int64          `json:"version"`
+			Expected bool           `json:"expected"`
+		} `json:"contains"`
+	}
+	loadSpecVectors(t, "skipped-versions.json", &file)
+	for _, c := range file.Normalize {
+		t.Run("normalize/"+c.Name, func(t *testing.T) {
+			assert.Equal(t, append([]versionRange{}, c.Expected...), append([]versionRange{}, normalizeSkippedVersions(c.Input)...))
+		})
+	}
+	for _, c := range file.Known {
+		t.Run("known/"+c.Name, func(t *testing.T) {
+			got := knownSkippedVersions(c.Skipped, c.ParentVersion, c.Version)
+			assert.Equal(t, append([]versionRange{}, c.Expected...), append([]versionRange{}, got...))
+		})
+	}
+	for _, c := range file.Contains {
+		t.Run("contains/"+c.Name, func(t *testing.T) {
+			assert.Equal(t, c.Expected, skippedVersionsContain(c.Ranges, c.Version))
+		})
+	}
+}
+
 func TestSpecVectors_DecideNote(t *testing.T) {
 	var file struct {
 		Cases []struct {

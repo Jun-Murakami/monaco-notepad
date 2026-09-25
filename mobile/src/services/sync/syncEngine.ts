@@ -8,6 +8,10 @@ import {
 	type NoteDecision,
 } from './core/decideNote';
 import { type FinalNoteMeta, mergeNoteList } from './core/mergeNoteList';
+import {
+	knownSkippedVersions,
+	type VersionRange,
+} from './core/skippedVersions';
 import type {
 	DriveGateway,
 	DriveLayoutIds,
@@ -178,7 +182,9 @@ export class SyncEngine {
 				local: localState.get(id),
 				localDeleted: deleted.has(id),
 				base: base.notes[id],
-				remote: remote ? { md5: remote.md5, fileId: remote.fileId } : undefined,
+				remote: remote
+					? { md5: remote.md5, fileId: remote.fileId, version: remote.version }
+					: undefined,
 			};
 			inputs.set(id, input);
 			const decision = decideNote(input);
@@ -188,7 +194,12 @@ export class SyncEngine {
 
 		const downloaded = new Map<
 			string,
-			{ note: Note; hash: string; parentVersion?: number }
+			{
+				note: Note;
+				hash: string;
+				parentVersion?: number;
+				skipped?: VersionRange[];
+			}
 		>();
 		if (toDownload.length > 0) {
 			syncEvents.emit('sync:phase', { phase: 'downloading-notes' });
@@ -207,11 +218,12 @@ export class SyncEngine {
 			try {
 				const remote = await this.gateway.downloadNote(ref.fileId, id);
 				if (remote) {
-					const { note, parentVersion } = remote;
+					const { note, parentVersion, skipped } = remote;
 					downloaded.set(id, {
 						note,
 						hash: await computeContentHash(note),
 						parentVersion,
+						skipped,
 					});
 					report.downloaded++;
 				} else {
@@ -234,6 +246,7 @@ export class SyncEngine {
 								hash: dl.hash,
 								modifiedTime: dl.note.modifiedTime,
 								parentVersion: dl.parentVersion,
+								skipped: dl.skipped,
 							},
 						})
 					: { kind: 'skip' },
@@ -247,9 +260,31 @@ export class SyncEngine {
 		const uploadIds = [...decisions]
 			.filter(([, d]) => d.kind === 'upload')
 			.map(([id]) => id);
+		/**
+		 * 置き換えた版の「履歴の中で見ずに上書きされた版番号」。このサイクルで落とした版はその系譜から、
+		 * 落とさずに書く（Drive が base のまま）なら base に覚えている値を引き継ぐ。
+		 */
+		const skippedOf = (id: string): VersionRange[] => {
+			const remote = remoteFiles.byNoteId.get(id);
+			if (!remote) return [];
+			const dl = downloaded.get(id);
+			return dl
+				? knownSkippedVersions(
+						dl.skipped ?? [],
+						dl.parentVersion ?? 0,
+						remote.version,
+					)
+				: (base.notes[id]?.skipped ?? []);
+		};
 		const uploaded = new Map<
 			string,
-			{ ref: RemoteFileRef; note: Note; hash: string }
+			{
+				ref: RemoteFileRef;
+				note: Note;
+				hash: string;
+				parentVersion: number;
+				skipped: VersionRange[];
+			}
 		>();
 		if (uploadIds.length > 0) {
 			syncEvents.emit('drive:status', { status: 'pushing' });
@@ -289,13 +324,21 @@ export class SyncEngine {
 			}
 			try {
 				const remote = remoteFiles.byNoteId.get(id);
+				const parentVersion = remote?.version ?? 0;
+				const skipped = skippedOf(id);
 				const ref = await this.gateway.uploadNote(
 					layout,
 					note,
 					remote?.fileId ?? null,
-					remote?.version,
+					{ parentVersion, skipped },
 				);
-				uploaded.set(id, { ref, note, hash: await computeContentHash(note) });
+				uploaded.set(id, {
+					ref,
+					note,
+					hash: await computeContentHash(note),
+					parentVersion,
+					skipped,
+				});
 				report.uploaded++;
 			} catch (e) {
 				if (e instanceof AuthError) throw e;
@@ -460,6 +503,7 @@ export class SyncEngine {
 							md5: remote.md5,
 							fileId: remote.fileId,
 							version: remote.version,
+							skipped: skippedOf(id),
 						};
 					break;
 				}
@@ -471,6 +515,12 @@ export class SyncEngine {
 							md5: up.ref.md5,
 							fileId: up.ref.fileId,
 							version: up.ref.version,
+							// 書き込みまでの間に見ずに上書きした版も含める（他端末が読むときと同じ計算）
+							skipped: knownSkippedVersions(
+								up.skipped,
+								up.parentVersion,
+								up.ref.version,
+							),
 						};
 					break;
 				}
@@ -482,6 +532,7 @@ export class SyncEngine {
 							md5: remote.md5,
 							fileId: remote.fileId,
 							version: remote.version,
+							skipped: skippedOf(id),
 						};
 						if (deleted.has(id)) resolvedDeletions.push(id); // 削除の取り消し
 					}

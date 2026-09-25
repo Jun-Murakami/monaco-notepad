@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"math"
 	"regexp"
 	"sort"
 	"time"
@@ -22,6 +23,8 @@ type noteSideState struct {
 	// ParentVersion はダウンロードした版を書いた端末が置き換えた Drive の版番号（= その端末が見ていた版）。
 	// 旧クライアントの書き込みには無い（0）。ローカル側では使わない。
 	ParentVersion int64 `json:"parentVersion,omitempty"`
+	// Skipped は本体の syncSkipped（履歴の中で見ずに上書きされた版番号の範囲）。ローカル側では使わない。
+	Skipped []versionRange `json:"skipped,omitempty"`
 }
 
 type baseNoteState struct {
@@ -32,8 +35,9 @@ type baseNoteState struct {
 }
 
 type remoteNoteState struct {
-	Md5    string `json:"md5"`
-	FileID string `json:"fileId,omitempty"`
+	Md5     string `json:"md5"`
+	FileID  string `json:"fileId,omitempty"`
+	Version int64  `json:"version,omitempty"` // 一覧で分かる Drive の版番号
 }
 
 // decideNoteInput の Downloaded を nil で呼ぶのがフェーズ1、ダウンロード結果を入れて呼ぶのがフェーズ2。
@@ -131,10 +135,11 @@ func decideNote(in decideNoteInput) noteDecision {
 		if isAfterRFC3339(local.ModifiedTime, downloaded.ModifiedTime) {
 			return noteDecision{Kind: decisionUpload, BackupRemote: true}
 		}
-		// リモートの方が新しい = 通常は更新として取り込むだけ。ただし書いた端末が置き換えた版
-		// （syncParentVersion）が手元の版より前なら、手元の版を見ずに上書きされている（入れ違い）ので、
-		// 手元の版も残す。勝敗は変えず（新しい方が勝つ）、バックアップを増やすだけに使う。
-		blind := downloaded.ParentVersion > 0 && base != nil && base.Version > 0 && downloaded.ParentVersion < base.Version
+		// リモートの方が新しい = 通常は更新として取り込むだけ。ただし手元の版が、リモートの版の履歴の中で
+		// 見ずに上書きされていれば（同期の入れ違い。何段重なっていても syncSkipped に残る）、手元の版も残す。
+		// 勝敗は変えず（新しい方が勝つ）、バックアップを増やすだけに使う。
+		skipped := knownSkippedVersions(downloaded.Skipped, downloaded.ParentVersion, remote.Version)
+		blind := base != nil && base.Version > 0 && skippedVersionsContain(skipped, base.Version)
 		return noteDecision{Kind: decisionApplyRemote, BackupLocal: blind}
 	}
 	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る
@@ -659,4 +664,73 @@ func indexOfString(values []string, target string) int {
 		}
 	}
 	return -1
+}
+
+// ---- 見ずに上書きされた版番号の範囲（docs/sync-engine-v3.md §6） ----
+//
+// ノート本体の書き込みは、置き換えた版番号（syncParentVersion）と、履歴の中で見ずに上書きされた版番号の
+// 範囲（syncSkipped）を持つ。自分の版番号がこの範囲に入っていれば、その版は誰にも見られずに消えている。
+// モバイル版 core/skippedVersions.ts と 1:1（sync-spec/vectors/skipped-versions.json で検証）。
+
+// versionRange は [from, to]（両端を含む）。JSON では [from, to] の配列になる。
+type versionRange [2]int64
+
+// maxSkippedVersionRanges は本体に持たせる範囲の上限。超えたら番号の小さい（古い）方から捨てる。
+const maxSkippedVersionRanges = 32
+
+// normalizeSkippedVersions は不正な範囲を除き、昇順に並べて重なり・隣接をまとめ、上限を超えた古い範囲を捨てる。
+func normalizeSkippedVersions(ranges []versionRange) []versionRange {
+	valid := make([]versionRange, 0, len(ranges))
+	for _, r := range ranges {
+		if r[0] >= 1 && r[0] <= r[1] {
+			valid = append(valid, r)
+		}
+	}
+	sort.Slice(valid, func(i, j int) bool {
+		if valid[i][0] != valid[j][0] {
+			return valid[i][0] < valid[j][0]
+		}
+		return valid[i][1] < valid[j][1]
+	})
+	merged := []versionRange{}
+	for _, r := range valid {
+		if n := len(merged); n > 0 && r[0] <= merged[n-1][1]+1 {
+			if r[1] > merged[n-1][1] {
+				merged[n-1][1] = r[1]
+			}
+			continue
+		}
+		merged = append(merged, r)
+	}
+	if len(merged) > maxSkippedVersionRanges {
+		merged = merged[len(merged)-maxSkippedVersionRanges:]
+	}
+	return merged
+}
+
+// knownSkippedVersions はある版の「履歴の中で見ずに上書きされた版番号」: 本体の syncSkipped に、その版自身が
+// 見ずに上書きした範囲 (parentVersion, version)（両端を含まない）を加えたもの。parentVersion が 0
+// （旧クライアントの書き込み）なら加えない。version が 0（不明）なら上端を決められないので、
+// parentVersion より後をすべて含める。
+func knownSkippedVersions(skipped []versionRange, parentVersion, version int64) []versionRange {
+	ranges := append([]versionRange{}, skipped...)
+	if parentVersion > 0 {
+		upper := int64(math.MaxInt64)
+		if version > 0 {
+			upper = version - 1
+		}
+		if upper >= parentVersion+1 {
+			ranges = append(ranges, versionRange{parentVersion + 1, upper})
+		}
+	}
+	return normalizeSkippedVersions(ranges)
+}
+
+func skippedVersionsContain(ranges []versionRange, version int64) bool {
+	for _, r := range ranges {
+		if r[0] <= version && version <= r[1] {
+			return true
+		}
+	}
+	return false
 }

@@ -103,15 +103,16 @@ func (e *syncEngine) ResetBase() error {
 }
 
 type downloadedNote struct {
-	note          *Note
-	hash          string
-	parentVersion int64 // 書いた端末が見ていた Drive の版番号（不明なら 0）
+	note    *Note
+	hash    string
+	lineage noteLineage // 書いた端末が置き換えた版と、見ずに上書きされた版番号（不明なら空）
 }
 
 type uploadedNote struct {
-	ref  remoteFileRef
-	note *Note
-	hash string
+	ref     remoteFileRef
+	note    *Note
+	hash    string
+	lineage noteLineage // この書き込みに付けた系譜
 }
 
 // decisionSkip はダウンロードに失敗して判定できなかったノート（base を進めない）。
@@ -209,7 +210,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			in.Base = &baseNoteState{Hash: b.Hash, Md5: b.Md5, FileID: b.FileID, Version: b.Version}
 		}
 		if r, ok := remoteFiles.ByNoteID[id]; ok {
-			in.Remote = &remoteNoteState{Md5: r.Md5, FileID: r.FileID}
+			in.Remote = &remoteNoteState{Md5: r.Md5, FileID: r.FileID, Version: r.Version}
 		}
 		inputs[id] = in
 		d := decideNote(in)
@@ -222,7 +223,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 	downloaded := map[string]downloadedNote{}
 	for i, id := range toDownload {
 		e.logger.InfoCode(MsgDriveSyncDownloadNote, map[string]interface{}{"noteId": id, "current": i + 1, "total": len(toDownload)})
-		note, parentVersion, err := e.gateway.DownloadNote(remoteFiles.ByNoteID[id].FileID, id)
+		note, lineage, err := e.gateway.DownloadNote(remoteFiles.ByNoteID[id].FileID, id)
 		if err != nil {
 			if isAuthDriveError(err) {
 				return report, false, err
@@ -235,7 +236,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			report.Failures++
 			continue
 		}
-		downloaded[id] = downloadedNote{note: note, hash: computeContentHash(note), parentVersion: parentVersion}
+		downloaded[id] = downloadedNote{note: note, hash: computeContentHash(note), lineage: lineage}
 		report.Downloaded++
 	}
 	for _, id := range toDownload {
@@ -245,8 +246,24 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			continue
 		}
 		in := inputs[id]
-		in.Downloaded = &noteSideState{Hash: dl.hash, ModifiedTime: dl.note.ModifiedTime, ParentVersion: dl.parentVersion}
+		in.Downloaded = &noteSideState{
+			Hash: dl.hash, ModifiedTime: dl.note.ModifiedTime,
+			ParentVersion: dl.lineage.ParentVersion, Skipped: dl.lineage.Skipped,
+		}
 		decisions[id] = decideNote(in)
+	}
+
+	// skippedOf は置き換える版の「履歴の中で見ずに上書きされた版番号」。このサイクルで落とした版はその系譜から、
+	// 落とさずに書く（Drive が base のまま）なら base に覚えている値を引き継ぐ。
+	skippedOf := func(id string) []versionRange {
+		remote, ok := remoteFiles.ByNoteID[id]
+		if !ok {
+			return nil
+		}
+		if dl, ok := downloaded[id]; ok {
+			return knownSkippedVersions(dl.lineage.Skipped, dl.lineage.ParentVersion, remote.Version)
+		}
+		return base.Notes[id].Skipped
 	}
 
 	// ---- 4. 本体のアップロード / 削除 ----
@@ -278,7 +295,8 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 		note.Syncing = false
 		note.FolderID = localMeta[id].FolderID // 旧クライアント向けに現在の所属を書く（読み手は noteList を正とする）
 		remote := remoteFiles.ByNoteID[id]
-		ref, err := e.gateway.UploadNote(layout, &note, remote.FileID, remote.Version)
+		lineage := noteLineage{ParentVersion: remote.Version, Skipped: skippedOf(id)}
+		ref, err := e.gateway.UploadNote(layout, &note, remote.FileID, lineage)
 		if err != nil {
 			if isAuthDriveError(err) {
 				return report, false, err
@@ -287,7 +305,7 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			report.Failures++
 			continue
 		}
-		uploaded[id] = uploadedNote{ref: ref, note: &note, hash: computeContentHash(&note)}
+		uploaded[id] = uploadedNote{ref: ref, note: &note, hash: computeContentHash(&note), lineage: lineage}
 		report.Uploaded++
 	}
 
@@ -482,15 +500,19 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 		switch d.Kind {
 		case decisionNone:
 			if l, ok := localState[id]; ok && onRemote {
-				nextBase.Notes[id] = syncBaseNote{Hash: l.Hash, Md5: remote.Md5, FileID: remote.FileID, Version: remote.Version}
+				nextBase.Notes[id] = syncBaseNote{Hash: l.Hash, Md5: remote.Md5, FileID: remote.FileID, Version: remote.Version, Skipped: skippedOf(id)}
 			}
 		case decisionUpload:
 			if up, ok := uploaded[id]; ok {
-				nextBase.Notes[id] = syncBaseNote{Hash: up.hash, Md5: up.ref.Md5, FileID: up.ref.FileID, Version: up.ref.Version}
+				// 書き込みまでの間に見ずに上書きした版も含める（他端末が読むときと同じ計算）
+				nextBase.Notes[id] = syncBaseNote{
+					Hash: up.hash, Md5: up.ref.Md5, FileID: up.ref.FileID, Version: up.ref.Version,
+					Skipped: knownSkippedVersions(up.lineage.Skipped, up.lineage.ParentVersion, up.ref.Version),
+				}
 			}
 		case decisionApplyRemote:
 			if applied[id] && onRemote {
-				nextBase.Notes[id] = syncBaseNote{Hash: downloaded[id].hash, Md5: remote.Md5, FileID: remote.FileID, Version: remote.Version}
+				nextBase.Notes[id] = syncBaseNote{Hash: downloaded[id].hash, Md5: remote.Md5, FileID: remote.FileID, Version: remote.Version, Skipped: skippedOf(id)}
 				if deletedIDs[id] {
 					resolvedDeletions = append(resolvedDeletions, id) // 削除の取り消し
 				}

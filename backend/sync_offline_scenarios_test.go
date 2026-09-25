@@ -497,6 +497,52 @@ func TestRace_OverwrittenUnseenByNewerVersionKeepsOwnVersionInBackup(t *testing.
 	assert.Equal(t, [][3]string{{"cloud_wins", "A", "other edit (older)"}}, p.other.backups())
 }
 
+func TestRace_TwoHopBlindOverwriteKeepsLostVersionInBackup(t *testing.T) {
+	p := newOfflinePair(t)
+	third := newDesktopDevice(t, p.fd, "third")
+	third.startup()
+
+	// other は「Drive は前回から変わっていない」と判断して送る。その送信の直前に desk が編集を送る
+	p.edit(p.other, "A", "other edit (blind)")
+	p.fd.BeforeRequest(func(r fakeRequest) bool {
+		return r.Device == "other" && r.Op == "files.update" && r.FileName == "A.json"
+	}, func(fakeRequest) {
+		p.edit(p.desk, "A", "desk edit")
+		p.desk.sync()
+	})
+	p.other.sync()
+	got, _ := p.cloudContent("A")
+	require.Equal(t, "other edit (blind)", got)
+	// desk が同期する前に、third が other の版を見た上で（より新しく）書く
+	third.sync()
+	p.edit(third, "A", "third edit (newest)")
+	third.sync()
+
+	p.desk.sync()
+	p.other.sync()
+	third.sync()
+	for _, d := range []*desktopDevice{p.desk, p.other, third} {
+		assert.Equal(t, "third edit (newest)", p.content(d, "A"), d.name)
+	}
+	assert.Equal(t, [][3]string{{"cloud_wins", "A", "desk edit"}}, p.desk.backups())
+	assert.Equal(t, noBackups(), p.other.backups())
+	assert.Equal(t, noBackups(), third.backups())
+}
+
+func TestOffline_MissedIntermediateEditsDoNotCreateBackups(t *testing.T) {
+	p := newOfflinePair(t)
+	p.desk.goOffline()
+	for _, c := range []string{"a2", "a3", "a4"} {
+		p.edit(p.other, "A", c)
+		p.other.sync()
+	}
+
+	p.desk.goOnline()
+	p.syncBoth()
+	assert.Equal(t, "a4", p.content(p.desk, "A"))
+	assert.Equal(t, noBackups(), p.desk.backups())
+}
+
 // 既知の制限: 勝敗は ModifiedTime（端末の時計）で決めるので、時計が大きく進んでいる端末があると
 // その後の他端末の編集が巻き戻ることがある。ただし黙っては消えず、バックアップに残る。
 func TestClockSkew_DeviceAheadMayRevertLaterEditButKeepsItInBackup(t *testing.T) {

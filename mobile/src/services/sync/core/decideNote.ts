@@ -7,6 +7,12 @@
  * Go 版 backend/sync_core.go の decideNote と完全一致させること（共有ベクターで検証）。
  */
 
+import {
+	knownSkippedVersions,
+	skippedVersionsContain,
+	type VersionRange,
+} from './skippedVersions';
+
 export interface DecideNoteInput {
 	/** ローカルに存在する（本体ファイルが読める）場合の状態。 */
 	local?: { hash: string; modifiedTime: string };
@@ -16,13 +22,19 @@ export interface DecideNoteInput {
 	 * 前回同期時点の状態。md5 / fileId / version（Drive の版番号）は移行直後などで欠けうる。
 	 */
 	base?: { hash: string; md5?: string; fileId?: string; version?: number };
-	/** Drive に本体ファイルがある場合の md5 とファイル ID。 */
-	remote?: { md5: string; fileId?: string };
+	/** Drive に本体ファイルがある場合の md5 / ファイル ID / 版番号（一覧で分かる値）。 */
+	remote?: { md5: string; fileId?: string; version?: number };
 	/**
 	 * フェーズ2でのみ与えるダウンロード結果。parentVersion は書いた端末が置き換えた Drive の版番号
 	 * （= その端末が見ていた版。旧クライアントの書き込みには無い）。
 	 */
-	downloaded?: { hash: string; modifiedTime: string; parentVersion?: number };
+	downloaded?: {
+		hash: string;
+		modifiedTime: string;
+		parentVersion?: number;
+		/** 本体の syncSkipped（履歴の中で見ずに上書きされた版番号の範囲）。 */
+		skipped?: VersionRange[];
+	};
 }
 
 export type NoteDecision =
@@ -83,14 +95,18 @@ export function decideNote(input: DecideNoteInput): NoteDecision {
 		if (isModifiedTimeAfter(local.modifiedTime, downloaded.modifiedTime)) {
 			return { kind: 'upload', backupRemote: true };
 		}
-		// リモートの方が新しい = 通常は更新として取り込むだけ。ただし書いた端末が置き換えた版
-		// （syncParentVersion）が手元の版より前なら、手元の版を見ずに上書きされている（入れ違い）ので、
-		// 手元の版も残す。勝敗は変えず（新しい方が勝つ）、バックアップを増やすだけに使う。
-		const parent = downloaded.parentVersion ?? 0;
+		// リモートの方が新しい = 通常は更新として取り込むだけ。ただし手元の版が、リモートの版の履歴の中で
+		// 見ずに上書きされていれば（同期の入れ違い。何段重なっていても syncSkipped に残る）、手元の版も残す。
+		// 勝敗は変えず（新しい方が勝つ）、バックアップを増やすだけに使う。
 		const seen = base?.version ?? 0;
+		const skipped = knownSkippedVersions(
+			downloaded.skipped ?? [],
+			downloaded.parentVersion ?? 0,
+			remote.version ?? 0,
+		);
 		return {
 			kind: 'applyRemote',
-			backupLocal: parent > 0 && seen > 0 && parent < seen,
+			backupLocal: seen > 0 && skippedVersionsContain(skipped, seen),
 		};
 	}
 	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る

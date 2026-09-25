@@ -1,5 +1,6 @@
 import { deleteIfExists, readString, writeAtomic } from '../storage/atomicFile';
 import { DEFAULT_STORAGE_PATHS } from '../storage/paths';
+import type { VersionRange } from './core/skippedVersions';
 import type { NoteList } from './types';
 
 /**
@@ -22,7 +23,14 @@ export interface SyncBase {
 	 */
 	notes: Record<
 		string,
-		{ hash: string; md5?: string; fileId?: string; version?: number }
+		{
+			hash: string;
+			md5?: string;
+			fileId?: string;
+			version?: number;
+			/** この版の履歴の中で見ずに上書きされた版番号（次に書くときに引き継ぐ）。 */
+			skipped?: VersionRange[];
+		}
 	>;
 }
 
