@@ -98,15 +98,28 @@ export async function deleteAllConflictBackups(): Promise<void> {
 	}
 }
 
+/**
+ * 上限を超えたバックアップを古い順に消す。ファイル名は種類が先頭なので、名前順ではなく
+ * 名前に埋め込んだ作成時刻で並べる（名前順だと種類ごとに消え、最新のバックアップが消えうる）。
+ */
 async function trimOld(): Promise<void> {
 	const dir = new Directory(CONFLICT_BACKUP_DIR);
 	if (!dir.exists) return;
-	const files = dir.list().filter((e): e is File => e instanceof File);
-	if (files.length <= MAX_BACKUPS) return;
-	files.sort((a, b) => a.name.localeCompare(b.name));
-	const excess = files.length - MAX_BACKUPS;
+	const backups: { file: File; createdAt: string }[] = [];
+	for (const entry of dir.list()) {
+		if (!(entry instanceof File)) continue;
+		const parsed = parseBackupFilename(entry.name);
+		if (parsed) backups.push({ file: entry, createdAt: parsed.createdAt });
+	}
+	if (backups.length <= MAX_BACKUPS) return;
+	backups.sort(
+		(a, b) =>
+			a.createdAt.localeCompare(b.createdAt) ||
+			a.file.name.localeCompare(b.file.name),
+	);
+	const excess = backups.length - MAX_BACKUPS;
 	for (let i = 0; i < excess; i++) {
-		if (files[i].exists) files[i].delete();
+		if (backups[i].file.exists) backups[i].file.delete();
 	}
 }
 

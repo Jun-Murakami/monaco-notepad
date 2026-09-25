@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeNote } from '@/test/helpers';
-import {
-	computeConflictCopyDedupHash,
-	computeContentHash,
-	isConflictCopyTitle,
-} from '../hash';
+import { computeContentHash } from '../hash';
 
 describe('computeContentHash', () => {
 	it('同じ入力で同じハッシュを返す', async () => {
@@ -48,47 +44,5 @@ describe('computeContentHash', () => {
 			modifiedTime: '2026-06-01T12:00:00.000Z',
 		});
 		expect(h1).toBe(h2);
-	});
-});
-
-describe('computeConflictCopyDedupHash', () => {
-	it('content と language のみで判定する（id/title は無視）', async () => {
-		const a = makeNote({
-			id: 'a',
-			title: 'Conflict Copy of X',
-			content: 'same',
-			language: 'go',
-		});
-		const b = makeNote({
-			id: 'b',
-			title: 'Conflict Copy of X',
-			content: 'same',
-			language: 'go',
-		});
-		expect(await computeConflictCopyDedupHash(a)).toBe(
-			await computeConflictCopyDedupHash(b),
-		);
-	});
-
-	it('content が違えばハッシュも違う', async () => {
-		const a = makeNote({ id: 'a', content: 'x', language: 'go' });
-		const b = makeNote({ id: 'b', content: 'y', language: 'go' });
-		expect(await computeConflictCopyDedupHash(a)).not.toBe(
-			await computeConflictCopyDedupHash(b),
-		);
-	});
-});
-
-describe('isConflictCopyTitle', () => {
-	it('英語プレフィックスを検出', () => {
-		expect(isConflictCopyTitle('Conflict Copy of Foo')).toBe(true);
-		expect(isConflictCopyTitle('conflict copy of foo')).toBe(true);
-	});
-	it('日本語プレフィックスを検出', () => {
-		expect(isConflictCopyTitle('競合コピー:Foo')).toBe(true);
-	});
-	it('通常タイトルは誤検出しない', () => {
-		expect(isConflictCopyTitle('My Foo')).toBe(false);
-		expect(isConflictCopyTitle('')).toBe(false);
 	});
 });

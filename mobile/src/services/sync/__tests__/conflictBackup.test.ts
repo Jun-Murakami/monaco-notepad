@@ -1,5 +1,6 @@
 import { Directory, File } from 'expo-file-system';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { ensureDir, writeAtomic } from '@/services/storage/atomicFile';
 import { CONFLICT_BACKUP_DIR } from '@/services/storage/paths';
 import { makeNote } from '@/test/helpers';
 import {
@@ -78,6 +79,41 @@ describe('conflictBackup', () => {
 			.list()
 			.map((e) => e.name);
 		expect(entries.length).toBeLessThanOrEqual(100);
+	});
+
+	it('上限を超えたら種類に関係なく古い順に削除する（新しいバックアップを消さない）', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		try {
+			const start = Date.parse('2026-01-01T00:00:00.000Z');
+			for (let i = 0; i < 100; i++) {
+				vi.setSystemTime(start + i * 60_000);
+				await backupLocalNote('local_wins', makeNote({ id: `old${i}` }));
+			}
+			vi.setSystemTime(Date.parse('2026-09-01T00:00:00.000Z'));
+			await backupLocalNote(
+				'cloud_delete',
+				makeNote({ id: 'latest', content: 'just lost' }),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		const backups = await listConflictBackups();
+		expect(backups).toHaveLength(100);
+		expect(backups[0].note.id).toBe('latest');
+		const ids = new Set(backups.map((b) => b.note.id));
+		expect(ids.has('old0')).toBe(false); // 最古が消える
+		expect(ids.has('old1')).toBe(true);
+	});
+
+	it('バックアップ以外のファイルは上限の計算にも削除にも含めない', async () => {
+		await ensureDir(CONFLICT_BACKUP_DIR);
+		await writeAtomic(`${CONFLICT_BACKUP_DIR}notes.txt`, 'keep me');
+		for (let i = 0; i < 101; i++) {
+			await backupLocalNote('cloud_wins', makeNote({ id: `n${i}` }));
+		}
+		expect(await listConflictBackups()).toHaveLength(100);
+		expect(new File(`${CONFLICT_BACKUP_DIR}notes.txt`).exists).toBe(true);
 	});
 
 	// クリーンアップは afterEach で行われる

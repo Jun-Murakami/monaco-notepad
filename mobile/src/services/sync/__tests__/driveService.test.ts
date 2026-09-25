@@ -165,7 +165,6 @@ describe('DriveService startup separation (initialize vs startBackgroundWork)', 
 	});
 
 	it('startBackgroundWork() は signedIn のとき connect を fire-and-forget で呼ぶ', async () => {
-		// biome-ignore lint/suspicious/noExplicitAny: private method spy
 		const connectSpy = vi
 			// biome-ignore lint/suspicious/noExplicitAny: private method spy
 			.spyOn(svc as any, 'connect')
@@ -180,8 +179,8 @@ describe('DriveService startup separation (initialize vs startBackgroundWork)', 
 
 	it('startBackgroundWork() は未サインイン時 connect を呼ばない', () => {
 		vi.spyOn(authService, 'isSignedIn').mockReturnValue(false);
-		// biome-ignore lint/suspicious/noExplicitAny: private method spy
 		const connectSpy = vi
+			// biome-ignore lint/suspicious/noExplicitAny: private method spy
 			.spyOn(svc as any, 'connect')
 			.mockResolvedValue(undefined);
 
