@@ -213,6 +213,19 @@
         "topLevelOrder": ["f:work", "n:A"],
         "collapsedFolderIds": ["work"]
       }
+    },
+    {
+      "name": "アーカイブ済みフォルダに属するアクティブなノートはトップレベルへ出す（フォルダごとアーカイブ vs 他端末の編集）",
+      "base": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "T" }, { "id": "X", "folderId": "work" }, { "id": "Y", "folderId": "work" }], "topLevelOrder": ["n:T", "f:work"] },
+      "local": { "folders": [{ "id": "work", "name": "Work", "archived": true }], "notes": [{ "id": "T" }, { "id": "X", "folderId": "work", "archived": true }, { "id": "Y", "folderId": "work", "archived": true }], "topLevelOrder": ["n:T"], "archivedTopLevelOrder": ["f:work"] },
+      "remote": { "folders": [{ "id": "work", "name": "Work" }], "notes": [{ "id": "T" }, { "id": "X", "folderId": "work" }, { "id": "Y", "folderId": "work" }], "topLevelOrder": ["n:T", "f:work"] },
+      "notes": [{ "id": "X" }, { "id": "Y", "archived": true }, { "id": "T" }],
+      "expected": {
+        "folders": [{ "id": "work", "name": "Work", "archived": true }],
+        "notes": [{ "id": "T" }, { "id": "X" }, { "id": "Y", "folderId": "work" }],
+        "topLevelOrder": ["n:X", "n:T"],
+        "archivedTopLevelOrder": ["f:work"]
+      }
     }
   ]
 }

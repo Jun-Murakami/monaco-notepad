@@ -96,7 +96,9 @@ export function mergeNoteList(input: MergeNoteListInput): NoteList {
 		let fid = folderIdOf.get(n.id) ?? '';
 		const folder = fid ? folderById.get(fid) : undefined;
 		if (fid && !folder) fid = '';
-		if (fid && n.archived && folder && !folder.archived) fid = '';
+		// アーカイブ状態がフォルダと食い違うノート（例: フォルダごとアーカイブ vs 他端末の編集）は
+		// トップレベルへ出す。アクティブなノートがアーカイブ済みフォルダにあると、どの画面にも出ない
+		if (fid && folder && n.archived !== folder.archived) fid = '';
 		folderIdOf.set(n.id, fid);
 	}
 

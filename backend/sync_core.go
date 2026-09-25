@@ -390,7 +390,9 @@ func mergeNoteList(in mergeNoteListInput) *NoteList {
 		fid := folderIDOf[n.ID]
 		if fid != "" {
 			folder, ok := folderByID[fid]
-			if !ok || (n.Archived && !folder.Archived) {
+			// アーカイブ状態がフォルダと食い違うノート（例: フォルダごとアーカイブ vs 他端末の編集）は
+			// トップレベルへ出す。アクティブなノートがアーカイブ済みフォルダにあると、どの画面にも出ない
+			if !ok || n.Archived != folder.Archived {
 				fid = ""
 			}
 		}

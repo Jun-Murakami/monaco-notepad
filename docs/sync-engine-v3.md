@@ -154,7 +154,8 @@ isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload : applyRemote{fals
 
 ### 7.4 ノートの所属 folderId と各系列
 - folderId: `local に値があり (base に無い || local != base)` なら local、それ以外は remote → local → base の順で最初にある値。
-  存在しないフォルダ → `""`。アーカイブ済みノートがアクティブなフォルダに属していたら `""`。
+  存在しないフォルダ → `""`。ノートとフォルダのアーカイブ状態が食い違っていたら `""`（アーカイブ済みノートが
+  アクティブなフォルダに / アクティブなノートがアーカイブ済みフォルダに属する場合。後者は表示されなくなる）。
 - `notes` 配列（フォルダ内の表示順）、`topLevelOrder`、`archivedTopLevelOrder` をそれぞれ `mergeSequence` し、有効な項目だけ残す:
   - topLevelOrder: `folderId=="" && !archived` のノート、`!archived` のフォルダ
   - archivedTopLevelOrder: `archived && folderId==""` のノート、`archived` のフォルダ
