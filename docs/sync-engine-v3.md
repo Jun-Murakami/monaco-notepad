@@ -52,8 +52,8 @@ appDataFolder/monaco-notepad/          ← 同名が複数あれば createdTime 
 
 | 保存先 | 内容 |
 |---|---|
-| `sync_state.json`（既存を拡張） | `dirty`, `dirtyNoteIDs`, `deletedNoteIDs`, `deletedFolderIDs`（既存）。`lastSyncedNoteHash`（= base の本文 hash、既存互換）。`lastSyncedFileMd5`（新規: base 時点の Drive 本体 md5）。 |
-| `sync_base.json`（新規） | `{ rootFolderId, noteListFileId, noteListMd5, noteList }`: 最後に同期が確定した時点のクラウド noteList。 |
+| `sync_state.json`（既存・スキーマ互換） | `dirty`, `dirtyNoteIDs`, `deletedNoteIDs`, `deletedFolderIDs`: 未送信のローカル変更の記録。v2 の `lastSyncedNoteHash` は base が無いときだけ base の本文 hash として読み、最初の同期サイクルの終了時に（失敗しても）空にする。以後 base が無いときは和集合で同期する。 |
+| `sync_base.json`（新規） | `{ version, rootFolderId, noteListFileId, noteListMd5, noteList, notes: { <id>: { hash, md5? } } }`: 最後に同期が確定した時点のクラウド noteList と、ノートごとの本文 hash / Drive 本体 md5。 |
 
 - base は Drive（アカウント）に紐づく。`rootFolderId` / `noteListFileId` が現在と違えば base は無効（null）。
 - サインアウト / Drive データ全削除 / クラウド noteList 消失時は base を破棄する（→ 次回は和集合で安全に再同期、ローカル削除は起きない）。
@@ -95,7 +95,7 @@ syncOnce()  ※ 端末内の sync ロックで直列化
 - `remote?`: `{md5}` Drive に本体ファイルがある場合
 - `downloaded?`: `{hash, modifiedTime}` フェーズ2でのみ与える（ダウンロード結果）
 
-出力: `none` / `download`（フェーズ1のみ）/ `upload` / `applyRemote{backupLocal}` / `deleteLocal{backupLocal}` / `deleteRemote` / `forget`
+出力: `none` / `download`（フェーズ1のみ）/ `upload{backupRemote}` / `applyRemote{backupLocal}` / `deleteLocal{backupLocal}` / `deleteRemote` / `forget`
 
 ```
 if !local:
@@ -116,7 +116,7 @@ if !downloaded:                          → download
 if downloaded.hash == local.hash:        → none                      // 収束済み
 if !base || local.hash != base.hash:     // ローカルも変更あり
   if base && downloaded.hash == base.hash → upload                   // md5 だけ違う（再シリアライズ）
-  isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload : applyRemote{backupLocal:true}
+  isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload{backupRemote:true} : applyRemote{backupLocal:true}
 // 手元は未変更。リモートの方が古ければ、別端末が古い判断で上書きした（ノート本体の lost update）
 isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload : applyRemote{false}
 ```
@@ -125,6 +125,9 @@ isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload : applyRemote{fals
   判断から書き込みまでの間に別端末が新しい版を書いても上書きしうるが、上書きされた側が次の同期で
   より新しい手元の版を送り直すので、新しい版が失われない（ランダム・シミュレーションで検出した経路）。
 
+- 両側で編集された（真の競合）ときは、負けた版を必ず競合バックアップに残す:
+  ローカルが負け → `backupLocal`（`cloud_wins`）、リモートが負け → `backupRemote`（`local_wins`、上書き前にダウンロード済みの版）。
+  リモート削除でローカルを消すとき → `deleteLocal{backupLocal}`（`cloud_delete`）。
 - `isAfter(a, b)`: RFC3339 として解析できれば時刻比較、できなければ文字列比較。**同時刻はリモート勝ち**。
 - `applyRemote` が `localDeleted` のノートに対して出た場合、そのノートの削除意図は取り消す。
 

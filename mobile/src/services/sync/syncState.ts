@@ -27,7 +27,8 @@ function freshSnapshot(): SyncStateSnapshot {
  * - `dirty` / `dirtyNoteIds` / `deletedFolderIds` は「早く同期して」というヒント。
  *   同期の正しさは base（sync_base.json）との差分で決まる。
  * - `lastSyncedNoteHash` / `lastSyncedDriveTs` は v2 の遺物。移行時に base が無ければ
- *   `lastSyncedNoteHash` を base の本文 hash として読むだけで、v3 は更新しない。
+ *   `lastSyncedNoteHash` を base の本文 hash として読むだけ。v3 は書き足さず、
+ *   最初の同期サイクルの終了時（`completeSync`）に空にする。
  * - revision はメモリ上だけのカウンタ（永続化しない）。同期中にユーザー操作があったかの検知に使う。
  */
 export class SyncStateManager {
