@@ -46,6 +46,11 @@ type fakeDrive struct {
 	hooks       []*fakeHook
 	failures    []*fakeFailure
 	server      *httptest.Server
+	// idPrefix はファイル ID の接頭辞。別アカウントの Drive を模すとき ID が重ならないよう変える
+	// （本物の Drive の ID は全体で一意）。
+	idPrefix string
+	// offline は通信できない端末（機内モード・圏外）。
+	offline map[string]bool
 }
 
 type fakeFile struct {
@@ -108,9 +113,17 @@ const fakeFolderMime = "application/vnd.google-apps.folder"
 
 func newFakeDrive(t *testing.T) *fakeDrive {
 	t.Helper()
+	return newFakeDriveWithPrefix(t, "fid")
+}
+
+// newFakeDriveWithPrefix は別アカウントの Drive を模す（ファイル ID の接頭辞を変える）。
+func newFakeDriveWithPrefix(t *testing.T, idPrefix string) *fakeDrive {
+	t.Helper()
 	fd := &fakeDrive{
-		files: make(map[string]*fakeFile),
-		clock: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		files:    make(map[string]*fakeFile),
+		clock:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		idPrefix: idPrefix,
+		offline:  make(map[string]bool),
 	}
 	fd.server = httptest.NewServer(http.HandlerFunc(fd.serveHTTP))
 	t.Cleanup(fd.server.Close)
@@ -176,7 +189,7 @@ func (fd *fakeDrive) createFileLocked(device, name string, parents []string, con
 		parents = []string{"appDataFolder"}
 	}
 	f := &fakeFile{
-		ID:           fmt.Sprintf("fid-%d", fd.idSeq),
+		ID:           fmt.Sprintf("%s-%d", fd.idPrefix, fd.idSeq),
 		Name:         name,
 		MimeType:     mimeType,
 		Parents:      append([]string(nil), parents...),
@@ -301,7 +314,7 @@ func (fd *fakeDrive) sortedFilesLocked() []*fakeFile {
 }
 
 func fileSeq(id string) int {
-	n, _ := strconv.Atoi(strings.TrimPrefix(id, "fid-"))
+	n, _ := strconv.Atoi(id[strings.LastIndex(id, "-")+1:])
 	return n
 }
 
@@ -334,6 +347,14 @@ func (fd *fakeDrive) AfterRequest(match func(fakeRequest) bool, run func(fakeReq
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 	fd.hooks = append(fd.hooks, &fakeHook{match: match, run: run, remaining: 1, after: true})
+}
+
+// SetOffline は端末をオフラインにする / 戻す。オフラインの端末のリクエストは接続が切れて失敗する。
+// 割り込みフックの中から切り替えると、そのリクエスト自体から失敗する（同期の途中で通信が切れる状況）。
+func (fd *fakeDrive) SetOffline(device string, offline bool) {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	fd.offline[device] = offline
 }
 
 // ---- HTTP ハンドラ ----
@@ -377,6 +398,17 @@ func (fd *fakeDrive) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fd.mu.Lock()
+	if fd.offline[device] {
+		fd.mu.Unlock()
+		// 応答を返さずに接続を切る（クライアント側ではネットワークエラーになる）
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		panic(http.ErrAbortHandler)
+	}
 	for _, f := range fd.failures {
 		if f.remaining > 0 && f.match(req) {
 			f.remaining--

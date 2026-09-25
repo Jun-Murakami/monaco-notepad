@@ -568,7 +568,7 @@ func (a *App) UnarchiveFolder(id string) error {
 // アーカイブされたフォルダを削除する ------------------------------------------------------------
 func (a *App) DeleteArchivedFolder(id string) error {
 	var noteIDs []string
-	for _, note := range a.noteService.noteList.Notes {
+	for _, note := range a.noteService.SnapshotNoteList().Notes {
 		if note.FolderID == id {
 			noteIDs = append(noteIDs, note.ID)
 		}

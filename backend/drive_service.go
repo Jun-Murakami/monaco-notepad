@@ -274,15 +274,15 @@ func (s *driveService) buildEngine(useAppData bool) error {
 	return nil
 }
 
-// Google Driveからログアウト
+// LogoutDrive は Google Drive との接続を解除する。接続とトークンだけを捨て、未送信の変更（sync_state）と
+// 同期 base（sync_base）は残す。同じアカウントに接続し直したときは「オフラインだった間の変更」として
+// 双方向に同期される（base が無いと、相手の削除を取り込めず復活させたり、ローカルの移動や並び替えを
+// 失ったりする）。別のアカウントに接続した場合は Drive のフォルダ ID が違うので、同期エンジンが base を
+// 使わない（syncEngine.effectiveBase）。
 func (s *driveService) LogoutDrive() error {
 	s.logger.Console("Logging out of Google Drive...")
 	s.pollingService.StopPolling()
 	s.stopRequestTimer()
-	// 次にサインインするアカウントの Drive へ、この Drive の同期記録を持ち込まない
-	if err := s.resetSyncBase(); err != nil {
-		s.logger.Console("LogoutDrive: failed to reset sync base: %v", err)
-	}
 	return s.auth.LogoutDrive()
 }
 

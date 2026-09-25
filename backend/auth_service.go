@@ -341,7 +341,7 @@ func (a *authService) LogoutDrive() error {
 	a.stopAuthServer(context.Background())
 
 	// ローカルの noteList を保存（ログアウト前に念のため）
-	if err := a.noteService.saveNoteList(); err != nil {
+	if err := a.noteService.SaveNoteList(); err != nil {
 		a.logger.Console("Failed to save note list before logout: %v", err)
 	}
 
@@ -353,8 +353,10 @@ func (a *authService) LogoutDrive() error {
 		wailsRuntime.EventsEmit(a.ctx, "drive:status", "offline")
 	}
 
-	// 少し待機してポートが完全に解放されるのを待つ
-	time.Sleep(1 * time.Second)
+	// 少し待機して認証サーバのポートが完全に解放されるのを待つ
+	if !a.isTestMode {
+		time.Sleep(1 * time.Second)
+	}
 
 	return nil
 }

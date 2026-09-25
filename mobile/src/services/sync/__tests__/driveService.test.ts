@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authService } from '@/services/auth/authService';
+import { noteService } from '@/services/notes/noteService';
+import { makeNote } from '@/test/helpers';
 import { __setNetState } from '@/test/mocks/netinfo';
 import { __setAppState } from '@/test/mocks/reactNative';
+import { DriveClient } from '../driveClient';
 import { DriveService } from '../driveService';
+import { emptySyncBase, syncBaseStore } from '../syncBase';
+import { syncStateManager } from '../syncState';
 
 /**
  * DriveService の自動 reconnect 機構の回帰テスト。
@@ -276,5 +281,49 @@ describe('DriveService.reconnect dedup', () => {
 		await svc.reconnect();
 
 		expect(connectSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe('DriveService.signOut / deleteAllDriveDataAndSignOut', () => {
+	beforeEach(async () => {
+		vi.spyOn(authService, 'signOut').mockResolvedValue(undefined);
+		vi.spyOn(authService, 'isSignedIn').mockReturnValue(true);
+		await syncStateManager.load();
+		await noteService.load();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('連携解除は未送信の変更と同期 base を残す（再接続したら「離れていた間の変更」として同期する）', async () => {
+		await syncStateManager.markNoteDeleted('deleted-offline');
+		await syncStateManager.markNoteDirty('edited-offline');
+		await syncBaseStore.save({ ...emptySyncBase(), rootFolderId: 'root-1' });
+
+		await new DriveService().signOut();
+
+		const snap = syncStateManager.snapshot();
+		expect(snap.deletedNoteIds).toEqual({ 'deleted-offline': true });
+		expect(snap.dirtyNoteIds).toEqual({ 'edited-offline': true });
+		expect((await syncBaseStore.load())?.rootFolderId).toBe('root-1');
+	});
+
+	it('Drive データ全削除は base を捨て、残っているローカルのノートを全て送信待ちにする', async () => {
+		const deleteAll = vi
+			.spyOn(DriveClient.prototype, 'deleteAllAppDataFiles')
+			.mockResolvedValue(undefined);
+		await noteService.saveNote(makeNote({ id: 'keep' }), {
+			prependToOrder: true,
+		});
+		await syncBaseStore.save({ ...emptySyncBase(), rootFolderId: 'root-1' });
+
+		await new DriveService().deleteAllDriveDataAndSignOut();
+
+		expect(deleteAll).toHaveBeenCalledTimes(1);
+		expect(await syncBaseStore.load()).toBeNull();
+		expect(syncStateManager.snapshot().dirtyNoteIds).toMatchObject({
+			keep: true,
+		});
 	});
 });

@@ -1,9 +1,10 @@
 import { NoteService } from '@/services/notes/noteService';
-import { storagePaths } from '@/services/storage/paths';
+import { type StoragePaths, storagePaths } from '@/services/storage/paths';
 import { DriveClient } from '@/services/sync/driveClient';
 import { DriveGateway, type RetryPolicy } from '@/services/sync/driveGateway';
 import {
 	createNoteLocally,
+	deleteFolderHardLocally,
 	deleteNoteLocally,
 	saveNoteLocally,
 } from '@/services/sync/localActions';
@@ -30,21 +31,26 @@ export const NO_RETRY: RetryPolicy = {
  * シナリオテストはこのファサードだけを使い、同期エンジンの内部 API に依存しない。
  */
 export class MobileDevice {
-	readonly notes: NoteService;
-	readonly state: SyncStateManager;
-	readonly baseStore: SyncBaseStore;
+	notes: NoteService;
+	state: SyncStateManager;
+	baseStore: SyncBaseStore;
 	readonly backups: Array<{ kind: ConflictBackupKind; note: Note }> = [];
 	lastReport: SyncReport | null = null;
 	private engine: SyncEngine | null = null;
+	private readonly paths: StoragePaths;
 
 	constructor(
 		private readonly drive: FakeDrive,
 		readonly deviceId = 'mobile',
 	) {
-		const paths = storagePaths(`/mem/devices/${deviceId}/monaco-notepad/`);
-		this.notes = new NoteService(paths);
-		this.state = new SyncStateManager(paths.syncStatePath);
-		this.baseStore = new SyncBaseStore(paths.syncBasePath);
+		this.paths = storagePaths(`/mem/devices/${deviceId}/monaco-notepad/`);
+		this.notes = new NoteService(this.paths);
+		this.state = new SyncStateManager(this.paths.syncStatePath);
+		this.baseStore = new SyncBaseStore(this.paths.syncBasePath);
+	}
+
+	get connected(): boolean {
+		return this.engine !== null;
 	}
 
 	async boot(): Promise<void> {
@@ -74,6 +80,52 @@ export class MobileDevice {
 		if (!this.engine) throw new Error('not connected');
 		this.lastReport = await this.engine.sync();
 		return this.lastReport;
+	}
+
+	/** 失敗しうる同期（オフライン中のポーリング）。失敗したらそのエラーを返す。 */
+	async trySync(): Promise<Error | null> {
+		try {
+			await this.sync();
+			return null;
+		} catch (e) {
+			return e instanceof Error ? e : new Error(String(e));
+		}
+	}
+
+	/** 通信を切る / 戻す（機内モード・圏外）。アプリは動き続け、ローカル操作はできる。 */
+	goOffline(): void {
+		this.drive.setOffline(this.deviceId, true);
+	}
+
+	goOnline(): void {
+		this.drive.setOffline(this.deviceId, false);
+	}
+
+	/**
+	 * 設定画面の「Google Drive 連携を解除」（driveService.signOut）。ポーリングとエンジンを止めるだけで、
+	 * 未送信の変更と同期 base は driveService と同じく残す。
+	 */
+	async signOut(): Promise<void> {
+		this.engine = null;
+	}
+
+	/** サインインし直す（driveService.signIn → connect）。 */
+	async signIn(): Promise<void> {
+		await this.connect();
+	}
+
+	/**
+	 * アプリの強制終了 → 再起動。メモリ上の状態（エンジンのキャッシュ・revision 等）を捨て、
+	 * ストレージから読み直す。接続していた場合は起動時の接続まで行う。
+	 */
+	async restart(): Promise<void> {
+		const wasConnected = this.connected;
+		this.engine = null;
+		this.notes = new NoteService(this.paths);
+		this.state = new SyncStateManager(this.paths.syncStatePath);
+		this.baseStore = new SyncBaseStore(this.paths.syncBasePath);
+		await this.boot();
+		if (wasConnected) await this.connect();
 	}
 
 	/** 同期が必要な状態か（ポーリングのゲート）。 */
@@ -178,6 +230,28 @@ export class MobileDevice {
 		const folder = await this.notes.createFolder(name);
 		await this.state.markDirty();
 		return folder.id;
+	}
+
+	/**
+	 * フォルダごとアーカイブ（app/index.tsx archiveFolderNow）。本番は端末の時計で
+	 * modifiedTime を入れるが、テストでは論理時計で打ち直す。
+	 */
+	async archiveFolder(folderId: string): Promise<void> {
+		const archivedIds = await this.notes.archiveFolder(folderId);
+		for (const id of archivedIds) {
+			const note = await this.notes.readNote(id);
+			if (!note) continue;
+			await saveNoteLocally(this.notes, this.state, {
+				...note,
+				modifiedTime: this.drive.now(),
+			});
+		}
+		await this.state.markDirty();
+	}
+
+	/** アーカイブ済みフォルダを配下ごと完全削除（driveService.deleteFolderAndSync）。 */
+	async deleteArchivedFolder(folderId: string): Promise<void> {
+		await deleteFolderHardLocally(this.notes, this.state, folderId);
 	}
 
 	/**

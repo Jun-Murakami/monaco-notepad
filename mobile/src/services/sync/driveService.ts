@@ -191,13 +191,17 @@ export class DriveService {
 		}
 	}
 
+	/**
+	 * Google Drive 連携を解除する。接続とトークンだけを捨て、未送信の変更（sync_state）と
+	 * 同期 base（sync_base）は残す。同じアカウントに接続し直したときは「オフラインだった間の変更」
+	 * として双方向に同期される（base が無いと、相手の削除を取り込めず復活させたり、ローカルの移動や
+	 * 並び替えを失ったりする）。別のアカウントに接続した場合は Drive のフォルダ ID が違うので、
+	 * 同期エンジンが base を使わない（syncEngine.effectiveBase）。
+	 */
 	async signOut(): Promise<void> {
 		await this.polling?.stop();
 		this.clearConnection();
 		await authService.signOut();
-		await syncStateManager.reset();
-		// 次にサインインするアカウントの Drive へ、この Drive の同期記録を持ち込まない
-		await syncBaseStore.clear();
 		syncEvents.emit('drive:disconnected', undefined);
 	}
 
@@ -216,6 +220,8 @@ export class DriveService {
 			new DriveClient((force) => authService.getAccessToken({ force }));
 		await client.deleteAllAppDataFiles();
 		await this.signOut();
+		// Drive のデータが無くなったので base も捨てる（次回は和集合で全件アップロード）
+		await syncBaseStore.clear();
 
 		for (const noteId of localNoteIds) {
 			await syncStateManager.markNoteDirty(noteId);

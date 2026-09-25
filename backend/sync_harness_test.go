@@ -371,9 +371,9 @@ func (d *desktopDevice) boot() {
 	auth.driveSync = driveSync
 
 	ds := NewDriveService(ctx, d.dir, d.notesDir, ns, nil, d.logger, auth, d.state)
-	srv := driveSync.service
+	// 接続中の Drive サービスをその都度使う（ログインし直すと別アカウントの Drive になりうる）
 	ds.driveOpsFactory = func(useAppDataFolder bool) DriveOperations {
-		return NewDriveOperations(srv, d.logger, true)
+		return NewDriveOperations(auth.GetDriveSync().service, d.logger, true)
 	}
 	require.NoError(d.t, ds.saveMigrationState(&driveStorageMigration{Migrated: true, MigratedAt: time.Now().UTC().Format(time.RFC3339)}))
 	d.ds = ds
@@ -437,6 +437,102 @@ func (d *desktopDevice) pollOnce() {
 	d.ds.auth.GetDriveSync().SetConnected(true)
 }
 
+// goOffline / goOnline は通信を切る / 戻す（アプリは動き続け、ローカル操作はできる）。
+func (d *desktopDevice) goOffline() { d.fd.SetOffline(d.name, true) }
+func (d *desktopDevice) goOnline()  { d.fd.SetOffline(d.name, false) }
+
+// logout は「Google Drive との接続を解除」（本番の LogoutDrive をそのまま呼ぶ）。
+func (d *desktopDevice) logout() {
+	d.t.Helper()
+	require.NoError(d.t, d.ds.LogoutDrive())
+}
+
+// login はログインし直す（AuthorizeDrive → onConnected 相当）。fd を変えると別アカウントの Drive に接続する。
+func (d *desktopDevice) login(fd *fakeDrive) {
+	d.t.Helper()
+	d.fd = fd
+	driveSync := d.ds.auth.GetDriveSync()
+	driveSync.service = fd.service(d.t, d.name)
+	driveSync.SetConnected(true)
+	d.connect()
+}
+
+// backups は競合バックアップ（kind, noteId, content）を古い順に返す。
+func (d *desktopDevice) backups() [][3]string {
+	d.t.Helper()
+	entries, err := listCloudConflictBackups(filepath.Join(d.dir, cloudWinBackupDirName))
+	require.NoError(d.t, err)
+	out := [][3]string{}
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		out = append(out, [3]string{e.Kind, e.Note.ID, e.Note.Content})
+	}
+	return out
+}
+
+// deletedNoteIDs は未処理の削除の意図。
+func (d *desktopDevice) deletedNoteIDs() []string {
+	_, deleted, _, _, _ := d.state.GetDirtySnapshotWithRevision()
+	ids := []string{}
+	for id := range deleted {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// createFolder は App.CreateFolder 相当。
+func (d *desktopDevice) createFolder(name string) string {
+	d.t.Helper()
+	f, err := d.ns.CreateFolder(name)
+	require.NoError(d.t, err)
+	d.state.MarkDirty()
+	return f.ID
+}
+
+// moveNoteToFolder は App.MoveNoteToFolder 相当。
+func (d *desktopDevice) moveNoteToFolder(noteID, folderID string) {
+	d.t.Helper()
+	require.NoError(d.t, d.ns.MoveNoteToFolder(noteID, folderID))
+	d.state.MarkDirty()
+	d.state.MarkNoteDirty(noteID)
+}
+
+// updateTopLevelOrder は App.UpdateTopLevelOrder 相当（ドラッグでの並び替え）。
+func (d *desktopDevice) updateTopLevelOrder(order []TopLevelItem) {
+	d.t.Helper()
+	require.NoError(d.t, d.ns.UpdateTopLevelOrder(order))
+	d.state.MarkDirty()
+}
+
+// archiveFolder は App.ArchiveFolder 相当。本番は端末の時計で ModifiedTime を入れるが、
+// テストでは「新しい編集が勝つ」を検証できるよう論理時計で打ち直す。
+func (d *desktopDevice) archiveFolder(folderID string) {
+	d.t.Helper()
+	require.NoError(d.t, d.ns.ArchiveFolder(folderID))
+	d.state.MarkDirty()
+	for _, m := range d.ns.SnapshotNoteList().Notes {
+		if m.FolderID == folderID {
+			d.stampNote(m.ID, d.fd.Now())
+		}
+	}
+}
+
+// deleteArchivedFolder は App.DeleteArchivedFolder 相当。
+func (d *desktopDevice) deleteArchivedFolder(folderID string) {
+	d.t.Helper()
+	var noteIDs []string
+	for _, n := range d.ns.SnapshotNoteList().Notes {
+		if n.FolderID == folderID {
+			noteIDs = append(noteIDs, n.ID)
+		}
+	}
+	require.NoError(d.t, d.ns.DeleteArchivedFolder(folderID))
+	for _, id := range noteIDs {
+		d.state.MarkNoteDeleted(id)
+	}
+	d.state.MarkFolderDeleted(folderID)
+}
+
 // hasPendingWork はポーリングのゲート（同期が必要な状態か）。
 func (d *desktopDevice) hasPendingWork() bool {
 	return d.ds.hasPendingSyncWork()
@@ -453,19 +549,7 @@ func (d *desktopDevice) deleteNote(id string) {
 func (d *desktopDevice) editNoteAt(id, content, modifiedTime string) {
 	d.t.Helper()
 	d.editNote(id, content)
-	note, err := d.ns.LoadNote(id)
-	require.NoError(d.t, err)
-	updated := *note
-	updated.ModifiedTime = modifiedTime
-	d.ns.WithLock(func() {
-		require.NoError(d.t, d.ns.saveNoteFromSyncLocked(&updated))
-		for i, m := range d.ns.noteList.Notes {
-			if m.ID == id {
-				d.ns.noteList.Notes[i].ModifiedTime = modifiedTime
-			}
-		}
-		require.NoError(d.t, d.ns.saveNoteList())
-	})
+	d.stampNote(id, modifiedTime)
 }
 
 // createNote は App.SaveNote(note, "create") 相当。

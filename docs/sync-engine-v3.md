@@ -56,7 +56,10 @@ appDataFolder/monaco-notepad/          ← 同名が複数あれば createdTime 
 | `sync_base.json`（新規） | `{ version, rootFolderId, noteListFileId, noteListMd5, noteList, notes: { <id>: { hash, md5? } } }`: 最後に同期が確定した時点のクラウド noteList と、ノートごとの本文 hash / Drive 本体 md5。 |
 
 - base は Drive（アカウント）に紐づく。`rootFolderId` / `noteListFileId` が現在と違えば base は無効（null）。
-- サインアウト / Drive データ全削除 / クラウド noteList 消失時は base を破棄する（→ 次回は和集合で安全に再同期、ローカル削除は起きない）。
+- Drive データ全削除 / クラウド noteList 消失時は base を破棄する（→ 次回は和集合で安全に再同期、ローカル削除は起きない）。
+- 連携解除（サインアウト）では base も未送信の変更も**破棄しない**。同じアカウントへの再接続は「オフラインからの復帰」と
+  同じ扱いになる（base を捨てると、相手の削除を取り込めずに復活させる / 離れていた間の移動・並び替えを失う /
+  衝突していないのにバックアップを作る）。別のアカウントに接続した場合は `rootFolderId` が違うので base は使われない。
 - `deletedNoteIDs` は意図の記録であり、処理が確定した ID だけ個別に消す。他の dirty 系はヒント（同期を急がせる合図）で、正しさは base との差分で決まる。
 
 ## 5. 1 サイクルの流れ（両実装共通）

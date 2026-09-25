@@ -88,6 +88,14 @@ export class FakeDrive {
 	private clockMs = EPOCH;
 	private failures: FailureRule[] = [];
 	private hooks: HookRule[] = [];
+	/** 通信できない端末（オフライン / 機内モード）。 */
+	private readonly offline = new Set<string>();
+
+	/**
+	 * @param idPrefix ファイル ID の接頭辞。別アカウントの Drive を模すとき、ID が重ならないよう変える
+	 *   （本物の Drive の ID は全体で一意）。
+	 */
+	constructor(private readonly idPrefix = 'fid') {}
 
 	// ---- 論理時計 ----
 
@@ -113,7 +121,7 @@ export class FakeDrive {
 	): FakeFile {
 		const ts = this.tick();
 		const file: FakeFile = {
-			id: `fid-${++this.idSeq}`,
+			id: `${this.idPrefix}-${++this.idSeq}`,
 			name,
 			mimeType,
 			parents: parents.length > 0 ? [...parents] : ['appDataFolder'],
@@ -228,6 +236,16 @@ export class FakeDrive {
 		this.hooks = [];
 	}
 
+	/**
+	 * 端末をオフラインにする / 戻す。オフラインの端末の fetch は React Native と同じく
+	 * `TypeError: Network request failed` で失敗する。割り込みフックの中から切り替えると、
+	 * そのリクエスト自体から失敗する（同期の途中で通信が切れる状況を再現できる）。
+	 */
+	setOffline(deviceId: string, offline: boolean): void {
+		if (offline) this.offline.add(deviceId);
+		else this.offline.delete(deviceId);
+	}
+
 	// ---- fetch ハンドラ ----
 
 	readonly fetch = async (
@@ -259,6 +277,9 @@ export class FakeDrive {
 					hook.remaining--;
 					await hook.run(info);
 				}
+			}
+			if (this.offline.has(deviceId)) {
+				throw new TypeError('Network request failed');
 			}
 			for (const rule of this.failures) {
 				if (rule.remaining > 0 && rule.match(info)) {
