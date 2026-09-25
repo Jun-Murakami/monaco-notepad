@@ -178,7 +178,7 @@ export class SyncEngine {
 				local: localState.get(id),
 				localDeleted: deleted.has(id),
 				base: base.notes[id],
-				remote: remote ? { md5: remote.md5 } : undefined,
+				remote: remote ? { md5: remote.md5, fileId: remote.fileId } : undefined,
 			};
 			inputs.set(id, input);
 			const decision = decideNote(input);
@@ -441,18 +441,31 @@ export class SyncEngine {
 				case 'none': {
 					const local = localState.get(id);
 					if (local && remote)
-						baseNotes[id] = { hash: local.hash, md5: remote.md5 };
+						baseNotes[id] = {
+							hash: local.hash,
+							md5: remote.md5,
+							fileId: remote.fileId,
+						};
 					break;
 				}
 				case 'upload': {
 					const up = uploaded.get(id);
-					if (up) baseNotes[id] = { hash: up.hash, md5: up.ref.md5 };
+					if (up)
+						baseNotes[id] = {
+							hash: up.hash,
+							md5: up.ref.md5,
+							fileId: up.ref.fileId,
+						};
 					break;
 				}
 				case 'applyRemote': {
 					const dl = downloaded.get(id);
 					if (applied.has(id) && dl && remote) {
-						baseNotes[id] = { hash: dl.hash, md5: remote.md5 };
+						baseNotes[id] = {
+							hash: dl.hash,
+							md5: remote.md5,
+							fileId: remote.fileId,
+						};
 						if (deleted.has(id)) resolvedDeletions.push(id); // 削除の取り消し
 					}
 					break;

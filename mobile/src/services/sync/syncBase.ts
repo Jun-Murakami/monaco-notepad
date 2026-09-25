@@ -15,8 +15,11 @@ export interface SyncBase {
 	noteListMd5: string;
 	/** 最後に確定したクラウドの noteList（null = 未確定）。 */
 	noteList: NoteList | null;
-	/** noteId -> 前回同期時の本文 hash と Drive 本体の md5（md5 は移行直後などで欠けうる）。 */
-	notes: Record<string, { hash: string; md5?: string }>;
+	/**
+	 * noteId -> 前回同期時の本文 hash と Drive 本体の md5 / ファイル ID（移行直後などで欠けうる）。
+	 * ファイル ID が変わっていれば、ノートは一度削除されて作り直されている。
+	 */
+	notes: Record<string, { hash: string; md5?: string; fileId?: string }>;
 }
 
 export function emptySyncBase(): SyncBase {

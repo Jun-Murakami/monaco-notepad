@@ -55,6 +55,27 @@ type simModel struct {
 	created   map[string]bool
 	deleted   map[string]bool
 	deletedAt map[string]map[string]int // noteId -> device -> 削除時点の Drive 履歴の長さ
+	// writes はユーザーが作った状態（simStateKey）。superseded / deletedStates は、それを手元に持った
+	// 状態で編集 / 削除された（= ユーザーが見た上で上書き・削除した）状態。
+	writes        []simWrite
+	superseded    map[string]bool
+	deletedStates map[string]bool
+}
+
+type simWrite struct {
+	device string
+	state  string
+}
+
+// simStateKey はユーザーから見た状態（modifiedTime を除く）。アーカイブして戻すなど同じ状態に戻った版は
+// 「失われた」ことにならないので、黙って消えないかの検証はこれで比べる。
+func simStateKey(n *Note) string {
+	return fmt.Sprintf("%s|%s|%s|%v", n.ID, n.Title, n.Content, n.Archived)
+}
+
+// simVersionKey は版そのもの（modifiedTime を含む）。削除されたノートの復活の検証に使う。
+func simVersionKey(id string, n *Note) string {
+	return fmt.Sprintf("%s|%s|%v|%s", id, n.Content, n.Archived, n.ModifiedTime)
 }
 
 type simRun struct {
@@ -67,8 +88,85 @@ type simRun struct {
 	log     []string
 	noteSeq int
 
-	mu      sync.Mutex
-	syncing map[*desktopDevice]bool
+	mu        sync.Mutex
+	syncing   map[*desktopDevice]bool
+	offline   map[*desktopDevice]bool
+	loggedOut map[*desktopDevice]bool
+}
+
+// seen は操作前の手元の状態を「見た上で上書き / 削除した」として記録する。
+func (r *simRun) seen(d *desktopDevice, id string, into map[string]bool) {
+	n, err := d.ns.LoadNote(id)
+	if err != nil || n == nil {
+		return
+	}
+	r.model.mu.Lock()
+	into[simStateKey(n)] = true
+	r.model.mu.Unlock()
+}
+
+// recordWrite はユーザーが作った状態を記録する。
+func (r *simRun) recordWrite(d *desktopDevice, id string) {
+	n, err := d.ns.LoadNote(id)
+	require.NoError(r.t, err)
+	r.model.mu.Lock()
+	r.model.writes = append(r.model.writes, simWrite{device: d.name, state: simStateKey(n)})
+	r.model.mu.Unlock()
+}
+
+func (r *simRun) markDeleted(d *desktopDevice, id string) {
+	r.model.mu.Lock()
+	defer r.model.mu.Unlock()
+	r.model.deleted[id] = true
+	if r.model.deletedAt[id] == nil {
+		r.model.deletedAt[id] = map[string]int{}
+	}
+	r.model.deletedAt[id][d.name] = len(r.fd.NoteHistory())
+}
+
+func (r *simRun) isFlag(m map[*desktopDevice]bool, d *desktopDevice) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return m[d]
+}
+
+func (r *simRun) setFlag(m map[*desktopDevice]bool, d *desktopDevice, v bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	m[d] = v
+}
+
+// lifecycleOp は端末のライフサイクル: オフライン切り替え / 接続解除・再ログイン / アプリ再起動。
+func (r *simRun) lifecycleOp(d *desktopDevice) {
+	roll := r.rng.Float64()
+	switch {
+	case roll < 0.45:
+		if r.isFlag(r.offline, d) {
+			r.setFlag(r.offline, d, false)
+			d.goOnline()
+			r.logf("%s: online", d.name)
+		} else {
+			r.setFlag(r.offline, d, true)
+			d.goOffline()
+			r.logf("%s: offline", d.name)
+		}
+	case roll < 0.75:
+		if r.isFlag(r.loggedOut, d) {
+			r.setFlag(r.loggedOut, d, false)
+			d.loginLazy(r.fd)
+			r.logf("%s: login", d.name)
+		} else {
+			r.setFlag(r.loggedOut, d, true)
+			d.logout()
+			r.logf("%s: logout", d.name)
+		}
+	default:
+		d.restart()
+		if !r.isFlag(r.loggedOut, d) {
+			d.connectLazy()
+		}
+		r.logf("%s: restart", d.name)
+	}
 }
 
 func (r *simRun) logf(format string, args ...any) {
@@ -106,12 +204,45 @@ func (r *simRun) localOp(d *desktopDevice) {
 	}
 	roll := r.rng.Float64()
 	switch {
+	case roll < 0.04:
+		// フォルダごとアーカイブ / アーカイブ済みフォルダを配下ごと削除
+		if len(snap.Folders) == 0 {
+			return
+		}
+		folder := snap.Folders[r.rng.Intn(len(snap.Folders))]
+		var inFolder []NoteMetadata
+		for _, n := range snap.Notes {
+			if n.FolderID == folder.ID {
+				inFolder = append(inFolder, n)
+			}
+		}
+		if !folder.Archived {
+			for _, n := range inFolder {
+				r.seen(d, n.ID, r.model.superseded)
+			}
+			require.NoError(r.t, d.ns.ArchiveFolder(folder.ID))
+			d.state.MarkDirty()
+			// ArchiveFolder は端末の時計で ModifiedTime を入れるので論理時計で打ち直す
+			for _, n := range inFolder {
+				d.stampNote(n.ID, r.clock.next())
+				r.recordWrite(d, n.ID)
+			}
+			r.logf("%s: archiveFolder %s", d.name, folder.ID)
+		} else {
+			for _, n := range inFolder {
+				r.seen(d, n.ID, r.model.deletedStates)
+				r.markDeleted(d, n.ID)
+			}
+			d.deleteArchivedFolder(folder.ID)
+			r.logf("%s: deleteArchivedFolder %s", d.name, folder.ID)
+		}
 	case roll < 0.22:
 		r.noteSeq++
 		id := fmt.Sprintf("N%d", r.noteSeq)
 		require.NoError(r.t, d.ns.SaveNote(&Note{ID: id, Title: "t-" + id, Content: "c-" + id + "-0", Language: "markdown"}))
 		d.state.MarkNoteDirty(id)
 		d.stampNote(id, r.clock.next())
+		r.recordWrite(d, id)
 		r.model.mu.Lock()
 		r.model.created[id] = true
 		r.model.mu.Unlock()
@@ -122,22 +253,19 @@ func (r *simRun) localOp(d *desktopDevice) {
 		}
 		target := snap.Notes[r.rng.Intn(len(snap.Notes))]
 		content := fmt.Sprintf("c-%s-%s-%d", target.ID, d.name, r.rng.Intn(1_000_000))
+		r.seen(d, target.ID, r.model.superseded)
 		d.editNote(target.ID, content)
 		d.stampNote(target.ID, r.clock.next())
+		r.recordWrite(d, target.ID)
 		r.logf("%s: edit %s", d.name, target.ID)
 	case roll < 0.58:
 		if len(snap.Notes) == 0 {
 			return
 		}
 		target := snap.Notes[r.rng.Intn(len(snap.Notes))]
+		r.seen(d, target.ID, r.model.deletedStates)
 		d.deleteNote(target.ID)
-		r.model.mu.Lock()
-		r.model.deleted[target.ID] = true
-		if r.model.deletedAt[target.ID] == nil {
-			r.model.deletedAt[target.ID] = map[string]int{}
-		}
-		r.model.deletedAt[target.ID][d.name] = len(r.fd.NoteHistory())
-		r.model.mu.Unlock()
+		r.markDeleted(d, target.ID)
 		r.logf("%s: delete %s", d.name, target.ID)
 	case roll < 0.66:
 		folder, err := d.ns.CreateFolder(fmt.Sprintf("F-%s-%d", d.name, r.rng.Intn(1000)))
@@ -180,18 +308,25 @@ func (r *simRun) localOp(d *desktopDevice) {
 		target := snap.Notes[r.rng.Intn(len(snap.Notes))]
 		note, err := d.ns.LoadNote(target.ID)
 		require.NoError(r.t, err)
+		r.seen(d, target.ID, r.model.superseded)
 		updated := *note
 		updated.Archived = !target.Archived
 		updated.FolderID = target.FolderID
 		require.NoError(r.t, d.ns.SaveNote(&updated))
 		d.state.MarkNoteDirty(target.ID)
 		d.stampNote(target.ID, r.clock.next())
+		r.recordWrite(d, target.ID)
 		r.logf("%s: archived=%v %s", d.name, updated.Archived, target.ID)
 	}
 }
 
 func (r *simRun) syncDevice(d *desktopDevice) {
 	r.mu.Lock()
+	if r.loggedOut[d] {
+		// 接続解除中はポーリングが動いていない
+		r.mu.Unlock()
+		return
+	}
 	r.syncing[d] = true
 	r.mu.Unlock()
 	defer func() {
@@ -332,9 +467,14 @@ func runSyncSimulation(t *testing.T, seed int64, deviceCount, steps int) {
 	fd := newFakeDrive(t)
 	r := &simRun{
 		t: t, fd: fd, rng: rand.New(rand.NewSource(seed)),
-		clock:   &simClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
-		model:   &simModel{created: map[string]bool{}, deleted: map[string]bool{}, deletedAt: map[string]map[string]int{}},
-		syncing: map[*desktopDevice]bool{},
+		clock: &simClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+		model: &simModel{
+			created: map[string]bool{}, deleted: map[string]bool{}, deletedAt: map[string]map[string]int{},
+			superseded: map[string]bool{}, deletedStates: map[string]bool{},
+		},
+		syncing:   map[*desktopDevice]bool{},
+		offline:   map[*desktopDevice]bool{},
+		loggedOut: map[*desktopDevice]bool{},
 	}
 	for i := 0; i < deviceCount; i++ {
 		d := newDesktopDevice(t, fd, fmt.Sprintf("dev%d", i))
@@ -350,8 +490,15 @@ func runSyncSimulation(t *testing.T, seed int64, deviceCount, steps int) {
 	ops := []string{"files.list", "files.download", "files.create", "files.update", "files.delete"}
 	for step := 0; step < steps; step++ {
 		d := r.devices[r.rng.Intn(len(r.devices))]
+		if r.rng.Float64() < 0.08 {
+			r.lifecycleOp(d)
+			continue
+		}
 		if r.rng.Float64() < 0.55 {
 			r.localOp(d)
+			continue
+		}
+		if r.isFlag(r.loggedOut, d) {
 			continue
 		}
 		fd.mu.Lock()
@@ -388,15 +535,39 @@ func runSyncSimulation(t *testing.T, seed int64, deviceCount, steps int) {
 			fd.FailWhen(func(req fakeRequest) bool { return req.Device == name && req.Op == op }, 503, 1)
 			r.logf("  inject 503 on %s %s", name, op)
 		}
+		// 同期の途中で通信が切れる（その後の同期は失敗し続ける。戻るのは lifecycleOp）
+		if !r.isFlag(r.offline, d) && r.rng.Float64() < 0.08 {
+			countdown := 1 + r.rng.Intn(12)
+			target := d
+			fd.BeforeRequest(func(req fakeRequest) bool {
+				if req.Device != target.name {
+					return false
+				}
+				countdown--
+				return countdown == 0
+			}, func(fakeRequest) {
+				r.setFlag(r.offline, target, true)
+				target.goOffline()
+				r.logf("  %s lost connection mid-sync", target.name)
+			})
+		}
 		r.logf("%s: sync", d.name)
 		r.syncDevice(d)
 	}
 
-	// 静止化
+	// 静止化: 全端末をオンライン・接続状態に戻し、割り込み・障害を外す
 	fd.mu.Lock()
 	fd.hooks = nil
 	fd.failures = nil
 	fd.mu.Unlock()
+	for _, d := range r.devices {
+		d.goOnline()
+		r.setFlag(r.offline, d, false)
+		if r.isFlag(r.loggedOut, d) {
+			r.setFlag(r.loggedOut, d, false)
+			d.loginLazy(fd)
+		}
+	}
 	converged := false
 	var lists []string
 	for round := 0; round < 6 && !converged; round++ {
@@ -452,6 +623,48 @@ func runSyncSimulation(t *testing.T, seed int64, deviceCount, steps int) {
 			require.True(t, existing[id], "誰も削除していない %s が消えた", id)
 		}
 	}
+	// 復活しない: Drive から消えた後に、消える前からあった版が書き戻されていない
+	before := map[string]map[string]bool{}
+	gone := map[string]bool{}
+	for _, h := range fd.NoteHistory() {
+		id := strings.TrimSuffix(h.Name, ".json")
+		if h.Kind == "gone" {
+			gone[id] = true
+			continue
+		}
+		var n Note
+		if err := json.Unmarshal(h.Content, &n); err != nil {
+			continue
+		}
+		v := simVersionKey(id, &n)
+		if gone[id] {
+			require.False(t, before[id][v], "%s: 削除後に削除前の版が書き戻された（%s）: %s", id, h.Device, v)
+			continue
+		}
+		if before[id] == nil {
+			before[id] = map[string]bool{}
+		}
+		before[id][v] = true
+	}
+
+	// 黙って消えない: ユーザーが作った状態は、最終版 / 見た上での編集・削除 / バックアップ のどれか
+	finalStates := map[string]bool{}
+	for id := range existing {
+		n, err := r.devices[0].readNote(id)
+		require.NoError(t, err)
+		finalStates[simStateKey(n)] = true
+	}
+	backedUp := map[string]bool{}
+	for _, d := range r.devices {
+		for _, n := range d.backupNotes() {
+			backedUp[simStateKey(n)] = true
+		}
+	}
+	for _, w := range r.model.writes {
+		accounted := finalStates[w.state] || r.model.superseded[w.state] || r.model.deletedStates[w.state] || backedUp[w.state]
+		require.True(t, accounted, "%s が作った版が黙って消えた: %s", w.device, w.state)
+	}
+
 	for id := range existing {
 		want, ok := r.newestPublished(id)
 		require.True(t, ok, "%s が Drive に公開されていない", id)

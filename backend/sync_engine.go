@@ -205,10 +205,10 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			in.Local = &l
 		}
 		if b, ok := base.Notes[id]; ok {
-			in.Base = &baseNoteState{Hash: b.Hash, Md5: b.Md5}
+			in.Base = &baseNoteState{Hash: b.Hash, Md5: b.Md5, FileID: b.FileID}
 		}
 		if r, ok := remoteFiles.ByNoteID[id]; ok {
-			in.Remote = &remoteNoteState{Md5: r.Md5}
+			in.Remote = &remoteNoteState{Md5: r.Md5, FileID: r.FileID}
 		}
 		inputs[id] = in
 		d := decideNote(in)
@@ -480,15 +480,15 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 		switch d.Kind {
 		case decisionNone:
 			if l, ok := localState[id]; ok && onRemote {
-				nextBase.Notes[id] = syncBaseNote{Hash: l.Hash, Md5: remote.Md5}
+				nextBase.Notes[id] = syncBaseNote{Hash: l.Hash, Md5: remote.Md5, FileID: remote.FileID}
 			}
 		case decisionUpload:
 			if up, ok := uploaded[id]; ok {
-				nextBase.Notes[id] = syncBaseNote{Hash: up.hash, Md5: up.ref.Md5}
+				nextBase.Notes[id] = syncBaseNote{Hash: up.hash, Md5: up.ref.Md5, FileID: up.ref.FileID}
 			}
 		case decisionApplyRemote:
 			if applied[id] && onRemote {
-				nextBase.Notes[id] = syncBaseNote{Hash: downloaded[id].hash, Md5: remote.Md5}
+				nextBase.Notes[id] = syncBaseNote{Hash: downloaded[id].hash, Md5: remote.Md5, FileID: remote.FileID}
 				if deletedIDs[id] {
 					resolvedDeletions = append(resolvedDeletions, id) // 削除の取り消し
 				}

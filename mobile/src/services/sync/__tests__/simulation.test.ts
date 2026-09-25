@@ -14,14 +14,18 @@ vi.mock('@/utils/uuid', () => ({
 /**
  * シード付きランダム・シミュレーション（docs/sync-engine-v3.md §9 L3）。
  *
- * 複数端末がランダムにノートの作成・編集・削除・フォルダ移動・並び替え・アーカイブを行い、
- * ランダムなタイミングで同期する。同期中の任意のリクエストの直前に別端末の操作と同期を割り込ませ、
- * 一時的な障害も注入する。全端末が静止したあと、次の不変条件を検証する:
+ * 複数端末がランダムにノートの作成・編集・削除・フォルダ移動・並び替え・アーカイブ・
+ * フォルダごとのアーカイブ / 削除を行い、ランダムなタイミングで同期する。端末はオフラインになったり、
+ * 連携を解除・再接続したり、アプリを再起動したりもする。同期中の任意のリクエストの直前に別端末の操作と
+ * 同期を割り込ませ、一時的な障害や通信断も注入する。全端末が静止したあと、次の不変条件を検証する:
  *
  *   1. 収束: 全端末のノート一覧（構造・順序・所属）と本文、クラウドの内容が一致する
  *   2. 最新の編集が勝つ: 残っている各ノートの内容は、全端末の書き込みのうち最も新しいもの
  *   3. データ喪失なし: 誰も削除していないノートは必ず残っている
  *   4. 不明ノートフォルダは現れない / 構造が壊れていない
+ *   5. 復活しない: Drive から削除されたノートが、削除前からあった版で書き戻されない
+ *   6. 黙って消えない: ユーザーが作った版は、最終版として残る / それを見た上で編集・削除された /
+ *      競合バックアップに残る、のいずれか
  *
  * 失敗したら表示されるシードで `SEEDS` を置き換えれば同じ展開を再現できる。
  */
@@ -56,10 +60,33 @@ interface Write {
 	discarded?: boolean;
 }
 
+/** 版の識別子（同じ版は端末をまたいでも同じ値になる）。 */
+function versionKey(
+	id: string,
+	n: { content: string; archived: boolean; modifiedTime: string },
+): string {
+	return `${id}|${n.content}|${n.archived}|${n.modifiedTime}`;
+}
+
+/**
+ * ユーザーから見た状態（modifiedTime を除く）。アーカイブして戻すなど、同じ状態に戻った版は
+ * 「失われた」ことにならないので、黙って消えないかの検証はこちらで比べる。
+ */
+function stateKey(
+	id: string,
+	n: { title: string; content: string; archived: boolean },
+): string {
+	return `${id}|${n.title}|${n.content}|${n.archived}`;
+}
+
 class Model {
 	readonly writes = new Map<string, Write[]>();
 	readonly created = new Set<string>();
 	readonly deleted = new Set<string>();
+	/** それを手元に持った状態で編集された状態（= ユーザーが見た上で上書きした。stateKey）。 */
+	readonly superseded = new Set<string>();
+	/** それを手元に持った状態で削除された状態（stateKey）。 */
+	readonly deletedVersions = new Set<string>();
 	/**
 	 * noteId -> 端末 -> その端末がノートを削除した時点の Drive 履歴の位置。
 	 * それ以前にその端末が公開した版は、ユーザーが削除によって捨てたものとして扱う。
@@ -117,8 +144,35 @@ async function localOp(
 		arr.length === 0 ? undefined : arr[Math.floor(rand() * arr.length)];
 	const list = d.list();
 	const activeNotes = list.notes.filter((n) => !n.archived);
+	/** 操作前の手元の版を「見た上で上書き / 削除した」として記録する。 */
+	const seen = async (id: string, into: Set<string>) => {
+		const before = await d.readNote(id);
+		if (before) into.add(stateKey(id, before));
+	};
 	const roll = rand();
-	if (roll < 0.22) {
+	if (roll < 0.04) {
+		// フォルダごとアーカイブ / アーカイブ済みフォルダを配下ごと削除
+		const folder = pick(list.folders);
+		if (!folder) return;
+		const inFolder = list.notes.filter((n) => n.folderId === folder.id);
+		if (!folder.archived) {
+			for (const n of inFolder)
+				if (!n.archived) await seen(n.id, model.superseded);
+			await d.archiveFolder(folder.id);
+			for (const n of inFolder) {
+				const note = await d.readNote(n.id);
+				if (note && !n.archived) model.record(n.id, d.deviceId, note);
+			}
+			log.push(`${d.deviceId}: archiveFolder ${folder.id}`);
+		} else {
+			for (const n of inFolder) {
+				await seen(n.id, model.deletedVersions);
+				model.markDeleted(n.id, d.deviceId);
+			}
+			await d.deleteArchivedFolder(folder.id);
+			log.push(`${d.deviceId}: deleteArchivedFolder ${folder.id}`);
+		}
+	} else if (roll < 0.22) {
 		const id = `N${++ids.note}`;
 		const note = await d.createNoteOffline({
 			id,
@@ -132,12 +186,14 @@ async function localOp(
 		const target = pick(list.notes);
 		if (!target) return;
 		const content = `c-${target.id}-${d.deviceId}-${Math.floor(rand() * 1e6)}`;
+		await seen(target.id, model.superseded);
 		const note = await d.editNoteOffline(target.id, { content });
 		model.record(target.id, d.deviceId, note);
 		log.push(`${d.deviceId}: edit ${target.id}`);
 	} else if (roll < 0.58) {
 		const target = pick(list.notes);
 		if (!target) return;
+		await seen(target.id, model.deletedVersions);
 		await d.deleteNoteOffline(target.id);
 		model.markDeleted(target.id, d.deviceId);
 		log.push(`${d.deviceId}: delete ${target.id}`);
@@ -163,6 +219,7 @@ async function localOp(
 	} else {
 		const target = pick(list.notes);
 		if (!target) return;
+		await seen(target.id, model.superseded);
 		const note = await d.setArchived(target.id, !target.archived);
 		model.record(target.id, d.deviceId, note);
 		log.push(
@@ -260,7 +317,10 @@ async function runSimulation(seed: number): Promise<void> {
 	const pickDevice = () => devices[Math.floor(rand() * devices.length)];
 	// 同期中の端末（入れ子の割り込みで同じ端末の同期を再入させないため）
 	const syncing = new Set<MobileDevice>();
+	const offline = new Set<MobileDevice>();
 	const syncDevice = async (d: MobileDevice) => {
+		// 連携解除中はポーリングが動いていない
+		if (!d.connected) return;
 		syncing.add(d);
 		try {
 			await d.sync();
@@ -268,14 +328,45 @@ async function runSimulation(seed: number): Promise<void> {
 			syncing.delete(d);
 		}
 	};
+	/** 端末のライフサイクル: オフライン切り替え / 連携解除・再接続 / アプリ再起動。 */
+	const lifecycleOp = async (d: MobileDevice) => {
+		const roll = rand();
+		if (roll < 0.45) {
+			if (offline.has(d)) {
+				offline.delete(d);
+				d.goOnline();
+				log.push(`${d.deviceId}: online`);
+			} else {
+				offline.add(d);
+				d.goOffline();
+				log.push(`${d.deviceId}: offline`);
+			}
+		} else if (roll < 0.75) {
+			if (d.connected) {
+				await d.signOut();
+				log.push(`${d.deviceId}: signOut`);
+			} else {
+				await d.signIn();
+				log.push(`${d.deviceId}: signIn`);
+			}
+		} else {
+			await d.restart();
+			log.push(`${d.deviceId}: restart`);
+		}
+	};
 
 	try {
 		for (let step = 0; step < STEPS; step++) {
 			const d = pickDevice();
+			if (rand() < 0.08) {
+				await lifecycleOp(d);
+				continue;
+			}
 			if (rand() < 0.55) {
 				await localOp(d, rand, model, ids, log);
 				continue;
 			}
+			if (!d.connected) continue;
 			// 同期。一定確率で、同期中の任意のリクエストの直前に別端末の操作 + 同期を割り込ませる
 			drive.clearInterceptors();
 			if (rand() < 0.35) {
@@ -299,14 +390,33 @@ async function runSimulation(seed: number): Promise<void> {
 				drive.failWhen((r) => r.deviceId === d.deviceId && r.op === op, 503, 1);
 				log.push(`  inject 503 on ${d.deviceId} ${op}`);
 			}
+			// 同期の途中で通信が切れる（その後の同期は失敗し続ける。戻るのは lifecycleOp）
+			let cut = false;
+			if (!offline.has(d) && rand() < 0.08) {
+				let countdown = 1 + Math.floor(rand() * 12);
+				drive.beforeRequest(
+					(r) => r.deviceId === d.deviceId && --countdown === 0,
+					() => {
+						cut = true;
+						offline.add(d);
+						d.goOffline();
+					},
+				);
+			}
 			log.push(`${d.deviceId}: sync`);
 			await syncDevice(d).catch((e) =>
 				log.push(`  ${d.deviceId} sync failed: ${e}`),
 			);
+			if (cut) log.push(`  ${d.deviceId} lost connection mid-sync`);
 		}
 
-		// 静止化: 割り込み・障害を外し、全端末が変化しなくなるまで同期する
+		// 静止化: 全端末をオンライン・接続状態に戻し、割り込み・障害を外して、
+		// 全端末が変化しなくなるまで同期する
 		drive.clearInterceptors();
+		for (const d of devices) {
+			d.goOnline();
+			if (!d.connected) await d.signIn();
+		}
 		let converged = false;
 		let lists: string[] = [];
 		let pending: boolean[] = [];
@@ -373,6 +483,65 @@ async function runSimulation(seed: number): Promise<void> {
 			}
 			return newest;
 		};
+		// 復活しない: Drive から消えた後に、消える前からあった版が書き戻されていない
+		const versionOf = (id: string, raw: string) =>
+			versionKey(
+				id,
+				JSON.parse(raw) as {
+					content: string;
+					archived: boolean;
+					modifiedTime: string;
+				},
+			);
+		const byNote = new Map<string, typeof drive.noteHistory>();
+		for (const h of drive.noteHistory) {
+			const list = byNote.get(h.name) ?? [];
+			list.push(h);
+			byNote.set(h.name, list);
+		}
+		for (const [name, history] of byNote) {
+			const id = name.replace(/\.json$/, '');
+			const before = new Set<string>();
+			let gone = false;
+			for (const h of history) {
+				if (h.kind === 'gone') {
+					gone = true;
+					continue;
+				}
+				if (!h.content) continue;
+				const v = versionOf(id, h.content);
+				if (gone && before.has(v)) {
+					throw new Error(
+						`${id}: 削除後に削除前の版が書き戻された（${h.deviceId}）: ${v}`,
+					);
+				}
+				if (!gone) before.add(v);
+			}
+		}
+
+		// 黙って消えない: ユーザーが作った版は、最終版 / 見た上での編集・削除 / バックアップ のどれか
+		const finalVersions = new Set<string>();
+		for (const id of existing) {
+			const note = await devices[0].readNote(id);
+			if (note) finalVersions.add(stateKey(id, note));
+		}
+		const backedUp = new Set<string>();
+		for (const d of devices)
+			for (const b of d.backups) backedUp.add(stateKey(b.note.id, b.note));
+		for (const [id, writes] of model.writes) {
+			for (const w of writes) {
+				const v = stateKey(id, w);
+				const accounted =
+					finalVersions.has(v) ||
+					model.superseded.has(v) ||
+					model.deletedVersions.has(v) ||
+					backedUp.has(v);
+				expect(accounted, `${w.device} が作った版が黙って消えた: ${v}`).toBe(
+					true,
+				);
+			}
+		}
+
 		for (const id of existing) {
 			const want = newestPublished(id);
 			expect(want, `${id} が Drive に公開されていない`).toBeDefined();
@@ -395,6 +564,28 @@ async function runSimulation(seed: number): Promise<void> {
 			).toBe(want?.content);
 		}
 	} catch (e) {
+		if (process.env.SIM_DEBUG) {
+			for (const d of devices) {
+				const backups = d.backups.map((b) => [
+					b.kind,
+					versionKey(b.note.id, b.note),
+				]);
+				log.push(`${d.deviceId} backups: ${JSON.stringify(backups)}`);
+			}
+			for (const h of drive.noteHistory) {
+				const v = h.content
+					? versionKey(
+							h.name,
+							JSON.parse(h.content) as {
+								content: string;
+								archived: boolean;
+								modifiedTime: string;
+							},
+						)
+					: '';
+				log.push(`history ${h.name} ${h.kind} ${h.deviceId ?? ''} ${v}`);
+			}
+		}
 		console.error(`simulation seed=${seed} failed. log:\n${log.join('\n')}`);
 		throw e;
 	}

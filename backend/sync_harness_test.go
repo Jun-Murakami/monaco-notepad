@@ -450,11 +450,19 @@ func (d *desktopDevice) logout() {
 // login はログインし直す（AuthorizeDrive → onConnected 相当）。fd を変えると別アカウントの Drive に接続する。
 func (d *desktopDevice) login(fd *fakeDrive) {
 	d.t.Helper()
+	d.loginLazy(fd)
+	_, err := d.ds.engine.gateway.ResolveLayout()
+	require.NoError(d.t, err)
+}
+
+// loginLazy はフォルダ構成の解決を最初の同期まで遅らせるログイン（通信できない状態でも呼べる）。
+func (d *desktopDevice) loginLazy(fd *fakeDrive) {
+	d.t.Helper()
 	d.fd = fd
 	driveSync := d.ds.auth.GetDriveSync()
 	driveSync.service = fd.service(d.t, d.name)
 	driveSync.SetConnected(true)
-	d.connect()
+	d.connectLazy()
 }
 
 // backups は競合バックアップ（kind, noteId, content）を古い順に返す。
@@ -468,6 +476,18 @@ func (d *desktopDevice) backups() [][3]string {
 		out = append(out, [3]string{e.Kind, e.Note.ID, e.Note.Content})
 	}
 	return out
+}
+
+// backupNotes は競合バックアップに残っているノート。
+func (d *desktopDevice) backupNotes() []*Note {
+	d.t.Helper()
+	entries, err := listCloudConflictBackups(filepath.Join(d.dir, cloudWinBackupDirName))
+	require.NoError(d.t, err)
+	notes := make([]*Note, 0, len(entries))
+	for _, e := range entries {
+		notes = append(notes, e.Note)
+	}
+	return notes
 }
 
 // deletedNoteIDs は未処理の削除の意図。

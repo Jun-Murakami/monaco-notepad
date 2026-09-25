@@ -12,10 +12,10 @@ export interface DecideNoteInput {
 	local?: { hash: string; modifiedTime: string };
 	/** ユーザー操作で削除が記録されている（deletedNoteIDs）。 */
 	localDeleted: boolean;
-	/** 前回同期時点の状態。md5 は移行直後などで欠けうる。 */
-	base?: { hash: string; md5?: string };
-	/** Drive に本体ファイルがある場合の md5。 */
-	remote?: { md5: string };
+	/** 前回同期時点の状態。md5 / fileId は移行直後などで欠けうる。 */
+	base?: { hash: string; md5?: string; fileId?: string };
+	/** Drive に本体ファイルがある場合の md5 とファイル ID。 */
+	remote?: { md5: string; fileId?: string };
 	/** フェーズ2でのみ与えるダウンロード結果。 */
 	downloaded?: { hash: string; modifiedTime: string };
 }
@@ -67,10 +67,16 @@ export function decideNote(input: DecideNoteInput): NoteDecision {
 
 	const localChanged = !base || local.hash !== base.hash;
 	if (!localChanged) {
-		// 手元は前回同期から変わっていないのにリモートの方が古い = 別端末が古い判断で上書きした。
-		// 最新の版（手元）を送り直す（常に modifiedTime の新しい版が勝つ）。
+		// ファイルが作り直されている = 一度削除され、編集が勝って復元された（P4）。削除より後の出来事なので
+		// 時刻にかかわらず取り込む。手元の版は削除されたもので、他端末でのリモート削除と同じく残しておく。
+		if (base?.fileId && remote.fileId && base.fileId !== remote.fileId) {
+			return { kind: 'applyRemote', backupLocal: true };
+		}
+		// 同じファイルなのに手元（未変更）よりリモートの方が古い = 別端末が古い判断で上書きした
+		// （ノート本体の lost update）。最新の版（手元）を送り直し、上書きしてきた版は残す
+		// （その端末のユーザーは手元の版を見ずに編集したので、黙って捨てない）。
 		return isModifiedTimeAfter(local.modifiedTime, downloaded.modifiedTime)
-			? { kind: 'upload' }
+			? { kind: 'upload', backupRemote: true }
 			: { kind: 'applyRemote', backupLocal: false };
 	}
 	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る

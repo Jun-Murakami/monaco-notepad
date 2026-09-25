@@ -377,15 +377,71 @@ describe('連携解除（サインアウト）中の操作と再接続', () => {
 
 		await mobile.signIn();
 		await mobile.sync();
-		expect(mobile.list().notes.map((n) => n.id).sort()).toEqual([
-			'A',
-			'B',
-			'X',
-		]);
+		expect(
+			mobile
+				.list()
+				.notes.map((n) => n.id)
+				.sort(),
+		).toEqual(['A', 'B', 'X']);
 		expect(drive2.findByName('A.json')).toBeDefined();
 		expect(drive2.findByName('B.json')).toBeDefined();
 		expect(backupsOf(mobile)).toEqual([]);
 		// 元のアカウントの Drive には何も書かない
 		expect(drive.noteHistory.length).toBe(historyBefore);
+	});
+});
+
+describe('復帰時の競合（シミュレーションで見つかったレース）', () => {
+	it('削除後に古い編集で復元されたノートを、削除された版を持つ別の端末が書き戻さない', async () => {
+		const third = new MobileDevice(drive, 'third');
+		await third.boot();
+		await third.connect();
+		await third.sync();
+
+		mobile.goOffline();
+		await mobile.editNoteOffline('A', { content: 'offline edit (older)' });
+		await other.editNote('A', { content: 'other edit (newer)' });
+		await third.sync();
+		await other.deleteNoteOffline('A');
+		await other.sync();
+
+		// 編集は削除に勝つ: オフラインだった端末がノートを作り直す（時刻は削除された版より古い）
+		mobile.goOnline();
+		await mobile.sync();
+		await third.sync();
+		await other.sync();
+		await mobile.sync();
+
+		for (const d of [mobile, other, third]) {
+			expect(await contentOf(d, 'A'), d.deviceId).toBe('offline edit (older)');
+		}
+		expect(cloudContent('A')).toBe('offline edit (older)');
+		// 削除された版はそれを持っていた端末に残る（他端末でのリモート削除と同じ扱い）
+		expect(backupsOf(third)).toEqual([
+			['cloud_wins', 'A', 'other edit (newer)'],
+		]);
+	});
+
+	it('判断から書き込みまでの間に他端末が新しい版を書いて上書きされても、上書きした側の版はバックアップに残る', async () => {
+		await mobile.editNoteOffline('A', { content: 'mobile edit (older)' });
+		drive.beforeRequest(
+			(r) =>
+				r.deviceId === 'mobile' &&
+				r.op === 'files.update' &&
+				r.fileName === 'A.json',
+			async () => {
+				await other.editNote('A', { content: 'other edit (newer)' });
+			},
+		);
+		await mobile.sync();
+		// mobile の古い判断による書き込みで、other の新しい版が上書きされた
+		expect(cloudContent('A')).toBe('mobile edit (older)');
+
+		await syncBoth();
+		expect(await contentOf(mobile, 'A')).toBe('other edit (newer)');
+		expect(await contentOf(other, 'A')).toBe('other edit (newer)');
+		expect(backupsOf(other)).toEqual([
+			['local_wins', 'A', 'mobile edit (older)'],
+		]);
 	});
 });

@@ -425,3 +425,54 @@ func TestLogout_LoginToAnotherAccountDoesNotCarrySyncRecord(t *testing.T) {
 	assert.Equal(t, noBackups(), p.desk.backups())
 	assert.Equal(t, historyBefore, len(p.fd.NoteHistory()), "元のアカウントの Drive に書き込んだ")
 }
+
+// ---- 復帰時の競合（シミュレーションで見つかったレース） ----
+
+func TestRace_NoteRecreatedAfterDeleteIsNotOverwrittenByDeletedVersion(t *testing.T) {
+	p := newOfflinePair(t)
+	third := newDesktopDevice(t, p.fd, "third")
+	third.startup()
+
+	p.desk.goOffline()
+	p.edit(p.desk, "A", "offline edit (older)")
+	p.edit(p.other, "A", "other edit (newer)")
+	p.other.sync()
+	third.sync()
+	p.other.deleteNote("A")
+	p.other.sync()
+
+	// 編集は削除に勝つ: オフラインだった端末がノートを作り直す（時刻は削除された版より古い）
+	p.desk.goOnline()
+	p.desk.sync()
+	third.sync()
+	p.other.sync()
+	p.desk.sync()
+
+	for _, d := range []*desktopDevice{p.desk, p.other, third} {
+		assert.Equal(t, "offline edit (older)", p.content(d, "A"), d.name)
+	}
+	got, _ := p.cloudContent("A")
+	assert.Equal(t, "offline edit (older)", got)
+	// 削除された版はそれを持っていた端末に残る（他端末でのリモート削除と同じ扱い）
+	assert.Equal(t, [][3]string{{"cloud_wins", "A", "other edit (newer)"}}, third.backups())
+}
+
+func TestRace_StaleOverwriteKeepsOverwrittenVersionInBackup(t *testing.T) {
+	p := newOfflinePair(t)
+	p.edit(p.desk, "A", "desk edit (older)")
+	p.fd.BeforeRequest(func(r fakeRequest) bool {
+		return r.Device == "desktop" && r.Op == "files.update" && r.FileName == "A.json"
+	}, func(fakeRequest) {
+		p.edit(p.other, "A", "other edit (newer)")
+		p.other.sync()
+	})
+	p.desk.sync()
+	// desk の古い判断による書き込みで、other の新しい版が上書きされた
+	got, _ := p.cloudContent("A")
+	require.Equal(t, "desk edit (older)", got)
+
+	p.syncBoth()
+	assert.Equal(t, "other edit (newer)", p.content(p.desk, "A"))
+	assert.Equal(t, "other edit (newer)", p.content(p.other, "A"))
+	assert.Equal(t, [][3]string{{"local_wins", "A", "desk edit (older)"}}, p.other.backups())
+}

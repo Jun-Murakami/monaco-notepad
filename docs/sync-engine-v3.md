@@ -53,7 +53,7 @@ appDataFolder/monaco-notepad/          ← 同名が複数あれば createdTime 
 | 保存先 | 内容 |
 |---|---|
 | `sync_state.json`（既存・スキーマ互換） | `dirty`, `dirtyNoteIDs`, `deletedNoteIDs`, `deletedFolderIDs`: 未送信のローカル変更の記録。v2 の `lastSyncedNoteHash` は base が無いときだけ base の本文 hash として読み、最初の同期サイクルの終了時に（失敗しても）空にする。以後 base が無いときは和集合で同期する。 |
-| `sync_base.json`（新規） | `{ version, rootFolderId, noteListFileId, noteListMd5, noteList, notes: { <id>: { hash, md5? } } }`: 最後に同期が確定した時点のクラウド noteList と、ノートごとの本文 hash / Drive 本体 md5。 |
+| `sync_base.json`（新規） | `{ version, rootFolderId, noteListFileId, noteListMd5, noteList, notes: { <id>: { hash, md5?, fileId? } } }`: 最後に同期が確定した時点のクラウド noteList と、ノートごとの本文 hash / Drive 本体 md5 / ファイル ID。 |
 
 - base は Drive（アカウント）に紐づく。`rootFolderId` / `noteListFileId` が現在と違えば base は無効（null）。
 - Drive データ全削除 / クラウド noteList 消失時は base を破棄する（→ 次回は和集合で安全に再同期、ローカル削除は起きない）。
@@ -94,8 +94,8 @@ syncOnce()  ※ 端末内の sync ロックで直列化
 
 - `local?`: `{hash, modifiedTime}` ローカルに存在する場合（本体ファイルが読めること）
 - `localDeleted`: `deletedNoteIDs` に含まれる
-- `base?`: `{hash, md5?}` 前回同期時点（md5 は移行直後などで欠けうる）
-- `remote?`: `{md5}` Drive に本体ファイルがある場合
+- `base?`: `{hash, md5?, fileId?}` 前回同期時点（md5 / fileId は移行直後などで欠けうる）
+- `remote?`: `{md5, fileId?}` Drive に本体ファイルがある場合
 - `downloaded?`: `{hash, modifiedTime}` フェーズ2でのみ与える（ダウンロード結果）
 
 出力: `none` / `download`（フェーズ1のみ）/ `upload{backupRemote}` / `applyRemote{backupLocal}` / `deleteLocal{backupLocal}` / `deleteRemote` / `forget`
@@ -120,13 +120,20 @@ if downloaded.hash == local.hash:        → none                      // 収束
 if !base || local.hash != base.hash:     // ローカルも変更あり
   if base && downloaded.hash == base.hash → upload                   // md5 だけ違う（再シリアライズ）
   isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload{backupRemote:true} : applyRemote{backupLocal:true}
-// 手元は未変更。リモートの方が古ければ、別端末が古い判断で上書きした（ノート本体の lost update）
-isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload : applyRemote{false}
+// 手元は未変更
+if base.fileId && remote.fileId && base.fileId != remote.fileId:
+  → applyRemote{backupLocal:true}      // 一度削除され、編集が勝って作り直された（削除より後の出来事）
+// 同じファイルでリモートの方が古い = 別端末が古い判断で上書きした（ノート本体の lost update）
+isAfter(local.modifiedTime, downloaded.modifiedTime) ? upload{backupRemote:true} : applyRemote{false}
 ```
 
 - 結果として「常に modifiedTime の新しい版が勝つ」。Drive は条件付き更新ができないため、
   判断から書き込みまでの間に別端末が新しい版を書いても上書きしうるが、上書きされた側が次の同期で
   より新しい手元の版を送り直すので、新しい版が失われない（ランダム・シミュレーションで検出した経路）。
+  上書きしてきた版もその端末のユーザーの編集なので、送り直す側がバックアップに残す（`backupRemote`）。
+- ただしファイルが作り直されている（`fileId` が base と違う）場合は、削除 → 「編集は削除に勝つ」による復元なので
+  時刻にかかわらず取り込む。古い版の送り直しを適用すると、削除された版が復活し、復元した編集が消える
+  （オフライン・シミュレーションで検出した経路）。
 
 - 両側で編集された（真の競合）ときは、負けた版を必ず競合バックアップに残す:
   ローカルが負け → `backupLocal`（`cloud_wins`）、リモートが負け → `backupRemote`（`local_wins`、上書き前にダウンロード済みの版）。

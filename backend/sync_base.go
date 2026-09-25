@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 )
 
-// syncBaseNote はノートごとの「前回同期時の本文 hash と Drive 本体の md5」。
-// md5 は v2 からの移行直後などで欠けうる。
+// syncBaseNote はノートごとの「前回同期時の本文 hash と Drive 本体の md5 / ファイル ID」。
+// md5 / ファイル ID は v2 からの移行直後などで欠けうる。ファイル ID が変わっていれば、
+// ノートは一度削除されて作り直されている。
 type syncBaseNote struct {
-	Hash string `json:"hash"`
-	Md5  string `json:"md5,omitempty"`
+	Hash   string `json:"hash"`
+	Md5    string `json:"md5,omitempty"`
+	FileID string `json:"fileId,omitempty"`
 }
 
 // SyncBase は最後に同期が確定した時点の状態（docs/sync-engine-v3.md §4, sync_base.json）。

@@ -22,12 +22,14 @@ type noteSideState struct {
 }
 
 type baseNoteState struct {
-	Hash string `json:"hash"`
-	Md5  string `json:"md5,omitempty"`
+	Hash   string `json:"hash"`
+	Md5    string `json:"md5,omitempty"`
+	FileID string `json:"fileId,omitempty"`
 }
 
 type remoteNoteState struct {
-	Md5 string `json:"md5"`
+	Md5    string `json:"md5"`
+	FileID string `json:"fileId,omitempty"`
 }
 
 // decideNoteInput の Downloaded を nil で呼ぶのがフェーズ1、ダウンロード結果を入れて呼ぶのがフェーズ2。
@@ -114,10 +116,16 @@ func decideNote(in decideNoteInput) noteDecision {
 
 	localChanged := base == nil || local.Hash != base.Hash
 	if !localChanged {
-		// 手元は前回同期から変わっていないのにリモートの方が古い = 別端末が古い判断で上書きした。
-		// 最新の版（手元）を送り直す（常に modifiedTime の新しい版が勝つ）。
+		// ファイルが作り直されている = 一度削除され、編集が勝って復元された（P4）。削除より後の出来事なので
+		// 時刻にかかわらず取り込む。手元の版は削除されたもので、他端末でのリモート削除と同じく残しておく。
+		if base != nil && base.FileID != "" && remote.FileID != "" && base.FileID != remote.FileID {
+			return noteDecision{Kind: decisionApplyRemote, BackupLocal: true}
+		}
+		// 同じファイルなのに手元（未変更）よりリモートの方が古い = 別端末が古い判断で上書きした
+		// （ノート本体の lost update）。最新の版（手元）を送り直し、上書きしてきた版は残す
+		// （その端末のユーザーは手元の版を見ずに編集したので、黙って捨てない）。
 		if isAfterRFC3339(local.ModifiedTime, downloaded.ModifiedTime) {
-			return noteDecision{Kind: decisionUpload}
+			return noteDecision{Kind: decisionUpload, BackupRemote: true}
 		}
 		return noteDecision{Kind: decisionApplyRemote}
 	}

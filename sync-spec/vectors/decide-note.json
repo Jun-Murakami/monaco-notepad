@@ -87,7 +87,7 @@
       }
     },
     {
-      "name": "ローカル未変更でもリモートがローカルより古い版なら、古い版による上書きなのでローカルを送り直す",
+      "name": "ローカル未変更でもリモートがローカルより古い版なら、古い版による上書きなのでローカルを送り直す（上書きしてきた版は残す）",
       "input": {
         "local": {
           "hash": "h3",
@@ -107,7 +107,8 @@
         }
       },
       "expected": {
-        "kind": "upload"
+        "kind": "upload",
+        "backupRemote": true
       }
     },
     {
@@ -136,7 +137,7 @@
       }
     },
     {
-      "name": "base の md5 不明・ローカル未変更でもリモートの方が古ければローカルを送り直す",
+      "name": "base の md5 不明・ローカル未変更でもリモートの方が古ければローカルを送り直す（上書きしてきた版は残す）",
       "input": {
         "local": {
           "hash": "h1",
@@ -155,7 +156,8 @@
         }
       },
       "expected": {
-        "kind": "upload"
+        "kind": "upload",
+        "backupRemote": true
       }
     },
     {
@@ -726,6 +728,114 @@
       "expected": {
         "kind": "applyRemote",
         "backupLocal": true
+      }
+    },
+    {
+      "name": "ローカル未変更・リモートが古い・同じファイル: 古い判断による上書きなので送り直し、上書きしてきた版は残す",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1"
+        },
+        "remote": {
+          "md5": "m2",
+          "fileId": "f1"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:20Z"
+        }
+      },
+      "expected": {
+        "kind": "upload",
+        "backupRemote": true
+      }
+    },
+    {
+      "name": "ローカル未変更・ファイルが作り直されている（削除後に編集が勝って復元）: 時刻が古くても取り込み、手元の版は残す",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1"
+        },
+        "remote": {
+          "md5": "m4",
+          "fileId": "f2"
+        },
+        "downloaded": {
+          "hash": "h4",
+          "modifiedTime": "2026-01-01T00:00:20Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
+    },
+    {
+      "name": "ローカル未変更・ファイルが作り直されリモートの方が新しい: 取り込み、手元の版は残す",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:10Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1"
+        },
+        "remote": {
+          "md5": "m4",
+          "fileId": "f2"
+        },
+        "downloaded": {
+          "hash": "h4",
+          "modifiedTime": "2026-01-01T00:00:20Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
+    },
+    {
+      "name": "ローカル未変更・同じファイルでリモートの方が新しい: 通常の更新として取り込む（バックアップしない）",
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:10Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3",
+          "fileId": "f1"
+        },
+        "remote": {
+          "md5": "m4",
+          "fileId": "f1"
+        },
+        "downloaded": {
+          "hash": "h4",
+          "modifiedTime": "2026-01-01T00:00:20Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
       }
     }
   ]
