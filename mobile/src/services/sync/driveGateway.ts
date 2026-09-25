@@ -40,6 +40,8 @@ export interface RemoteFileRef {
 	fileId: string;
 	md5: string;
 	modifiedTime: string;
+	/** Drive が更新ごとに進める版番号。noteList の書き込みが他端末と入れ違ったかの検知に使う。 */
+	version: number;
 }
 
 export interface RemoteNoteFiles {
@@ -249,5 +251,6 @@ function toRef(file: DriveFile): RemoteFileRef {
 		fileId: file.id,
 		md5: file.md5Checksum ?? '',
 		modifiedTime: file.modifiedTime ?? '',
+		version: Number(file.version ?? 0) || 0,
 	};
 }

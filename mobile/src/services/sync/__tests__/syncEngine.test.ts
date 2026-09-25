@@ -293,6 +293,31 @@ describe('障害からの回復', () => {
 	});
 });
 
+describe('noteList 書き込みの最小の競合窓', () => {
+	it('再確認と書き込みの間にピアが書いても、同じ同期の中で取り戻して両方を残す', async () => {
+		peer.ensureLayout();
+		await seedShared();
+		await mobile.createNoteOffline({ id: 'M', title: 'm', content: 'm1' });
+		drive.beforeRequest(
+			(r) =>
+				r.deviceId === 'mobile' &&
+				r.op === 'files.update' &&
+				r.fileName === 'noteList_v2.json',
+			() => {
+				peer.saveNote(peerNote('P', 'from desktop'));
+			},
+		);
+
+		const report = await mobile.sync();
+
+		expect(report.attempts).toBeGreaterThanOrEqual(2);
+		expect(cloudIds()).toEqual(expect.arrayContaining(['A', 'B', 'M', 'P']));
+		expect(mobile.list().notes.map((n) => n.id)).toEqual(
+			expect.arrayContaining(['A', 'B', 'M', 'P']),
+		);
+	});
+});
+
 describe('v2 からの移行・Drive の入れ替わり', () => {
 	beforeEach(() => {
 		peer.ensureLayout();

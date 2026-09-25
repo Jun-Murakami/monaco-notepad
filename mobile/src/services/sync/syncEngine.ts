@@ -480,13 +480,33 @@ export class SyncEngine {
 				if (localChanged) syncEvents.emit('notes:reload', undefined);
 				return { retry: true, report };
 			}
-			newListRef = await this.gateway.uploadNoteList(
+			const uploadedRef = await this.gateway.uploadNoteList(
 				layout,
 				listRef?.fileId ?? null,
 				cloudList,
 			);
+			newListRef = uploadedRef;
 			newBaseList = cloudList;
 			report.listUploaded = true;
+			// 確認から書き込みまでの間に他端末が書いていた（版が 2 以上進んだ）場合は相手の noteList を
+			// 上書きしている。相手のノート本体は Drive に残っているので、すぐにもう一度同期して取り戻す。
+			if (
+				listRef &&
+				listRef.version > 0 &&
+				uploadedRef.version > listRef.version + 1
+			) {
+				await this.saveBase({
+					version: 1,
+					rootFolderId: layout.rootFolderId,
+					noteListFileId: uploadedRef.fileId,
+					noteListMd5: uploadedRef.md5,
+					noteList: cloudList,
+					notes: baseNotes,
+				});
+				await this.state.completeSync(snap.revision, resolvedDeletions, false);
+				if (localChanged) syncEvents.emit('notes:reload', undefined);
+				return { retry: true, report };
+			}
 		}
 
 		// ---- 8. base 更新と後始末 ----
