@@ -114,7 +114,7 @@ function parseBackupFilename(
 	filename: string,
 ): { kind: ConflictBackupKind; createdAt: string } | null {
 	const match = filename.match(
-		/^(cloud_wins|cloud_delete)_(\d{4}-\d{2}-\d{2}T\d{6}\d{3}Z)_.*\.json$/,
+		/^(cloud_wins|cloud_delete|local_wins)_(\d{4}-\d{2}-\d{2}T\d{6}\d{3}Z)_.*\.json$/,
 	);
 	if (!match) return null;
 	const raw = match[2];

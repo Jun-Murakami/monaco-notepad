@@ -228,6 +228,9 @@ export class SyncEngine {
 			);
 		}
 
+		const backupEnabled = this.options.enableConflictBackup?.() ?? true;
+		const backup = this.options.backup ?? backupLocalNote;
+
 		// ---- 4. 本体のアップロード / 削除 ----
 		const uploadIds = [...decisions]
 			.filter(([, d]) => d.kind === 'upload')
@@ -250,6 +253,23 @@ export class SyncEngine {
 				code: MessageCode.DriveSyncUploadNote,
 				args: { noteId: id, current: i + 1, total: uploadIds.length },
 			});
+			// 真の競合でローカルが勝った: 上書きする前に、負けたリモートの版をこの端末に残す
+			const decision = decisions.get(id);
+			const loser = downloaded.get(id);
+			if (
+				decision?.kind === 'upload' &&
+				decision.backupRemote &&
+				backupEnabled &&
+				loser
+			) {
+				await backup('local_wins', loser.note).catch((e) =>
+					console.warn(`[SyncEngine] backup failed: ${id}`, e),
+				);
+				syncEvents.emit('sync:message', {
+					code: MessageCode.DriveConflictKeepLocal,
+					args: { noteId: id },
+				});
+			}
 			const note = await this.notes.readNote(id);
 			if (!note) {
 				report.failures++;
@@ -296,8 +316,6 @@ export class SyncEngine {
 		// ---- 5. ローカルコミット（UI の保存と排他。ネットワーク I/O なし） ----
 		syncEvents.emit('drive:status', { status: 'merging' });
 		syncEvents.emit('sync:phase', { phase: 'merging' });
-		const backupEnabled = this.options.enableConflictBackup?.() ?? true;
-		const backup = this.options.backup ?? backupLocalNote;
 		const remoteMetaById = new Map(
 			(remoteList?.notes ?? []).map((n) => [n.id, n]),
 		);

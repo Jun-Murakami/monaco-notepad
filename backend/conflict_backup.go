@@ -10,14 +10,17 @@ import (
 	"time"
 )
 
-// 競合バックアップ: 同期でクラウド側が勝った / クラウド側で削除されたとき、上書き・削除する直前の
-// ローカル版を appDataDir/cloud_conflict_backups/ に保存する（最大 100 件）。
+// 競合バックアップ（appDataDir/cloud_conflict_backups/、最大 100 件）:
+//   - cloud_wins: 競合でクラウドの版が勝った。上書きする直前のローカル版を残す
+//   - cloud_delete: クラウドで削除された。消す直前のローカル版を残す
+//   - local_wins: 競合でローカルの版が勝った。上書きされるクラウド（他端末）の版を残す
 
 const (
 	cloudWinBackupDirName       = "cloud_conflict_backups"
 	maxCloudWinBackupFiles      = 100
 	cloudBackupFilePrefixWins   = "cloud_wins_"
 	cloudBackupFilePrefixDelete = "cloud_delete_"
+	localBackupFilePrefixWins   = "local_wins_"
 )
 
 type cloudWinBackupRecord struct {
@@ -46,26 +49,33 @@ func isConflictBackupEnabled(appDataDir string) bool {
 	return *payload.EnableConflictBackup
 }
 
-// backupConflictLocalNote は同期エンジンのバックアップ要求（kind: "cloud_wins" / "cloud_delete"）を保存する。
-func backupConflictLocalNote(appDataDir, kind string, local *Note, cloud *Note) error {
-	if local == nil {
-		return fmt.Errorf("local note is nil")
+// backupConflictLocalNote は同期エンジンのバックアップ要求を保存する。
+// kept は残す版（復元の対象）、other は勝った側の版（参考情報、無ければ nil）。
+// 復元 UI は LocalNote を使うので、kind にかかわらず残す版を LocalNote に入れる。
+func backupConflictLocalNote(appDataDir, kind string, kept *Note, other *Note) error {
+	if kept == nil {
+		return fmt.Errorf("note to keep is nil")
 	}
 	record := cloudWinBackupRecord{
 		BackupCreatedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-		NoteID:            local.ID,
-		LocalModifiedTime: local.ModifiedTime,
-		LocalNote:         local,
+		NoteID:            kept.ID,
+		LocalModifiedTime: kept.ModifiedTime,
+		LocalNote:         kept,
+		CloudNote:         other,
 	}
-	prefix := cloudBackupFilePrefixDelete
-	if kind == "cloud_wins" {
+	if other != nil {
+		record.CloudModifiedTime = other.ModifiedTime
+	}
+	var prefix string
+	switch kind {
+	case "cloud_wins":
 		prefix = cloudBackupFilePrefixWins
 		record.Reason = "cloud-wins-conflict"
-		record.CloudNote = cloud
-		if cloud != nil {
-			record.CloudModifiedTime = cloud.ModifiedTime
-		}
-	} else {
+	case "local_wins":
+		prefix = localBackupFilePrefixWins
+		record.Reason = "local-wins-conflict"
+	default:
+		prefix = cloudBackupFilePrefixDelete
 		record.Reason = "cloud-delete"
 	}
 	_, err := writeCloudConflictBackup(appDataDir, record, prefix)
@@ -162,7 +172,8 @@ func isCloudConflictBackupFile(name string) bool {
 	if !strings.HasSuffix(name, ".json") {
 		return false
 	}
-	return strings.HasPrefix(name, cloudBackupFilePrefixWins) || strings.HasPrefix(name, cloudBackupFilePrefixDelete)
+	return strings.HasPrefix(name, cloudBackupFilePrefixWins) || strings.HasPrefix(name, cloudBackupFilePrefixDelete) ||
+		strings.HasPrefix(name, localBackupFilePrefixWins)
 }
 
 // conflictBackupKindFromName はバックアップファイル名から kind を判定する
@@ -175,6 +186,9 @@ func conflictBackupKindFromName(name string) string {
 	}
 	if strings.HasPrefix(name, cloudBackupFilePrefixDelete) {
 		return "cloud_delete"
+	}
+	if strings.HasPrefix(name, localBackupFilePrefixWins) {
+		return "local_wins"
 	}
 	return ""
 }

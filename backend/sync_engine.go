@@ -20,8 +20,9 @@ import (
 type syncEngineOptions struct {
 	// 競合で負けた / リモートで削除されたローカル版をバックアップするか（nil なら常に true）。
 	backupEnabled func() bool
-	// kind は "cloud_wins" / "cloud_delete"。noteService のロック内から呼ばれるので noteService を触らないこと。
-	backup func(kind string, local *Note, cloud *Note) error
+	// kind は "cloud_wins" / "cloud_delete" / "local_wins"。kept が残す版。
+	// noteService のロック内から呼ばれることがあるので noteService を触らないこと。
+	backup func(kind string, kept *Note, other *Note) error
 	// noteList の書き込みが他端末と競合したときの最大試行回数（0 なら 3）。
 	maxAttempts int
 }
@@ -254,8 +255,18 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 			uploadIDs = append(uploadIDs, id)
 		}
 	}
+	backupEnabled := e.opts.backupEnabled == nil || e.opts.backupEnabled()
 	uploaded := map[string]uploadedNote{}
 	for i, id := range uploadIDs {
+		// 真の競合でローカルが勝った: 上書きする前に、負けたリモートの版をこの端末に残す
+		if decisions[id].BackupRemote && backupEnabled && e.opts.backup != nil {
+			if loser, ok := downloaded[id]; ok {
+				if err := e.opts.backup("local_wins", loser.note, nil); err != nil {
+					e.logger.Console("Sync: failed to backup remote note %s: %v", id, err)
+				}
+				e.logger.InfoCode(MsgDriveConflictKeepLocal, map[string]interface{}{"noteId": id})
+			}
+		}
 		e.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{"noteId": id, "current": i + 1, "total": len(uploadIDs)})
 		loaded, err := e.notes.LoadNote(id)
 		if err != nil {
@@ -304,7 +315,6 @@ func (e *syncEngine) runCycle() (syncReport, bool, error) {
 	}
 
 	// ---- 5. ローカルコミット（UI の保存と排他。ネットワーク I/O なし） ----
-	backupEnabled := e.opts.backupEnabled == nil || e.opts.backupEnabled()
 	remoteMetaByID := map[string]NoteMetadata{}
 	if remoteList != nil {
 		remoteMetaByID = notesByID(remoteList.Notes)

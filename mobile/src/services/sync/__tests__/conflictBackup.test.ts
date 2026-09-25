@@ -32,6 +32,17 @@ describe('conflictBackup', () => {
 		expect(entries[0]).toMatch(/^cloud_delete_.+_a\.json$/);
 	});
 
+	it('local_wins（負けた他端末の版）のバックアップも一覧に出る', async () => {
+		await backupLocalNote(
+			'local_wins',
+			makeNote({ id: 'a', content: 'other device version' }),
+		);
+		const backups = await listConflictBackups();
+		expect(backups).toHaveLength(1);
+		expect(backups[0].kind).toBe('local_wins');
+		expect(backups[0].note.content).toBe('other device version');
+	});
+
 	it('バックアップを一覧取得して削除できる', async () => {
 		await backupLocalNote(
 			'cloud_wins',

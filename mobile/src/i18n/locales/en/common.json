@@ -160,6 +160,7 @@
 		"empty": "No conflict backups saved",
 		"kind_cloud_wins": "Backup kept when cloud version won",
 		"kind_cloud_delete": "Backup from cloud deletion",
+		"kind_local_wins": "Other device's version (this device's newer edit won)",
 		"noPreview": "No content available to preview",
 		"restore": "Restore as new note",
 		"delete": "Delete",

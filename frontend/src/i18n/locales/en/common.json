@@ -341,6 +341,7 @@
     "selectPrompt": "Select a backup on the left to preview",
     "kind_cloud_wins": "Cloud version won — local kept here",
     "kind_cloud_delete": "Cloud deletion backup",
+    "kind_local_wins": "Local version won — other device's version kept here",
     "noPreview": "No content available to preview",
     "restore": "Restore as new note",
     "delete": "Delete",

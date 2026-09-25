@@ -53,7 +53,9 @@ const (
 
 type noteDecision struct {
 	Kind        decisionKind
-	BackupLocal bool
+	BackupLocal bool // applyRemote / deleteLocal: 上書き・削除する前にローカルの版を残す
+	// BackupRemote は upload で、真の競合でローカルが勝った。負けたリモートの版を勝った端末に残す。
+	BackupRemote bool
 }
 
 func decideNote(in decideNoteInput) noteDecision {
@@ -124,7 +126,7 @@ func decideNote(in decideNoteInput) noteDecision {
 		return noteDecision{Kind: decisionUpload}
 	}
 	if isAfterRFC3339(local.ModifiedTime, downloaded.ModifiedTime) {
-		return noteDecision{Kind: decisionUpload}
+		return noteDecision{Kind: decisionUpload, BackupRemote: true}
 	}
 	return noteDecision{Kind: decisionApplyRemote, BackupLocal: true}
 }

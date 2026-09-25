@@ -1,185 +1,732 @@
 {
-  "description": "decideNote: ノート単位の判定（docs/sync-engine-v3.md §6）。downloaded を与えないケースはフェーズ1、与えるケースはフェーズ2。expected.backupLocal は applyRemote / deleteLocal のときのみ比較する。",
+  "description": "decideNote: ノート単位の判定（docs/sync-engine-v3.md §6）。downloaded を与えないケースはフェーズ1、与えるケースはフェーズ2。expected.backupLocal は applyRemote / deleteLocal、expected.backupRemote は upload のときのみ比較する（省略時 false）。",
   "cases": [
     {
       "name": "双方変更なし",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m1" } },
-      "expected": { "kind": "none" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "none"
+      }
     },
     {
       "name": "ローカルだけ編集",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:10Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m1" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:10Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "upload"
+      }
     },
     {
       "name": "リモートの md5 が変わった（フェーズ1）",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" } },
-      "expected": { "kind": "download" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        }
+      },
+      "expected": {
+        "kind": "download"
+      }
     },
     {
       "name": "リモートだけ変更（フェーズ2）",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:05Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": false }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
+      }
     },
     {
       "name": "ローカル未変更でもリモートがローカルより古い版なら、古い版による上書きなのでローカルを送り直す",
-      "input": { "local": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:30Z" }, "localDeleted": false, "base": { "hash": "h3", "md5": "m3" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:20Z" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:30Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h3",
+          "md5": "m3"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:20Z"
+        }
+      },
+      "expected": {
+        "kind": "upload"
+      }
     },
     {
       "name": "ローカル未変更・リモートと同時刻ならリモートを採用",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:10Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:10Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": false }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:10Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:10Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
+      }
     },
     {
       "name": "base の md5 不明・ローカル未変更でもリモートの方が古ければローカルを送り直す",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:09Z" }, "localDeleted": false, "base": { "hash": "h1" }, "remote": { "md5": "m1" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:01Z" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:09Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1"
+        },
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:01Z"
+        }
+      },
+      "expected": {
+        "kind": "upload"
+      }
     },
     {
       "name": "md5 は変わったが内容は同じ（再シリアライズ）",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" } },
-      "expected": { "kind": "none" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "kind": "none"
+      }
     },
     {
       "name": "両方変更・ローカルが新しい",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:10Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:05Z" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:10Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        }
+      },
+      "expected": {
+        "kind": "upload",
+        "backupRemote": true
+      }
     },
     {
       "name": "両方変更・リモートが新しい（ローカルはバックアップ）",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:05Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:10Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": true }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:10Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
     },
     {
       "name": "両方変更・同時刻はリモート勝ち",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:05Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:05Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": true }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
     },
     {
       "name": "両方変更だが同じ内容に収束",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:05Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:09Z" } },
-      "expected": { "kind": "none" }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:09Z"
+        }
+      },
+      "expected": {
+        "kind": "none"
+      }
     },
     {
       "name": "ローカル編集あり・リモートは再シリアライズだけ",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:05Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:09Z" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:09Z"
+        }
+      },
+      "expected": {
+        "kind": "upload"
+      }
     },
     {
       "name": "base の md5 不明（移行直後・フェーズ1）",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1" }, "remote": { "md5": "m1" } },
-      "expected": { "kind": "download" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1"
+        },
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "download"
+      }
     },
     {
       "name": "base の md5 不明・内容一致",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1" }, "remote": { "md5": "m1" }, "downloaded": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" } },
-      "expected": { "kind": "none" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1"
+        },
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "kind": "none"
+      }
     },
     {
       "name": "base の md5 不明・リモートだけ変更",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1" }, "remote": { "md5": "m1" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:03Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": false }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1"
+        },
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:03Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
+      }
     },
     {
       "name": "base なし・両方にある（初回同期・フェーズ1）",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "remote": { "md5": "m1" } },
-      "expected": { "kind": "download" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "download"
+      }
     },
     {
       "name": "base なし・内容一致",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "remote": { "md5": "m1" }, "downloaded": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" } },
-      "expected": { "kind": "none" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "kind": "none"
+      }
     },
     {
       "name": "base なし・内容が違いローカルが新しい",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:09Z" }, "localDeleted": false, "remote": { "md5": "m1" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:01Z" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:09Z"
+        },
+        "localDeleted": false,
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:01Z"
+        }
+      },
+      "expected": {
+        "kind": "upload",
+        "backupRemote": true
+      }
     },
     {
       "name": "base なし・内容が違いリモートが新しい",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:01Z" }, "localDeleted": false, "remote": { "md5": "m1" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:09Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": true }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:01Z"
+        },
+        "localDeleted": false,
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:09Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
     },
     {
       "name": "ローカルの新規ノート",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false
+      },
+      "expected": {
+        "kind": "upload"
+      }
     },
     {
       "name": "リモートで削除・ローカル未変更",
-      "input": { "local": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" } },
-      "expected": { "kind": "deleteLocal", "backupLocal": true }
+      "input": {
+        "local": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "deleteLocal",
+        "backupLocal": true
+      }
     },
     {
       "name": "リモートで削除・ローカル編集あり（編集が勝つ）",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:00Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "upload"
+      }
     },
     {
       "name": "リモートの新規ノート（フェーズ1）",
-      "input": { "localDeleted": false, "remote": { "md5": "m1" } },
-      "expected": { "kind": "download" }
+      "input": {
+        "localDeleted": false,
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "download"
+      }
     },
     {
       "name": "リモートの新規ノート（フェーズ2）",
-      "input": { "localDeleted": false, "remote": { "md5": "m1" }, "downloaded": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:00Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": false }
+      "input": {
+        "localDeleted": false,
+        "remote": {
+          "md5": "m1"
+        },
+        "downloaded": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
+      }
     },
     {
       "name": "削除操作なしにローカルから消えたノートは復元する",
-      "input": { "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m1" } },
-      "expected": { "kind": "download" }
+      "input": {
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "download"
+      }
     },
     {
       "name": "ローカル削除・リモート未変更",
-      "input": { "localDeleted": true, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m1" } },
-      "expected": { "kind": "deleteRemote" }
+      "input": {
+        "localDeleted": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "deleteRemote"
+      }
     },
     {
       "name": "ローカル削除・リモート変更あり（フェーズ1）",
-      "input": { "localDeleted": true, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" } },
-      "expected": { "kind": "download" }
+      "input": {
+        "localDeleted": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        }
+      },
+      "expected": {
+        "kind": "download"
+      }
     },
     {
       "name": "ローカル削除・リモート編集あり（編集が勝つ）",
-      "input": { "localDeleted": true, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:05Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": false }
+      "input": {
+        "localDeleted": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": false
+      }
     },
     {
       "name": "ローカル削除・リモートは再シリアライズだけ",
-      "input": { "localDeleted": true, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h1", "modifiedTime": "2026-01-01T00:00:05Z" } },
-      "expected": { "kind": "deleteRemote" }
+      "input": {
+        "localDeleted": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h1",
+          "modifiedTime": "2026-01-01T00:00:05Z"
+        }
+      },
+      "expected": {
+        "kind": "deleteRemote"
+      }
     },
     {
       "name": "ローカル削除・base なし",
-      "input": { "localDeleted": true, "remote": { "md5": "m1" } },
-      "expected": { "kind": "deleteRemote" }
+      "input": {
+        "localDeleted": true,
+        "remote": {
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "deleteRemote"
+      }
     },
     {
       "name": "ローカル削除・リモートも無い",
-      "input": { "localDeleted": true, "base": { "hash": "h1", "md5": "m1" } },
-      "expected": { "kind": "forget" }
+      "input": {
+        "localDeleted": true,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "forget"
+      }
     },
     {
       "name": "両方から消えた",
-      "input": { "localDeleted": false, "base": { "hash": "h1", "md5": "m1" } },
-      "expected": { "kind": "forget" }
+      "input": {
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        }
+      },
+      "expected": {
+        "kind": "forget"
+      }
     },
     {
       "name": "時刻が解析できなければ文字列比較",
-      "input": { "local": { "hash": "h2", "modifiedTime": "b" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h3", "modifiedTime": "a" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "b"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h3",
+          "modifiedTime": "a"
+        }
+      },
+      "expected": {
+        "kind": "upload",
+        "backupRemote": true
+      }
     },
     {
       "name": "タイムゾーンの違う RFC3339 を正しく比較",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T09:00:10+09:00" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:05.000Z" } },
-      "expected": { "kind": "upload" }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T09:00:10+09:00"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:05.000Z"
+        }
+      },
+      "expected": {
+        "kind": "upload",
+        "backupRemote": true
+      }
     },
     {
       "name": "ミリ秒精度の比較",
-      "input": { "local": { "hash": "h2", "modifiedTime": "2026-01-01T00:00:05.100Z" }, "localDeleted": false, "base": { "hash": "h1", "md5": "m1" }, "remote": { "md5": "m2" }, "downloaded": { "hash": "h3", "modifiedTime": "2026-01-01T00:00:05.200Z" } },
-      "expected": { "kind": "applyRemote", "backupLocal": true }
+      "input": {
+        "local": {
+          "hash": "h2",
+          "modifiedTime": "2026-01-01T00:00:05.100Z"
+        },
+        "localDeleted": false,
+        "base": {
+          "hash": "h1",
+          "md5": "m1"
+        },
+        "remote": {
+          "md5": "m2"
+        },
+        "downloaded": {
+          "hash": "h3",
+          "modifiedTime": "2026-01-01T00:00:05.200Z"
+        }
+      },
+      "expected": {
+        "kind": "applyRemote",
+        "backupLocal": true
+      }
     }
   ]
 }

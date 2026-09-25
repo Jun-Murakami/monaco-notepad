@@ -23,7 +23,8 @@ export interface DecideNoteInput {
 export type NoteDecision =
 	| { kind: 'none' }
 	| { kind: 'download' }
-	| { kind: 'upload' }
+	/** backupRemote: 真の競合でローカルが勝った。負けたリモートの版を勝った端末に残す。 */
+	| { kind: 'upload'; backupRemote?: boolean }
 	| { kind: 'applyRemote'; backupLocal: boolean }
 	| { kind: 'deleteLocal'; backupLocal: boolean }
 	| { kind: 'deleteRemote' }
@@ -75,7 +76,7 @@ export function decideNote(input: DecideNoteInput): NoteDecision {
 	// md5 だけ変わって中身は base のまま（別端末の再シリアライズ）→ ローカルの変更を送る
 	if (base && downloaded.hash === base.hash) return { kind: 'upload' };
 	return isModifiedTimeAfter(local.modifiedTime, downloaded.modifiedTime)
-		? { kind: 'upload' }
+		? { kind: 'upload', backupRemote: true }
 		: { kind: 'applyRemote', backupLocal: true };
 }
 

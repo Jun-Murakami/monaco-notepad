@@ -341,6 +341,7 @@
     "selectPrompt": "左のリストからバックアップを選択するとプレビューが表示されます",
     "kind_cloud_wins": "クラウド版を採用 — ローカル版を保管",
     "kind_cloud_delete": "クラウド削除時のバックアップ",
+    "kind_local_wins": "ローカル版を採用 — 他端末の版を保管",
     "noPreview": "プレビューできる本文がありません",
     "restore": "新規ノートとして復元",
     "delete": "削除",

@@ -139,7 +139,12 @@ export type SyncPhase =
 	| null;
 
 /** 競合バックアップの種類。 */
-export type ConflictBackupKind = 'cloud_wins' | 'cloud_delete';
+/**
+ * - cloud_wins: 競合でクラウドの版が勝った。上書きされたローカルの版を残す
+ * - cloud_delete: クラウドで削除された。消したローカルの版を残す
+ * - local_wins: 競合でローカルの版が勝った。上書きされたクラウド（他端末）の版を残す
+ */
+export type ConflictBackupKind = 'cloud_wins' | 'cloud_delete' | 'local_wins';
 
 /** 同期中に参照するクラウド側のノートリスト取得結果。 */
 export interface CloudNoteListFetch {

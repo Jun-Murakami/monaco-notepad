@@ -88,6 +88,12 @@ func TestSyncEngine_ConflictDesktopNewerWins(t *testing.T) {
 	meta, ok := s.peer.cloudMeta("A")
 	require.True(t, ok)
 	assert.Equal(t, peerContentHash(cloudA), meta.ContentHash, "noteList のメタは Drive 上の本体と一致する")
+	// 負けたピアの版は、勝った端末（デスクトップ）にバックアップされる
+	entries, err := listCloudConflictBackups(filepath.Join(s.desk.dir, cloudWinBackupDirName))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "local_wins", entries[0].Kind)
+	assert.Equal(t, "older on mobile", entries[0].Note.Content)
 }
 
 func TestSyncEngine_BackupDisabled_NoBackupFiles(t *testing.T) {

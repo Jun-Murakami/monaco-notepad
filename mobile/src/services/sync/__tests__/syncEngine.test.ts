@@ -136,6 +136,10 @@ describe('競合と削除', () => {
 
 		expect(peer.readCloudNote('A')?.content).toBe('newer on mobile');
 		expect((await mobile.readNote('A'))?.content).toBe('newer on mobile');
+		// 負けたピアの版は、勝った端末（モバイル）にバックアップされる
+		expect(mobile.backups.map((b) => [b.kind, b.note.content])).toEqual([
+			['local_wins', 'older on desktop'],
+		]);
 		const meta = peer.readList().notes.find((n) => n.id === 'A');
 		expect(meta?.contentHash).toBe(
 			goContentHash(peer.readCloudNote('A') as PeerNote),
