@@ -2,86 +2,58 @@ package backend
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
-	"google.golang.org/api/drive/v3"
 )
 
 // Google Drive関連の操作を提供するインターフェース
 type DriveService interface {
 	// ---- 認証系 ----
-	InitializeDrive() error  // 初期化
-	AuthorizeDrive() error   // 認証
-	LogoutDrive() error      // ログアウト
-	CancelLoginDrive() error // 認証キャンセル
+	InitializeDrive() error    // 初期化
+	AuthorizeDrive() error     // 認証
+	LogoutDrive() error        // ログアウト
+	CancelLoginDrive() error   // 認証キャンセル
 	DeleteAllDriveData() error // Drive 上の全データを削除してログアウト
 
 	// ---- ノート同期系 ----
-	CreateNote(note *Note) error                           // ノート作成
-	UpdateNote(note *Note) error                           // ノート更新
-	DeleteNoteDrive(noteID string) error                   // ノート削除
-	SyncNotes() error                                      // ノートをただちに同期
-	UpdateNoteList() error                                 // ノートリスト更新
-	SaveNoteAndUpdateList(note *Note, isCreate bool) error // ノート保存+リスト更新をアトミックに実行
+	SyncNotes() error // ノートをただちに同期
+	RequestSync()     // ローカル変更後の同期要求（連続した保存はまとめてから同期する）
 
 	// ---- ユーティリティ ----
-	NotifyFrontendReady()                           // フロントエンド準備完了通知
-	RespondToMigration(choice string)               // マイグレーション選択を受信
-	IsConnected() bool                              // 接続状態確認
-	IsTestMode() bool                               // テストモード確認
-	GetDriveOperationsQueue() *DriveOperationsQueue // キューシステムを取得
+	NotifyFrontendReady()             // フロントエンド準備完了通知
+	RespondToMigration(choice string) // マイグレーション選択を受信
+	IsConnected() bool                // 接続状態確認
+	IsTestMode() bool                 // テストモード確認
 }
 
-// driveService はDriveServiceインターフェースの実装
+// driveService はDriveServiceインターフェースの実装。
+// 接続・認証・ストレージ移行のライフサイクルを持ち、同期そのものは syncEngine（sync_engine.go）が行う。
 type driveService struct {
 	ctx                 context.Context
 	auth                *authService
 	noteService         *noteService
 	appDataDir          string
 	notesDir            string
-	stopPollingChan     chan struct{}
 	logger              AppLogger
 	driveOpsFactory     func(useAppDataFolder bool) DriveOperations
 	driveOps            DriveOperations
-	driveSync           DriveSyncService
+	engine              *syncEngine
 	pollingService      *DrivePollingService
-	operationsQueue     *DriveOperationsQueue
 	migrationChoiceChan chan string
 	migrationChoiceWait time.Duration
 	syncMu              sync.Mutex
 	syncState           *SyncState
-}
+	baseStore           *syncBaseStore
+	gatewayRetry        gatewayRetry
 
-const (
-	cloudWinBackupDirName       = "cloud_conflict_backups"
-	maxCloudWinBackupFiles      = 100
-	cloudBackupFilePrefixWins   = "cloud_wins_"
-	cloudBackupFilePrefixDelete = "cloud_delete_"
-)
-
-type cloudWinBackupRecord struct {
-	Reason            string        `json:"reason"`
-	BackupCreatedAt   string        `json:"backupCreatedAt"`
-	NoteID            string        `json:"noteId"`
-	LocalModifiedTime string        `json:"localModifiedTime"`
-	CloudModifiedTime string        `json:"cloudModifiedTime"`
-	LocalNote         *Note         `json:"localNote"`
-	CloudNote         *Note         `json:"cloudNote"`
-	CloudMetadata     *NoteMetadata `json:"cloudMetadata,omitempty"`
-}
-
-type stagedCloudWinOverride struct {
-	localNote *Note
-	cloudMeta NoteMetadata
-	cloudNote *Note
+	requestMu    sync.Mutex
+	requestTimer *time.Timer
+	requestDelay time.Duration
 }
 
 // NewDriveService は新しいDriveServiceインスタンスを作成します
@@ -102,16 +74,14 @@ func NewDriveService(
 		noteService:         noteService,
 		appDataDir:          appDataDir,
 		notesDir:            notesDir,
-		stopPollingChan:     make(chan struct{}),
 		logger:              logger,
-		driveOpsFactory:     nil,
-		driveOps:            nil,
-		driveSync:           nil,
 		migrationChoiceChan: make(chan string, 1),
 		migrationChoiceWait: 5 * time.Minute,
 		syncState:           syncState,
+		baseStore:           newSyncBaseStore(appDataDir),
+		gatewayRetry:        defaultGatewayRetry,
+		requestDelay:        2 * time.Second,
 	}
-
 	ds.pollingService = NewDrivePollingService(ctx, ds)
 	return ds
 }
@@ -159,7 +129,6 @@ func (s *driveService) reconnect() error {
 	if !success {
 		return fmt.Errorf("reconnect: no valid token available")
 	}
-
 	if !s.IsConnected() {
 		return fmt.Errorf("reconnect: still not connected after auth")
 	}
@@ -178,20 +147,7 @@ func (s *driveService) reconnect() error {
 			return fmt.Errorf("reconnect: appDataFolder not accessible, re-authentication required: %w", err)
 		}
 	}
-
-	s.operationsQueue = NewDriveOperationsQueue(s.driveOps, s.logger)
-	if s.operationsQueue == nil {
-		return fmt.Errorf("reconnect: failed to create operations queue")
-	}
-	s.driveOps = s.operationsQueue
-
-	rootID, notesID := s.auth.GetDriveSync().FolderIDs()
-	s.driveSync = NewDriveSyncService(s.driveOps, notesID, rootID, s.logger)
-	if s.driveSync == nil {
-		return fmt.Errorf("reconnect: failed to create DriveSyncService")
-	}
-
-	return nil
+	return s.buildEngine(useAppData)
 }
 
 // 接続成功時の処理
@@ -261,7 +217,6 @@ func (s *driveService) onConnected() error {
 						s.logger.Console("Re-authentication failed: %v, falling back to legacy mode", err)
 						break
 					}
-					appDataOps = s.newDriveOperations(true)
 				}
 				if err := s.executeMigration(deleteOld); err != nil {
 					s.logger.Console("Migration failed: %v, falling back to legacy mode", err)
@@ -286,45 +241,36 @@ func (s *driveService) onConnected() error {
 		}
 	}
 
-	// 最終的なDriveOperationsを設定
 	s.driveOps = s.newDriveOperations(useAppData)
 	if s.driveOps == nil {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create DriveOperations"))
 	}
-
-	s.logger.Console("Initializing operations queue...")
-	s.operationsQueue = NewDriveOperationsQueue(s.driveOps, s.logger)
-	if s.operationsQueue == nil {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create operations queue"))
+	if err := s.buildEngine(useAppData); err != nil {
+		return s.auth.HandleOfflineTransition(err)
 	}
-	s.driveOps = s.operationsQueue
-
-	s.logger.Console("Ensuring Drive folders...")
-	if err := s.ensureDriveFolders(); err != nil {
+	if _, err := s.engine.gateway.ResolveLayout(); err != nil {
 		s.logger.ErrorCode(err, MsgDriveErrorFolderSetup, nil)
 		return s.auth.HandleOfflineTransition(err)
 	}
 
-	s.logger.Console("Initializing Drive sync service...")
-	rootID, notesID := s.auth.GetDriveSync().FolderIDs()
-	s.driveSync = NewDriveSyncService(
-		s.driveOps,
-		notesID,
-		rootID,
-		s.logger,
-	)
-	if s.driveSync == nil {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create DriveSyncService"))
-	}
-
-	s.logger.Console("Ensuring note list...")
-	if err := s.ensureNoteList(); err != nil {
-		s.logger.ErrorCode(err, MsgDriveErrorNoteListSetup, nil)
-		return s.auth.HandleOfflineTransition(err)
-	}
-
 	s.logger.InfoCode(MsgDriveConnected, nil)
-	go s.waitForFrontendAndStartSync()
+	go s.pollingService.WaitForFrontendAndStartSync()
+	return nil
+}
+
+// buildEngine は現在の driveOps で同期エンジンを組み立てる。
+func (s *driveService) buildEngine(useAppData bool) error {
+	api, ok := s.driveOps.(driveFileAPI)
+	if !ok {
+		return fmt.Errorf("drive operations do not support sync engine (%T)", s.driveOps)
+	}
+	gateway := newDriveGateway(api, s.gatewayRetry, useAppData)
+	s.engine = newSyncEngine(s.ctx, gateway, s.noteService, s.syncState, s.baseStore, s.logger, syncEngineOptions{
+		backupEnabled: func() bool { return isConflictBackupEnabled(s.appDataDir) },
+		backup: func(kind string, local *Note, cloud *Note) error {
+			return backupConflictLocalNote(s.appDataDir, kind, local, cloud)
+		},
+	})
 	return nil
 }
 
@@ -332,8 +278,10 @@ func (s *driveService) onConnected() error {
 func (s *driveService) LogoutDrive() error {
 	s.logger.Console("Logging out of Google Drive...")
 	s.pollingService.StopPolling()
-	if s.operationsQueue != nil {
-		s.operationsQueue.Cleanup()
+	s.stopRequestTimer()
+	// 次にサインインするアカウントの Drive へ、この Drive の同期記録を持ち込まない
+	if err := s.resetSyncBase(); err != nil {
+		s.logger.Console("LogoutDrive: failed to reset sync base: %v", err)
 	}
 	return s.auth.LogoutDrive()
 }
@@ -341,21 +289,19 @@ func (s *driveService) LogoutDrive() error {
 // DeleteAllDriveData は Drive 上の monaco-notepad フォルダを削除してログアウトする。
 // appDataFolder 空間とレガシー Drive 空間の両方から同名フォルダを削除し、
 // 完了後に LogoutDrive 相当の処理で token.json も削除する。
-// 削除対象が無い（未作成/既に消えている）場合でも無害にスキップする。
+// ローカルのノートは残し、次回ログイン時に全件アップロードされる（base を破棄するので、
+// 空のクラウドでローカルが消されることはない）。
 func (s *driveService) DeleteAllDriveData() error {
 	s.logger.Console("Deleting all Drive data and logging out...")
 
 	// 削除中に同期が走らないよう先に止める
 	s.pollingService.StopPolling()
-	if s.operationsQueue != nil {
-		s.operationsQueue.Cleanup()
-	}
+	s.stopRequestTimer()
 
 	if !s.IsConnected() {
 		return fmt.Errorf("not connected to Google Drive")
 	}
 
-	// appDataFolder / レガシー Drive の両方に対して monaco-notepad フォルダを削除
 	for _, useAppData := range []bool{true, false} {
 		ops := s.newDriveOperations(useAppData)
 		if ops == nil {
@@ -380,22 +326,23 @@ func (s *driveService) DeleteAllDriveData() error {
 		s.logger.Console("DeleteAllDriveData: failed to remove migration state: %v", err)
 	}
 
-	// ローカルのノートを次回ログイン時にすべて再アップロードする状態に遷移
-	// Drive noteList が存在しない状態を利用して pushLocalChanges 経路に乗せる
+	if err := s.resetSyncBase(); err != nil {
+		s.logger.Console("DeleteAllDriveData: failed to reset sync base: %v", err)
+	}
 	if s.syncState != nil && s.noteService != nil {
-		var allIDs []string
-		s.noteService.WithLock(func() {
-			allIDs = make([]string, 0, len(s.noteService.noteList.Notes))
-			for _, meta := range s.noteService.noteList.Notes {
-				allIDs = append(allIDs, meta.ID)
-			}
-		})
-		s.syncState.MarkForFullReupload(allIDs)
-		s.logger.Console("DeleteAllDriveData: marked %d notes for full reupload on next login", len(allIDs))
+		for _, meta := range s.noteService.SnapshotNoteList().Notes {
+			s.syncState.MarkNoteDirty(meta.ID)
+		}
 	}
 
-	// ログアウト（内部で token.json を削除）
 	return s.auth.LogoutDrive()
+}
+
+func (s *driveService) resetSyncBase() error {
+	if s.engine != nil {
+		return s.engine.ResetBase()
+	}
+	return s.baseStore.Clear()
 }
 
 // 認証をキャンセル
@@ -428,153 +375,7 @@ func (s *driveService) RespondToMigration(choice string) {
 	}
 }
 
-// フロントエンドの準備完了を待って同期開始 (ポーリング用ゴルーチン起動)
-func (s *driveService) waitForFrontendAndStartSync() {
-	go s.pollingService.WaitForFrontendAndStartSync()
-}
-
-// ポーリングインターバルをリセット
-func (s *driveService) resetPollingInterval() {
-	s.pollingService.ResetPollingInterval()
-}
-
-// ノートを作成する
-func (s *driveService) CreateNote(note *Note) error {
-	if !s.IsConnected() {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
-	}
-	s.logger.InfoCode(MsgDriveUploading, map[string]interface{}{"noteTitle": note.Title})
-	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	err := s.driveSync.CreateNote(s.ctx, note)
-	if err != nil {
-		if strings.Contains(err.Error(), "operation cancelled") {
-			s.logger.Console("Note creation was cancelled: %v", err)
-			return nil
-		}
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note: %v", err))
-	}
-	s.logger.InfoCode(MsgDriveUploaded, map[string]interface{}{"noteId": note.ID})
-	s.logger.NotifyDriveStatus(s.ctx, "synced")
-	s.resetPollingInterval()
-	return nil
-}
-
-// ノートを更新する
-func (s *driveService) UpdateNote(note *Note) error {
-	if !s.IsConnected() {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
-	}
-	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	s.logger.InfoCode(MsgDriveUpdating, map[string]interface{}{"noteId": note.ID})
-	err := s.driveSync.UpdateNote(s.ctx, note)
-	if err != nil {
-		if strings.Contains(err.Error(), "operation cancelled") {
-			s.logger.Console("Note update was cancelled: %v", err)
-			return nil
-		}
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note: %v", err))
-	}
-	s.logger.InfoCode(MsgDriveUpdated, map[string]interface{}{"noteId": note.ID})
-	s.logger.NotifyDriveStatus(s.ctx, "synced")
-	s.resetPollingInterval()
-	return nil
-}
-
-// ノートを削除
-func (s *driveService) DeleteNoteDrive(noteID string) error {
-	if !s.IsConnected() {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
-	}
-	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	s.logger.InfoCode(MsgDriveDeletingNote, map[string]interface{}{"noteId": noteID})
-	err := s.driveSync.DeleteNote(s.ctx, noteID)
-	if err != nil {
-		if strings.Contains(err.Error(), "operation cancelled") {
-			s.logger.Console("Note deletion was cancelled: %v", err)
-			return nil
-		}
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to delete note from cloud"))
-	}
-	s.logger.InfoCode(MsgDriveDeletedNote, nil)
-	s.logger.NotifyDriveStatus(s.ctx, "synced")
-	s.resetPollingInterval()
-	return nil
-}
-
-func (s *driveService) UpdateNoteList() error {
-	s.syncMu.Lock()
-	defer s.syncMu.Unlock()
-	return s.updateNoteListInternal()
-}
-
-// SaveNoteAndUpdateList はノートのアップロードとノートリスト更新を syncMu 配下でアトミックに実行する。
-// SaveNote の非同期ゴルーチンから呼ばれ、SyncNotes とのレース条件を防止する。
-func (s *driveService) SaveNoteAndUpdateList(note *Note, isCreate bool) error {
-	s.syncMu.Lock()
-	defer s.syncMu.Unlock()
-
-	if !s.IsConnected() {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
-	}
-
-	if isCreate {
-		s.logger.InfoCode(MsgDriveUploading, map[string]interface{}{"noteTitle": note.Title})
-		err := s.driveSync.CreateNote(s.ctx, note)
-		if err != nil {
-			if strings.Contains(err.Error(), "operation cancelled") {
-				return nil
-			}
-			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note: %v", err))
-		}
-	} else {
-		s.logger.InfoCode(MsgDriveUpdating, map[string]interface{}{"noteId": note.ID})
-		err := s.driveSync.UpdateNote(s.ctx, note)
-		if err != nil {
-			if strings.Contains(err.Error(), "operation cancelled") {
-				return nil
-			}
-			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note: %v", err))
-		}
-	}
-
-	if err := s.noteService.SaveNoteList(); err != nil {
-		return err
-	}
-	if err := s.updateNoteListInternal(); err != nil {
-		return err
-	}
-
-	s.resetPollingInterval()
-	return nil
-}
-
-func (s *driveService) updateNoteListInternal() error {
-	if !s.IsConnected() {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("drive service is not initialized"))
-	}
-	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	// noteList は UI 編集と共有なので、アップロード前に snapshot を取って渡す
-	// (UpdateNoteList 内部で MarshalIndent + Notes 上書きするため、
-	// 直接ポインタを渡すと UI の SaveNote と race する)。
-	noteListSnapshot := s.noteService.SnapshotNoteList()
-	s.logger.Console("Modifying note list, Notes count: %d", len(noteListSnapshot.Notes))
-
-	err := s.driveSync.UpdateNoteList(s.ctx, noteListSnapshot, s.auth.GetDriveSync().NoteListID())
-	if err != nil {
-		if strings.Contains(err.Error(), "operation cancelled") {
-			s.logger.Console("Note list update was cancelled: %v", err)
-			return nil
-		}
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note list"))
-	}
-
-	s.pollingService.RefreshChangeToken()
-	s.logger.Console("Note list updated")
-	s.logger.NotifyDriveStatus(s.ctx, "synced")
-	return nil
-}
-
-// ノート同期: SyncNotes (今すぐ同期)
+// SyncNotes は同期を 1 サイクル実行する（ポーリング・今すぐ同期・保存後の同期要求から呼ばれる）。
 func (s *driveService) SyncNotes() error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
@@ -582,1453 +383,54 @@ func (s *driveService) SyncNotes() error {
 	if !s.IsConnected() {
 		return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
 	}
-	if s.driveSync == nil {
-		return fmt.Errorf("drive sync service not yet initialized")
+	if s.engine == nil {
+		return fmt.Errorf("drive sync engine not yet initialized")
 	}
 
 	s.logger.NotifyDriveStatus(s.ctx, "syncing")
-
-	noteListID := s.auth.GetDriveSync().NoteListID()
-	if noteListID == "" {
-		s.logger.InfoCode(MsgDriveSyncFirstPush, nil)
-		return s.pushLocalChanges()
-	}
-
-	meta, err := s.driveOps.GetFileMetadata(noteListID)
+	report, err := s.engine.Sync()
 	if err != nil {
-		s.logger.ErrorCode(err, MsgDriveErrorGetNoteListMeta, nil)
+		s.logger.ErrorCode(err, MsgDriveErrorSyncFailed, nil)
 		return s.auth.HandleOfflineTransition(err)
 	}
-	cloudModifiedTime := meta.ModifiedTime
-
-	cloudChanged := cloudModifiedTime != s.syncState.LastSyncedDriveTs
-	localDirty := s.syncState.IsDirty()
-
-	switch {
-	case !cloudChanged && !localDirty:
-		s.logger.Console("Sync: no changes detected")
-		s.notifySyncComplete()
-		return nil
-
-	case !cloudChanged && localDirty:
-		s.logger.InfoCode(MsgDriveSyncPushLocalChanges, nil)
-		return s.pushLocalChanges()
-
-	case cloudChanged && !localDirty:
-		s.logger.InfoCode(MsgDriveSyncPullCloudChanges, nil)
-		return s.pullCloudChanges(noteListID)
-
-	default:
-		s.logger.InfoCode(MsgDriveSyncConflictDetected, nil)
-		return s.resolveConflict(noteListID)
-	}
-}
-
-func (s *driveService) pushLocalChanges() error {
-	dirtyIDs, deletedIDs, deletedFolderIDs, lastSyncedHashes, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
-	clearSnapshotRevision := snapshotRevision
-	uploadFailures := 0
-	deleteFailures := 0
-	uploadedHashes := make(map[string]string, len(dirtyIDs))
-
-	// Pass 1: dirty 全件の hash を計算して、実際に Drive へ上げる必要があるノートだけ
-	// リストアップする。map イテレーション順がランダムでも、ここで順序を固定すれば
-	// 進捗メッセージは 1..M の連番で綺麗に出せる（Resume 時も同様）。
-	type pendingUpload struct {
-		id   string
-		note *Note
-		hash string
-	}
-	toUpload := make([]pendingUpload, 0, len(dirtyIDs))
-	for id := range dirtyIDs {
-		note, err := s.noteService.LoadNote(id)
-		if err != nil {
-			s.logger.ErrorCode(err, MsgDriveErrorLoadDirtyNote, map[string]interface{}{"noteId": id})
-			uploadFailures++
-			continue
-		}
-		currentHash := computeContentHash(note)
-		uploadedHashes[id] = currentHash
-
-		// Resume 最適化: 前回途中で終了して既に Drive にあるノートは Drive 呼び出しをスキップ。
-		// uploadedHashes には入れるので最終 commit (ClearDirtyIfUnchanged) で矛盾しない。
-		// ユーザーが再起動までに編集していれば hash が変わるので正しく再 upload される。
-		if prev, ok := lastSyncedHashes[id]; ok && prev == currentHash {
-			continue
-		}
-		toUpload = append(toUpload, pendingUpload{id: id, note: note, hash: currentHash})
-	}
-
-	// Pass 2: 確定した件数で綺麗な進捗表示 (1/M, 2/M, ..., M/M)
-	uploadTotal := len(toUpload)
-	for i, p := range toUpload {
-		s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{
-			"noteId":  p.id,
-			"current": i + 1,
-			"total":   uploadTotal,
-		})
-		// CreateNote は内部で 1 回だけ GetFileID を叩いて upsert する。
-		if err := s.driveSync.CreateNote(s.ctx, p.note); err != nil {
-			s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": p.id})
-			uploadFailures++
-			continue
-		}
-		// 個別に永続化: 次回起動時の resume に使う
-		s.syncState.UpdateSyncedNoteHash(p.id, p.hash)
-	}
-
-	for id := range deletedIDs {
-		s.logger.InfoCode(MsgDriveSyncDeleteNote, map[string]interface{}{"noteId": id})
-		if err := s.driveSync.DeleteNote(s.ctx, id); err != nil {
-			if isDriveNotFoundError(err) {
-				s.logger.InfoCode(MsgDriveNoteAlreadyAbsent, map[string]interface{}{"noteId": id})
-			} else {
-				s.logger.ErrorCode(err, MsgDriveErrorDeleteNote, map[string]interface{}{"noteId": id})
-				deleteFailures++
-			}
-		}
-		// orphan復元ループ防止: ローカル物理ファイルも確実に削除
-		_ = s.noteService.DeleteNoteFromSync(id)
-	}
-
-	if uploadFailures > 0 || deleteFailures > 0 {
-		s.logger.InfoCode(MsgDrivePartialPushDeferred, map[string]interface{}{"uploadFailures": uploadFailures, "deleteFailures": deleteFailures})
-		s.pollingService.RefreshChangeToken()
-		return nil
-	}
-
-	latestDirtyIDs, latestDeletedIDs, latestDeletedFolderIDs, _, latestRevision := s.syncState.GetDirtySnapshotWithRevision()
-	if latestRevision != snapshotRevision {
-		currentHashes := make(map[string]string, len(s.noteService.noteList.Notes))
-		for _, n := range s.noteService.noteList.Notes {
-			currentHashes[n.ID] = n.ContentHash
-		}
-
-		if hasPendingPayloadChanges(
-			dirtyIDs,
-			deletedIDs,
-			deletedFolderIDs,
-			latestDirtyIDs,
-			latestDeletedIDs,
-			latestDeletedFolderIDs,
-			uploadedHashes,
-			currentHashes,
-		) {
-			s.logger.InfoCode(MsgDriveDeferNoteListUpload, nil)
-			s.pollingService.RefreshChangeToken()
-			return nil
-		}
-
-		clearSnapshotRevision = latestRevision
-		s.logger.Console("Drive: only note-list changes arrived during push; continuing note list upload")
-	}
-
-	if err := s.noteService.SaveNoteList(); err != nil {
-		return fmt.Errorf("failed to save note list: %w", err)
-	}
-
-	// アップロード前に snapshot 取得 (UI と共有しているスライスをそのまま渡さない)
-	noteListSnapshotForUpload := s.noteService.SnapshotNoteList()
-	// dirty ノートに関しては「Pass 1/2 で Drive に実際に上げた内容」と整合性を取る。
-	// SnapshotNoteList 時点で in-memory noteList[id].ContentHash が
-	// 「push 中に走ったユーザー編集」で先行している可能性があり、その値で
-	// Drive 側 noteList を上書きすると「個別ノートファイル (Pass 2 で上げた古い内容)」
-	// と「noteList の hash (新しい内容)」が乖離する。
-	// (続く noteHashes の上書きも同じ趣旨)
-	alignNoteListHashesWithUploaded(noteListSnapshotForUpload, dirtyIDs, uploadedHashes)
-
-	noteListID := s.auth.GetDriveSync().NoteListID()
-	if noteListID == "" {
-		if err := s.driveSync.CreateNoteList(s.ctx, noteListSnapshotForUpload); err != nil {
-			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to create note list: %w", err))
-		}
-		rootID, notesID := s.auth.GetDriveSync().FolderIDs()
-		newNoteListID, err := s.driveOps.GetFileID("noteList_v2.json", notesID, rootID)
-		if err != nil {
-			return fmt.Errorf("failed to get noteList file ID: %w", err)
-		}
-		s.auth.GetDriveSync().SetNoteListID(newNoteListID)
-		noteListID = newNoteListID
-	} else {
-		if err := s.driveSync.UpdateNoteList(s.ctx, noteListSnapshotForUpload, noteListID); err != nil {
-			return s.auth.HandleOfflineTransition(fmt.Errorf("failed to update note list: %w", err))
-		}
-	}
-
-	meta, err := s.driveOps.GetFileMetadata(noteListID)
-	if err != nil {
-		s.logger.ErrorCode(err, MsgDriveErrorGetUpdatedMeta, nil)
-	}
-
-	driveTs := ""
-	if meta != nil {
-		driveTs = meta.ModifiedTime
-	}
-	var noteHashes map[string]string
-	s.noteService.WithLock(func() {
-		noteHashes = make(map[string]string, len(s.noteService.noteList.Notes))
-		for _, n := range s.noteService.noteList.Notes {
-			noteHashes[n.ID] = n.ContentHash
-		}
-	})
-	// dirty ノートは Pass 1/2 で Drive に上げた hash で固定する。
-	// in-memory noteList は push 進行中に走ったユーザー編集で先行していることがあり、
-	// その「未送信の hash」を LastSyncedNoteHash に書くと、次回 push の resume 最適化
-	// (lastSyncedHashes[id] == currentHash なら skip) が「もう同期済み」と誤判定して
-	// 新しい本文をアップロードしない。これがユーザー報告の
-	// 「新規ノート直後の編集がもう片方の端末に永久に届かない」バグの根因。
-	for id := range dirtyIDs {
-		if h, ok := uploadedHashes[id]; ok {
-			noteHashes[id] = h
-		}
-	}
-	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
-		s.logger.Console("Sync state changed during push; retaining dirty flags for next sync")
-		s.syncState.UpdateSyncedState(driveTs, noteHashes)
-	}
-
-	// 全再アップロード完了 → フラグを落とす（再ログイン後の通常同期に復帰）
-	s.syncState.ClearFullReupload()
-
-	s.pollingService.RefreshChangeToken()
+	s.logger.Console("Sync done: uploaded=%d downloaded=%d deletedLocal=%d deletedRemote=%d failures=%d listUploaded=%v attempts=%d",
+		report.Uploaded, report.Downloaded, report.DeletedLocal, report.DeletedRemote, report.Failures, report.ListUploaded, report.Attempts)
 	s.notifySyncComplete()
-	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
 	return nil
 }
 
-func (s *driveService) pullCloudChanges(noteListID string) error {
-	_, _, _, _, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
-
-	cloudNoteList, err := s.driveSync.DownloadNoteList(s.ctx, noteListID)
-	if err != nil {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to download note list: %w", err))
-	}
-	if cloudNoteList == nil {
-		s.logger.Console("Cloud noteList is empty, nothing to download")
-		s.notifySyncComplete()
-		return nil
-	}
-
-	var localMap map[string]NoteMetadata
-	s.noteService.WithLock(func() {
-		localMap = make(map[string]NoteMetadata, len(s.noteService.noteList.Notes))
-		for _, n := range s.noteService.noteList.Notes {
-			localMap[n.ID] = n
-		}
-	})
-	cloudMap := make(map[string]NoteMetadata, len(cloudNoteList.Notes))
-	for _, n := range cloudNoteList.Notes {
-		cloudMap[n.ID] = n
-	}
-	backupEnabled := s.isCloudConflictBackupEnabled()
-
-	downloadCount := 0
-	missingCloudNoteIDs := make(map[string]bool)
-	stagedDownloads := make(map[string]*Note)
-	for _, cloudNote := range cloudNoteList.Notes {
-		localNote, exists := localMap[cloudNote.ID]
-		if !exists || localNote.ContentHash != cloudNote.ContentHash {
-			s.logger.InfoCode(MsgDriveSyncDownloadNote, map[string]interface{}{"noteId": cloudNote.ID})
-			note, dlErr := s.driveSync.DownloadNote(s.ctx, cloudNote.ID)
-			if dlErr != nil {
-				if isDriveNotFoundError(dlErr) {
-					s.logger.InfoCode(MsgDriveNoteMissingRemoveList, map[string]interface{}{"noteId": cloudNote.ID})
-					missingCloudNoteIDs[cloudNote.ID] = true
-					continue
-				}
-				s.logger.ErrorCode(dlErr, MsgDriveErrorDownloadNote, map[string]interface{}{"noteId": cloudNote.ID})
-				continue
-			}
-			stagedDownloads[cloudNote.ID] = note
-			downloadCount++
-			if downloadCount > 0 && downloadCount%10 == 0 {
-				s.logger.NotifyFrontendSyncedAndReload(s.ctx)
-			}
-		}
-	}
-
-	removedMissing := filterNoteListByMissingNotes(cloudNoteList, missingCloudNoteIDs)
-	if removedMissing > 0 {
-		if err := s.driveSync.UpdateNoteList(s.ctx, cloudNoteList, noteListID); err != nil {
-			s.logger.ErrorCode(err, MsgDriveErrorRepairCloudList, nil)
-		}
-	}
-
-	cloudMap = make(map[string]NoteMetadata, len(cloudNoteList.Notes))
-	for _, n := range cloudNoteList.Notes {
-		cloudMap[n.ID] = n
-	}
-
-	_, _, _, _, latestRevision := s.syncState.GetDirtySnapshotWithRevision()
-	if latestRevision != snapshotRevision {
-		s.logger.InfoCode(MsgDriveDeferCloudApply, nil)
-		s.pollingService.RefreshChangeToken()
-		return nil
-	}
-
-	if len(stagedDownloads) > 0 {
-		downloadIDs := make([]string, 0, len(stagedDownloads))
-		for id := range stagedDownloads {
-			downloadIDs = append(downloadIDs, id)
-		}
-		sort.Strings(downloadIDs)
-		for _, id := range downloadIDs {
-			if err := s.noteService.SaveNoteFromSync(stagedDownloads[id]); err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorSaveDownloadedNote, map[string]interface{}{"noteId": id})
-				continue
-			}
-		}
-	}
-
-	// snapshot を取って iterate (UI 編集中の slice をそのまま走査しない)
-	var localNotesSnapshot []NoteMetadata
-	s.noteService.WithLock(func() {
-		localNotesSnapshot = append([]NoteMetadata(nil), s.noteService.noteList.Notes...)
-	})
-	for _, localNote := range localNotesSnapshot {
-		if _, exists := cloudMap[localNote.ID]; !exists {
-			s.logger.InfoCode(MsgDriveSyncRemoveLocalDeleted, map[string]interface{}{"noteId": localNote.ID})
-			if backupEnabled {
-				backupPath, backupErr := s.backupLocalNoteBeforeCloudDelete(localNote.ID, "cloud-delete-during-pull")
-				if backupErr != nil {
-					s.logger.Console("Drive: failed to backup local note %s before cloud deletion: %v", localNote.ID, backupErr)
-				} else {
-					s.logger.Console("Drive: backed up local note %s before cloud deletion: %s", localNote.ID, backupPath)
-				}
-			}
-			if err := s.noteService.DeleteNoteFromSync(localNote.ID); err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorRemoveLocalNote, map[string]interface{}{"noteId": localNote.ID})
-			}
-		}
-	}
-
-	// クラウドからの pull 結果を一括で適用し、そのまま saveNoteList まで同じ
-	// クリティカルセクション内で実行する。UI 側 SaveNote と排他にしないと
-	// MarshalIndent 中に slice が変更されて panic する。
-	var pullSaveErr error
-	s.noteService.WithLock(func() {
-		s.noteService.noteList.Version = cloudNoteList.Version
-		s.noteService.noteList.Notes = cloudNoteList.Notes
-		s.noteService.noteList.Folders = cloudNoteList.Folders
-		s.noteService.noteList.TopLevelOrder = cloudNoteList.TopLevelOrder
-		s.noteService.noteList.ArchivedTopLevelOrder = cloudNoteList.ArchivedTopLevelOrder
-		s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
-		pullSaveErr = s.noteService.saveNoteList()
-	})
-	if pullSaveErr != nil {
-		return fmt.Errorf("failed to save note list after pull: %w", pullSaveErr)
-	}
-
-	meta, err := s.driveOps.GetFileMetadata(noteListID)
-	driveTs := ""
-	if err == nil && meta != nil {
-		driveTs = meta.ModifiedTime
-	}
-	noteHashes := make(map[string]string, len(cloudNoteList.Notes))
-	for _, n := range cloudNoteList.Notes {
-		noteHashes[n.ID] = n.ContentHash
-	}
-	if !s.syncState.ClearDirtyIfUnchanged(snapshotRevision, driveTs, noteHashes) {
-		s.logger.Console("Sync state changed during pull; retaining dirty flags for next sync")
-		s.syncState.UpdateSyncedState(driveTs, noteHashes)
-	}
-
-	s.notifySyncComplete()
-	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
-	return nil
-}
-
-func (s *driveService) resolveConflict(noteListID string) error {
-	dirtyIDs, deletedIDs, deletedFolderIDs, lastSyncedHashes, snapshotRevision := s.syncState.GetDirtySnapshotWithRevision()
-	clearSnapshotRevision := snapshotRevision
-	processedDirtyHashes := make(map[string]string, len(dirtyIDs))
-	backupEnabled := s.isCloudConflictBackupEnabled()
-
-	cloudNoteList, err := s.driveSync.DownloadNoteList(s.ctx, noteListID)
-	if err != nil {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to download note list: %w", err))
-	}
-	if cloudNoteList == nil {
-		return s.pushLocalChanges()
-	}
-
-	cloudMap := make(map[string]NoteMetadata, len(cloudNoteList.Notes))
-	for _, n := range cloudNoteList.Notes {
-		cloudMap[n.ID] = n
-	}
-	missingCloudNoteIDs := make(map[string]bool)
-	uploadFailures := 0
-	deleteFailures := 0
-	dirtySynced := make(map[string]bool, len(dirtyIDs))
-	stagedDownloads := make(map[string]*Note)
-	stagedCloudWinOverrides := make(map[string]stagedCloudWinOverride)
-
-	// ローカルで削除済みのフォルダ配下ノートは削除対象として扱う
-	if len(deletedFolderIDs) > 0 {
-		for _, cloudNote := range cloudNoteList.Notes {
-			if deletedFolderIDs[cloudNote.FolderID] {
-				deletedIDs[cloudNote.ID] = true
-			}
-		}
-	}
-
-	// アップロード分岐 (local wins / cloud 未存在) の件数を事前カウントして current/total 表示に使う
-	uploadTotal := 0
-	for id := range dirtyIDs {
-		cloudNote, existsInCloud := cloudMap[id]
-		if !existsInCloud || cloudNote.ContentHash == lastSyncedHashes[id] {
-			uploadTotal++
-		}
-	}
-	uploadIndex := 0
-
-	for id := range dirtyIDs {
-		cloudNote, existsInCloud := cloudMap[id]
-		lastHash := lastSyncedHashes[id]
-
-		if !existsInCloud || cloudNote.ContentHash == lastHash {
-			note, err := s.noteService.LoadNote(id)
-			if err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorLoadDirtyNote, map[string]interface{}{"noteId": id})
-				uploadFailures++
-				continue
-			}
-			uploadIndex++
-			s.logger.InfoCode(MsgDriveSyncUploadNote, map[string]interface{}{
-				"noteId":  id,
-				"current": uploadIndex,
-				"total":   uploadTotal,
-			})
-			// CreateNote は upsert なので Create/Update 分岐は不要 (pushLocalChanges と同様)
-			if err := s.driveSync.CreateNote(s.ctx, note); err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorCreateNote, map[string]interface{}{"noteId": id})
-				uploadFailures++
-				continue
-			}
-			processedDirtyHashes[id] = computeContentHash(note)
-			dirtySynced[id] = true
-		} else {
-			localNote, err := s.noteService.LoadNote(id)
-			if err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorLoadLocalForConflict, map[string]interface{}{"noteId": id})
-				uploadFailures++
-				continue
-			}
-			if isModifiedTimeAfter(localNote.ModifiedTime, cloudNote.ModifiedTime) {
-				s.logger.InfoCode(MsgDriveConflictKeepLocal, map[string]interface{}{"noteId": id})
-				if err := s.driveSync.UpdateNote(s.ctx, localNote); err != nil {
-					s.logger.ErrorCode(err, MsgDriveErrorUploadNote, map[string]interface{}{"noteId": id})
-					uploadFailures++
-				} else {
-					processedDirtyHashes[id] = computeContentHash(localNote)
-				}
-			} else {
-				s.logger.InfoCode(MsgDriveConflictKeepCloud, map[string]interface{}{"noteId": id})
-				downloaded, dlErr := s.driveSync.DownloadNote(s.ctx, id)
-				if dlErr != nil {
-					if isDriveNotFoundError(dlErr) {
-						s.logger.InfoCode(MsgDriveNoteMissingUploadLocal, map[string]interface{}{"noteId": id})
-						if err := s.driveSync.CreateNote(s.ctx, localNote); err != nil {
-							s.logger.ErrorCode(err, MsgDriveErrorRecreateMissingNote, map[string]interface{}{"noteId": id})
-							missingCloudNoteIDs[id] = true
-							uploadFailures++
-							continue
-						}
-						processedDirtyHashes[id] = computeContentHash(localNote)
-						dirtySynced[id] = true
-						continue
-					}
-					s.logger.ErrorCode(dlErr, MsgDriveErrorDownloadNote, map[string]interface{}{"noteId": id})
-					uploadFailures++
-					continue
-				}
-
-				if backupEnabled {
-					stagedCloudWinOverrides[id] = stagedCloudWinOverride{
-						localNote: localNote,
-						cloudMeta: cloudNote,
-						cloudNote: downloaded,
-					}
-				}
-				stagedDownloads[id] = downloaded
-				processedDirtyHashes[id] = computeContentHash(downloaded)
-				dirtySynced[id] = true
-			}
-		}
-	}
-
-	for id := range deletedIDs {
-		if _, exists := cloudMap[id]; exists {
-			s.logger.InfoCode(MsgDriveSyncDeleteNote, map[string]interface{}{"noteId": id})
-			if err := s.driveSync.DeleteNote(s.ctx, id); err != nil {
-				if isDriveNotFoundError(err) {
-					s.logger.InfoCode(MsgDriveNoteAlreadyAbsent, map[string]interface{}{"noteId": id})
-					continue
-				}
-				s.logger.ErrorCode(err, MsgDriveErrorDeleteNote, map[string]interface{}{"noteId": id})
-				deleteFailures++
-			}
-		}
-	}
-
-	var localMap map[string]NoteMetadata
-	var localFoldersSnapshot []Folder
-	var localTopLevelSnapshot []TopLevelItem
-	var localArchivedTopLevelSnapshot []TopLevelItem
-	var localCollapsedFolderSnapshot []string
-	s.noteService.WithLock(func() {
-		localMap = make(map[string]NoteMetadata, len(s.noteService.noteList.Notes))
-		for _, n := range s.noteService.noteList.Notes {
-			localMap[n.ID] = n
-		}
-		localFoldersSnapshot = append([]Folder(nil), s.noteService.noteList.Folders...)
-		localTopLevelSnapshot = append([]TopLevelItem(nil), s.noteService.noteList.TopLevelOrder...)
-		localArchivedTopLevelSnapshot = append([]TopLevelItem(nil), s.noteService.noteList.ArchivedTopLevelOrder...)
-		localCollapsedFolderSnapshot = append([]string(nil), s.noteService.noteList.CollapsedFolderIDs...)
-	})
-	for _, cloudNote := range cloudNoteList.Notes {
-		if dirtyIDs[cloudNote.ID] || deletedIDs[cloudNote.ID] {
-			continue
-		}
-		localNote, exists := localMap[cloudNote.ID]
-		if !exists || localNote.ContentHash != cloudNote.ContentHash {
-			s.logger.InfoCode(MsgDriveSyncDownloadRemoteNote, map[string]interface{}{"noteId": cloudNote.ID})
-			downloaded, dlErr := s.driveSync.DownloadNote(s.ctx, cloudNote.ID)
-			if dlErr != nil {
-				if isDriveNotFoundError(dlErr) {
-					s.logger.InfoCode(MsgDriveNoteMissingRemoveList, map[string]interface{}{"noteId": cloudNote.ID})
-					missingCloudNoteIDs[cloudNote.ID] = true
-					continue
-				}
-				s.logger.ErrorCode(dlErr, MsgDriveErrorDownloadNote, map[string]interface{}{"noteId": cloudNote.ID})
-				continue
-			}
-			stagedDownloads[cloudNote.ID] = downloaded
-		}
-	}
-
-	filterNoteListByMissingNotes(cloudNoteList, missingCloudNoteIDs)
-	cloudMap = make(map[string]NoteMetadata, len(cloudNoteList.Notes))
-	for _, n := range cloudNoteList.Notes {
-		cloudMap[n.ID] = n
-	}
-
-	latestDirtyIDs, latestDeletedIDs, latestDeletedFolderIDs, _, latestRevision := s.syncState.GetDirtySnapshotWithRevision()
-	if latestRevision != snapshotRevision {
-		var currentHashes map[string]string
-		s.noteService.WithLock(func() {
-			currentHashes = make(map[string]string, len(s.noteService.noteList.Notes))
-			for _, n := range s.noteService.noteList.Notes {
-				currentHashes[n.ID] = n.ContentHash
-			}
-		})
-
-		if hasPendingPayloadChanges(
-			dirtyIDs,
-			deletedIDs,
-			deletedFolderIDs,
-			latestDirtyIDs,
-			latestDeletedIDs,
-			latestDeletedFolderIDs,
-			processedDirtyHashes,
-			currentHashes,
-		) {
-			s.logger.InfoCode(MsgDriveDeferConflictMerge, nil)
-			s.pollingService.RefreshChangeToken()
-			return nil
-		}
-
-		clearSnapshotRevision = latestRevision
-		s.logger.Console("Drive: only note-list changes arrived during conflict resolution; continuing merge")
-	}
-
-	if len(stagedDownloads) > 0 {
-		downloadIDs := make([]string, 0, len(stagedDownloads))
-		for id := range stagedDownloads {
-			downloadIDs = append(downloadIDs, id)
-		}
-		sort.Strings(downloadIDs)
-		for _, id := range downloadIDs {
-			if backupEnabled {
-				if override, ok := stagedCloudWinOverrides[id]; ok {
-					backupPath, backupErr := s.backupLocalNoteBeforeCloudOverride(
-						override.localNote,
-						override.cloudMeta,
-						override.cloudNote,
-					)
-					if backupErr != nil {
-						s.logger.Console("Drive: failed to backup local note %s before cloud overwrite: %v", id, backupErr)
-					} else {
-						s.logger.Console("Drive: backed up local note %s before cloud overwrite: %s", id, backupPath)
-					}
-				}
-			}
-
-			if err := s.noteService.SaveNoteFromSync(stagedDownloads[id]); err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorSaveDownloadedNote, map[string]interface{}{"noteId": id})
-				uploadFailures++
-				continue
-			}
-		}
-	}
-
-	// ローカルで削除済みのノートの物理ファイルを確実に削除する
-	// （前回の整合性修復やsync中断で物理ファイルが残っている可能性があるため、
-	//   ValidateIntegrity がorphanとして復元→再削除の無限ループを防止する）
-	for id := range deletedIDs {
-		if err := s.noteService.DeleteNoteFromSync(id); err != nil {
-			s.logger.Console("Drive: failed to clean up local file for deleted note %s: %v", id, err)
-		}
-	}
-
-	var localNotesSnapshot2 []NoteMetadata
-	s.noteService.WithLock(func() {
-		localNotesSnapshot2 = append([]NoteMetadata(nil), s.noteService.noteList.Notes...)
-	})
-	for _, localNote := range localNotesSnapshot2 {
-		if _, inCloud := cloudMap[localNote.ID]; !inCloud && !dirtyIDs[localNote.ID] && !deletedIDs[localNote.ID] {
-			s.logger.InfoCode(MsgDriveSyncRemoveLocalDeleted, map[string]interface{}{"noteId": localNote.ID})
-			if backupEnabled {
-				backupPath, backupErr := s.backupLocalNoteBeforeCloudDelete(localNote.ID, "cloud-delete-during-conflict-merge")
-				if backupErr != nil {
-					s.logger.Console("Drive: failed to backup local note %s before cloud deletion: %v", localNote.ID, backupErr)
-				} else {
-					s.logger.Console("Drive: backed up local note %s before cloud deletion: %s", localNote.ID, backupPath)
-				}
-			}
-			if err := s.noteService.DeleteNoteFromSync(localNote.ID); err != nil {
-				s.logger.ErrorCode(err, MsgDriveErrorRemoveLocalNote, map[string]interface{}{"noteId": localNote.ID})
-			}
-		}
-	}
-
-	filteredFolders := make([]Folder, 0, len(cloudNoteList.Folders))
-	for _, folder := range cloudNoteList.Folders {
-		if deletedFolderIDs[folder.ID] {
-			continue
-		}
-		filteredFolders = append(filteredFolders, folder)
-	}
-
-	filteredTopLevelOrder := make([]TopLevelItem, 0, len(cloudNoteList.TopLevelOrder))
-	for _, item := range cloudNoteList.TopLevelOrder {
-		if item.Type == "folder" && deletedFolderIDs[item.ID] {
-			continue
-		}
-		if item.Type == "note" && deletedIDs[item.ID] {
-			continue
-		}
-		filteredTopLevelOrder = append(filteredTopLevelOrder, item)
-	}
-
-	filteredArchivedTopLevelOrder := make([]TopLevelItem, 0, len(cloudNoteList.ArchivedTopLevelOrder))
-	for _, item := range cloudNoteList.ArchivedTopLevelOrder {
-		if item.Type == "folder" && deletedFolderIDs[item.ID] {
-			continue
-		}
-		if item.Type == "note" && deletedIDs[item.ID] {
-			continue
-		}
-		filteredArchivedTopLevelOrder = append(filteredArchivedTopLevelOrder, item)
-	}
-
-	// ★ ここからが noteList を直接書き換える大きなクリティカルセクション。
-	// pull/conflict 結果をマージして noteList の主要フィールド全てを更新し、
-	// そのまま saveNoteList まで同じロック内で行う。
-	// LoadNote / buildNoteMetadata は loadNoteLocked / buildNoteMetadata で代替。
-	var conflictSaveErr error
-	s.noteService.WithLock(func() {
-		s.noteService.noteList.Folders = filteredFolders
-		s.noteService.noteList.TopLevelOrder = filteredTopLevelOrder
-		s.noteService.noteList.ArchivedTopLevelOrder = filteredArchivedTopLevelOrder
-		s.noteService.noteList.CollapsedFolderIDs = cloudNoteList.CollapsedFolderIDs
-
-		mergedNotes := make([]NoteMetadata, 0, len(cloudNoteList.Notes))
-		cloudNoteSet := make(map[string]bool, len(cloudNoteList.Notes))
-		for _, cn := range cloudNoteList.Notes {
-			cloudNoteSet[cn.ID] = true
-			if deletedIDs[cn.ID] {
-				continue
-			}
-			if dirtyIDs[cn.ID] {
-				if !dirtySynced[cn.ID] {
-					if localMeta, ok := localMap[cn.ID]; ok {
-						mergedNotes = append(mergedNotes, localMeta)
-					} else {
-						mergedNotes = append(mergedNotes, cn)
-					}
-					continue
-				}
-				if note, err := s.noteService.loadNoteLocked(cn.ID); err == nil {
-					mergedNotes = append(mergedNotes, s.noteService.buildNoteMetadata(note))
-				} else {
-					mergedNotes = append(mergedNotes, cn)
-				}
-			} else {
-				mergedNotes = append(mergedNotes, cn)
-			}
-		}
-
-		for id := range dirtyIDs {
-			if !cloudNoteSet[id] && !deletedIDs[id] {
-				if !dirtySynced[id] {
-					if localMeta, ok := localMap[id]; ok {
-						mergedNotes = append(mergedNotes, localMeta)
-						if localMeta.FolderID == "" {
-							placeTopLevelItemUsingLocalSnapshot(
-								localTopLevelSnapshot,
-								localArchivedTopLevelSnapshot,
-								&s.noteService.noteList.TopLevelOrder,
-								&s.noteService.noteList.ArchivedTopLevelOrder,
-								localMeta,
-							)
-						}
-					}
-					continue
-				}
-				if note, err := s.noteService.loadNoteLocked(id); err == nil {
-					localMeta := s.noteService.buildNoteMetadata(note)
-					mergedNotes = append(mergedNotes, localMeta)
-					if localMeta.FolderID == "" {
-						placeTopLevelItemUsingLocalSnapshot(
-							localTopLevelSnapshot,
-							localArchivedTopLevelSnapshot,
-							&s.noteService.noteList.TopLevelOrder,
-							&s.noteService.noteList.ArchivedTopLevelOrder,
-							localMeta,
-						)
-					}
-				}
-			}
-		}
-		s.noteService.noteList.Notes = mergedNotes
-		s.noteService.noteList.Notes = applyLocalStructureForUnchangedNotes(s.noteService.noteList.Notes, localMap)
-		s.noteService.noteList.Folders = mergeFoldersPreferLocal(localFoldersSnapshot, filteredFolders, deletedFolderIDs)
-		s.noteService.noteList.TopLevelOrder = mergeTopLevelOrderPreferLocal(
-			localTopLevelSnapshot,
-			s.noteService.noteList.TopLevelOrder,
-			s.noteService.noteList.Notes,
-			s.noteService.noteList.Folders,
-			false,
-		)
-		s.noteService.noteList.ArchivedTopLevelOrder = mergeTopLevelOrderPreferLocal(
-			localArchivedTopLevelSnapshot,
-			s.noteService.noteList.ArchivedTopLevelOrder,
-			s.noteService.noteList.Notes,
-			s.noteService.noteList.Folders,
-			true,
-		)
-		s.noteService.noteList.CollapsedFolderIDs = mergeCollapsedFolderIDsPreferLocal(
-			localCollapsedFolderSnapshot,
-			cloudNoteList.CollapsedFolderIDs,
-			s.noteService.noteList.Folders,
-		)
-
-		conflictSaveErr = s.noteService.saveNoteList()
-	})
-	if conflictSaveErr != nil {
-		return fmt.Errorf("failed to save merged note list: %w", conflictSaveErr)
-	}
-
-	if uploadFailures > 0 || deleteFailures > 0 {
-		s.logger.InfoCode(MsgDrivePartialConflictDeferred, map[string]interface{}{"uploadFailures": uploadFailures, "deleteFailures": deleteFailures})
-		s.pollingService.RefreshChangeToken()
-		s.logger.NotifyFrontendSyncedAndReload(s.ctx)
-		return nil
-	}
-
-	// (saveNoteList は既に上の WithLock 内で実行済みなので不要)
-	noteListID2 := s.auth.GetDriveSync().NoteListID()
-	noteListSnapshotForUpload := s.noteService.SnapshotNoteList()
-	// 競合解決で確定した「Drive 側の hash」と noteList metadata を揃える。
-	// pushLocalChanges と同じく、in-memory が後続編集で進んでいると Drive 上の
-	// 個別ノートと noteList で hash が食い違う原因になる。
-	alignNoteListHashesWithMap(noteListSnapshotForUpload, processedDirtyHashes)
-	if err := s.driveSync.UpdateNoteList(s.ctx, noteListSnapshotForUpload, noteListID2); err != nil {
-		return s.auth.HandleOfflineTransition(fmt.Errorf("failed to upload note list: %w", err))
-	}
-
-	meta2, _ := s.driveOps.GetFileMetadata(noteListID2)
-	driveTs := ""
-	if meta2 != nil {
-		driveTs = meta2.ModifiedTime
-	}
-	var noteHashes map[string]string
-	s.noteService.WithLock(func() {
-		noteHashes = make(map[string]string, len(s.noteService.noteList.Notes))
-		for _, n := range s.noteService.noteList.Notes {
-			noteHashes[n.ID] = n.ContentHash
-		}
-	})
-	// dirty ノートは「resolveConflict 内で実際に Drive に確定させた hash」で固定する。
-	// (local wins なら upload した hash、cloud wins なら download した hash)
-	// pushLocalChanges と同じ理由で、in-memory noteList の進んだ hash を
-	// LastSyncedNoteHash に書くと次回 push が skip して同期が止まる。
-	for id, h := range processedDirtyHashes {
-		noteHashes[id] = h
-	}
-	if !s.syncState.ClearDirtyIfUnchanged(clearSnapshotRevision, driveTs, noteHashes) {
-		s.logger.Console("Sync state changed during conflict resolution; retaining dirty flags for next sync")
-		s.syncState.UpdateSyncedState(driveTs, noteHashes)
-	}
-
-	s.pollingService.RefreshChangeToken()
-	s.notifySyncComplete()
-	s.logger.NotifyFrontendSyncedAndReload(s.ctx)
-	return nil
-}
-
-func isDriveNotFoundError(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "not found")
-}
-
-func (s *driveService) isCloudConflictBackupEnabled() bool {
-	settingsPath := filepath.Join(s.appDataDir, "settings.json")
-	data, err := os.ReadFile(settingsPath)
-	if err != nil {
-		return true
-	}
-	var payload struct {
-		EnableConflictBackup *bool `json:"enableConflictBackup"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return true
-	}
-	if payload.EnableConflictBackup == nil {
-		return true
-	}
-	return *payload.EnableConflictBackup
-}
-
-func (s *driveService) backupLocalNoteBeforeCloudOverride(localNote *Note, cloudMeta NoteMetadata, cloudNote *Note) (string, error) {
-	if localNote == nil {
-		return "", fmt.Errorf("local note is nil")
-	}
-	if cloudNote == nil {
-		return "", fmt.Errorf("cloud note is nil")
-	}
-
-	record := cloudWinBackupRecord{
-		Reason:            "cloud-wins-conflict",
-		BackupCreatedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-		NoteID:            localNote.ID,
-		LocalModifiedTime: localNote.ModifiedTime,
-		CloudModifiedTime: cloudMeta.ModifiedTime,
-		LocalNote:         localNote,
-		CloudNote:         cloudNote,
-		CloudMetadata:     &cloudMeta,
-	}
-	return s.writeCloudConflictBackup(record, cloudBackupFilePrefixWins)
-}
-
-func (s *driveService) backupLocalNoteBeforeCloudDelete(noteID string, reason string) (string, error) {
-	localNote, err := s.noteService.LoadNote(noteID)
-	if err != nil {
-		return "", fmt.Errorf("failed to load local note %s: %w", noteID, err)
-	}
-	record := cloudWinBackupRecord{
-		Reason:            reason,
-		BackupCreatedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-		NoteID:            localNote.ID,
-		LocalModifiedTime: localNote.ModifiedTime,
-		LocalNote:         localNote,
-	}
-	return s.writeCloudConflictBackup(record, cloudBackupFilePrefixDelete)
-}
-
-func (s *driveService) writeCloudConflictBackup(record cloudWinBackupRecord, filePrefix string) (string, error) {
-	if record.NoteID == "" {
-		return "", fmt.Errorf("note id is empty")
-	}
-	if strings.TrimSpace(s.appDataDir) == "" {
-		return "", fmt.Errorf("app data dir is empty")
-	}
-
-	backupDir := filepath.Join(s.appDataDir, cloudWinBackupDirName)
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create backup directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal backup record: %w", err)
-	}
-
-	fileName := fmt.Sprintf("%s%s_%s.json", filePrefix, time.Now().UTC().Format("20060102T150405.000000000Z"), record.NoteID)
-	backupPath := filepath.Join(backupDir, fileName)
-	tmpPath := backupPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to write backup temp file: %w", err)
-	}
-	if err := os.Rename(tmpPath, backupPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("failed to finalize backup file: %w", err)
-	}
-
-	if err := pruneCloudConflictBackups(backupDir, maxCloudWinBackupFiles); err != nil {
-		return backupPath, fmt.Errorf("failed to prune backup files: %w", err)
-	}
-
-	return backupPath, nil
-}
-
-type backupFileInfo struct {
-	path    string
-	name    string
-	modTime time.Time
-}
-
-func pruneCloudConflictBackups(backupDir string, maxFiles int) error {
-	if maxFiles <= 0 {
-		return nil
-	}
-
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	files := make([]backupFileInfo, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !isCloudConflictBackupFile(name) {
-			continue
-		}
-		info, infoErr := entry.Info()
-		if infoErr != nil {
-			continue
-		}
-		files = append(files, backupFileInfo{
-			path:    filepath.Join(backupDir, name),
-			name:    name,
-			modTime: info.ModTime(),
-		})
-	}
-
-	if len(files) <= maxFiles {
-		return nil
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].modTime.Equal(files[j].modTime) {
-			return files[i].name < files[j].name
-		}
-		return files[i].modTime.Before(files[j].modTime)
-	})
-
-	removeCount := len(files) - maxFiles
-	for i := 0; i < removeCount; i++ {
-		if err := os.Remove(files[i].path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
-}
-
-func isCloudConflictBackupFile(name string) bool {
-	if !strings.HasSuffix(name, ".json") {
-		return false
-	}
-	return strings.HasPrefix(name, cloudBackupFilePrefixWins) || strings.HasPrefix(name, cloudBackupFilePrefixDelete)
-}
-
-// conflictBackupKindFromName はバックアップファイル名から kind を判定する
-func conflictBackupKindFromName(name string) string {
-	if !strings.HasSuffix(name, ".json") {
-		return ""
-	}
-	if strings.HasPrefix(name, cloudBackupFilePrefixWins) {
-		return "cloud_wins"
-	}
-	if strings.HasPrefix(name, cloudBackupFilePrefixDelete) {
-		return "cloud_delete"
-	}
-	return ""
-}
-
-// validateCloudConflictBackupFilename はパストラバーサル等の不正なファイル名を弾く
-func validateCloudConflictBackupFilename(name string) error {
-	if name == "" {
-		return fmt.Errorf("backup filename is empty")
-	}
-	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
-		return fmt.Errorf("invalid backup filename: %s", name)
-	}
-	if conflictBackupKindFromName(name) == "" {
-		return fmt.Errorf("not a conflict backup file: %s", name)
-	}
-	return nil
-}
-
-// listCloudConflictBackups はバックアップディレクトリのエントリを新しい順に列挙する
-// 読み取り不能・パース不能なファイルはスキップして処理を継続する
-func listCloudConflictBackups(backupDir string) ([]ConflictBackupEntry, error) {
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []ConflictBackupEntry{}, nil
-		}
-		return nil, err
-	}
-
-	result := make([]ConflictBackupEntry, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		kind := conflictBackupKindFromName(name)
-		if kind == "" {
-			continue
-		}
-		path := filepath.Join(backupDir, name)
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			continue
-		}
-		var record cloudWinBackupRecord
-		if err := json.Unmarshal(data, &record); err != nil {
-			continue
-		}
-		if record.LocalNote == nil {
-			continue
-		}
-		createdAt := record.BackupCreatedAt
-		if createdAt == "" {
-			// JSON に作成時刻が無い場合はファイルの mtime をフォールバックに使う
-			if info, infoErr := entry.Info(); infoErr == nil {
-				createdAt = info.ModTime().UTC().Format(time.RFC3339Nano)
-			}
-		}
-		result = append(result, ConflictBackupEntry{
-			ID:        name,
-			Filename:  name,
-			Kind:      kind,
-			CreatedAt: createdAt,
-			Note:      record.LocalNote,
-		})
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		// 新しい順にソート。CreatedAt が同値の場合はファイル名で安定させる
-		if result[i].CreatedAt == result[j].CreatedAt {
-			return result[i].Filename > result[j].Filename
-		}
-		return result[i].CreatedAt > result[j].CreatedAt
-	})
-	return result, nil
-}
-
-// deleteCloudConflictBackup は指定された 1 件のバックアップを削除する
-func deleteCloudConflictBackup(backupDir, filename string) error {
-	if err := validateCloudConflictBackupFilename(filename); err != nil {
-		return err
-	}
-	if err := os.Remove(filepath.Join(backupDir, filename)); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
-// deleteAllCloudConflictBackups はバックアップディレクトリ内の全バックアップファイルを削除する
-// (ディレクトリ自体や非バックアップファイルは残す)
-func deleteAllCloudConflictBackups(backupDir string) error {
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !isCloudConflictBackupFile(name) {
-			continue
-		}
-		if err := os.Remove(filepath.Join(backupDir, name)); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
-}
-
-func isSameBoolSet(a, b map[string]bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for key := range a {
-		if !b[key] {
-			return false
-		}
-	}
-	return true
-}
-
-func placeTopLevelItemUsingLocalSnapshot(
-	localTopLevelSnapshot []TopLevelItem,
-	localArchivedTopLevelSnapshot []TopLevelItem,
-	currentTopLevelOrder *[]TopLevelItem,
-	currentArchivedTopLevelOrder *[]TopLevelItem,
-	localMeta NoteMetadata,
-) {
-	if localMeta.FolderID != "" {
-		return
-	}
-
-	targetItem := TopLevelItem{Type: "note", ID: localMeta.ID}
-	targetOrder := currentTopLevelOrder
-	snapshot := localTopLevelSnapshot
-	if localMeta.Archived {
-		targetOrder = currentArchivedTopLevelOrder
-		snapshot = localArchivedTopLevelSnapshot
-	}
-
-	insertTopLevelItemPreservingLocalPlacement(snapshot, targetOrder, targetItem)
-}
-
-func insertTopLevelItemPreservingLocalPlacement(
-	localSnapshot []TopLevelItem,
-	currentOrder *[]TopLevelItem,
-	item TopLevelItem,
-) {
-	if currentOrder == nil {
-		return
-	}
-	if topLevelItemIndex(*currentOrder, item) != -1 {
-		return
-	}
-
-	localIndex := topLevelItemIndex(localSnapshot, item)
-	if localIndex == -1 {
-		*currentOrder = append(*currentOrder, item)
-		return
-	}
-
-	for i := localIndex - 1; i >= 0; i-- {
-		anchorIndex := topLevelItemIndex(*currentOrder, localSnapshot[i])
-		if anchorIndex != -1 {
-			*currentOrder = insertTopLevelItemAt(*currentOrder, anchorIndex+1, item)
-			return
-		}
-	}
-
-	for i := localIndex + 1; i < len(localSnapshot); i++ {
-		anchorIndex := topLevelItemIndex(*currentOrder, localSnapshot[i])
-		if anchorIndex != -1 {
-			*currentOrder = insertTopLevelItemAt(*currentOrder, anchorIndex, item)
-			return
-		}
-	}
-
-	if localIndex == 0 {
-		*currentOrder = insertTopLevelItemAt(*currentOrder, 0, item)
-		return
-	}
-
-	*currentOrder = append(*currentOrder, item)
-}
-
-func insertTopLevelItemAt(order []TopLevelItem, index int, item TopLevelItem) []TopLevelItem {
-	if index < 0 {
-		index = 0
-	}
-	if index > len(order) {
-		index = len(order)
-	}
-	order = append(order, TopLevelItem{})
-	copy(order[index+1:], order[index:])
-	order[index] = item
-	return order
-}
-
-func topLevelItemIndex(order []TopLevelItem, target TopLevelItem) int {
-	for i, item := range order {
-		if item.Type == target.Type && item.ID == target.ID {
-			return i
-		}
-	}
-	return -1
-}
-
-func applyLocalStructureForUnchangedNotes(mergedNotes []NoteMetadata, localMap map[string]NoteMetadata) []NoteMetadata {
-	result := make([]NoteMetadata, len(mergedNotes))
-	copy(result, mergedNotes)
-
-	for i := range result {
-		localMeta, ok := localMap[result[i].ID]
-		if !ok {
-			continue
-		}
-		if localMeta.ContentHash != result[i].ContentHash {
-			continue
-		}
-
-		result[i].FolderID = localMeta.FolderID
-		result[i].Archived = localMeta.Archived
-	}
-
-	return result
-}
-
-func mergeFoldersPreferLocal(localFolders []Folder, cloudFolders []Folder, deletedFolderIDs map[string]bool) []Folder {
-	mergedByID := make(map[string]Folder, len(localFolders)+len(cloudFolders))
-
-	for _, folder := range cloudFolders {
-		if deletedFolderIDs[folder.ID] {
-			continue
-		}
-		mergedByID[folder.ID] = folder
-	}
-	for _, folder := range localFolders {
-		if deletedFolderIDs[folder.ID] {
-			continue
-		}
-		mergedByID[folder.ID] = folder
-	}
-
-	result := make([]Folder, 0, len(mergedByID))
-	added := make(map[string]bool, len(mergedByID))
-	for _, folder := range localFolders {
-		merged, ok := mergedByID[folder.ID]
-		if !ok || added[folder.ID] {
-			continue
-		}
-		result = append(result, merged)
-		added[folder.ID] = true
-	}
-	for _, folder := range cloudFolders {
-		merged, ok := mergedByID[folder.ID]
-		if !ok || added[folder.ID] {
-			continue
-		}
-		result = append(result, merged)
-		added[folder.ID] = true
-	}
-
-	return result
-}
-
-func mergeTopLevelOrderPreferLocal(
-	localOrder []TopLevelItem,
-	cloudOrder []TopLevelItem,
-	notes []NoteMetadata,
-	folders []Folder,
-	archived bool,
-) []TopLevelItem {
-	noteMap := make(map[string]NoteMetadata, len(notes))
-	for _, note := range notes {
-		noteMap[note.ID] = note
-	}
-	folderMap := make(map[string]Folder, len(folders))
-	for _, folder := range folders {
-		folderMap[folder.ID] = folder
-	}
-
-	isValid := func(item TopLevelItem) bool {
-		switch item.Type {
-		case "note":
-			note, ok := noteMap[item.ID]
-			if !ok {
-				return false
-			}
-			return note.FolderID == "" && note.Archived == archived
-		case "folder":
-			folder, ok := folderMap[item.ID]
-			if !ok {
-				return false
-			}
-			return folder.Archived == archived
-		default:
-			return false
-		}
-	}
-
-	result := make([]TopLevelItem, 0, len(localOrder)+len(cloudOrder))
-	seen := make(map[string]bool, len(localOrder)+len(cloudOrder))
-	appendIfValid := func(item TopLevelItem) {
-		key := item.Type + ":" + item.ID
-		if seen[key] || !isValid(item) {
-			return
-		}
-		result = append(result, item)
-		seen[key] = true
-	}
-
-	for _, item := range localOrder {
-		appendIfValid(item)
-	}
-	for _, item := range cloudOrder {
-		appendIfValid(item)
-	}
-	for _, note := range notes {
-		if note.FolderID != "" || note.Archived != archived {
-			continue
-		}
-		appendIfValid(TopLevelItem{Type: "note", ID: note.ID})
-	}
-	for _, folder := range folders {
-		if folder.Archived != archived {
-			continue
-		}
-		appendIfValid(TopLevelItem{Type: "folder", ID: folder.ID})
-	}
-
-	return result
-}
-
-func mergeCollapsedFolderIDsPreferLocal(localCollapsed []string, cloudCollapsed []string, folders []Folder) []string {
-	validFolderIDs := make(map[string]bool, len(folders))
-	for _, folder := range folders {
-		validFolderIDs[folder.ID] = true
-	}
-
-	result := make([]string, 0, len(localCollapsed)+len(cloudCollapsed))
-	seen := make(map[string]bool, len(localCollapsed)+len(cloudCollapsed))
-	appendIfValid := func(folderID string) {
-		if !validFolderIDs[folderID] || seen[folderID] {
-			return
-		}
-		result = append(result, folderID)
-		seen[folderID] = true
-	}
-
-	for _, folderID := range localCollapsed {
-		appendIfValid(folderID)
-	}
-	for _, folderID := range cloudCollapsed {
-		appendIfValid(folderID)
-	}
-
-	return result
-}
-
-func hasPendingPayloadChanges(
-	snapshotDirtyIDs map[string]bool,
-	snapshotDeletedIDs map[string]bool,
-	snapshotDeletedFolderIDs map[string]bool,
-	latestDirtyIDs map[string]bool,
-	latestDeletedIDs map[string]bool,
-	latestDeletedFolderIDs map[string]bool,
-	uploadedHashes map[string]string,
-	currentHashes map[string]string,
-) bool {
-	if !isSameBoolSet(snapshotDirtyIDs, latestDirtyIDs) {
-		return true
-	}
-	if !isSameBoolSet(snapshotDeletedIDs, latestDeletedIDs) {
-		return true
-	}
-	if !isSameBoolSet(snapshotDeletedFolderIDs, latestDeletedFolderIDs) {
-		return true
-	}
-
-	for id := range snapshotDirtyIDs {
-		uploadedHash, ok := uploadedHashes[id]
-		if !ok {
-			return true
-		}
-		currentHash, ok := currentHashes[id]
-		if !ok {
-			return true
-		}
-		if currentHash != uploadedHash {
-			return true
-		}
-	}
-	return false
-}
-
-// alignNoteListHashesWithUploaded は noteList.Notes 内 dirty ノートの ContentHash を
-// 「Pass 1/2 で実際に Drive へ送った hash」に巻き戻す。push 進行中に走った
-// ユーザー編集で in-memory noteList の hash が先行しているケースで、
-// Drive 上の noteList と個別ノートファイルの hash 整合性を保つために使う。
-func alignNoteListHashesWithUploaded(noteList *NoteList, dirtyIDs map[string]bool, uploadedHashes map[string]string) {
-	if noteList == nil || len(dirtyIDs) == 0 || len(uploadedHashes) == 0 {
-		return
-	}
-	for i, n := range noteList.Notes {
-		if !dirtyIDs[n.ID] {
-			continue
-		}
-		if h, ok := uploadedHashes[n.ID]; ok {
-			noteList.Notes[i].ContentHash = h
-		}
-	}
-}
-
-// alignNoteListHashesWithMap は resolveConflict の processedDirtyHashes のように
-// 「id → 確定後の Drive 上 hash」マップ全体を当てる版。dirtyIDs を引数で取らない
-// 代わりに、マップに乗っている id だけを書き換える。
-func alignNoteListHashesWithMap(noteList *NoteList, processedHashes map[string]string) {
-	if noteList == nil || len(processedHashes) == 0 {
-		return
-	}
-	for i, n := range noteList.Notes {
-		if h, ok := processedHashes[n.ID]; ok {
-			noteList.Notes[i].ContentHash = h
-		}
-	}
-}
-
-func filterNoteListByMissingNotes(noteList *NoteList, missingNoteIDs map[string]bool) int {
-	if noteList == nil || len(missingNoteIDs) == 0 {
-		return 0
-	}
-
-	removed := 0
-	filteredNotes := make([]NoteMetadata, 0, len(noteList.Notes))
-	for _, note := range noteList.Notes {
-		if missingNoteIDs[note.ID] {
-			removed++
-			continue
-		}
-		filteredNotes = append(filteredNotes, note)
-	}
-	noteList.Notes = filteredNotes
-
-	filteredTopLevel := make([]TopLevelItem, 0, len(noteList.TopLevelOrder))
-	for _, item := range noteList.TopLevelOrder {
-		if item.Type == "note" && missingNoteIDs[item.ID] {
-			continue
-		}
-		filteredTopLevel = append(filteredTopLevel, item)
-	}
-	noteList.TopLevelOrder = filteredTopLevel
-
-	filteredArchivedTopLevel := make([]TopLevelItem, 0, len(noteList.ArchivedTopLevelOrder))
-	for _, item := range noteList.ArchivedTopLevelOrder {
-		if item.Type == "note" && missingNoteIDs[item.ID] {
-			continue
-		}
-		filteredArchivedTopLevel = append(filteredArchivedTopLevel, item)
-	}
-	noteList.ArchivedTopLevelOrder = filteredArchivedTopLevel
-
-	return removed
-}
-
-// 同期開始が可能かどうかを検証
-func (s *driveService) ensureSyncIsPossible() error {
+// RequestSync はローカル変更の後に呼ぶ。連続した保存は requestDelay 待ってまとめてから同期する。
+func (s *driveService) RequestSync() {
 	if !s.IsConnected() {
-		s.logger.Console("Not connected to Google Drive")
-		if !s.IsTestMode() {
-			return s.auth.HandleOfflineTransition(fmt.Errorf("not connected to Google Drive"))
-		}
-		return fmt.Errorf("not connected to Google Drive")
+		return
 	}
-	return nil
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
+	if s.requestTimer != nil {
+		s.requestTimer.Stop()
+	}
+	s.requestTimer = time.AfterFunc(s.requestDelay, func() {
+		if err := s.SyncNotes(); err != nil {
+			s.logger.Console("RequestSync: sync failed: %v", err)
+		}
+	})
+}
+
+func (s *driveService) stopRequestTimer() {
+	s.requestMu.Lock()
+	defer s.requestMu.Unlock()
+	if s.requestTimer != nil {
+		s.requestTimer.Stop()
+		s.requestTimer = nil
+	}
+}
+
+// hasPendingSyncWork はポーリングのゲート用（未送信の変更がある / 一度も同期していない）。
+func (s *driveService) hasPendingSyncWork() bool {
+	if s.engine == nil {
+		return false
+	}
+	return s.engine.HasPendingWork()
 }
 
 // 同期が完了したらフロントエンドへ通知
@@ -2036,236 +438,5 @@ func (s *driveService) notifySyncComplete() {
 	if _, err := s.noteService.ValidateIntegrity(); err != nil {
 		s.logger.ErrorCode(err, MsgDriveErrorIntegrityCheck, nil)
 	}
-	if s.operationsQueue != nil && s.operationsQueue.HasItems() {
-		s.logger.Console("Drive: upload queue active")
-		s.logger.NotifyDriveStatus(s.ctx, "syncing")
-	} else {
-		s.logger.Console("Sync status is up to date")
-		s.logger.NotifyDriveStatus(s.ctx, "synced")
-	}
-}
-
-// 同期の前後のステータスログ
-func (s *driveService) logSyncStatus(cloudNoteList, localNoteList *NoteList) {
-	s.logger.Console("Drive: cloud state - notes: %d", len(cloudNoteList.Notes))
-	s.logger.Console("Drive: local state - notes: %d", len(localNoteList.Notes))
-}
-
-// Google Drive上に必要なフォルダ構造を作成
-func (s *driveService) ensureDriveFolders() error {
-	var rootID, notesID string
-	useAppData := s.isMigrated()
-
-	rootFolders, err := s.driveOps.ListFiles(
-		"name='monaco-notepad' and mimeType='application/vnd.google-apps.folder' and trashed=false")
-	if err != nil {
-		return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCheckRootFolder, nil)
-	}
-
-	if len(rootFolders) == 0 {
-		parentID := ""
-		if useAppData {
-			parentID = "appDataFolder"
-		}
-		rootID, err = s.driveOps.CreateFolder("monaco-notepad", parentID)
-		if err != nil {
-			return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCreateRootFolder, nil)
-		}
-	} else {
-		rootID = rootFolders[0].Id
-	}
-
-	notesFolders, err := s.driveOps.ListFiles(
-		fmt.Sprintf("name='notes' and '%s' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
-			rootID))
-	if err != nil {
-		return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCheckNotesFolder, nil)
-	}
-
-	if len(notesFolders) == 0 {
-		notesID, err = s.driveOps.CreateFolder("notes", rootID)
-		if err != nil {
-			return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCreateNotesFolder, nil)
-		}
-	} else {
-		notesID = notesFolders[0].Id
-	}
-
-	s.auth.GetDriveSync().SetFolderIDs(rootID, notesID)
-	return nil
-}
-
-// ノートリストの初期化
-func (s *driveService) ensureNoteList() error {
-	rootID, _ := s.auth.GetDriveSync().FolderIDs()
-	noteListFile, err := s.driveOps.ListFiles(
-		fmt.Sprintf("name='noteList_v2.json' and '%s' in parents and trashed=false", rootID))
-	if err != nil {
-		return s.logger.ErrorWithNotifyCode(err, MsgDriveErrorCheckNoteListFile, nil)
-	}
-
-	if len(noteListFile) > 0 {
-		s.auth.GetDriveSync().SetNoteListID(noteListFile[0].Id)
-		return nil
-	}
-
-	// 未アップロードのローカル変更がある場合は noteList を先行作成しない。
-	// (a) DeleteAllDriveData 直後 (FullReuploadPending=true)
-	// (b) オフラインで作成されたノートがある状態での初回サインイン (dirty + dirtyIDs)
-	// どちらも SyncNotes が noteListID=="" を検知して pushLocalChanges 経路に入り、
-	// 「個別ノート本体 → noteList」の順でアップロードする。
-	if s.syncState != nil && s.syncState.HasPendingUploads() {
-		s.logger.Console("ensureNoteList: skipping noteList creation (pending uploads exist, deferring to pushLocalChanges)")
-		return nil
-	}
-
-	if err := s.driveSync.CreateNoteList(s.ctx, s.noteService.noteList); err != nil {
-		return err
-	}
-	_, notesID := s.auth.GetDriveSync().FolderIDs()
-	noteListID, err := s.driveOps.GetFileID("noteList_v2.json", notesID, rootID)
-	if err != nil {
-		return err
-	}
-	s.auth.GetDriveSync().SetNoteListID(noteListID)
-	return nil
-}
-
-// キューシステムを取得
-func (s *driveService) GetDriveOperationsQueue() *DriveOperationsQueue {
-	return s.operationsQueue
-}
-
-// driveService型にauthServiceを設定するメソッドを追加 (テスト用)
-func (ds *driveService) SetAuthService(auth *authService) {
-	ds.auth = auth
-}
-
-func (ds *driveService) recoverOrphanCloudNotes(files []*drive.File, ops DriveOperations) (int, error) {
-	var deletedDuplicateCount int
-
-	latestFiles := make(map[string]*drive.File)
-	for _, file := range files {
-		if !strings.HasSuffix(file.Name, ".json") {
-			continue
-		}
-		noteID := strings.TrimSuffix(file.Name, ".json")
-		if existing, ok := latestFiles[noteID]; ok {
-			var older *drive.File
-			if file.ModifiedTime > existing.ModifiedTime {
-				older = existing
-				latestFiles[noteID] = file
-			} else {
-				older = file
-			}
-			if err := ops.DeleteFile(older.Id); err != nil {
-				ds.logger.Console("Failed to delete same-ID duplicate from Drive %s: %v", older.Name, err)
-			} else {
-				deletedDuplicateCount++
-			}
-		} else {
-			latestFiles[noteID] = file
-		}
-	}
-
-	// noteIDSet と existingHashes は noteList をスキャンするため WithLock 内で構築。
-	// existingHashes は LoadNote (内部 lock 取得) を呼ぶと再帰デッドロックするので
-	// loadNoteLocked を使う。
-	noteIDSet := make(map[string]bool)
-	existingHashes := make(map[string]bool)
-	ds.noteService.WithLock(func() {
-		for _, metadata := range ds.noteService.noteList.Notes {
-			noteIDSet[metadata.ID] = true
-			note, err := ds.noteService.loadNoteLocked(metadata.ID)
-			if err != nil {
-				continue
-			}
-			existingHashes[computeConflictCopyDedupHash(note)] = true
-		}
-	})
-
-	type orphanEntry struct {
-		noteID string
-		file   *drive.File
-	}
-	var orphans []orphanEntry
-	for noteID, file := range latestFiles {
-		if !noteIDSet[noteID] {
-			orphans = append(orphans, orphanEntry{noteID, file})
-		}
-	}
-
-	var orphanCount int
-	totalOrphans := len(orphans)
-	for i, entry := range orphans {
-		ds.logger.InfoCode(MsgOrphanCloudRecoveryProgress, map[string]interface{}{
-			"current": i + 1,
-			"total":   totalOrphans,
-		})
-
-		content, err := ops.DownloadFile(entry.file.Id)
-		if err != nil {
-			ds.logger.Console("Failed to download orphan cloud note %s: %v", entry.noteID, err)
-			continue
-		}
-
-		var note Note
-		if err := json.Unmarshal(content, &note); err != nil {
-			ds.logger.Console("Skipped corrupted orphan cloud note %s: %v", entry.noteID, err)
-			continue
-		}
-
-		note.ID = entry.noteID
-
-		// conflict copy の場合、既存ノートとの重複判定を行う
-		if isConflictCopyTitle(note.Title) {
-			hash := computeConflictCopyDedupHash(&note)
-			if existingHashes[hash] {
-				// 同一内容のノートが既に存在する → Driveから削除してスキップ
-				if err := ops.DeleteFile(entry.file.Id); err != nil {
-					ds.logger.Console("Failed to delete duplicate conflict copy from Drive %s: %v", entry.noteID, err)
-				} else {
-					ds.logger.Console("Deleted duplicate conflict copy from Drive: \"%s\" (%s)", note.Title, entry.noteID)
-					deletedDuplicateCount++
-				}
-				continue
-			}
-			// ユニークな conflict copy → 復元対象としてハッシュを追加
-			existingHashes[hash] = true
-		}
-
-		if err := ds.noteService.SaveNoteFromSync(&note); err != nil {
-			ds.logger.Console("Failed to save orphan cloud note %s: %v", entry.noteID, err)
-			continue
-		}
-
-		if err := ds.noteService.RecoverOrphanNote(&note, RecoveryFolderName); err != nil {
-			ds.logger.Console("Failed to recover orphan cloud note to list %s: %v", entry.noteID, err)
-			continue
-		}
-
-		orphanCount++
-		ds.logger.Console("Recovered orphan cloud note: \"%s\" (%s)", note.Title, entry.noteID)
-	}
-
-	if orphanCount > 0 {
-		ds.logger.InfoCode(MsgOrphanCloudRecoveryDone, map[string]interface{}{
-			"count":  orphanCount,
-			"folder": RecoveryFolderName,
-		})
-		ds.logger.NotifyFrontendSyncedAndReload(ds.ctx)
-	}
-
-	if orphanCount > 0 || deletedDuplicateCount > 0 {
-		ds.logger.NotifyOrphanRecoveries(ds.ctx, []OrphanRecoveryInfo{
-			{
-				Source:            "cloud",
-				Count:             orphanCount,
-				FolderName:        RecoveryFolderName,
-				DeletedDuplicates: deletedDuplicateCount,
-			},
-		})
-	}
-
-	return orphanCount, nil
+	s.logger.NotifyDriveStatus(s.ctx, "synced")
 }

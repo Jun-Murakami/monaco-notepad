@@ -72,13 +72,9 @@ func TestScenario_PeerChangeRightAfterDesktopUploadIsPulledByNextSync(t *testing
 	s.seedShared()
 	s.desk.editNote("A", "edited on desktop")
 
-	// デスクトップの noteList アップロード完了直後（アップロード後のメタデータ取得前）にピアが書き込む
-	uploaded := false
-	s.fd.BeforeRequest(func(r fakeRequest) bool {
-		if isDesktop(r) && r.Op == "files.update" && r.FileName == "noteList_v2.json" {
-			uploaded = true
-		}
-		return uploaded && isDesktop(r) && r.Op == "files.get" && r.FileName == "noteList_v2.json"
+	// デスクトップの noteList アップロードが完了した直後にピアが書き込む
+	s.fd.AfterRequest(func(r fakeRequest) bool {
+		return isDesktop(r) && r.Op == "files.update" && r.FileName == "noteList_v2.json"
 	}, func(fakeRequest) {
 		s.peer.saveNote(s.note("P", "from mobile"), "")
 	})
@@ -93,9 +89,10 @@ func TestScenario_PeerChangeRightAfterDesktopUploadIsDetectedByPolling(t *testin
 	s.seedShared()
 	s.desk.editNote("A", "edited on desktop")
 
-	// デスクトップが自分の書き込み後に Changes トークンを取り直す直前にピアが書き込む
-	s.fd.BeforeRequest(func(r fakeRequest) bool {
-		return isDesktop(r) && r.Op == "changes.getStartPageToken"
+	// デスクトップの noteList アップロードが完了した直後（自分の書き込みの後処理の最中）にピアが書き込む。
+	// 旧実装は自分の書き込み後に Changes トークンを「現在」へ取り直していたため、この変更を見逃した。
+	s.fd.AfterRequest(func(r fakeRequest) bool {
+		return isDesktop(r) && r.Op == "files.update" && r.FileName == "noteList_v2.json"
 	}, func(fakeRequest) {
 		s.peer.saveNote(s.note("P", "from mobile"), "")
 	})

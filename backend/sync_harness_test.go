@@ -381,46 +381,79 @@ func (d *desktopDevice) restart() {
 	d.boot()
 }
 
-// connect は onConnected 相当（ポーリング goroutine は起動しない）。
+// connect は onConnected 相当（移行判定は済んでいる前提。ポーリング goroutine は起動しない）。
+// テストでは Drive 呼び出しを待たずに失敗させ、エンジン側の「次サイクルで再試行」を検証する。
 func (d *desktopDevice) connect() {
 	d.t.Helper()
 	ds := d.ds
+	ds.gatewayRetry = gatewayRetry{attempts: 1}
 	ds.driveOps = ds.newDriveOperations(true)
-	require.NoError(d.t, ds.ensureDriveFolders())
-	rootID, notesID := ds.auth.GetDriveSync().FolderIDs()
-	ds.driveSync = NewDriveSyncService(ds.driveOps, notesID, rootID, d.logger)
-	require.NoError(d.t, ds.ensureNoteList())
+	require.NoError(d.t, ds.buildEngine(true))
+	_, err := ds.engine.gateway.ResolveLayout()
+	require.NoError(d.t, err)
 }
 
-// startup は WaitForFrontendAndStartSync + StartPolling のループ前処理相当。
+// startup は WaitForFrontendAndStartSync 相当（変更検知の基準点を取ってから初回同期）。
 func (d *desktopDevice) startup() {
 	d.t.Helper()
 	d.connect()
-	require.NoError(d.t, d.ds.SyncNotes())
-	p := d.ds.pollingService
-	_ = d.ds.driveSync.RefreshFileIDCache(context.Background())
-	_, notesID := d.ds.auth.GetDriveSync().FolderIDs()
-	files, err := d.ds.driveSync.ListFiles(context.Background(), notesID)
-	require.NoError(d.t, err)
-	_ = d.ds.driveSync.RemoveDuplicateNoteFiles(context.Background(), files)
-	_, _ = d.ds.recoverOrphanCloudNotes(files, d.ds.driveOps)
-	p.initChangeToken()
+	d.ds.pollingService.initChangeToken()
+	d.sync()
 }
 
-// sync は「今すぐ同期」。
+// sync は「今すぐ同期」。失敗したらテストを止める。
 func (d *desktopDevice) sync() {
 	d.t.Helper()
-	require.NoError(d.t, d.ds.SyncNotes())
+	require.NoError(d.t, d.trySync())
 }
 
-// pollOnce はポーリング 1 サイクル（Changes API で変化を検知したら同期）。
+// trySync は同期を実行してエラーを返す。失敗で一時オフラインになった場合は
+// ポーリングの再接続成功を模擬して接続状態に戻す。
+func (d *desktopDevice) trySync() error {
+	d.ds.pollingService.markSynced()
+	err := d.ds.SyncNotes()
+	if err != nil {
+		d.ds.auth.GetDriveSync().SetConnected(true)
+	}
+	return err
+}
+
+// pollOnce はポーリング 1 サイクル（変化の検知 / 未送信の変更 / 定期チェックで同期）。
 func (d *desktopDevice) pollOnce() {
 	d.t.Helper()
-	hasChanges, err := d.ds.pollingService.checkForChanges()
+	d.ds.pollingService.pollOnce()
+	d.ds.auth.GetDriveSync().SetConnected(true)
+}
+
+// hasPendingWork はポーリングのゲート（同期が必要な状態か）。
+func (d *desktopDevice) hasPendingWork() bool {
+	return d.ds.hasPendingSyncWork()
+}
+
+// deleteNote は App.DeleteNote 相当。
+func (d *desktopDevice) deleteNote(id string) {
+	d.t.Helper()
+	require.NoError(d.t, d.ns.DeleteNote(id))
+	d.state.MarkNoteDeleted(id)
+}
+
+// editNoteAt は編集時刻を指定して保存する（LWW の勝敗を決めるテスト用。SaveNote は現在時刻を入れるので書き換える）。
+func (d *desktopDevice) editNoteAt(id, content, modifiedTime string) {
+	d.t.Helper()
+	d.editNote(id, content)
+	note, err := d.ns.LoadNote(id)
 	require.NoError(d.t, err)
-	if hasChanges {
-		d.sync()
-	}
+	updated := *note
+	updated.ModifiedTime = modifiedTime
+	d.ns.WithLock(func() {
+		require.NoError(d.t, d.ns.saveNoteFromSyncLocked(&updated))
+		for i, m := range d.ns.noteList.Notes {
+			if m.ID == id {
+				d.ns.noteList.Notes[i].ModifiedTime = modifiedTime
+			}
+		}
+		require.NoError(d.t, d.ns.saveNoteList())
+	})
 }
 
 // createNote は App.SaveNote(note, "create") 相当。

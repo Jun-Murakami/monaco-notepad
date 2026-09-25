@@ -324,7 +324,7 @@
     "cloudRecoveryDone": "{{count}}件のクラウド孤立ノートを「{{folder}}」フォルダに復元しました",
     "recoverySkipCorrupt": "破損した孤立ファイルをスキップしました",
     "recoveryDialogTitle": "孤立ノートの復元",
-    "recoveryDialogLocal": "ローカルディスクで見つかった{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました。",
+    "recoveryDialogLocal": "ローカルディスクで見つかった{{count}}件の孤立ノートを一覧の先頭に復元しました。",
     "recoveryDialogCloud": "Google Driveで見つかった{{count}}件の孤立ノートを「{{folder}}」フォルダに復元しました。",
     "recoveryDialogCloudDeleted": "重複していた{{count}}件のコンフリクトコピーをGoogle Driveから削除しました。",
     "localRecoveryProgress": "孤立ノートを復元中... ({{current}}/{{total}})",

@@ -651,47 +651,37 @@ func TestMoveNoteToFolder_NoDuplicateWhenTopLevelOrderNil(t *testing.T) {
 	assert.Equal(t, 1, count)
 }
 
+// 孤立物理ファイル（noteList に無い本体）はトップレベル先頭に登録する。
+// 不明ノートフォルダは作らない（docs/sync-engine-v3.md P8）。
 func TestNoteListSync_OrphanAutoRestore(t *testing.T) {
 	helper := setupNoteTest(t)
 	defer helper.cleanup()
 
-	note := &Note{
-		ID:      "sync-test",
-		Title:   "同期テスト",
-		Content: "同期テスト用のノートです。",
-	}
+	existing := &Note{ID: "existing", Title: "既存", Content: "既存ノート"}
+	require.NoError(t, helper.noteService.SaveNote(existing))
 
+	note := &Note{ID: "sync-test", Title: "同期テスト", Content: "同期テスト用のノートです。"}
 	noteData, err := json.MarshalIndent(note, "", "  ")
-	assert.NoError(t, err)
-	err = os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644))
 
 	changed, err := helper.noteService.ValidateIntegrity()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, changed, "孤立ファイルの復元でchanged=trueであるべき")
-
-	issues := helper.noteService.DrainPendingIntegrityIssues()
-	assert.Empty(t, issues, "孤立ファイルはユーザー確認不要（自動復元）")
+	assert.Empty(t, helper.noteService.DrainPendingIntegrityIssues(), "孤立ファイルはユーザー確認不要（自動復元）")
 
 	recoveries := helper.noteService.DrainPendingOrphanRecoveries()
 	require.Len(t, recoveries, 1)
 	assert.Equal(t, "local", recoveries[0].Source)
 	assert.Equal(t, 1, recoveries[0].Count)
-	assert.Equal(t, RecoveryFolderName, recoveries[0].FolderName)
 
-	require.Len(t, helper.noteService.noteList.Notes, 1)
-	assert.Equal(t, note.ID, helper.noteService.noteList.Notes[0].ID)
-	assert.Equal(t, note.Title, helper.noteService.noteList.Notes[0].Title)
-
-	var recoveryFolder *Folder
-	for _, f := range helper.noteService.noteList.Folders {
-		if f.Name == RecoveryFolderName {
-			recoveryFolder = &f
-			break
-		}
-	}
-	require.NotNil(t, recoveryFolder, "復元フォルダが作成されるべき")
-	assert.Equal(t, recoveryFolder.ID, helper.noteService.noteList.Notes[0].FolderID)
+	list := helper.noteService.noteList
+	require.Len(t, list.Notes, 2)
+	assert.Equal(t, note.ID, list.Notes[0].ID)
+	assert.Equal(t, note.Title, list.Notes[0].Title)
+	assert.Equal(t, "", list.Notes[0].FolderID)
+	assert.Equal(t, TopLevelItem{Type: "note", ID: note.ID}, list.TopLevelOrder[0], "トップレベル先頭に置く")
+	assert.Empty(t, list.Folders, "不明ノートフォルダは作らない")
 }
 
 func TestOrphanAutoRestore_SkipsCorruptedFile(t *testing.T) {
@@ -710,32 +700,27 @@ func TestOrphanAutoRestore_SkipsCorruptedFile(t *testing.T) {
 	assert.Empty(t, helper.noteService.noteList.Notes)
 }
 
-func TestOrphanAutoRestore_ReusesExistingFolder(t *testing.T) {
+func TestOrphanAutoRestore_DoesNotUseExistingOrphanFolder(t *testing.T) {
 	helper := setupNoteTest(t)
 	defer helper.cleanup()
 
+	// 旧バージョンが作った不明ノートフォルダ（アーカイブ済み）が残っている
 	folder, err := helper.noteService.CreateFolder(RecoveryFolderName)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	require.NoError(t, helper.noteService.ArchiveFolder(folder.ID))
 
 	note := &Note{ID: "orphan-reuse", Title: "再利用テスト", Content: "test"}
 	noteData, _ := json.MarshalIndent(note, "", "  ")
-	err = os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644)
-	assert.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644))
 
 	changed, err := helper.noteService.ValidateIntegrity()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, changed)
 
 	require.Len(t, helper.noteService.noteList.Notes, 1)
-	assert.Equal(t, folder.ID, helper.noteService.noteList.Notes[0].FolderID, "既存フォルダが再利用されるべき")
-
-	folderCount := 0
-	for _, f := range helper.noteService.noteList.Folders {
-		if f.Name == RecoveryFolderName {
-			folderCount++
-		}
-	}
-	assert.Equal(t, 1, folderCount, "復元フォルダは重複作成されないべき")
+	assert.Equal(t, "", helper.noteService.noteList.Notes[0].FolderID)
+	require.Len(t, helper.noteService.noteList.Folders, 1)
+	assert.True(t, helper.noteService.noteList.Folders[0].Archived, "既存フォルダは触らない（アーカイブも解除しない）")
 }
 
 func TestOrphanAutoRestore_MultipleOrphans(t *testing.T) {
@@ -745,101 +730,24 @@ func TestOrphanAutoRestore_MultipleOrphans(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		note := &Note{ID: fmt.Sprintf("orphan-%d", i), Title: fmt.Sprintf("Orphan %d", i), Content: fmt.Sprintf("content %d", i)}
 		noteData, _ := json.MarshalIndent(note, "", "  ")
-		err := os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644)
-		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644))
 	}
 
 	changed, err := helper.noteService.ValidateIntegrity()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, changed)
 
 	require.Len(t, helper.noteService.noteList.Notes, 3)
-
-	var recoveryFolderID string
-	for _, f := range helper.noteService.noteList.Folders {
-		if f.Name == RecoveryFolderName {
-			recoveryFolderID = f.ID
-			break
-		}
-	}
-	require.NotEmpty(t, recoveryFolderID)
-
 	for _, m := range helper.noteService.noteList.Notes {
-		assert.Equal(t, recoveryFolderID, m.FolderID, "全孤立ノートが同一フォルダに復元されるべき")
+		assert.Equal(t, "", m.FolderID, "全孤立ノートをトップレベルに置く")
 	}
+	assert.Len(t, helper.noteService.noteList.TopLevelOrder, 3)
+	assert.Empty(t, helper.noteService.noteList.Folders)
 
 	recoveries := helper.noteService.DrainPendingOrphanRecoveries()
 	require.Len(t, recoveries, 1)
 	assert.Equal(t, 3, recoveries[0].Count)
 	assert.Equal(t, "local", recoveries[0].Source)
-}
-
-func TestOrphanAutoRestore_UnarchivesExistingFolder(t *testing.T) {
-	helper := setupNoteTest(t)
-	defer helper.cleanup()
-
-	folder, err := helper.noteService.CreateFolder(RecoveryFolderName)
-	require.NoError(t, err)
-	err = helper.noteService.ArchiveFolder(folder.ID)
-	require.NoError(t, err)
-
-	note := &Note{ID: "orphan-unarchive", Title: "Unarchive Test", Content: "test"}
-	noteData, _ := json.MarshalIndent(note, "", "  ")
-	err = os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644)
-	require.NoError(t, err)
-
-	_, err = helper.noteService.ValidateIntegrity()
-	assert.NoError(t, err)
-
-	var found *Folder
-	for _, f := range helper.noteService.noteList.Folders {
-		if f.ID == folder.ID {
-			found = &f
-			break
-		}
-	}
-	require.NotNil(t, found)
-	assert.False(t, found.Archived, "復元フォルダのアーカイブが解除されるべき")
-	assert.Equal(t, folder.ID, helper.noteService.noteList.Notes[0].FolderID)
-}
-
-func TestRecoverOrphanNote_AddsToNoteList(t *testing.T) {
-	helper := setupNoteTest(t)
-	defer helper.cleanup()
-
-	note := &Note{ID: "recover-test", Title: "Recover", Content: "content", Language: "plaintext"}
-	noteData, _ := json.MarshalIndent(note, "", "  ")
-	err := os.WriteFile(filepath.Join(helper.notesDir, note.ID+".json"), noteData, 0644)
-	require.NoError(t, err)
-
-	err = helper.noteService.RecoverOrphanNote(note, RecoveryFolderName)
-	assert.NoError(t, err)
-
-	require.Len(t, helper.noteService.noteList.Notes, 1)
-	assert.Equal(t, note.ID, helper.noteService.noteList.Notes[0].ID)
-
-	var cloudFolder *Folder
-	for _, f := range helper.noteService.noteList.Folders {
-		if f.Name == RecoveryFolderName {
-			cloudFolder = &f
-			break
-		}
-	}
-	require.NotNil(t, cloudFolder)
-	assert.Equal(t, cloudFolder.ID, helper.noteService.noteList.Notes[0].FolderID)
-}
-
-func TestRecoverOrphanNote_SkipsDuplicateNote(t *testing.T) {
-	helper := setupNoteTest(t)
-	defer helper.cleanup()
-
-	note := &Note{ID: "dup-recover", Title: "Dup", Content: "content"}
-	assert.NoError(t, helper.noteService.SaveNote(note))
-	require.Len(t, helper.noteService.noteList.Notes, 1)
-
-	err := helper.noteService.RecoverOrphanNote(note, RecoveryFolderName)
-	assert.NoError(t, err)
-	assert.Len(t, helper.noteService.noteList.Notes, 1, "重複が追加されないべき")
 }
 
 func TestValidateIntegrity_RemovesMissingFileSilently(t *testing.T) {

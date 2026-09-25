@@ -13,11 +13,16 @@ import (
 
 // DrivePollingService は Drive 同期のポーリングを管理する。
 //
+// 変更検知は Changes API。トークンは「消費したぶんだけ」進め、自分の書き込み後に
+// 現在時刻へ飛ばすことはしない（その間に来た他端末の変更を取りこぼすため。docs/sync-engine-v3.md P9）。
+// 自分の書き込みも変更として届くが、次の同期は md5 比較だけで終わる。
+//
 // ★ 並行性ルール:
-//   StartPolling は専用の goroutine から呼ばれる長時間ループ。
-//   StopPolling と RefreshChangeToken はメインスレッドや別の sync goroutine から
-//   並行に呼ばれる。stopPollingChan の close+再代入と changePageToken の
-//   読み書きが race するため、mu sync.Mutex で保護する。
+//
+//	StartPolling は専用の goroutine から呼ばれる長時間ループ。
+//	StopPolling はメインスレッドや別の goroutine から並行に呼ばれる。
+//	stopPollingChan の close+再代入と changePageToken の読み書きが race するため、
+//	mu sync.Mutex で保護する。
 type DrivePollingService struct {
 	ctx              context.Context
 	driveService     *driveService
@@ -32,12 +37,16 @@ type DrivePollingService struct {
 	// ユーザーに「Drive との接続が切れたまま復旧しません」と知らせる。
 	// 接続成功でリセットする。
 	consecutiveReconnectFailures int
+	lastSyncAt                   time.Time
 }
 
 // reauthFailureThreshold は連続 reconnect 失敗がこの回数以上になったら
 // 再ログイン誘導ダイアログを発火する閾値。一時的な Wi-Fi 断 / スリープ復帰直後を
 // やり過ごしつつ、本物の "永続的なオフライン" を検知できる値。
 const reauthFailureThreshold = 3
+
+// safetySyncInterval は Changes API の取りこぼしに備え、変化が無くてもフル判定する間隔。
+const safetySyncInterval = 5 * time.Minute
 
 func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePollingService {
 	return &DrivePollingService{
@@ -50,8 +59,6 @@ func NewDrivePollingService(ctx context.Context, ds *driveService) *DrivePolling
 }
 
 // currentStopChannel は StartPolling が select で監視する stop channel を返す。
-// StopPolling が close+再代入した瞬間に StartPolling 側の select-read と race
-// しないよう、必ずこの helper 経由で取得し local 変数に保持して使う。
 func (p *DrivePollingService) currentStopChannel() chan struct{} {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -59,7 +66,6 @@ func (p *DrivePollingService) currentStopChannel() chan struct{} {
 }
 
 // recordReconnectFailure は reconnect 失敗回数を 1 加算した値を返す。
-// 閾値を超えたら caller 側で再ログインダイアログを発火する。
 func (p *DrivePollingService) recordReconnectFailure() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -74,8 +80,6 @@ func (p *DrivePollingService) resetReconnectFailures() {
 	p.consecutiveReconnectFailures = 0
 }
 
-// getChangePageToken は Changes API のページトークンを返す。RefreshChangeToken
-// など別 goroutine からの書き換えと race しないよう lock 経由で読む。
 func (p *DrivePollingService) getChangePageToken() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -88,6 +92,18 @@ func (p *DrivePollingService) setChangePageToken(token string) {
 	p.changePageToken = token
 }
 
+func (p *DrivePollingService) markSynced() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastSyncAt = time.Now()
+}
+
+func (p *DrivePollingService) safetySyncDue() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return time.Since(p.lastSyncAt) >= safetySyncInterval
+}
+
 func (p *DrivePollingService) WaitForFrontendAndStartSync() {
 	defer func() {
 		if r := recover(); r != nil {
@@ -98,15 +114,17 @@ func (p *DrivePollingService) WaitForFrontendAndStartSync() {
 	<-p.driveService.auth.GetFrontendReadyChan()
 	p.logger.Console("Frontend ready signal received - starting sync...")
 
-	// 起動時点より前に発生したクラウド差分を取りこぼさないため、
-	// ポーリング開始前に必ず一度フル同期判定を実行する
-	if err := p.driveService.SyncNotes(); err != nil {
-		p.logger.ErrorCode(err, MsgDriveErrorInitialSync, nil)
-	}
+	// 変更検知の基準点は初回同期の「前」に取る（初回同期中に来た変更を取りこぼさない）
+	p.initChangeToken()
+	p.runSync()
 
-	time.Sleep(1 * time.Second)
 	p.logger.InfoCode(MsgDrivePollingStarted, nil)
 	p.StartPolling()
+}
+
+func (p *DrivePollingService) runSync() error {
+	p.markSynced()
+	return p.driveService.SyncNotes()
 }
 
 func (p *DrivePollingService) StartPolling() {
@@ -118,10 +136,7 @@ func (p *DrivePollingService) StartPolling() {
 		reconnectMaxDelay  = 3 * time.Minute
 	)
 
-	// stopPollingChan は StopPolling が close+再代入する。select 文で
-	// p.stopPollingChan を直接参照するとフィールド書換と race するため、
-	// 開始時に local に capture したものを使う。次回 StartPolling 時には
-	// StopPolling が新しい channel を作っているのでそちらが拾われる。
+	// stopPollingChan は StopPolling が close+再代入する。開始時に local に capture したものを使う。
 	stopChan := p.currentStopChannel()
 
 	interval := initialInterval
@@ -129,27 +144,9 @@ func (p *DrivePollingService) StartPolling() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	if err := p.driveService.driveSync.RefreshFileIDCache(p.ctx); err != nil {
-		p.logger.ErrorCode(err, MsgDriveErrorRefreshFileCache, nil)
+	if p.getChangePageToken() == "" {
+		p.initChangeToken()
 	}
-
-	p.logger.InfoCode(MsgDriveCheckingCloudFiles, nil)
-	_, notesID := p.driveService.auth.GetDriveSync().FolderIDs()
-	files, err := p.driveService.driveSync.ListFiles(p.ctx, notesID)
-	if err != nil {
-		p.logger.ErrorCode(err, MsgDriveErrorListNotesFolder, nil)
-	}
-
-	p.logger.InfoCode(MsgDriveCheckingDuplicates, nil)
-	if err := p.driveService.driveSync.RemoveDuplicateNoteFiles(p.ctx, files); err != nil {
-		p.logger.ErrorCode(err, MsgDriveErrorCleanDuplicates, nil)
-	}
-
-	if _, err := p.driveService.recoverOrphanCloudNotes(files, p.driveService.driveOps); err != nil {
-		p.logger.Console("Failed to recover orphan cloud notes: %v", err)
-	}
-
-	p.initChangeToken()
 
 	for {
 		select {
@@ -167,11 +164,8 @@ func (p *DrivePollingService) StartPolling() {
 				if err := p.driveService.reconnect(); err != nil {
 					p.logger.Console("Reconnect failed: %v", err)
 					// 連続失敗が閾値を超えたら再ログインダイアログを発火する。
-					// (reauthNotified の重複抑止フラグが立っているので 1 度だけ通知される)
 					if p.recordReconnectFailure() >= reauthFailureThreshold {
-						p.driveService.auth.notifyReauthRequired(
-							"polling_failed", err.Error(),
-						)
+						p.driveService.auth.notifyReauthRequired("polling_failed", err.Error())
 					}
 					reconnectDelay = time.Duration(float64(reconnectDelay) * factor)
 					if reconnectDelay > reconnectMaxDelay {
@@ -192,39 +186,38 @@ func (p *DrivePollingService) StartPolling() {
 
 			reconnectDelay = reconnectBaseDelay
 
-			if p.driveService.operationsQueue != nil && p.driveService.operationsQueue.HasItems() {
+			if p.pollOnce() {
 				interval = initialInterval
-				ticker.Reset(interval)
-				continue
-			}
-
-			hasChanges, syncErr := p.checkForChanges()
-			if syncErr != nil {
-				p.logger.ErrorCode(syncErr, MsgDriveErrorSyncFailed, nil)
-				interval = initialInterval
-			} else if hasChanges {
-				if err := p.driveService.SyncNotes(); err != nil {
-					p.logger.ErrorCode(err, MsgDriveErrorSyncFailed, nil)
-					interval = initialInterval
-				} else {
-					interval = time.Duration(float64(interval) * factor)
-					if interval > maxInterval {
-						interval = maxInterval
-					}
-				}
 			} else {
-				if !p.driveService.IsTestMode() {
-					p.logger.NotifyDriveStatus(p.ctx, "synced")
-				}
 				interval = time.Duration(float64(interval) * factor)
 				if interval > maxInterval {
 					interval = maxInterval
 				}
-				p.logger.Console("No changes detected, interval increased to %s", interval)
 			}
 			ticker.Reset(interval)
 		}
 	}
+}
+
+// pollOnce はポーリング 1 サイクル。同期を実行した（または失敗した）なら true を返す。
+func (p *DrivePollingService) pollOnce() bool {
+	hasChanges, err := p.checkForChanges()
+	if err != nil {
+		p.logger.ErrorCode(err, MsgDriveErrorSyncFailed, nil)
+		return true
+	}
+	// 未送信のローカル変更 / 未完了の初回同期 / 前回失敗の再試行があれば、クラウドに変化が無くても同期する
+	pending := p.driveService.hasPendingSyncWork()
+	if !hasChanges && !pending && !p.safetySyncDue() {
+		if !p.driveService.IsTestMode() {
+			p.logger.NotifyDriveStatus(p.ctx, "synced")
+		}
+		return false
+	}
+	if err := p.runSync(); err != nil {
+		p.logger.ErrorCode(err, MsgDriveErrorSyncFailed, nil)
+	}
+	return true
 }
 
 func (p *DrivePollingService) initChangeToken() {
@@ -240,26 +233,14 @@ func (p *DrivePollingService) initChangeToken() {
 	p.logger.Console("Changes API initialized with token: %s", token)
 }
 
-func (p *DrivePollingService) RefreshChangeToken() {
-	if p.driveService.driveOps == nil {
-		return
-	}
-	token, err := p.driveService.driveOps.GetStartPageToken()
-	if err != nil {
-		return
-	}
-	p.setChangePageToken(token)
-}
-
+// checkForChanges は前回からの変更があるかを返す。トークンは消費したぶんだけ進める。
 func (p *DrivePollingService) checkForChanges() (bool, error) {
 	currentToken := p.getChangePageToken()
 	if currentToken == "" {
+		// 基準点が無い: 先に取ってから同期する（取得前の変更は同期で拾う）
 		p.logger.Console("No change token available, performing full sync")
-		if err := p.driveService.SyncNotes(); err != nil {
-			return false, err
-		}
 		p.initChangeToken()
-		return false, nil
+		return true, nil
 	}
 
 	result, err := p.driveService.driveOps.ListChanges(currentToken)
@@ -268,35 +249,31 @@ func (p *DrivePollingService) checkForChanges() (bool, error) {
 		p.setChangePageToken("")
 		return true, nil
 	}
-
 	if result.NewStartToken != "" {
 		p.setChangePageToken(result.NewStartToken)
 	}
-
 	if len(result.Changes) == 0 {
 		return false, nil
 	}
-
-	rootID, notesID := p.driveService.auth.GetDriveSync().FolderIDs()
-	if hasRelevantChanges(result.Changes, rootID, notesID) {
+	if hasRelevantChanges(result.Changes) {
 		return true, nil
 	}
-
-	p.logger.Console("Changes detected but none relevant to our folders (%d changes)", len(result.Changes))
+	p.logger.Console("Changes detected but none relevant to our files (%d changes)", len(result.Changes))
 	return false, nil
 }
 
-func hasRelevantChanges(changes []*drive.Change, rootID, notesID string) bool {
+// hasRelevantChanges は変更のうち同期対象（noteList / ノート本体 / フォルダ）に関わるものがあるか。
+// 削除（File が無い変更）も対象に含める。
+func hasRelevantChanges(changes []*drive.Change) bool {
 	for _, change := range changes {
-		if change.File == nil {
+		if change == nil {
 			continue
 		}
-		for _, parentID := range change.File.Parents {
-			if parentID == rootID || parentID == notesID {
-				return true
-			}
+		if change.Removed || change.File == nil {
+			return true
 		}
-		if strings.HasSuffix(change.File.Name, ".json") {
+		name := change.File.Name
+		if strings.HasSuffix(name, ".json") || name == "monaco-notepad" || name == "notes" {
 			return true
 		}
 	}
@@ -304,9 +281,6 @@ func hasRelevantChanges(changes []*drive.Change, rootID, notesID string) bool {
 }
 
 // StopPolling は実行中の StartPolling ループを終了させる。多重呼び出し可能。
-// 停止後に再度 StartPolling を呼べるよう、close した直後に新しい channel に
-// 差し替える (旧 channel は capture 済みの StartPolling goroutine が close を
-// 受信して exit するために使う)。
 func (p *DrivePollingService) StopPolling() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

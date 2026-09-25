@@ -98,10 +98,8 @@ func setupAppTest(t *testing.T) *appTestHelper {
 
 	// テストモード用のDriveSyncを完全に初期化
 	authService.driveSync = &DriveSync{
-		notesFolderID: "test-folder",
-		rootFolderID:  "test-root",
-		isConnected:   true,
-		mutex:         sync.RWMutex{},
+		isConnected: true,
+		mutex:       sync.RWMutex{},
 		config: &oauth2.Config{
 			ClientID:     "test-client-id",
 			ClientSecret: "test-client-secret",
@@ -127,12 +125,6 @@ func setupAppTest(t *testing.T) *appTestHelper {
 
 	// DriveOpsの初期化を追加
 	driveService.driveOps = NewDriveOperations(authService.driveSync.service, app.logger, false)
-	driveService.driveSync = NewDriveSyncService(
-		driveService.driveOps,
-		"test-folder", // notesFolderID
-		"test-root",   // rootFolderID
-		app.logger,
-	)
 
 	app.driveService = driveService
 	app.authService = authService
@@ -187,12 +179,6 @@ func TestSaveNoteWithSync(t *testing.T) {
 		logger:      helper.app.logger,
 		isTestMode:  true,
 		driveOps:    mockDriveOps,
-		driveSync: NewDriveSyncService(
-			mockDriveOps,
-			"test-folder",
-			"test-root",
-			helper.app.logger,
-		),
 	}
 
 	// ノートを保存（同期処理も実行される）
@@ -230,12 +216,6 @@ func TestDeleteNoteWithSync(t *testing.T) {
 		logger:      helper.app.logger,
 		isTestMode:  true,
 		driveOps:    mockDriveOps,
-		driveSync: NewDriveSyncService(
-			mockDriveOps,
-			"test-folder",
-			"test-root",
-			helper.app.logger,
-		),
 	}
 
 	// まずノートを保存
@@ -271,12 +251,6 @@ func TestSaveNoteListWithSync(t *testing.T) {
 		logger:      helper.app.logger,
 		isTestMode:  true,
 		driveOps:    mockDriveOps,
-		driveSync: NewDriveSyncService(
-			mockDriveOps,
-			"test-folder",
-			"test-root",
-			helper.app.logger,
-		),
 	}
 
 	// テスト用のノートを複数作成
@@ -340,12 +314,6 @@ func TestUpdateNoteOrderWithSync(t *testing.T) {
 		logger:      helper.app.logger,
 		isTestMode:  true,
 		driveOps:    mockDriveOps,
-		driveSync: NewDriveSyncService(
-			mockDriveOps,
-			"test-folder",
-			"test-root",
-			helper.app.logger,
-		),
 	}
 
 	// テスト用のノートを複数作成

@@ -118,96 +118,55 @@ func (s *SyncState) MarkFolderDeleted(folderID string) {
 	_ = s.saveLocked()
 }
 
-func (s *SyncState) ClearDirty(driveTs string, noteHashes map[string]string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.revision++
-	s.clearDirtyLocked(driveTs, noteHashes)
-	_ = s.saveLocked()
-}
-
-// ClearDirtyIfUnchanged は、スナップショット取得後に状態更新が無い場合のみ dirty をクリアする
-// 戻り値が false の場合は、同期中に新しい更新が入ったため dirty を保持して次回同期へ回す
-func (s *SyncState) ClearDirtyIfUnchanged(snapshotRevision uint64, driveTs string, noteHashes map[string]string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.revision != snapshotRevision {
-		return false
-	}
-	s.revision++
-	s.clearDirtyLocked(driveTs, noteHashes)
-	_ = s.saveLocked()
-	return true
-}
-
-func (s *SyncState) clearDirtyLocked(driveTs string, noteHashes map[string]string) {
-	s.Dirty = false
-	s.DirtyNoteIDs = make(map[string]bool)
-	s.DeletedNoteIDs = make(map[string]bool)
-	s.DeletedFolderIDs = make(map[string]bool)
-	s.LastSyncedDriveTs = driveTs
-	s.LastSyncedNoteHash = make(map[string]string, len(noteHashes))
-	for k, v := range noteHashes {
-		s.LastSyncedNoteHash[k] = v
-	}
-}
-
-// UpdateSyncedNoteHash は 1 ノートの「Drive 側に上がった状態」を即時に永続化する。
-// 大量アップロード中にアプリが終了した場合、再起動後の pushLocalChanges で
-// 「現在の hash == 永続化済 hash」のノートをスキップして再開できるようにする用途。
-//
-// revision はインクリメントしない（これは同期側の内部記録で、ユーザー編集ではないため、
-// 進行中の ClearDirtyIfUnchanged の revision チェックを破壊してはならない）。
-func (s *SyncState) UpdateSyncedNoteHash(noteID string, hash string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.ensureMapsLocked()
-	s.LastSyncedNoteHash[noteID] = hash
-	_ = s.saveLocked()
-}
-
-// UpdateSyncedState は ClearDirtyIfUnchanged が失敗した場合のフォールバック
-// dirtyフラグは保持しつつ、完了した同期結果だけ反映し、次回の不要な resolveConflict を防ぐ
-func (s *SyncState) UpdateSyncedState(driveTs string, noteHashes map[string]string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.LastSyncedDriveTs = driveTs
-	s.LastSyncedNoteHash = make(map[string]string, len(noteHashes))
-	for k, v := range noteHashes {
-		s.LastSyncedNoteHash[k] = v
-	}
-	_ = s.saveLocked()
-}
-
+// IsDirty は同期しないと解消しないローカル変更（ヒント or 未処理の削除意図）があるか。
 func (s *SyncState) IsDirty() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.Dirty
+	return s.Dirty || len(s.DeletedNoteIDs) > 0
 }
 
-func (s *SyncState) GetDirtySnapshot() (dirtyNoteIDs map[string]bool, deletedNoteIDs map[string]bool, lastSyncedNoteHash map[string]string) {
+// LegacyNoteHashes は v2 が記録していた「前回同期時の本文 hash」（v3 の base が無い移行直後だけ使う）。
+func (s *SyncState) LegacyNoteHashes() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dirtyNoteIDs = make(map[string]bool, len(s.DirtyNoteIDs))
-	for id := range s.DirtyNoteIDs {
-		dirtyNoteIDs[id] = true
-	}
-	deletedNoteIDs = make(map[string]bool, len(s.DeletedNoteIDs))
-	for id := range s.DeletedNoteIDs {
-		deletedNoteIDs[id] = true
-	}
-	lastSyncedNoteHash = make(map[string]string, len(s.LastSyncedNoteHash))
+	out := make(map[string]string, len(s.LastSyncedNoteHash))
 	for k, v := range s.LastSyncedNoteHash {
-		lastSyncedNoteHash[k] = v
+		out[k] = v
 	}
+	return out
+}
 
-	return
+// CompleteSync は同期エンジン v3 のサイクル終了時の後始末（docs/sync-engine-v3.md §4）。
+//   - resolvedDeletions: 処理が確定した削除意図（リモート削除済み / 取り消し）は個別に消す。
+//   - succeeded: 失敗なく終わったか。失敗があれば Dirty を立て、すぐ再同期させる。
+//   - 成功かつ revision が同期開始時から変わっていなければ（= 同期中にユーザー操作が無い）、
+//     ヒント系（Dirty / DirtyNoteIDs / DeletedFolderIDs）をクリアする。
+//
+// v2 の同期記録（LastSyncedNoteHash / LastSyncedDriveTs / FullReuploadPending）は v3 では使わないので消す。
+// 戻り値: ヒント系をクリアしたか。
+func (s *SyncState) CompleteSync(snapshotRevision uint64, resolvedDeletions []string, succeeded bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ensureMapsLocked()
+	for _, id := range resolvedDeletions {
+		delete(s.DeletedNoteIDs, id)
+	}
+	cleared := succeeded && s.revision == snapshotRevision
+	if cleared {
+		s.Dirty = false
+		s.DirtyNoteIDs = make(map[string]bool)
+		s.DeletedFolderIDs = make(map[string]bool)
+	} else if !succeeded {
+		s.Dirty = true
+	}
+	s.LastSyncedNoteHash = make(map[string]string)
+	s.LastSyncedDriveTs = ""
+	s.FullReuploadPending = false
+	_ = s.saveLocked()
+	return cleared
 }
 
 // GetDirtySnapshotWithRevision は dirty スナップショットと同時に revision を返す
@@ -244,62 +203,6 @@ func (s *SyncState) resetLocked(dirty bool) {
 	s.DeletedFolderIDs = make(map[string]bool)
 	s.LastSyncedNoteHash = make(map[string]string)
 	s.FullReuploadPending = false
-}
-
-// MarkForFullReupload は Drive 上のデータ削除などで、全ノートを再アップロードする必要が
-// あるときに呼び出す。dirty フラグ・DirtyNoteIDs を noteIDs で埋め、最後の同期状態を
-// クリアしつつ FullReuploadPending を立てる。
-// これにより次回の onConnected で ensureNoteList が Drive noteList を作らず、
-// SyncNotes が pushLocalChanges 経路を通って全ノートを再アップロードできる。
-func (s *SyncState) MarkForFullReupload(noteIDs []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.revision++
-	s.Dirty = true
-	s.LastSyncedDriveTs = ""
-	s.LastSyncedNoteHash = make(map[string]string)
-	s.DeletedNoteIDs = make(map[string]bool)
-	s.DeletedFolderIDs = make(map[string]bool)
-	s.DirtyNoteIDs = make(map[string]bool, len(noteIDs))
-	for _, id := range noteIDs {
-		s.DirtyNoteIDs[id] = true
-	}
-	s.FullReuploadPending = true
-	_ = s.saveLocked()
-}
-
-// ClearFullReupload は FullReuploadPending を落とす（pushLocalChanges 成功時に呼ぶ）。
-func (s *SyncState) ClearFullReupload() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.FullReuploadPending {
-		return
-	}
-	s.FullReuploadPending = false
-	_ = s.saveLocked()
-}
-
-// IsFullReuploadPending は FullReuploadPending の現在値を返す。
-func (s *SyncState) IsFullReuploadPending() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.FullReuploadPending
-}
-
-// HasPendingUploads は未アップロードのローカル変更があるかを返す。
-// (A) 明示的に FullReuploadPending が立っている、または (B) dirty=true かつ DirtyNoteIDs が非空。
-// ensureNoteList 側で「Drive noteList を先に作るか、pushLocalChanges 経路に任せるか」の判定に使う。
-func (s *SyncState) HasPendingUploads() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.FullReuploadPending {
-		return true
-	}
-	return s.Dirty && len(s.DirtyNoteIDs) > 0
 }
 
 func (s *SyncState) ensureMapsLocked() {

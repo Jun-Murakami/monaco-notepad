@@ -159,6 +159,47 @@ func (d *driveOperationsImpl) CreateFolder(name string, rootFolderID string) (st
 	return folder.Id, nil
 }
 
+// driveFileFields は同期エンジン v3 が必要とするファイルのフィールド（md5 で本文の変更を検知する）。
+const driveFileFields = "id, name, mimeType, parents, createdTime, modifiedTime, md5Checksum, version"
+
+// CreateFileMeta はファイルを作成し、md5 などのメタデータを返す（同期エンジン v3 用）。
+func (d *driveOperationsImpl) CreateFileMeta(name string, parentID string, content []byte, mimeType string) (*drive.File, error) {
+	d.logger.Console("[GAPI] Creating file: %s", name)
+	f := &drive.File{Name: name, MimeType: mimeType}
+	if parentID != "" {
+		f.Parents = []string{parentID}
+	}
+	file, err := d.service.Files.Create(f).Media(bytes.NewReader(content)).Fields(driveFileFields).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file: %w", err)
+	}
+	return file, nil
+}
+
+// UpdateFileMeta はファイル本体を更新し、md5 などのメタデータを返す（同期エンジン v3 用）。
+func (d *driveOperationsImpl) UpdateFileMeta(fileID string, content []byte) (*drive.File, error) {
+	d.logger.Console("[GAPI] Updating file: %s", fileID)
+	file, err := d.service.Files.Update(fileID, &drive.File{}).Media(bytes.NewReader(content)).Fields(driveFileFields).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update file: %w", err)
+	}
+	return file, nil
+}
+
+// CreateFolderMeta はフォルダを作成し、メタデータを返す（同期エンジン v3 用）。
+func (d *driveOperationsImpl) CreateFolderMeta(name string, parentID string) (*drive.File, error) {
+	d.logger.Console("[GAPI] Creating folder: %s", name)
+	f := &drive.File{Name: name, MimeType: "application/vnd.google-apps.folder"}
+	if parentID != "" {
+		f.Parents = []string{parentID}
+	}
+	folder, err := d.service.Files.Create(f).Fields(driveFileFields).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create folder: %w", err)
+	}
+	return folder, nil
+}
+
 // ファイルを検索 (Driveネイティブ)
 func (d *driveOperationsImpl) ListFiles(query string) ([]*drive.File, error) {
 	d.logger.Console("[GAPI] Listing files: %s", query)
@@ -168,7 +209,7 @@ func (d *driveOperationsImpl) ListFiles(query string) ([]*drive.File, error) {
 		call := d.service.Files.List().
 			Q(query).
 			PageSize(1000).
-			Fields("nextPageToken, files(id, name, createdTime, modifiedTime)")
+			Fields("nextPageToken, files(" + driveFileFields + ")")
 		if d.useAppDataFolder {
 			call = call.Spaces("appDataFolder")
 		}

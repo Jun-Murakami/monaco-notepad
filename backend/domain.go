@@ -160,45 +160,17 @@ type ConflictBackupEntry struct {
 
 // Google Driveとの同期機能を管理
 type DriveSync struct {
-	service       *drive.Service // Google Driveサービスのインスタンス
-	token         *oauth2.Token  // OAuth2認証トークン
-	server        *http.Server   // 認証サーバー
-	listener      net.Listener   // 認証サーバーのリスナー
-	config        *oauth2.Config // OAuth2設定
-	rootFolderID  string         // アプリケーションのルートフォルダID
-	notesFolderID string         // ノート保存用フォルダID
-	noteListID    string         // ノートリストのファイルID
-	mutex         sync.RWMutex   // 同期処理用のミューテックス
-	isConnected   bool           // Google Driveへの接続状態
+	service     *drive.Service // Google Driveサービスのインスタンス
+	token       *oauth2.Token  // OAuth2認証トークン
+	server      *http.Server   // 認証サーバー
+	listener    net.Listener   // 認証サーバーのリスナー
+	config      *oauth2.Config // OAuth2設定
+	mutex       sync.RWMutex   // 同期処理用のミューテックス
+	isConnected bool           // Google Driveへの接続状態
 	// reauthNotified は drive:reauth-required イベントを発火済みかを記録する。
 	// 同じオフラインセッション中に何度もダイアログが表示されないよう、
 	// SetConnected(true) で false にリセットする。
 	reauthNotified bool
-}
-
-func (ds *DriveSync) FolderIDs() (rootFolderID, notesFolderID string) {
-	ds.mutex.RLock()
-	defer ds.mutex.RUnlock()
-	return ds.rootFolderID, ds.notesFolderID
-}
-
-func (ds *DriveSync) SetFolderIDs(rootFolderID, notesFolderID string) {
-	ds.mutex.Lock()
-	defer ds.mutex.Unlock()
-	ds.rootFolderID = rootFolderID
-	ds.notesFolderID = notesFolderID
-}
-
-func (ds *DriveSync) NoteListID() string {
-	ds.mutex.RLock()
-	defer ds.mutex.RUnlock()
-	return ds.noteListID
-}
-
-func (ds *DriveSync) SetNoteListID(id string) {
-	ds.mutex.Lock()
-	defer ds.mutex.Unlock()
-	ds.noteListID = id
 }
 
 func (ds *DriveSync) Connected() bool {

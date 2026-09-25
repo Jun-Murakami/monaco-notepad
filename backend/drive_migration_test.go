@@ -190,6 +190,31 @@ func (m *migrationMockDriveOps) CreateFile(name string, content []byte, parentID
 	return id, nil
 }
 
+// ---- 同期エンジン v3 の driveFileAPI（onConnected がエンジンを組み立てるため） ----
+
+func (m *migrationMockDriveOps) CreateFileMeta(name string, parentID string, content []byte, mimeType string) (*drive.File, error) {
+	id, err := m.CreateFile(name, content, parentID, mimeType)
+	if err != nil {
+		return nil, err
+	}
+	return &drive.File{Id: id, Name: name, MimeType: mimeType, Md5Checksum: md5Hex(content), Version: 1}, nil
+}
+
+func (m *migrationMockDriveOps) UpdateFileMeta(fileID string, content []byte) (*drive.File, error) {
+	if err := m.UpdateFile(fileID, content); err != nil {
+		return nil, err
+	}
+	return &drive.File{Id: fileID, Md5Checksum: md5Hex(content)}, nil
+}
+
+func (m *migrationMockDriveOps) CreateFolderMeta(name string, parentID string) (*drive.File, error) {
+	id, err := m.CreateFolder(name, parentID)
+	if err != nil {
+		return nil, err
+	}
+	return &drive.File{Id: id, Name: name, MimeType: "application/vnd.google-apps.folder"}, nil
+}
+
 func (m *migrationMockDriveOps) UpdateFile(fileID string, content []byte) error {
 	m.store.mu.Lock()
 	defer m.store.mu.Unlock()
@@ -406,10 +431,8 @@ func newMigrationTestDriveService(t *testing.T, store *migrationMockDriveStore) 
 
 	ds.pollingService = NewDrivePollingService(ctx, ds)
 
+	ds.baseStore = newSyncBaseStore(helper.tempDir)
 	cleanup := func() {
-		if ds.operationsQueue != nil {
-			ds.operationsQueue.Cleanup()
-		}
 		helper.cleanup()
 	}
 

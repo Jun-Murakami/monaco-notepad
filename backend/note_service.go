@@ -81,7 +81,10 @@ type noteService struct {
 	pendingIntegrityRepairs []string
 	pendingOrphanRecoveries []OrphanRecoveryInfo
 	recoveryApplied         string // 復旧方法: "", "backup", "rebuild"
-	mu                      sync.Mutex
+	// 整合性チェックが自動で削除したノート（重複した conflict copy）。
+	// 同期エンジンが削除意図として記録する（記録しないと次の同期で Drive から復元されてしまう）。
+	autoDeletedNoteIDs []string
+	mu                 sync.Mutex
 }
 
 // WithLock は noteList / noteCache を直接触る外部コード (主に drive_service) が
@@ -111,6 +114,11 @@ func (s *noteService) SaveNoteList() error {
 func (s *noteService) SnapshotNoteList() *NoteList {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.snapshotNoteListLocked()
+}
+
+// snapshotNoteListLocked はロックを取らない SnapshotNoteList（caller が s.mu を握っている前提）。
+func (s *noteService) snapshotNoteListLocked() *NoteList {
 	if s.noteList == nil {
 		return nil
 	}
@@ -497,19 +505,6 @@ func (s *noteService) deleteNoteFromSyncLocked(id string) error {
 	}
 	delete(s.noteCache, id)
 	return nil
-}
-
-func (s *noteService) buildNoteMetadata(note *Note) NoteMetadata {
-	return NoteMetadata{
-		ID:            note.ID,
-		Title:         note.Title,
-		ContentHeader: note.ContentHeader,
-		Language:      note.Language,
-		ModifiedTime:  note.ModifiedTime,
-		Archived:      note.Archived,
-		ContentHash:   computeContentHash(note),
-		FolderID:      note.FolderID,
-	}
 }
 
 // アーカイブされたノートの完全なデータを読み込む ------------------------------------------------------------
@@ -1404,7 +1399,8 @@ func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 		noteIDSet[metadata.ID] = true
 	}
 
-	// 1. 孤立物理ファイルを自動復元（復元フォルダに追加）
+	// 1. 孤立物理ファイル（書き込み途中のクラッシュ等で noteList に載っていない本体）を
+	//    トップレベル先頭に登録する。不明ノートフォルダは使わない（docs/sync-engine-v3.md P8）。
 	physicalNotes := make(map[string]bool)
 	var orphanNoteIDs []string
 	for _, file := range files {
@@ -1419,7 +1415,6 @@ func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 	}
 
 	var recoveredOrphanCount int
-	var recoveryFolderID string
 	totalOrphans := len(orphanNoteIDs)
 	for i, noteID := range orphanNoteIDs {
 		note, loadErr := s.loadNoteLocked(noteID)
@@ -1428,26 +1423,21 @@ func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 			continue
 		}
 
-		if recoveryFolderID == "" {
-			recoveryFolderID = s.findOrCreateRecoveryFolder(RecoveryFolderName)
-		}
-
-		note.Archived = false
-		note.FolderID = recoveryFolderID
-		if saveErr := s.saveNoteFromSyncLocked(note); saveErr != nil {
-			logRepair(fmt.Sprintf("Failed to update orphan note file: %s (%v)", noteID, saveErr))
-		}
-
-		s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
+		s.noteList.Notes = append([]NoteMetadata{{
 			ID:            note.ID,
 			Title:         note.Title,
 			ContentHeader: note.ContentHeader,
 			Language:      note.Language,
 			ModifiedTime:  note.ModifiedTime,
-			Archived:      false,
+			Archived:      note.Archived,
 			ContentHash:   computeContentHash(note),
-			FolderID:      recoveryFolderID,
-		})
+		}}, s.noteList.Notes...)
+		item := TopLevelItem{Type: "note", ID: note.ID}
+		if note.Archived {
+			s.noteList.ArchivedTopLevelOrder = append([]TopLevelItem{item}, s.noteList.ArchivedTopLevelOrder...)
+		} else {
+			s.noteList.TopLevelOrder = append([]TopLevelItem{item}, s.noteList.TopLevelOrder...)
+		}
 		noteIDSet[noteID] = true
 		recoveredOrphanCount++
 		changed = true
@@ -1462,9 +1452,8 @@ func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 	}
 	if recoveredOrphanCount > 0 {
 		s.pendingOrphanRecoveries = append(s.pendingOrphanRecoveries, OrphanRecoveryInfo{
-			Source:     "local",
-			Count:      recoveredOrphanCount,
-			FolderName: RecoveryFolderName,
+			Source: "local",
+			Count:  recoveredOrphanCount,
 		})
 	}
 
@@ -1779,6 +1768,15 @@ func (s *noteService) DrainPendingIntegrityRepairs() []string {
 	return repairs
 }
 
+// DrainAutoDeletedNoteIDs は整合性チェックが自動で削除したノート ID を取り出す（1回限り）。
+func (s *noteService) DrainAutoDeletedNoteIDs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := s.autoDeletedNoteIDs
+	s.autoDeletedNoteIDs = nil
+	return ids
+}
+
 func (s *noteService) DrainPendingOrphanRecoveries() []OrphanRecoveryInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1788,56 +1786,6 @@ func (s *noteService) DrainPendingOrphanRecoveries() []OrphanRecoveryInfo {
 	recoveries := s.pendingOrphanRecoveries
 	s.pendingOrphanRecoveries = nil
 	return recoveries
-}
-
-// findOrCreateRecoveryFolder は指定名のフォルダを検索し、存在しなければ作成する（noteListに直接追加、保存は呼び出し元で行う）
-func (s *noteService) findOrCreateRecoveryFolder(name string) string {
-	for i, folder := range s.noteList.Folders {
-		if folder.Name == name {
-			if folder.Archived {
-				s.noteList.Folders[i].Archived = false
-			}
-			return folder.ID
-		}
-	}
-	folderID := uuid.New().String()
-	s.noteList.Folders = append(s.noteList.Folders, Folder{
-		ID:   folderID,
-		Name: name,
-	})
-	return folderID
-}
-
-// RecoverOrphanNote は孤立ノートを指定の復元フォルダに追加する（クラウド孤立復元からも呼ばれる）
-func (s *noteService) RecoverOrphanNote(note *Note, recoveryFolderName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, m := range s.noteList.Notes {
-		if m.ID == note.ID {
-			return nil
-		}
-	}
-
-	folderID := s.findOrCreateRecoveryFolder(recoveryFolderName)
-
-	note.Archived = false
-	note.FolderID = folderID
-	if saveErr := s.saveNoteFromSyncLocked(note); saveErr != nil {
-		s.logConsole("Failed to update orphan note file: %s (%v)", note.ID, saveErr)
-	}
-
-	s.noteList.Notes = append(s.noteList.Notes, NoteMetadata{
-		ID:            note.ID,
-		Title:         note.Title,
-		ContentHeader: note.ContentHeader,
-		Language:      note.Language,
-		ModifiedTime:  note.ModifiedTime,
-		Archived:      false,
-		ContentHash:   computeContentHash(note),
-		FolderID:      folderID,
-	})
-
-	return s.saveNoteList()
 }
 
 // conflict copy を自動解決する（同一ハッシュの重複のみ削除）
@@ -1977,6 +1925,7 @@ func (s *noteService) autoResolveConflictCopies() conflictCopyResolution {
 		s.removeFromTopLevelOrder(id)
 		s.removeFromArchivedTopLevelOrder(id)
 		result.deleted = append(result.deleted, id)
+		s.autoDeletedNoteIDs = append(s.autoDeletedNoteIDs, id)
 		result.changed = true
 	}
 

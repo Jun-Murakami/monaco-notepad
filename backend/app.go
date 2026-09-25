@@ -607,18 +607,11 @@ func (a *App) UpdateArchivedTopLevelOrder(order []TopLevelItem) error {
 	return nil
 }
 
+// triggerSyncIfConnected はローカル変更の後に同期を要求する。
+// 入力中の連続保存で毎回同期しないよう、driveService 側で数秒まとめてから同期する。
 func (a *App) triggerSyncIfConnected() {
 	if a.driveService != nil && a.driveService.IsConnected() {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					a.logger.Console(fmt.Sprintf("PANIC in triggerSyncIfConnected: %v\n%s", r, string(debug.Stack())))
-				}
-			}()
-			if err := a.driveService.SyncNotes(); err != nil {
-				a.authService.HandleOfflineTransition(err)
-			}
-		}()
+		a.driveService.RequestSync()
 	}
 }
 

@@ -74,6 +74,7 @@ type fakeHook struct {
 	match     func(fakeRequest) bool
 	run       func(fakeRequest)
 	remaining int
+	after     bool // true ならリクエストの処理「後」に実行する
 }
 
 type fakeFailure struct {
@@ -288,6 +289,14 @@ func (fd *fakeDrive) BeforeRequest(match func(fakeRequest) bool, run func(fakeRe
 	fd.hooks = append(fd.hooks, &fakeHook{match: match, run: run, remaining: 1})
 }
 
+// AfterRequest は条件に一致するリクエストの処理「後」（レスポンスを返した直後）に run を実行する（1 回）。
+// 「端末 A の書き込みが完了した直後に端末 B が書く」タイミングを再現する。
+func (fd *fakeDrive) AfterRequest(match func(fakeRequest) bool, run func(fakeRequest)) {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	fd.hooks = append(fd.hooks, &fakeHook{match: match, run: run, remaining: 1, after: true})
+}
+
 // ---- HTTP ハンドラ ----
 
 var fakeFilePathRe = regexp.MustCompile(`^/(upload/)?drive/v3/files/([^/]+)$`)
@@ -312,15 +321,19 @@ func (fd *fakeDrive) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fd.requests = append(fd.requests, req)
-	var toRun []*fakeHook
+	var before, after []*fakeHook
 	for _, h := range fd.hooks {
 		if h.remaining > 0 && h.match(req) {
 			h.remaining--
-			toRun = append(toRun, h)
+			if h.after {
+				after = append(after, h)
+			} else {
+				before = append(before, h)
+			}
 		}
 	}
 	fd.mu.Unlock()
-	for _, h := range toRun {
+	for _, h := range before {
 		h.run(req)
 	}
 
@@ -336,6 +349,9 @@ func (fd *fakeDrive) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	fd.mu.Unlock()
 
 	handle(w, fields)
+	for _, h := range after {
+		h.run(req)
+	}
 }
 
 type fakeHandler func(w http.ResponseWriter, fields string)

@@ -1,350 +1,128 @@
 package backend
 
 import (
-	"context"
-	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/api/drive/v3"
 )
 
-type fakeDriveSyncService struct {
-	noteList *NoteList
-	err      error
+// ポーリングのテスト。同期の中身ではなく「いつ同期を走らせるか」と並行安全性を検証する。
+
+func newPollingTestDevice(t *testing.T) (*scenario, *DrivePollingService) {
+	t.Helper()
+	s := newScenario(t)
+	s.seedShared()
+	return s, s.desk.ds.pollingService
 }
 
-func (f *fakeDriveSyncService) CreateNote(ctx context.Context, note *Note) error {
-	return nil
-}
-func (f *fakeDriveSyncService) UpdateNote(ctx context.Context, note *Note) error {
-	return nil
-}
-func (f *fakeDriveSyncService) UploadAllNotes(ctx context.Context, notes []NoteMetadata) error {
-	return nil
-}
-func (f *fakeDriveSyncService) DownloadNote(ctx context.Context, noteID string) (*Note, error) {
-	return nil, nil
-}
-func (f *fakeDriveSyncService) DeleteNote(ctx context.Context, noteID string) error {
-	return nil
-}
-func (f *fakeDriveSyncService) ListFiles(ctx context.Context, folderID string) ([]*drive.File, error) {
-	return nil, nil
-}
-func (f *fakeDriveSyncService) GetNoteID(ctx context.Context, noteID string) (string, error) {
-	return "", nil
-}
-func (f *fakeDriveSyncService) RemoveDuplicateNoteFiles(ctx context.Context, files []*drive.File) error {
-	return nil
-}
-func (f *fakeDriveSyncService) RemoveNoteFromList(notes []NoteMetadata, noteID string) []NoteMetadata {
-	return notes
-}
-func (f *fakeDriveSyncService) CreateNoteList(ctx context.Context, noteList *NoteList) error {
-	return nil
-}
-func (f *fakeDriveSyncService) UpdateNoteList(ctx context.Context, noteList *NoteList, noteListID string) error {
-	return nil
-}
-func (f *fakeDriveSyncService) DownloadNoteList(ctx context.Context, noteListID string) (*NoteList, error) {
-	return f.noteList, f.err
-}
-func (f *fakeDriveSyncService) DownloadNoteListIfChanged(ctx context.Context, noteListID string) (*NoteList, bool, error) {
-	return f.noteList, true, f.err
-}
-func (f *fakeDriveSyncService) DeduplicateNotes(notes []NoteMetadata) []NoteMetadata {
-	return notes
-}
-func (f *fakeDriveSyncService) RefreshFileIDCache(ctx context.Context) error {
-	return nil
-}
-func (f *fakeDriveSyncService) SetConnected(connected bool) {
-}
-func (f *fakeDriveSyncService) SetInitialSyncCompleted(completed bool) {
-}
-func (f *fakeDriveSyncService) SetCloudNoteList(noteList *NoteList) {
-}
-func (f *fakeDriveSyncService) IsConnected() bool {
-	return true
-}
-func (f *fakeDriveSyncService) HasCompletedInitialSync() bool {
-	return true
+// noteListReads は desktop が noteList を探しに行った回数（= 同期サイクルの回数の目安）。
+func noteListReads(fd *fakeDrive) int {
+	n := 0
+	for _, r := range fd.Requests() {
+		if r.Device == "desktop" && r.Op == "files.list" && strings.Contains(r.Query, "name='noteList_v2.json'") {
+			n++
+		}
+	}
+	return n
 }
 
 func TestHasRelevantChanges(t *testing.T) {
-	rootID := "root-folder"
-	notesID := "notes-folder"
+	assert.False(t, hasRelevantChanges(nil))
+	assert.True(t, hasRelevantChanges([]*drive.Change{{File: &drive.File{Name: "abc.json"}}}), "ノート本体 / noteList の変更")
+	assert.True(t, hasRelevantChanges([]*drive.Change{{Removed: true, FileId: "x"}}), "削除は常に対象")
+	assert.True(t, hasRelevantChanges([]*drive.Change{{File: &drive.File{Name: "monaco-notepad"}}}), "ルートフォルダの変更（全削除など）")
+	assert.False(t, hasRelevantChanges([]*drive.Change{{File: &drive.File{Name: "photo.png"}}}))
+}
 
-	t.Run("json file change is relevant", func(t *testing.T) {
-		changes := []*drive.Change{{
-			File: &drive.File{
-				Id:      "noteList-id",
-				Name:    "noteList_v2.json",
-				Parents: []string{rootID},
-			},
-		}}
-		assert.True(t, hasRelevantChanges(changes, rootID, notesID))
+func TestPolling_NoChangesAndNothingPending_DoesNotSync(t *testing.T) {
+	s, polling := newPollingTestDevice(t)
+	before := noteListReads(s.fd)
+
+	synced := polling.pollOnce()
+
+	assert.False(t, synced)
+	assert.Equal(t, before, noteListReads(s.fd), "変化も未送信もなければ同期しない")
+}
+
+func TestPolling_PeerChange_IsPulled(t *testing.T) {
+	s, _ := newPollingTestDevice(t)
+	s.peer.saveNote(s.note("P", "from mobile"), "")
+
+	s.desk.pollOnce()
+
+	assert.Contains(t, s.desk.noteIDs(), "P")
+}
+
+func TestPolling_LocalPendingChange_SyncsWithoutRemoteChange(t *testing.T) {
+	s, _ := newPollingTestDevice(t)
+	s.desk.editNote("A", "edited on desktop")
+	require.True(t, s.desk.hasPendingWork())
+
+	s.desk.pollOnce()
+
+	cloudA, ok := s.peer.readCloudNote("A")
+	require.True(t, ok)
+	assert.Equal(t, "edited on desktop", cloudA.Content)
+	assert.False(t, s.desk.hasPendingWork())
+}
+
+func TestPolling_ChangeDuringInitialSync_IsDetectedAfterwards(t *testing.T) {
+	s := newScenario(t)
+	s.peer.saveNote(s.note("A", "a1"), "")
+	// 初回同期の途中（本体一覧を取得した直後）にピアが書き込む
+	s.fd.BeforeRequest(func(r fakeRequest) bool {
+		return isDesktop(r) && r.Op == "files.download"
+	}, func(fakeRequest) {
+		s.peer.saveNote(s.note("P", "during initial sync"), "")
 	})
+	s.desk.startup()
 
-	t.Run("note file change is relevant", func(t *testing.T) {
-		changes := []*drive.Change{{
-			File: &drive.File{
-				Id:      "note-1",
-				Name:    "note-1.json",
-				Parents: []string{notesID},
-			},
-		}}
-		assert.True(t, hasRelevantChanges(changes, rootID, notesID))
-	})
+	s.desk.pollOnce()
 
-	t.Run("unrelated change is not relevant", func(t *testing.T) {
-		changes := []*drive.Change{{
-			File: &drive.File{
-				Id:      "other-file",
-				Name:    "photo.png",
-				Parents: []string{"unrelated-folder"},
-			},
-		}}
-		assert.False(t, hasRelevantChanges(changes, rootID, notesID))
-	})
+	assert.Contains(t, s.desk.noteIDs(), "P", "初回同期の前に取った基準点から変更を拾う")
 }
 
-type pollingListChangesDriveOps struct {
-	*mockDriveOperations
-	listChangesErr error
-	changes        []*drive.Change
-	newStartToken  string
-	listCalls      int
-}
+func TestPolling_SafetySync_RunsWhenDue(t *testing.T) {
+	s, polling := newPollingTestDevice(t)
+	polling.mu.Lock()
+	polling.lastSyncAt = time.Now().Add(-safetySyncInterval - time.Second)
+	polling.mu.Unlock()
+	before := noteListReads(s.fd)
 
-func (p *pollingListChangesDriveOps) ListChanges(pageToken string) (*ChangesResult, error) {
-	p.listCalls++
-	if p.listChangesErr != nil {
-		return nil, p.listChangesErr
-	}
-	return &ChangesResult{
-		Changes:       p.changes,
-		NewStartToken: p.newStartToken,
-	}, nil
-}
+	synced := polling.pollOnce()
 
-func TestPolling_Disconnected_ReconnectSuccess(t *testing.T) {
-	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-
-	seedCloudNoteListFile(t, ds, rawOps)
-	ds.auth.isTestMode = false
-	ds.auth.GetDriveSync().SetConnected(false)
-	ds.auth.frontendReady = make(chan struct{})
-
-	polling := NewDrivePollingService(context.Background(), ds)
-	go func() {
-		polling.WaitForFrontendAndStartSync()
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-	ds.auth.GetDriveSync().SetConnected(true)
-	close(ds.auth.frontendReady)
-
-	deadline := time.Now().Add(3 * time.Second)
-	foundSynced := false
-	for time.Now().Before(deadline) {
-		statuses := recorder.statusCalls()
-		for _, s := range statuses {
-			if s == "synced" {
-				foundSynced = true
-				break
-			}
-		}
-		if foundSynced {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	assert.True(t, foundSynced, "再接続成功後にsynced通知が行われるべき")
-	polling.StopPolling()
-}
-
-func TestPolling_WaitForFrontend_StartsWithInitialSync(t *testing.T) {
-	ds, recorder, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-
-	seedCloudNoteListFile(t, ds, rawOps)
-	ds.auth.frontendReady = make(chan struct{})
-
-	polling := NewDrivePollingService(context.Background(), ds)
-	go func() {
-		polling.WaitForFrontendAndStartSync()
-	}()
-
-	close(ds.auth.frontendReady)
-
-	deadline := time.Now().Add(3 * time.Second)
-	foundSyncing := false
-	for time.Now().Before(deadline) {
-		statuses := recorder.statusCalls()
-		for _, s := range statuses {
-			if s == "syncing" {
-				foundSyncing = true
-				break
-			}
-		}
-		if foundSyncing {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	polling.StopPolling()
-	assert.True(t, foundSyncing, "起動時に初回SyncNotesが呼ばれ、syncing通知が行われるべき")
-}
-
-func TestPolling_Disconnected_ReconnectFail_Backoff(t *testing.T) {
-	base := 10 * time.Second
-	factor := 1.5
-	maxDelay := 180 * time.Second
-
-	delay := base
-	got := make([]time.Duration, 0, 20)
-	for i := 0; i < 20; i++ {
-		got = append(got, delay)
-		delay = time.Duration(float64(delay) * factor)
-		if delay > maxDelay {
-			delay = maxDelay
-		}
-	}
-
-	assert.Equal(t, 10*time.Second, got[0])
-	assert.Equal(t, 15*time.Second, got[1])
-	assert.Equal(t, 22500*time.Millisecond, got[2])
-	assert.Equal(t, 33750*time.Millisecond, got[3])
-	assert.Equal(t, 180*time.Second, got[len(got)-1], "最終的に上限180秒で頭打ちになるべき")
-}
-
-func TestPolling_NoChangeToken_FullSync(t *testing.T) {
-	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-
-	seedCloudNoteListFile(t, ds, rawOps)
-
-	polling := NewDrivePollingService(context.Background(), ds)
-	polling.changePageToken = ""
-
-	hasChanges, err := polling.checkForChanges()
-	assert.NoError(t, err)
-	assert.False(t, hasChanges, "change tokenなしはfull sync実行後に変更なしとして扱う")
-	assert.NotEmpty(t, polling.changePageToken, "full sync後にchange tokenが初期化されるべき")
-}
-
-func TestPolling_ChangesAPIError_ClearsToken(t *testing.T) {
-	ops := &pollingListChangesDriveOps{
-		mockDriveOperations: newMockDriveOperations(),
-		listChangesErr:      fmt.Errorf("simulated changes api error"),
-	}
-	ds, _, _, cleanup := newNotificationTestDriveService(t, func() DriveOperations { return ops })
-	defer cleanup()
-
-	polling := NewDrivePollingService(context.Background(), ds)
-	polling.changePageToken = "valid-token"
-
-	hasChanges, err := polling.checkForChanges()
-	assert.NoError(t, err)
-	assert.True(t, hasChanges, "Changes APIエラー時はfull syncフォールバックのため変更あり扱い")
-	assert.Empty(t, polling.changePageToken, "Changes APIエラー時はtokenがクリアされるべき")
-}
-
-func TestPolling_QueueHasItems_SkipsAndResetsInterval(t *testing.T) {
-	ds, _, _, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-
-	ds.operationsQueue.mutex.Lock()
-	ds.operationsQueue.items["dummy-key"] = []*QueueItem{{OperationType: UpdateOperation, FileID: "dummy"}}
-	ds.operationsQueue.mutex.Unlock()
-
-	polling := NewDrivePollingService(context.Background(), ds)
-	interval := 30 * time.Second
-
-	if ds.operationsQueue != nil && ds.operationsQueue.HasItems() {
-		interval = 5 * time.Second
-		polling.ResetPollingInterval()
-	}
-
-	assert.Equal(t, 5*time.Second, interval)
-	select {
-	case <-polling.resetPollingChan:
-	default:
-		t.Fatal("キューに未処理項目がある場合、ポーリング間隔リセットシグナルが送信されるべき")
-	}
-}
-
-func TestPolling_ChangesDetected_SyncSuccess_IntervalReset(t *testing.T) {
-	ops := &pollingListChangesDriveOps{
-		mockDriveOperations: newMockDriveOperations(),
-		changes: []*drive.Change{{
-			File: &drive.File{Id: "note-1", Name: "note-1.json", Parents: []string{"notes-folder"}},
-		}},
-		newStartToken: "next-token",
-	}
-	ds, _, _, cleanup := newNotificationTestDriveService(t, func() DriveOperations { return ops })
-	defer cleanup()
-	ds.auth.GetDriveSync().SetFolderIDs("root-folder", "notes-folder")
-
-	polling := NewDrivePollingService(context.Background(), ds)
-	polling.changePageToken = "current-token"
-
-	hasChanges, err := polling.checkForChanges()
-	assert.NoError(t, err)
-	assert.True(t, hasChanges)
-
-	interval := 30 * time.Second
-	if hasChanges {
-		interval = 5 * time.Second
-	}
-	assert.Equal(t, 5*time.Second, interval, "変更検知+同期成功時はintervalがinitialへ戻るべき")
+	assert.True(t, synced)
+	assert.Greater(t, noteListReads(s.fd), before)
 }
 
 func TestPolling_StopPolling_Safe(t *testing.T) {
-	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-
-	seedCloudNoteListFile(t, ds, rawOps)
-	polling := NewDrivePollingService(context.Background(), ds)
+	_, polling := newPollingTestDevice(t)
 
 	assert.NotPanics(t, func() {
 		go polling.StartPolling()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		polling.StopPolling()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 
 		go polling.StartPolling()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		polling.StopPolling()
 	}, "StopPollingは安全に呼べて再開もできるべき")
 }
 
-// TestPolling_ConcurrentStopRestartRefresh は polling goroutine と sync goroutine が
-// stopPollingChan / changePageToken に並行アクセスする状況を再現する。
-// 修正前: `-race` で `WARNING: DATA RACE` が発生。
-//   - stopPollingChan の close + 再代入が StartPolling の select-read と race
-//   - changePageToken の read/write が RefreshChangeToken と race
-// 修正後: mu sync.Mutex で全フィールドを保護、race ゼロ。
-func TestPolling_ConcurrentStopRestartRefresh(t *testing.T) {
-	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
+// TestPolling_ConcurrentStopRestart は polling goroutine と sync goroutine が
+// stopPollingChan / changePageToken / lastSyncAt に並行アクセスする状況を再現する（`-race` で検証）。
+func TestPolling_ConcurrentStopRestart(t *testing.T) {
+	_, polling := newPollingTestDevice(t)
 
-	seedCloudNoteListFile(t, ds, rawOps)
-	polling := NewDrivePollingService(context.Background(), ds)
-
-	// 30 サイクル、各サイクルで「Start → 少し動かす → Stop → RefreshChangeToken」を並行実行
 	const cycles = 30
 	done := make(chan struct{})
-
 	go func() {
-		// goroutine A: Stop / Start を繰り返す
 		for i := 0; i < cycles; i++ {
 			go polling.StartPolling()
 			time.Sleep(2 * time.Millisecond)
@@ -352,57 +130,39 @@ func TestPolling_ConcurrentStopRestartRefresh(t *testing.T) {
 		}
 		close(done)
 	}()
-
-	// goroutine B: RefreshChangeToken を別 goroutine から連打 (sync 経路の模擬)
 	for {
 		select {
 		case <-done:
 			return
 		default:
-			polling.RefreshChangeToken()
+			polling.setChangePageToken("x")
+			polling.markSynced()
+			_ = polling.safetySyncDue()
 			time.Sleep(time.Millisecond)
 		}
 	}
 }
 
-// recordReconnectFailure / resetReconnectFailures の挙動。
-// reauthFailureThreshold (= 3) を超えた回数で再ログインダイアログが発火する設計の
-// 単体テスト。実際のイベント発火は notifyReauthRequired 側 (重複抑止フラグ) が
-// 受け持つので、ここではカウンタ動作だけを確認する。
-
 func TestPolling_RecordReconnectFailure_IncrementsCounter(t *testing.T) {
-	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-	seedCloudNoteListFile(t, ds, rawOps)
-	polling := NewDrivePollingService(context.Background(), ds)
+	_, polling := newPollingTestDevice(t)
 
 	assert.Equal(t, 1, polling.recordReconnectFailure())
 	assert.Equal(t, 2, polling.recordReconnectFailure())
 	assert.Equal(t, 3, polling.recordReconnectFailure())
-	assert.GreaterOrEqual(t, 3, reauthFailureThreshold,
-		"閾値 (reauthFailureThreshold) は 3 回目で到達するはず")
+	assert.GreaterOrEqual(t, 3, reauthFailureThreshold, "閾値は 3 回目で到達するはず")
 }
 
 func TestPolling_ResetReconnectFailures_ResetsCounter(t *testing.T) {
-	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-	seedCloudNoteListFile(t, ds, rawOps)
-	polling := NewDrivePollingService(context.Background(), ds)
+	_, polling := newPollingTestDevice(t)
 
 	polling.recordReconnectFailure()
 	polling.recordReconnectFailure()
 	polling.resetReconnectFailures()
-	assert.Equal(t, 1, polling.recordReconnectFailure(),
-		"resetReconnectFailures 後は再び 1 から")
+	assert.Equal(t, 1, polling.recordReconnectFailure(), "resetReconnectFailures 後は再び 1 から")
 }
 
 func TestPolling_RecordReconnectFailure_ConcurrentSafe(t *testing.T) {
-	// 複数 goroutine からの並行加算でも race 検出が出ないこと。
-	// `-race` 必須。
-	ds, _, rawOps, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-	seedCloudNoteListFile(t, ds, rawOps)
-	polling := NewDrivePollingService(context.Background(), ds)
+	_, polling := newPollingTestDevice(t)
 
 	const goroutines = 16
 	const iterations = 25
@@ -420,49 +180,19 @@ func TestPolling_RecordReconnectFailure_ConcurrentSafe(t *testing.T) {
 	assert.Equal(t, goroutines*iterations+1, polling.recordReconnectFailure())
 }
 
-func TestPolling_NoChanges_IntervalIncreases(t *testing.T) {
-	const (
-		initialInterval = 5 * time.Second
-		maxInterval     = 1 * time.Minute
-		factor          = 1.5
-	)
-
-	interval := initialInterval
-	increases := make([]time.Duration, 0, 10)
-	for i := 0; i < 10; i++ {
-		interval = time.Duration(float64(interval) * factor)
-		if interval > maxInterval {
-			interval = maxInterval
-		}
-		increases = append(increases, interval)
-	}
-
-	assert.Greater(t, increases[0], initialInterval)
-	for _, d := range increases {
-		assert.LessOrEqual(t, d, maxInterval)
-	}
-	assert.Equal(t, maxInterval, increases[len(increases)-1])
-}
-
 func TestPolling_ResetPollingInterval_NonBlocking(t *testing.T) {
-	ds, _, _, cleanup := newNotificationTestDriveService(t, nil)
-	defer cleanup()
-
-	polling := NewDrivePollingService(context.Background(), ds)
+	_, polling := newPollingTestDevice(t)
 	polling.resetPollingChan <- struct{}{}
 
-	assert.NotPanics(t, func() {
-		done := make(chan struct{})
-		go func() {
-			polling.ResetPollingInterval()
-			polling.ResetPollingInterval()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-		case <-time.After(1 * time.Second):
-			t.Fatal("ResetPollingInterval blocked with full channel")
-		}
-	})
+	done := make(chan struct{})
+	go func() {
+		polling.ResetPollingInterval()
+		polling.ResetPollingInterval()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ResetPollingInterval blocked with full channel")
+	}
 }
