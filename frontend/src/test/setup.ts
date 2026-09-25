@@ -1,3 +1,5 @@
+// jest-dom のマッチャー（toBeInTheDocument など）を Vitest の expect に登録し、型も拡張する
+import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
 
 import { initI18n } from '../i18n';
@@ -46,52 +48,46 @@ vi.mock('monaco-editor', () => ({
 }));
 
 // Unicode Highlighter の副作用importをテスト環境で無効化
-vi.mock(
-  'monaco-editor/esm/vs/features/unicodeHighlighter/register.js',
-  () => ({}),
-);
+vi.mock('monaco-editor/features/unicodeHighlighter/register', () => ({}));
 
 // monaco-editorのワーカーモジュールをモック
-vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({
+vi.mock('monaco-editor/editor/editor.worker?worker', () => ({
   default: {},
 }));
-vi.mock('monaco-editor/esm/vs/language/json/json.worker?worker', () => ({
+vi.mock('monaco-editor/languages/features/json/json.worker?worker', () => ({
   default: {},
 }));
-vi.mock('monaco-editor/esm/vs/language/css/css.worker?worker', () => ({
+vi.mock('monaco-editor/languages/features/css/css.worker?worker', () => ({
   default: {},
 }));
-vi.mock('monaco-editor/esm/vs/language/html/html.worker?worker', () => ({
+vi.mock('monaco-editor/languages/features/html/html.worker?worker', () => ({
   default: {},
 }));
-vi.mock('monaco-editor/esm/vs/language/typescript/ts.worker?worker', () => ({
+vi.mock('monaco-editor/languages/features/typescript/ts.worker?worker', () => ({
   default: {},
 }));
-vi.mock(
-  'monaco-editor/esm/vs/language/typescript/monaco.contribution.js',
-  () => ({
-    javascriptDefaults: {
-      setDiagnosticsOptions: () => {},
-    },
-    typescriptDefaults: {
-      setDiagnosticsOptions: () => {},
-      setCompilerOptions: () => {},
-      setEagerModelSync: () => {},
-    },
-    ScriptTarget: {
-      Latest: 99,
-    },
-    ModuleResolutionKind: {
-      NodeJs: 2,
-    },
-    ModuleKind: {
-      CommonJS: 1,
-    },
-    JsxEmit: {
-      React: 2,
-    },
-  }),
-);
+vi.mock('monaco-editor/languages/features/typescript/register', () => ({
+  javascriptDefaults: {
+    setDiagnosticsOptions: () => {},
+  },
+  typescriptDefaults: {
+    setDiagnosticsOptions: () => {},
+    setCompilerOptions: () => {},
+    setEagerModelSync: () => {},
+  },
+  ScriptTarget: {
+    Latest: 99,
+  },
+  ModuleResolutionKind: {
+    NodeJs: 2,
+  },
+  ModuleKind: {
+    CommonJS: 1,
+  },
+  JsxEmit: {
+    React: 2,
+  },
+}));
 
 // lib/monaco.ts のモック
 vi.mock('../lib/monaco', () => ({

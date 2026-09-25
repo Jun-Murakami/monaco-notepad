@@ -31,7 +31,7 @@ export default defineConfig({
         manualChunks(id) {
           if (
             id.includes('monaco-editor/esm/vs/editor/editor.worker') ||
-            id.includes('monaco-editor/esm/vs/language/typescript/ts.worker')
+            id.includes('monaco-editor/esm/vs/languages/features/typescript/ts.worker')
           ) {
             return 'monaco-workers';
           }
@@ -58,8 +58,8 @@ export default defineConfig({
   optimizeDeps: {
     include: [
       'monaco-editor',
-      'monaco-editor/esm/vs/editor/editor.worker',
-      'monaco-editor/esm/vs/language/typescript/ts.worker',
+      'monaco-editor/editor/editor.worker',
+      'monaco-editor/languages/features/typescript/ts.worker',
     ],
     exclude: ['fsevents'],
   },

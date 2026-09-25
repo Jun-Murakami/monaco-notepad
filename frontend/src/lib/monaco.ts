@@ -6,11 +6,11 @@ declare global {
 }
 
 import * as monaco from 'monaco-editor';
-import 'monaco-editor/esm/vs/basic-languages/_.contribution.js';
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+import 'monaco-editor/languages/definitions/register.all';
+import editorWorker from 'monaco-editor/editor/editor.worker?worker';
+import cssWorker from 'monaco-editor/languages/features/css/css.worker?worker';
+import htmlWorker from 'monaco-editor/languages/features/html/html.worker?worker';
+import jsonWorker from 'monaco-editor/languages/features/json/json.worker?worker';
 import {
   JsxEmit,
   javascriptDefaults,
@@ -18,8 +18,8 @@ import {
   ModuleResolutionKind,
   ScriptTarget,
   typescriptDefaults,
-} from 'monaco-editor/esm/vs/language/typescript/monaco.contribution.js';
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+} from 'monaco-editor/languages/features/typescript/register';
+import tsWorker from 'monaco-editor/languages/features/typescript/ts.worker?worker';
 
 // Theme imports from local themes directory (copied from monaco-themes package)
 import cloudsTheme from '../themes/Clouds.json';

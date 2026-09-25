@@ -1,9 +1,6 @@
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Mock } from 'vitest';
-import '@testing-library/jest-dom';
-
 import {
   createEditor,
   disposeEditorInstance,
@@ -11,6 +8,8 @@ import {
 } from '../../lib/monaco';
 import { DEFAULT_EDITOR_FONT_FAMILY } from '../../types';
 import { Editor } from '../Editor';
+
+import type { Mock } from 'vitest';
 
 // Zustandストアのモック
 vi.mock('../../stores/useEditorSettingsStore', () => {

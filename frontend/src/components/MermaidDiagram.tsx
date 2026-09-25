@@ -15,6 +15,10 @@ const initMermaid = (isDark: boolean) => {
     startOnLoad: false,
     theme: isDark ? 'dark' : 'default',
     securityLevel: 'strict',
+    // mermaid 12 で既定になった ELK レイアウト / 新しい見た目ではなく、
+    // これまでと同じ描画（dagre レイアウト + classic）を保つ
+    layout: 'dagre',
+    look: 'classic',
   });
 };
 

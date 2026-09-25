@@ -172,7 +172,8 @@ export const useSplitEditor = () => {
       const store = useSplitEditorStore.getState();
       if (!store.isSplit) return;
 
-      const closedPane: 'left' | 'right' = keepPane === 'left' ? 'right' : 'left';
+      const closedPane: 'left' | 'right' =
+        keepPane === 'left' ? 'right' : 'left';
 
       // 閉じる側の dirty 状態は破棄（archive / close 済みのノートを書き戻すと整合が崩れる）
       if (closedPane === 'left') {

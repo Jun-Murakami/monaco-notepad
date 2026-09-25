@@ -30,53 +30,56 @@ describe('lib/monaco language registration', () => {
       },
     }));
 
-    vi.doMock('monaco-editor/esm/vs/basic-languages/_.contribution.js', () => {
+    vi.doMock('monaco-editor/languages/definitions/register.all', () => {
       basicContributionLoaded = true;
       return {};
     });
-    vi.doMock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({
-      default: class MockWorker {},
-    }));
-    vi.doMock('monaco-editor/esm/vs/language/json/json.worker?worker', () => ({
-      default: class MockWorker {},
-    }));
-    vi.doMock('monaco-editor/esm/vs/language/css/css.worker?worker', () => ({
-      default: class MockWorker {},
-    }));
-    vi.doMock('monaco-editor/esm/vs/language/html/html.worker?worker', () => ({
+    vi.doMock('monaco-editor/editor/editor.worker?worker', () => ({
       default: class MockWorker {},
     }));
     vi.doMock(
-      'monaco-editor/esm/vs/language/typescript/ts.worker?worker',
+      'monaco-editor/languages/features/json/json.worker?worker',
+      () => ({
+        default: class MockWorker {},
+      }),
+    );
+    vi.doMock('monaco-editor/languages/features/css/css.worker?worker', () => ({
+      default: class MockWorker {},
+    }));
+    vi.doMock(
+      'monaco-editor/languages/features/html/html.worker?worker',
       () => ({
         default: class MockWorker {},
       }),
     );
     vi.doMock(
-      'monaco-editor/esm/vs/language/typescript/monaco.contribution.js',
+      'monaco-editor/languages/features/typescript/ts.worker?worker',
       () => ({
-        javascriptDefaults: {
-          setDiagnosticsOptions: vi.fn(),
-        },
-        typescriptDefaults: {
-          setDiagnosticsOptions: vi.fn(),
-          setCompilerOptions: vi.fn(),
-          setEagerModelSync: vi.fn(),
-        },
-        ScriptTarget: {
-          Latest: 99,
-        },
-        ModuleResolutionKind: {
-          NodeJs: 2,
-        },
-        ModuleKind: {
-          CommonJS: 1,
-        },
-        JsxEmit: {
-          React: 2,
-        },
+        default: class MockWorker {},
       }),
     );
+    vi.doMock('monaco-editor/languages/features/typescript/register', () => ({
+      javascriptDefaults: {
+        setDiagnosticsOptions: vi.fn(),
+      },
+      typescriptDefaults: {
+        setDiagnosticsOptions: vi.fn(),
+        setCompilerOptions: vi.fn(),
+        setEagerModelSync: vi.fn(),
+      },
+      ScriptTarget: {
+        Latest: 99,
+      },
+      ModuleResolutionKind: {
+        NodeJs: 2,
+      },
+      ModuleKind: {
+        CommonJS: 1,
+      },
+      JsxEmit: {
+        React: 2,
+      },
+    }));
 
     const monacoLib = await import('../monaco');
     const languages = monacoLib.getSupportedLanguages();
