@@ -329,9 +329,9 @@ func (a *authService) loadToken() (*oauth2.Token, error) {
 	}
 
 	// デバッグ用のログ追加
-	a.logger.Console(fmt.Sprintf("Loaded token - Expiry: %v, Valid: %v",
+	a.logger.Console("Loaded token - Expiry: %v, Valid: %v",
 		token.Expiry,
-		token.Valid()))
+		token.Valid())
 
 	return token, nil
 }

@@ -1419,7 +1419,7 @@ func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 	for i, noteID := range orphanNoteIDs {
 		note, loadErr := s.loadNoteLocked(noteID)
 		if loadErr != nil {
-			logRepair(fmt.Sprintf("Skipped corrupted orphan file: %s (%v)", noteID, loadErr))
+			logRepair("Skipped corrupted orphan file: %s (%v)", noteID, loadErr)
 			continue
 		}
 
@@ -1441,7 +1441,7 @@ func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 		noteIDSet[noteID] = true
 		recoveredOrphanCount++
 		changed = true
-		logRepair(fmt.Sprintf("Recovered orphan note: \"%s\" (%s)", note.Title, noteID))
+		logRepair("Recovered orphan note: \"%s\" (%s)", note.Title, noteID)
 
 		if s.logger != nil {
 			s.logger.InfoCode(MsgOrphanLocalRecoveryProgress, map[string]interface{}{
@@ -1723,7 +1723,7 @@ func (s *noteService) validateIntegrityLocked() (changed bool, err error) {
 	if changed {
 		if len(repairLogs) == 0 {
 			message := "Integrity check: repaired note list"
-			s.logInfo(message)
+			s.logInfo("%s", message)
 			repairLogs = append(repairLogs, message)
 		}
 		if saveErr := s.saveNoteList(); saveErr != nil {

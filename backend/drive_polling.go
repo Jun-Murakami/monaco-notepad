@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"fmt"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -107,7 +106,7 @@ func (p *DrivePollingService) safetySyncDue() bool {
 func (p *DrivePollingService) WaitForFrontendAndStartSync() {
 	defer func() {
 		if r := recover(); r != nil {
-			p.logger.Console(fmt.Sprintf("PANIC in WaitForFrontendAndStartSync: %v\n%s", r, string(debug.Stack())))
+			p.logger.Console("PANIC in WaitForFrontendAndStartSync: %v\n%s", r, string(debug.Stack()))
 		}
 	}()
 	p.logger.Console("Waiting for frontend ready signal...")

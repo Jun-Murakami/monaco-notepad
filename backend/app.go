@@ -149,7 +149,7 @@ func (a *App) Startup(ctx context.Context) {
 		a.logger.Console("Warning: migration failed: %v", err)
 	} else if migrated {
 		a.migrationMessage = "noteList v1 → v2 migration completed"
-		a.logger.Console(a.migrationMessage)
+		a.logger.Console("%s", a.migrationMessage)
 	}
 
 	// NoteServiceの初期化 (NoteList読み込みを含む)
@@ -217,7 +217,7 @@ func (a *App) DomReady(ctx context.Context) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				a.logger.Console(fmt.Sprintf("PANIC in Drive initialization: %v\n%s", r, string(debug.Stack())))
+				a.logger.Console("PANIC in Drive initialization: %v\n%s", r, string(debug.Stack()))
 			}
 		}()
 		<-authService.GetFrontendReadyChan()
@@ -295,7 +295,7 @@ func (a *App) NotifyFrontendReady() {
 		a.logger.Console("Warning: driveService is nil")
 	}
 	if a.migrationMessage != "" {
-		a.logger.Info(a.migrationMessage)
+		a.logger.Info("%s", a.migrationMessage)
 		a.migrationMessage = ""
 	}
 	if a.noteService != nil {
