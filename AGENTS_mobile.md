@@ -236,6 +236,13 @@ npm run test:coverage    # coverage
   `expo-font` の config plugin にフォントのパスを足さないこと）。
 - **`expo/fetch`**: SDK 56 から `globalThis.fetch` が `expo/fetch` になった。Drive 通信で不具合が出たら
   `EXPO_PUBLIC_USE_RN_FETCH=1` で React Native 標準の fetch に戻して切り分ける。
+- **iOS のシーン（UIScene）対応**（`plugins/withSceneLifecycle.js` / `plugins/sceneLifecycle.js`）:
+  iOS 27 の SDK（Xcode 27）でビルドしたアプリは、シーン型のライフサイクルを採用していないと起動時に停止する
+  （クラッシュログは `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`。1.7.1 (16) がこれで審査落ち）。
+  SDK 57 の prebuild のひな形はまだ旧来の AppDelegate なので、このプラグインが prebuild のたびに
+  `Info.plist` の `UIApplicationSceneManifest`（担当は Expo の `ExpoAppSceneDelegate`）と AppDelegate を書き換える。
+  ひな形の形が変わると prebuild を止めて知らせる。Expo のひな形がシーン対応したら外せる。
+  設定ローダーは TypeScript のプラグインを読めないので CommonJS で書き、`app.config.ts` の `plugins` にパスで登録している。
 - **`npm audit` 対策の `overrides`**（`package.json`）:
   - `decode-uri-component` → `vendor/decode-uri-component`（修正版 0.5.0 を CommonJS にしたもの）。`expo-router` が使う
     `query-string@7` から `require()` できる修正版が無いため。`expo-router` が `query-string@7` をやめたら削除する（`vendor/decode-uri-component/README.md`）。

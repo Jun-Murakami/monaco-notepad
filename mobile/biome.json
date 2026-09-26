@@ -11,6 +11,8 @@
 			"src/**/*",
 			"app/**/*",
 			"scripts/**/*",
+			"plugins/**/*",
+			"!plugins/**/fixtures/**/*",
 			"!src/data/licenses.json",
 			"!node_modules/**/*",
 			"!.expo/**/*"

@@ -133,6 +133,8 @@ const config: ExpoConfig & { newArchEnabled?: boolean } = {
   plugins: [
     'expo-router',
     'expo-secure-store',
+    // iOS 27 の SDK ではシーン（UIScene）対応が必須（しないと起動時に停止する）。plugins/sceneLifecycle.js
+    './plugins/withSceneLifecycle.js',
     [
       'expo-splash-screen',
       {
